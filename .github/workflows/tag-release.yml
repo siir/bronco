@@ -81,12 +81,14 @@ jobs:
 
       - name: Generate staging sync token
         id: sync-token
+        continue-on-error: true
         uses: actions/create-github-app-token@v1
         with:
           app-id: ${{ secrets.SYNC_APP_ID }}
           private-key: ${{ secrets.SYNC_APP_PRIVATE_KEY }}
 
       - name: Sync staging to master
+        if: steps.sync-token.outcome == 'success'
         env:
           SYNC_TOKEN: ${{ steps.sync-token.outputs.token }}
         run: |
