@@ -1,0 +1,99 @@
+import { Component, inject } from '@angular/core';
+import { FormsModule } from '@angular/forms';
+import { MatDialogRef, MAT_DIALOG_DATA, MatDialogModule } from '@angular/material/dialog';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
+import { MatSelectModule } from '@angular/material/select';
+import { MatButtonModule } from '@angular/material/button';
+import { MatSnackBar } from '@angular/material/snack-bar';
+import { MatSlideToggleModule } from '@angular/material/slide-toggle';
+import { UserService, type ControlPanelUser } from '../../core/services/user.service';
+
+interface DialogData {
+  user?: ControlPanelUser;
+  currentUserId?: string;
+}
+
+@Component({
+  standalone: true,
+  imports: [FormsModule, MatDialogModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatButtonModule, MatSlideToggleModule],
+  template: `
+    <h2 mat-dialog-title>{{ data.user ? 'Edit User' : 'Create User' }}</h2>
+    <mat-dialog-content>
+      <mat-form-field class="full-width">
+        <mat-label>Name</mat-label>
+        <input matInput [(ngModel)]="name" required>
+      </mat-form-field>
+      <mat-form-field class="full-width">
+        <mat-label>Email</mat-label>
+        <input matInput [(ngModel)]="email" type="email" required>
+      </mat-form-field>
+      @if (!data.user) {
+        <mat-form-field class="full-width">
+          <mat-label>Password</mat-label>
+          <input matInput [(ngModel)]="password" type="password" required minlength="8">
+        </mat-form-field>
+      }
+      <mat-form-field class="full-width">
+        <mat-label>Role</mat-label>
+        <mat-select [(ngModel)]="role">
+          <mat-option value="ADMIN">Admin</mat-option>
+          <mat-option value="OPERATOR">Operator</mat-option>
+        </mat-select>
+      </mat-form-field>
+      @if (data.user && !isSelf) {
+        <mat-slide-toggle [(ngModel)]="isActive">{{ isActive ? 'Active' : 'Inactive' }}</mat-slide-toggle>
+      }
+    </mat-dialog-content>
+    <mat-dialog-actions align="end">
+      <button mat-button mat-dialog-close>Cancel</button>
+      <button mat-raised-button color="primary" (click)="save()" [disabled]="!name || !email || (!data.user && !password)">
+        {{ data.user ? 'Update' : 'Create' }}
+      </button>
+    </mat-dialog-actions>
+  `,
+  styles: [`.full-width { width: 100%; margin-bottom: 8px; }`],
+})
+export class UserDialogComponent {
+  private dialogRef = inject(MatDialogRef<UserDialogComponent>);
+  data = inject<DialogData>(MAT_DIALOG_DATA);
+  private userService = inject(UserService);
+  private snackBar = inject(MatSnackBar);
+
+  name = this.data.user?.name ?? '';
+  email = this.data.user?.email ?? '';
+  password = '';
+  role = this.data.user?.role ?? 'OPERATOR';
+  isActive = this.data.user?.isActive ?? true;
+  isSelf = this.data.user?.id === this.data.currentUserId;
+
+  save(): void {
+    if (this.data.user) {
+      this.userService.updateUser(this.data.user.id, {
+        name: this.name,
+        email: this.email,
+        role: this.role,
+        isActive: this.isActive,
+      }).subscribe({
+        next: () => {
+          this.snackBar.open('User updated', 'OK', { duration: 3000 });
+          this.dialogRef.close(true);
+        },
+        error: (err) => this.snackBar.open(err.error?.message ?? err.error?.error ?? 'Update failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      });
+    } else {
+      this.userService.createUser({
+        email: this.email,
+        password: this.password,
+        name: this.name,
+        role: this.role,
+      }).subscribe({
+        next: () => {
+          this.snackBar.open('User created', 'OK', { duration: 3000 });
+          this.dialogRef.close(true);
+        },
+        error: (err) => this.snackBar.open(err.error?.message ?? err.error?.error ?? 'Create failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      });
+    }
+  }
+}

@@ -1,0 +1,126 @@
+name: Deploy MCP Database Server
+
+# Builds the MCP database server as a standalone Node.js artifact
+# and deploys to Azure App Service via ZIP deploy.
+#
+# Prerequisites (one-time Azure setup):
+#   1. Create a Linux App Service Plan (Node 24)
+#   2. Create a Web App on that plan
+#   3. Set the startup command: node dist/index.js
+#   4. Configure app settings (environment variables):
+#      - SYSTEMS_CONFIG_PATH, API_KEY, MCP_AUTH_TOKEN, LOG_LEVEL
+#      - PORT is set automatically by App Service (usually 8080)
+#   5. Upload the systems config JSON file to the App Service
+#      (e.g., via Kudu or as a mounted Azure Files share)
+#   6. Add these GitHub secrets:
+#      - MCP_PUBLISH_PROFILE (download from Azure Portal → App Service → Deployment Center)
+#      - MCP_WEBAPP_NAME (the App Service name)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-mcp
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    name: Build & Deploy to Azure App Service
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Reads pnpm version from packageManager in package.json automatically
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Build the MCP server and all its workspace dependencies in topological order.
+      - name: Build packages
+        run: pnpm --filter @bronco/mcp-database... run build
+
+      - name: Verify build output
+        run: |
+          set -euo pipefail
+          for dir in packages/shared-types/dist packages/shared-utils/dist mcp-servers/database/dist; do
+            if [ ! -d "$dir" ]; then
+              echo "ERROR: expected build output missing: $dir"
+              exit 1
+            fi
+          done
+          echo "All build outputs present."
+
+      # pnpm deploy creates a standalone directory but uses pnpm's .pnpm/
+      # virtual store layout, which requires pnpm's module resolver at
+      # runtime. App Service runs plain Node.js, so we flatten the deps
+      # by copying from .pnpm/node_modules/ (where pnpm hoists shared
+      # deps) into a clean directory with dist/ and a flat node_modules/.
+      - name: Create deployment artifact
+        run: |
+          set -euo pipefail
+          pnpm --filter @bronco/mcp-database deploy --prod ./deploy
+
+          PNPM_STORE="deploy/node_modules/.pnpm/node_modules"
+          if [ ! -d "$PNPM_STORE" ]; then
+            echo "ERROR: pnpm virtual store not found at $PNPM_STORE"
+            echo "The pnpm internal layout may have changed. Contents of deploy/node_modules/:"
+            ls -la deploy/node_modules/
+            exit 1
+          fi
+
+          # Remove the self-referencing symlink to avoid copying the package into itself
+          rm -f "$PNPM_STORE/@bronco/mcp-database"
+
+          mkdir -p ./deploy-flat
+          cp -rL "$PNPM_STORE" ./deploy-flat/node_modules
+          cp -r deploy/dist deploy/package.json ./deploy-flat/
+
+          # Verify the artifact contains the entrypoint
+          if [ ! -f "./deploy-flat/dist/index.js" ]; then
+            echo "ERROR: deploy-flat/dist/index.js not found"
+            exit 1
+          fi
+          echo "Deployment artifact created successfully."
+
+      - name: Package artifact
+        run: cd deploy-flat && zip -r ../deploy.zip .
+
+      - name: Deploy to App Service
+        id: deploy
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ secrets.MCP_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.MCP_PUBLISH_PROFILE }}
+          package: deploy.zip
+
+      - name: Verify deployment
+        run: |
+          set -euo pipefail
+          APP_URL="${{ steps.deploy.outputs.webapp-url }}"
+          echo "Deployed to $APP_URL"
+          echo "Waiting for health endpoint to become ready..."
+          MAX_RETRIES=12
+          SLEEP_SECONDS=10
+          for i in $(seq 1 "$MAX_RETRIES"); do
+            rm -f /tmp/health-response
+            HTTP_CODE=$(curl -sS -o /tmp/health-response -w "%{http_code}" "${APP_URL}/health" || echo "000")
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "Health check succeeded on attempt $i."
+              cat /tmp/health-response
+              exit 0
+            fi
+            echo "Health check attempt $i/$MAX_RETRIES: HTTP $HTTP_CODE; retrying in ${SLEEP_SECONDS}s..."
+            cat /tmp/health-response 2>/dev/null || true
+            sleep "$SLEEP_SECONDS"
+          done
+          echo "ERROR: health check failed after $MAX_RETRIES attempts."
+          echo "Last response (HTTP $HTTP_CODE):"
+          cat /tmp/health-response 2>/dev/null || echo "(no response body)"
+          exit 1

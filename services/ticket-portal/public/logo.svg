@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e3a5f"/>
+    </linearGradient>
+    <linearGradient id="horse" x1="0%" y1="0%" x2="60%" y2="100%">
+      <stop offset="0%" stop-color="#f8fafc"/>
+      <stop offset="100%" stop-color="#cbd5e1"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background rounded square -->
+  <rect width="512" height="512" rx="80" fill="url(#bg)"/>
+
+  <!-- Teal accent bar at bottom (different from control-panel blue) -->
+  <rect x="56" y="448" width="400" height="10" rx="5" fill="#0891b2"/>
+
+  <!-- Geometric horse head mark, centered -->
+  <!-- Neck -->
+  <path d="M 200 400 L 185 310 C 183 295 190 282 204 276 L 244 262 L 260 400 Z"
+        fill="url(#horse)"/>
+
+  <!-- Head (elongated oval, angled slightly) -->
+  <ellipse cx="272" cy="220" rx="68" ry="95" transform="rotate(-15 272 220)"
+           fill="url(#horse)"/>
+
+  <!-- Muzzle extension -->
+  <ellipse cx="316" cy="280" rx="38" ry="28" fill="#e2e8f0"/>
+
+  <!-- Ear left -->
+  <polygon points="218,148 206,96 248,132" fill="url(#horse)"/>
+
+  <!-- Ear right -->
+  <polygon points="248,138 248,86 280,128" fill="#cbd5e1"/>
+
+  <!-- Mane (flowing strips left) -->
+  <path d="M 220 148 C 200 148, 175 155, 158 170 C 165 160, 175 148, 188 140 Z" fill="#94a3b8"/>
+  <path d="M 218 170 C 196 172, 170 182, 152 198 C 160 186, 172 174, 186 166 Z" fill="#64748b"/>
+  <path d="M 215 194 C 194 198, 168 210, 152 228 C 160 215, 173 202, 190 196 Z" fill="#94a3b8"/>
+
+  <!-- Eye (dark with highlight) -->
+  <circle cx="264" cy="198" r="18" fill="#0f172a"/>
+  <circle cx="258" cy="192" r="6" fill="white"/>
+
+  <!-- Nostril -->
+  <ellipse cx="322" cy="286" rx="9" ry="6" fill="#94a3b8"/>
+</svg>

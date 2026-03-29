@@ -1,0 +1,56 @@
+{$DOMAIN} {
+  # TLS cert managed by acme.sh on the host, deployed to /etc/ssl/bronco/
+  # and bind-mounted into the container at /etc/caddy/certs (see docker-compose.yml).
+  # DOMAIN env var must be set (e.g. hugo.siirial.com) — no localhost fallback.
+  tls /etc/caddy/certs/fullchain.pem /etc/caddy/certs/privkey.pem
+
+  # API requests → copilot-api
+  handle /api/* {
+    reverse_proxy copilot-api:3000
+  }
+
+  # Control Panel SPA
+  handle_path /cp* {
+    root * /srv/control-panel
+    try_files {path} /index.html
+    file_server
+  }
+
+  # Client Ticket Portal SPA
+  handle_path /portal* {
+    root * /srv/ticket-portal
+    try_files {path} /index.html
+    file_server
+  }
+
+  # Root → redirect to control panel
+  handle {
+    redir / /cp/ permanent
+    redir /* /cp{uri} permanent
+  }
+}
+
+# Fallback: serve by Tailscale IP (plain HTTP, no TLS)
+http://100.106.127.1 {
+  handle /api/* {
+    reverse_proxy copilot-api:3000
+  }
+
+  handle_path /cp* {
+    root * /srv/control-panel
+    try_files {path} /index.html
+    file_server
+  }
+
+  # Client Ticket Portal SPA
+  handle_path /portal* {
+    root * /srv/ticket-portal
+    try_files {path} /index.html
+    file_server
+  }
+
+  handle {
+    redir / /cp/ permanent
+    redir /* /cp{uri} permanent
+  }
+}

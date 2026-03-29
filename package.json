@@ -1,0 +1,33 @@
+{
+  "name": "bronco",
+  "private": true,
+  "scripts": {
+    "build": "pnpm -r run build",
+    "build:packages": "pnpm --filter './packages/**' run build",
+    "build:services": "pnpm --filter './services/**' run build",
+    "build:mcp": "pnpm --filter './mcp-servers/**' run build",
+    "dev:api": "pnpm --filter @bronco/copilot-api run dev",
+    "dev:worker": "pnpm --filter @bronco/imap-worker run dev",
+    "dev:analyzer": "pnpm --filter @bronco/ticket-analyzer run dev",
+    "dev:mcp-db": "pnpm --filter @bronco/mcp-database run dev",
+    "dev:resolver": "pnpm --filter @bronco/issue-resolver run dev",
+    "dev:status-monitor": "pnpm --filter @bronco/status-monitor run dev",
+    "dev:devops": "pnpm --filter @bronco/devops-worker run dev",
+    "dev:panel": "pnpm --filter @bronco/control-panel run dev",
+    "dev:portal": "pnpm --filter @bronco/ticket-portal run dev",
+    "db:generate": "pnpm --filter @bronco/db run generate",
+    "db:migrate": "pnpm --filter @bronco/db run migrate",
+    "db:seed": "pnpm --filter @bronco/db run seed",
+    "lint": "pnpm -r run lint",
+    "typecheck": "pnpm -r run typecheck",
+    "clean": "pnpm -r run clean"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@9.15.0"
+}

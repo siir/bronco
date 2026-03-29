@@ -1,0 +1,262 @@
+import { Component, inject, ViewChild, ElementRef } from '@angular/core';
+import { FormsModule } from '@angular/forms';
+import { MAT_DIALOG_DATA, MatDialogRef, MatDialogModule } from '@angular/material/dialog';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
+import { MatSelectModule } from '@angular/material/select';
+import { MatButtonModule } from '@angular/material/button';
+import { MatSnackBar } from '@angular/material/snack-bar';
+import { PromptService, PromptOverride, PromptKeyword } from '../../core/services/prompt.service';
+import { ClientService, Client } from '../../core/services/client.service';
+
+interface DialogData {
+  promptKey: string;
+  override?: PromptOverride;
+}
+
+@Component({
+  standalone: true,
+  imports: [FormsModule, MatDialogModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatButtonModule],
+  template: `
+    <h2 mat-dialog-title>{{ isEdit ? 'Edit' : 'Add' }} Override</h2>
+    <mat-dialog-content>
+      <mat-form-field class="full-width">
+        <mat-label>Scope</mat-label>
+        <mat-select [(ngModel)]="scope" [disabled]="isEdit" (ngModelChange)="onScopeChange()">
+          <mat-option value="APP_WIDE">APP_WIDE</mat-option>
+          <mat-option value="CLIENT">CLIENT</mat-option>
+        </mat-select>
+      </mat-form-field>
+
+      @if (scope === 'CLIENT') {
+        <mat-form-field class="full-width">
+          <mat-label>Client</mat-label>
+          <mat-select [(ngModel)]="clientId" [disabled]="isEdit" required>
+            @for (c of clients; track c.id) {
+              <mat-option [value]="c.id">{{ c.name }} ({{ c.shortCode }})</mat-option>
+            }
+          </mat-select>
+        </mat-form-field>
+      }
+
+      <mat-form-field class="full-width">
+        <mat-label>Position</mat-label>
+        <mat-select [(ngModel)]="position">
+          <mat-option value="PREPEND">PREPEND</mat-option>
+          <mat-option value="APPEND">APPEND</mat-option>
+        </mat-select>
+      </mat-form-field>
+
+      <div class="textarea-wrapper">
+        <mat-form-field class="full-width">
+          <mat-label>Content</mat-label>
+          <textarea matInput [(ngModel)]="content" rows="8" required
+            #contentTextarea
+            (input)="onContentInput($event)"
+            (keydown)="onContentKeydown($event)"></textarea>
+        </mat-form-field>
+        @if (showKeywordPopup) {
+          <div class="keyword-popup">
+            @for (kw of filteredKeywords; track kw.id) {
+              <div class="keyword-row" (mousedown)="insertKeyword(kw, $event)">
+                <span class="keyword-token">{{ kw.token }}</span>
+                <span class="keyword-label">{{ kw.label }}</span>
+                <span class="keyword-category">{{ kw.category }}</span>
+              </div>
+            }
+            @if (filteredKeywords.length === 0) {
+              <div class="keyword-row keyword-empty">No matching keywords</div>
+            }
+          </div>
+        }
+      </div>
+    </mat-dialog-content>
+    <mat-dialog-actions align="end">
+      <button mat-button mat-dialog-close>Cancel</button>
+      <button mat-raised-button color="primary" (click)="save()" [disabled]="!canSave()">
+        {{ isEdit ? 'Update' : 'Create' }}
+      </button>
+    </mat-dialog-actions>
+  `,
+  styles: [`
+    .full-width { width: 100%; margin-bottom: 8px; }
+    .textarea-wrapper { position: relative; }
+    .keyword-popup {
+      position: absolute;
+      left: 0;
+      right: 0;
+      z-index: 1000;
+      max-height: 210px;
+      overflow-y: auto;
+      background: var(--mat-sys-surface-container, #fff);
+      border: 1px solid var(--mat-sys-outline-variant, #ccc);
+      border-radius: 4px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+    .keyword-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .keyword-row:hover {
+      background: var(--mat-sys-surface-container-high, #f0f0f0);
+    }
+    .keyword-token {
+      font-family: monospace;
+      font-weight: 500;
+      color: var(--mat-sys-primary, #1976d2);
+    }
+    .keyword-label {
+      flex: 1;
+      color: var(--mat-sys-on-surface-variant, #666);
+    }
+    .keyword-category {
+      font-size: 11px;
+      padding: 1px 6px;
+      border-radius: 8px;
+      background: var(--mat-sys-secondary-container, #e0e0e0);
+      color: var(--mat-sys-on-secondary-container, #444);
+    }
+    .keyword-empty {
+      color: var(--mat-sys-on-surface-variant, #999);
+      font-style: italic;
+      cursor: default;
+    }
+  `],
+})
+export class OverrideDialogComponent {
+  private dialogRef = inject(MatDialogRef<OverrideDialogComponent>);
+  data: DialogData = inject(MAT_DIALOG_DATA);
+  private promptService = inject(PromptService);
+  private clientService = inject(ClientService);
+  private snackBar = inject(MatSnackBar);
+
+  @ViewChild('contentTextarea') contentTextareaRef!: ElementRef<HTMLTextAreaElement>;
+
+  isEdit = !!this.data.override;
+  scope = this.data.override?.scope ?? 'APP_WIDE';
+  clientId = this.data.override?.clientId ?? '';
+  position = this.data.override?.position ?? 'APPEND';
+  content = this.data.override?.content ?? '';
+  clients: Client[] = [];
+
+  keywords: PromptKeyword[] = [];
+  filteredKeywords: PromptKeyword[] = [];
+  showKeywordPopup = false;
+  keywordSearchStart = -1;
+
+  constructor() {
+    if (this.scope === 'CLIENT' || !this.isEdit) {
+      this.clientService.getClients().subscribe(c => this.clients = c);
+    }
+    this.promptService.getKeywords().subscribe(kw => this.keywords = kw);
+  }
+
+  onScopeChange(): void {
+    if (this.scope === 'APP_WIDE') {
+      this.clientId = '';
+    } else if (this.clients.length === 0) {
+      this.clientService.getClients().subscribe(c => this.clients = c);
+    }
+  }
+
+  onContentInput(_event: Event): void {
+    const textarea = this.contentTextareaRef?.nativeElement;
+    if (!textarea) return;
+
+    const cursorPos = textarea.selectionStart;
+    const textBefore = this.content.slice(0, cursorPos);
+
+    // Find the last `{{` that doesn't have a closing `}}`
+    const lastOpen = textBefore.lastIndexOf('{{');
+    if (lastOpen === -1) {
+      this.showKeywordPopup = false;
+      return;
+    }
+
+    const afterOpen = textBefore.slice(lastOpen + 2);
+    // If there's a `}}` after the `{{`, the token is already closed
+    if (afterOpen.includes('}}')) {
+      this.showKeywordPopup = false;
+      return;
+    }
+
+    // Don't trigger if there's a newline between `{{` and cursor
+    if (afterOpen.includes('\n')) {
+      this.showKeywordPopup = false;
+      return;
+    }
+
+    const search = afterOpen.toLowerCase();
+    this.keywordSearchStart = lastOpen;
+    this.filteredKeywords = this.keywords.filter(
+      kw => kw.token.toLowerCase().includes(search) || kw.label.toLowerCase().includes(search),
+    ).slice(0, 6);
+    this.showKeywordPopup = true;
+  }
+
+  onContentKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Escape' && this.showKeywordPopup) {
+      this.showKeywordPopup = false;
+      event.stopPropagation();
+    }
+  }
+
+  insertKeyword(keyword: PromptKeyword, event: MouseEvent): void {
+    event.preventDefault(); // prevent textarea blur
+    const textarea = this.contentTextareaRef?.nativeElement;
+    if (!textarea) return;
+
+    const replacement = `{{${keyword.token}}}`;
+    const cursorPos = textarea.selectionStart;
+    const before = this.content.slice(0, this.keywordSearchStart);
+    const after = this.content.slice(cursorPos);
+    this.content = before + replacement + after;
+    this.showKeywordPopup = false;
+
+    // Restore focus and cursor position after the inserted token
+    const newCursor = before.length + replacement.length;
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(newCursor, newCursor);
+    });
+  }
+
+  canSave(): boolean {
+    if (!this.content.trim()) return false;
+    if (this.scope === 'CLIENT' && !this.clientId) return false;
+    return true;
+  }
+
+  save(): void {
+    if (this.isEdit) {
+      this.promptService.updateOverride(this.data.override!.id, {
+        position: this.position,
+        content: this.content,
+      }).subscribe({
+        next: (result) => {
+          this.snackBar.open('Override updated', 'OK', { duration: 3000 });
+          this.dialogRef.close(result);
+        },
+        error: (err) => this.snackBar.open(err.error?.message ?? 'Failed to update override', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      });
+    } else {
+      this.promptService.createOverride({
+        promptKey: this.data.promptKey,
+        scope: this.scope,
+        clientId: this.scope === 'CLIENT' ? this.clientId : undefined,
+        position: this.position,
+        content: this.content,
+      }).subscribe({
+        next: (result) => {
+          this.snackBar.open('Override created', 'OK', { duration: 3000 });
+          this.dialogRef.close(result);
+        },
+        error: (err) => this.snackBar.open(err.error?.message ?? 'Failed to create override', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      });
+    }
+  }
+}

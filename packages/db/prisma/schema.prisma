@@ -1,0 +1,1453 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// --- Users (control panel & client portal accounts) ---
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  name         String
+  role         UserRole @default(OPERATOR)
+  clientId     String?  @map("client_id") @db.Uuid
+  isActive     Boolean  @default(true) @map("is_active")
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  client               Client?              @relation(fields: [clientId], references: [id])
+  refreshTokens        RefreshToken[]
+  filterPresets        TicketFilterPreset[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  jti       String    @unique @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model TicketFilterPreset {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  name           String
+  statusFilter   String?  @map("status_filter")
+  categoryFilter String?  @map("category_filter")
+  clientIdFilter String?  @map("client_id_filter") @db.Uuid
+  priorityFilter String?  @map("priority_filter")
+  isDefault      Boolean  @default(false) @map("is_default")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("ticket_filter_presets")
+}
+
+// --- Client Portal Users (separate auth from control panel) ---
+
+model ClientUser {
+  id           String         @id @default(uuid()) @db.Uuid
+  email        String         @unique
+  passwordHash String         @map("password_hash")
+  name         String
+  clientId     String         @map("client_id") @db.Uuid
+  userType     ClientUserType @default(USER) @map("user_type")
+  isActive     Boolean        @default(true) @map("is_active")
+  lastLoginAt  DateTime?      @map("last_login_at")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+
+  client        Client                   @relation(fields: [clientId], references: [id])
+  refreshTokens ClientUserRefreshToken[]
+
+  @@index([clientId])
+  @@map("client_users")
+}
+
+model ClientUserRefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  jti       String    @unique @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user ClientUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("client_user_refresh_tokens")
+}
+
+// --- Core entities ---
+
+model Client {
+  id             String   @id @default(uuid()) @db.Uuid
+  name           String
+  shortCode      String   @unique @map("short_code")
+  isActive              Boolean  @default(true) @map("is_active")
+  autoRouteTickets      Boolean  @default(true) @map("auto_route_tickets")
+  allowSelfRegistration Boolean  @default(false) @map("allow_self_registration")
+  aiMode                String   @default("platform") @map("ai_mode")
+  notes                String?
+  companyProfile       String?  @map("company_profile")
+  systemsProfile       String?  @map("systems_profile")
+  domainMappings       String[] @default([]) @map("domain_mappings") // e.g. ["altmanplants.com", "altman.com"]
+  billingMarkupPercent Float    @default(1.0) @map("billing_markup_percent")
+  billingPeriod        String   @default("disabled") @map("billing_period")
+  billingAnchorDay     Int      @default(1) @map("billing_anchor_day")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  contacts     Contact[]
+  systems      System[]
+  tickets      Ticket[]
+  codeRepos    CodeRepo[]
+  repositories Repository[]
+  integrations    ClientIntegration[]
+  users           User[]
+  clientUsers     ClientUser[]
+  promptOverrides PromptOverride[]
+  aiModelConfigs  AiModelConfig[]
+  systemAnalyses  SystemAnalysis[]
+  ticketRoutes    TicketRoute[]
+  clientMemories      ClientMemory[]
+  scheduledProbes     ScheduledProbe[]
+  environments        ClientEnvironment[]
+  invoices            Invoice[]
+  aiCredentials       ClientAiCredential[]
+  ingestionRuns       IngestionRun[]
+  emailProcessingLogs EmailProcessingLog[]
+
+  @@map("clients")
+}
+
+model ClientEnvironment {
+  id                      String   @id @default(uuid()) @db.Uuid
+  clientId                String   @map("client_id") @db.Uuid
+  name                    String
+  tag                     String
+  description             String?
+  operationalInstructions String?  @map("operational_instructions")
+  isDefault               Boolean  @default(false) @map("is_default")
+  isActive                Boolean  @default(true) @map("is_active")
+  sortOrder               Int      @default(0) @map("sort_order")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  client       Client              @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  integrations ClientIntegration[]
+  codeRepos    CodeRepo[]
+  systems      System[]
+  tickets      Ticket[]
+
+  @@unique([clientId, tag])
+  @@index([clientId])
+  @@map("client_environments")
+}
+
+model ClientAiCredential {
+  id              String   @id @default(uuid()) @db.Uuid
+  clientId        String   @map("client_id") @db.Uuid
+  provider        String   // "CLAUDE", "OPENAI", "GROK", "LOCAL"
+  encryptedApiKey String   @map("encrypted_api_key")
+  label           String
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([clientId, provider, isActive], map: "client_ai_credentials_client_id_provider_is_active_idx")
+  @@map("client_ai_credentials")
+}
+
+model Contact {
+  id        String   @id @default(uuid()) @db.Uuid
+  clientId  String   @map("client_id") @db.Uuid
+  name      String
+  email     String
+  phone     String?
+  role      String?
+  isPrimary Boolean  @default(false) @map("is_primary")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  client           Client           @relation(fields: [clientId], references: [id])
+  ticketFollowers  TicketFollower[]
+
+  @@map("contacts")
+}
+
+// --- Repositories (client source code) ---
+
+model Repository {
+  id        String   @id @default(uuid()) @db.Uuid
+  clientId  String   @map("client_id") @db.Uuid
+  name      String
+  url       String
+  branch    String   @default("main")
+  localPath String?  @map("local_path")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  client Client @relation(fields: [clientId], references: [id])
+
+  @@unique([clientId, name])
+  @@map("repositories")
+}
+
+// --- Database systems (client SQL Servers) ---
+
+model System {
+  id                String      @id @default(uuid()) @db.Uuid
+  clientId          String      @map("client_id") @db.Uuid
+  name              String
+  dbEngine          DbEngine    @default(MSSQL) @map("db_engine")
+  host              String
+  port              Int         @default(1433)
+  connectionString  String?     @map("connection_string")
+  instanceName      String?     @map("instance_name")
+  defaultDatabase   String?     @map("default_database")
+  authMethod        AuthMethod  @default(SQL_AUTH) @map("auth_method")
+  username          String?
+  encryptedPassword String?     @map("encrypted_password")
+  useTls            Boolean     @default(true) @map("use_tls")
+  trustServerCert   Boolean     @default(false) @map("trust_server_cert")
+  connectionTimeout Int         @default(15000) @map("connection_timeout")
+  requestTimeout    Int         @default(30000) @map("request_timeout")
+  maxPoolSize       Int         @default(5) @map("max_pool_size")
+  isActive          Boolean     @default(true) @map("is_active")
+  environment       Environment @default(PRODUCTION)
+  notes             String?
+  lastConnectedAt   DateTime?   @map("last_connected_at")
+  createdAt         DateTime    @default(now()) @map("created_at")
+  updatedAt         DateTime    @updatedAt @map("updated_at")
+
+  environmentId String? @map("environment_id") @db.Uuid
+
+  client              Client              @relation(fields: [clientId], references: [id])
+  clientEnvironment   ClientEnvironment?  @relation(fields: [environmentId], references: [id])
+  tickets             Ticket[]
+  findings            Finding[]
+  queryAuditLogs      QueryAuditLog[]
+
+  @@unique([clientId, name])
+  @@index([environmentId])
+  @@map("systems")
+}
+
+// --- Tickets ---
+
+model Ticket {
+  id          String       @id @default(uuid()) @db.Uuid
+  clientId    String       @map("client_id") @db.Uuid
+  systemId    String?      @map("system_id") @db.Uuid
+  subject     String
+  description String?
+  summary     String?
+  status      TicketStatus @default(OPEN)
+  priority    Priority     @default(MEDIUM)
+  source      TicketSource    @default(MANUAL)
+  category    TicketCategory?
+  ticketNumber Int             @map("ticket_number")
+  metadata        Json?
+  externalRef     String?         @map("external_ref")
+  reanalysisCount Int             @default(0) @map("reanalysis_count")
+  analysisStatus  AnalysisStatus  @default(PENDING) @map("analysis_status")
+  analysisError   String?         @map("analysis_error")
+  lastAnalyzedAt  DateTime?       @map("last_analyzed_at")
+  resolvedAt      DateTime?    @map("resolved_at")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  environmentId String? @map("environment_id") @db.Uuid
+
+  client          Client              @relation(fields: [clientId], references: [id])
+  system          System?             @relation(fields: [systemId], references: [id])
+  environment     ClientEnvironment?  @relation(fields: [environmentId], references: [id], onDelete: Restrict)
+  followers       TicketFollower[]
+  events          TicketEvent[]
+  artifacts       Artifact[]
+  issueJobs           IssueJob[]
+  devopsSyncState     DevOpsSyncState?
+  systemAnalyses      SystemAnalysis[]
+  ingestionRuns       IngestionRun[]
+  emailProcessingLogs EmailProcessingLog[]
+
+  @@unique([clientId, ticketNumber])
+  @@index([clientId, status])
+  @@index([clientId, category])
+  @@index([environmentId])
+  @@index([createdAt])
+  @@map("tickets")
+}
+
+model TicketFollower {
+  id           String       @id @default(uuid()) @db.Uuid
+  ticketId     String       @map("ticket_id") @db.Uuid
+  contactId    String       @map("contact_id") @db.Uuid
+  followerType FollowerType @default(FOLLOWER) @map("follower_type")
+  createdAt    DateTime     @default(now()) @map("created_at")
+
+  ticket  Ticket  @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  contact Contact @relation(fields: [contactId], references: [id])
+
+  @@unique([ticketId, contactId])
+  @@index([contactId])
+  @@map("ticket_followers")
+}
+
+model TicketEvent {
+  id        String          @id @default(uuid()) @db.Uuid
+  ticketId  String          @map("ticket_id") @db.Uuid
+  eventType TicketEventType @map("event_type")
+  content   String?
+  metadata  Json?
+  actor     String          @default("system")
+  createdAt DateTime        @default(now()) @map("created_at")
+
+  // Email dedup fields (only populated for EMAIL_INBOUND events)
+  emailMessageId String? @unique @map("email_message_id") // RFC 822 Message-ID header
+  emailHash      String? @unique @map("email_hash")       // SHA-256 of raw RFC822 source (fallback when Message-ID absent/unreliable)
+
+  ticket Ticket @relation(fields: [ticketId], references: [id])
+
+  @@index([ticketId, createdAt])
+  @@map("ticket_events")
+}
+
+// --- Operational tasks (internal/business tasks, not tied to clients) ---
+
+model OperationalTask {
+  id          String                @id @default(uuid()) @db.Uuid
+  subject     String
+  description String?
+  status      OperationalTaskStatus @default(OPEN)
+  priority    Priority              @default(MEDIUM)
+  source      OperationalTaskSource @default(MANUAL)
+  externalRef String?               @map("external_ref")
+  createdAt   DateTime              @default(now()) @map("created_at")
+  updatedAt   DateTime              @updatedAt @map("updated_at")
+
+  events          OperationalTaskEvent[]
+  devopsSyncState DevOpsSyncState?
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("operational_tasks")
+}
+
+model OperationalTaskEvent {
+  id        String                     @id @default(uuid()) @db.Uuid
+  taskId    String                     @map("task_id") @db.Uuid
+  eventType OperationalTaskEventType   @map("event_type")
+  content   String?
+  metadata  Json?
+  actor     String                     @default("system")
+  createdAt DateTime                   @default(now()) @map("created_at")
+
+  task OperationalTask @relation(fields: [taskId], references: [id])
+
+  @@index([taskId, createdAt])
+  @@map("operational_task_events")
+}
+
+// --- Azure DevOps sync state ---
+
+model DevOpsSyncState {
+  id                String   @id @default(uuid()) @db.Uuid
+  ticketId          String?  @unique @map("ticket_id") @db.Uuid
+  operationalTaskId String?  @unique @map("operational_task_id") @db.Uuid
+  workItemId        Int      @map("work_item_id")
+  integrationId     String?  @map("integration_id")
+  revision          Int      @default(0)
+  lastCommentId     Int      @default(0) @map("last_comment_id")
+  workItemType      String   @map("work_item_type")
+  isActionable      Boolean  @default(false) @map("is_actionable")
+  workflowState     String   @default("idle") @map("workflow_state")
+  planJson          Json?    @map("plan_json")
+  lastSyncedAt      DateTime @default(now()) @map("last_synced_at")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  ticket          Ticket?          @relation(fields: [ticketId], references: [id])
+  operationalTask OperationalTask? @relation(fields: [operationalTaskId], references: [id])
+
+  @@unique([workItemId, integrationId])
+  @@index([workflowState])
+  @@map("devops_sync_states")
+}
+
+// --- Artifacts & Findings ---
+
+model Artifact {
+  id          String   @id @default(uuid()) @db.Uuid
+  ticketId    String?  @map("ticket_id") @db.Uuid
+  findingId   String?  @map("finding_id") @db.Uuid
+  filename    String
+  mimeType    String   @map("mime_type")
+  sizeBytes   Int      @map("size_bytes")
+  storagePath String   @map("storage_path")
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  ticket  Ticket?  @relation(fields: [ticketId], references: [id])
+  finding Finding? @relation(fields: [findingId], references: [id])
+
+  @@map("artifacts")
+}
+
+model Finding {
+  id             String        @id @default(uuid()) @db.Uuid
+  systemId       String        @map("system_id") @db.Uuid
+  title          String
+  severity       Severity      @default(MEDIUM)
+  category       String
+  description    String
+  recommendation String?
+  sqlEvidence    String?       @map("sql_evidence")
+  status         FindingStatus @default(OPEN)
+  detectedAt     DateTime      @default(now()) @map("detected_at")
+  resolvedAt     DateTime?     @map("resolved_at")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  system    System     @relation(fields: [systemId], references: [id])
+  artifacts Artifact[]
+  playbook  Playbook?
+
+  @@index([systemId, status])
+  @@map("findings")
+}
+
+model Playbook {
+  id         String   @id @default(uuid()) @db.Uuid
+  findingId  String?  @unique @map("finding_id") @db.Uuid
+  title      String
+  category   String
+  content    String
+  isTemplate Boolean  @default(false) @map("is_template")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  finding Finding? @relation(fields: [findingId], references: [id])
+
+  @@map("playbooks")
+}
+
+// --- Audit ---
+
+model QueryAuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  systemId   String   @map("system_id") @db.Uuid
+  query      String
+  queryHash  String   @map("query_hash")
+  toolName   String   @map("tool_name")
+  caller     String
+  durationMs Int?     @map("duration_ms")
+  rowCount   Int?     @map("row_count")
+  error      String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  system System @relation(fields: [systemId], references: [id])
+
+  @@index([systemId, createdAt])
+  @@index([queryHash])
+  @@map("query_audit_logs")
+}
+
+// --- Code Repos & Issue Resolution ---
+
+model CodeRepo {
+  id            String   @id @default(uuid()) @db.Uuid
+  clientId      String   @map("client_id") @db.Uuid
+  name          String
+  repoUrl       String   @map("repo_url")
+  defaultBranch String   @default("master") @map("default_branch")
+  branchPrefix  String   @default("claude") @map("branch_prefix")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  environmentId String? @map("environment_id") @db.Uuid
+
+  client      Client             @relation(fields: [clientId], references: [id])
+  environment ClientEnvironment? @relation(fields: [environmentId], references: [id])
+  issueJobs   IssueJob[]
+
+  @@unique([clientId, repoUrl])
+  @@index([environmentId])
+  @@map("code_repos")
+}
+
+model IssueJob {
+  id           String         @id @default(uuid()) @db.Uuid
+  ticketId     String         @map("ticket_id") @db.Uuid
+  repoId       String         @map("repo_id") @db.Uuid
+  branchName   String         @map("branch_name")
+  status       IssueJobStatus @default(PENDING)
+  commitSha    String?        @map("commit_sha")
+  filesChanged Int?           @map("files_changed")
+  error        String?
+  aiModel      String?        @map("ai_model")
+  aiUsage      Json?          @map("ai_usage")
+  startedAt    DateTime?      @map("started_at")
+  completedAt  DateTime?      @map("completed_at")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+
+  ticket Ticket   @relation(fields: [ticketId], references: [id])
+  repo   CodeRepo @relation(fields: [repoId], references: [id])
+
+  @@index([ticketId])
+  @@index([repoId, status])
+  @@map("issue_jobs")
+}
+
+// --- Ticket Status & Category Configs (editable from control panel Settings) ---
+// Metadata for each TicketStatus / TicketCategory enum value: display name,
+// description, color, sort order, and (for statuses) open/closed class.
+
+model TicketStatusConfig {
+  value       String   @id // Must match a TicketStatus enum value
+  displayName String   @map("display_name")
+  description String?
+  color       String   @default("#757575")
+  sortOrder   Int      @default(0) @map("sort_order")
+  statusClass String   @default("open") @map("status_class") // "open" or "closed"
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("ticket_status_configs")
+}
+
+model TicketCategoryConfig {
+  value       String   @id // Must match a TicketCategory enum value
+  displayName String   @map("display_name")
+  description String?
+  color       String   @default("#757575")
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("ticket_category_configs")
+}
+
+
+// --- External Services (configurable from control panel Settings) ---
+
+model ExternalService {
+  id          String                   @id @default(uuid()) @db.Uuid
+  name        String                   @unique // Display name, e.g. "Ollama (Local LLM)"
+  endpoint    String                   // URL for HTTP/OLLAMA checks, container name for DOCKER
+  checkType   ExternalServiceCheckType @default(HTTP) @map("check_type")
+  isMonitored Boolean                  @default(true) @map("is_monitored")
+  timeoutMs   Int                      @default(5000) @map("timeout_ms")
+  notes       String?
+  createdAt   DateTime                 @default(now()) @map("created_at")
+  updatedAt   DateTime                 @updatedAt @map("updated_at")
+
+  @@map("external_services")
+}
+
+// --- Client Integrations (multi-client worker config) ---
+
+model ClientIntegration {
+  id        String          @id @default(uuid()) @db.Uuid
+  clientId  String          @map("client_id") @db.Uuid
+  type      IntegrationType
+  label     String          @default("default") // e.g. "prod", "dev", "staging"
+  config    Json
+  metadata  Json?           @default("{}") // system-discovered data (tools, version, etc.)
+  isActive  Boolean         @default(true) @map("is_active")
+  notes     String?
+  createdAt DateTime        @default(now()) @map("created_at")
+  updatedAt DateTime        @updatedAt @map("updated_at")
+
+  environmentId String? @map("environment_id") @db.Uuid
+
+  client      Client             @relation(fields: [clientId], references: [id])
+  environment ClientEnvironment? @relation(fields: [environmentId], references: [id])
+  scheduledProbes ScheduledProbe[]
+
+  @@unique([clientId, type, label])
+  @@index([environmentId])
+  @@map("client_integrations")
+}
+
+// --- Application Logs ---
+
+model AppLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  level      LogLevel
+  service    String
+  message    String
+  context    Json?
+  entityId   String?  @map("entity_id") @db.Uuid
+  entityType String?  @map("entity_type") // e.g. "ticket" or "operational_task"
+  error      String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([service, createdAt])
+  @@index([level, createdAt])
+  @@index([entityId, entityType])
+  @@index([createdAt])
+  @@map("app_logs")
+}
+
+// --- Log Summaries (AI-generated digests of application logs) ---
+
+model LogSummary {
+  id             String         @id @default(uuid()) @db.Uuid
+  ticketId       String?        @map("ticket_id") @db.Uuid
+  summaryType    LogSummaryType @default(SERVICE) @map("summary_type")
+  attentionLevel AttentionLevel @default(NONE) @map("attention_level")
+  windowStart    DateTime       @map("window_start")
+  windowEnd      DateTime       @map("window_end")
+  summary        String
+  logCount       Int            @map("log_count")
+  services       String[]       @default([])
+  cursorLogIds   String[]       @default([]) @map("cursor_log_ids")
+  createdAt      DateTime       @default(now()) @map("created_at")
+
+  @@index([ticketId, windowStart])
+  @@index([summaryType, windowStart])
+  @@index([windowStart])
+  @@index([createdAt])
+  @@map("log_summaries")
+}
+
+// --- AI Usage Logs (tracks every AI generation call) ---
+
+model AiUsageLog {
+  id           String   @id @default(uuid()) @db.Uuid
+  provider     String   // "LOCAL", "CLAUDE", "OPENAI", "GROK"
+  model        String   // e.g. "llama3.1:8b", "claude-sonnet-4-5-20250929"
+  taskType     String   @map("task_type")
+  inputTokens  Int      @default(0) @map("input_tokens")
+  outputTokens Int      @default(0) @map("output_tokens")
+  durationMs   Int?     @map("duration_ms")
+  costUsd      Float?   @map("cost_usd") // Computed from AiModelCost at write time
+  entityId     String?  @map("entity_id") @db.Uuid
+  entityType   String?  @map("entity_type") // e.g. "ticket" or "operational_task"
+  clientId     String?  @map("client_id") @db.Uuid
+  billingMode  String   @default("platform") @map("billing_mode")
+  promptKey    String?  @map("prompt_key")
+  promptText   String?  @map("prompt_text") @db.Text
+  responseText String?  @map("response_text") @db.Text
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([provider, model, createdAt])
+  @@index([entityId, entityType])
+  @@index([clientId])
+  @@index([createdAt])
+  @@index([taskType])
+  @@map("ai_usage_logs")
+}
+
+// --- Invoices (per-client AI usage billing) ---
+
+model Invoice {
+  id                 String   @id @default(uuid()) @db.Uuid
+  clientId           String   @map("client_id") @db.Uuid
+  invoiceNumber      Int      @map("invoice_number")
+  periodStart        DateTime @map("period_start")
+  periodEnd          DateTime @map("period_end")
+  totalBaseCostUsd   Decimal  @map("total_base_cost_usd")
+  totalBilledCostUsd Decimal  @map("total_billed_cost_usd")
+  totalInputTokens   Int      @default(0) @map("total_input_tokens")
+  totalOutputTokens  Int      @default(0) @map("total_output_tokens")
+  requestCount       Int      @default(0) @map("request_count")
+  markupPercent      Decimal  @map("markup_percent")
+  pdfPath            String?  @map("pdf_path")
+  status             String   @default("draft") // "draft" | "final"
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, invoiceNumber])
+  @@index([clientId, periodStart])
+  @@map("invoices")
+}
+
+// --- AI Model Costs (per-model pricing for cost tracking) ---
+
+model AiModelCost {
+  id                      String   @id @default(uuid()) @db.Uuid
+  provider                String   // "LOCAL", "CLAUDE", "OPENAI", "GROK", "GOOGLE"
+  model                   String   // e.g. "claude-sonnet-4-6", "gpt-4.1"
+  displayName             String?  @map("display_name") // Human-readable name
+  description             String?  @db.Text // Model description from provider
+  inputCostPer1m          Float    @default(0) @map("input_cost_per_1m")  // USD per 1M input tokens
+  outputCostPer1m         Float    @default(0) @map("output_cost_per_1m") // USD per 1M output tokens
+  contextLength           Int?     @map("context_length") // Max context window in tokens
+  maxCompletionTokens     Int?     @map("max_completion_tokens") // Max output tokens
+  modality                String?  // e.g. "text+image->text", "text->text"
+  isCustomCost            Boolean  @default(false) @map("is_custom_cost") // Custom pricing overrides API-fetched pricing
+  isActive                Boolean  @default(true) @map("is_active")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+  createdAt               DateTime @default(now()) @map("created_at")
+
+  @@unique([provider, model])
+  @@index([provider])
+  @@map("ai_model_costs")
+}
+
+// --- AI Providers (one row per provider type — LOCAL, CLAUDE, OPENAI, GROK, GOOGLE) ---
+// Stores connection settings and API keys for each LLM provider.
+// API keys are encrypted at rest via AES-256-GCM.
+
+model AiProvider {
+  id              String   @id @default(uuid()) @db.Uuid
+  provider        String   @unique // "LOCAL", "CLAUDE", "OPENAI", "GROK", "GOOGLE"
+  baseUrl         String?  @map("base_url")
+  encryptedApiKey String?  @map("encrypted_api_key")
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  models AiProviderModel[]
+
+  @@map("ai_providers")
+}
+
+// --- AI Provider Models (1:many from AiProvider) ---
+// Each model belongs to a provider and carries its own capability level,
+// app scope restrictions, and active flag.
+
+model AiProviderModel {
+  id              String   @id @default(uuid()) @db.Uuid
+  providerId      String   @map("provider_id") @db.Uuid
+  name            String   @unique // Human-readable label, e.g. "Claude Sonnet Production"
+  model           String   // Model identifier, e.g. "claude-sonnet-4-6", "llama3.1:8b"
+  capabilityLevel String   @default("STANDARD") @map("capability_level")
+  isActive        Boolean  @default(true) @map("is_active")
+  enabledApps     String[] @default([]) @map("enabled_apps") // AppScope values; empty = all apps
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  provider AiProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@index([providerId])
+  @@index([capabilityLevel, isActive])
+  @@map("ai_provider_models")
+}
+
+// --- AI Model Configuration (per-task provider/model overrides) ---
+// Stores which AI provider + model to use for each TaskType.
+// APP_WIDE configs are system-wide defaults; CLIENT-scoped configs override per client.
+// When no config exists for a task type, the hardcoded defaults in ai-provider apply.
+
+model AiModelConfig {
+  id        String        @id @default(uuid()) @db.Uuid
+  taskType  String        @map("task_type")
+  scope     OverrideScope @default(APP_WIDE)
+  clientId  String?       @map("client_id") @db.Uuid
+  provider  String        // "LOCAL" or "CLAUDE"
+  model     String        // e.g. "llama3.1:8b", "claude-sonnet-4-5-20250929"
+  isActive  Boolean       @default(true) @map("is_active")
+  createdAt DateTime      @default(now()) @map("created_at")
+  updatedAt DateTime      @updatedAt @map("updated_at")
+
+  client Client? @relation(fields: [clientId], references: [id])
+
+  @@unique([taskType, scope, clientId])
+  @@index([taskType])
+  @@index([clientId])
+  @@map("ai_model_configs")
+}
+
+// --- AI Prompt Overrides (editable from control panel) ---
+// Base prompts are hardcoded in packages/ai-provider/src/prompts/.
+// Overrides add app-wide or per-client text that is prepended/appended.
+
+model PromptOverride {
+  id        String        @id @default(uuid()) @db.Uuid
+  promptKey String        @map("prompt_key") // FK to hardcoded prompt key, e.g. "imap.triage.system"
+  scope     OverrideScope @default(APP_WIDE)
+  clientId  String?       @map("client_id") @db.Uuid // Required when scope = CLIENT
+  position  OverridePosition @default(APPEND)
+  content   String        // Additional text to prepend/append
+  isActive  Boolean       @default(true) @map("is_active")
+  createdAt DateTime      @default(now()) @map("created_at")
+  updatedAt DateTime      @updatedAt @map("updated_at")
+
+  client Client? @relation(fields: [clientId], references: [id])
+
+  @@unique([promptKey, scope, clientId]) // One override per prompt per scope per client
+  @@index([promptKey])
+  @@index([clientId])
+  @@map("prompt_overrides")
+}
+
+model PromptKeyword {
+  id          String @id @default(uuid()) @db.Uuid
+  token       String @unique // Placeholder name, e.g. "recipientName"
+  label       String // Human-readable, e.g. "Recipient Name"
+  description String // What this keyword represents
+  sampleValue String? @map("sample_value") // Example value for preview
+  category    String // Grouping: TICKET, EMAIL, DEVOPS, CODE, DATABASE, GENERAL
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([category])
+  @@map("prompt_keywords")
+}
+
+// --- System Analysis (AI-generated improvement suggestions from closed tickets) ---
+
+model SystemAnalysis {
+  id              String               @id @default(uuid()) @db.Uuid
+  ticketId        String               @map("ticket_id") @db.Uuid
+  clientId        String               @map("client_id") @db.Uuid
+  status          SystemAnalysisStatus @default(PENDING)
+  analysis        String               // AI-generated analysis of the ticket lifecycle
+  suggestions     String               // AI-suggested system improvements
+  rejectionReason String?              @map("rejection_reason")
+  aiModel         String?              @map("ai_model")
+  aiProvider      String?              @map("ai_provider")
+  createdAt       DateTime             @default(now()) @map("created_at")
+  updatedAt       DateTime             @updatedAt @map("updated_at")
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  client Client @relation(fields: [clientId], references: [id])
+
+  @@index([status])
+  @@index([clientId])
+  @@index([ticketId])
+  @@index([createdAt])
+  @@map("system_analyses")
+}
+
+// --- Enums ---
+
+enum SystemAnalysisStatus {
+  PENDING
+  ACKNOWLEDGED
+  REJECTED
+
+  @@map("system_analysis_status")
+}
+
+enum LogLevel {
+  DEBUG
+  INFO
+  WARN
+  ERROR
+
+  @@map("log_level")
+}
+
+enum DbEngine {
+  MSSQL
+  AZURE_SQL_MI
+  POSTGRESQL
+  MYSQL
+
+  @@map("db_engine")
+}
+
+enum AuthMethod {
+  SQL_AUTH
+  WINDOWS_AUTH
+  AZURE_AD
+
+  @@map("auth_method")
+}
+
+enum Environment {
+  PRODUCTION
+  STAGING
+  DEVELOPMENT
+  DR
+
+  @@map("environment")
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING
+  RESOLVED
+  CLOSED
+
+  @@map("ticket_status")
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+
+  @@map("priority")
+}
+
+enum TicketSource {
+  MANUAL
+  EMAIL
+  AZURE_DEVOPS
+  AI_DETECTED
+  SCHEDULED
+
+  @@map("ticket_source")
+}
+
+enum TicketEventType {
+  COMMENT
+  STATUS_CHANGE
+  PRIORITY_CHANGE
+  CATEGORY_CHANGE
+  ASSIGNMENT
+  AI_ANALYSIS
+  AI_RECOMMENDATION
+  EMAIL_INBOUND
+  EMAIL_OUTBOUND
+  DEVOPS_INBOUND
+  DEVOPS_OUTBOUND
+  PLAN_PROPOSED
+  PLAN_APPROVED
+  PLAN_REJECTED
+  PLAN_EXECUTING
+  PLAN_COMPLETED
+  ARTIFACT_ADDED
+  SYSTEM_NOTE
+  CODE_CHANGE
+
+  @@map("ticket_event_type")
+}
+
+enum Severity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+
+  @@map("severity")
+}
+
+enum TicketCategory {
+  DATABASE_PERF
+  BUG_FIX
+  FEATURE_REQUEST
+  SCHEMA_CHANGE
+  CODE_REVIEW
+  ARCHITECTURE
+  GENERAL
+
+  @@map("ticket_category")
+}
+
+enum FindingStatus {
+  OPEN
+  ACKNOWLEDGED
+  IN_PROGRESS
+  RESOLVED
+  WONT_FIX
+
+  @@map("finding_status")
+}
+
+enum IssueJobStatus {
+  PENDING
+  CLONING
+  ANALYZING
+  APPLYING
+  PUSHING
+  COMPLETED
+  FAILED
+
+  @@map("issue_job_status")
+}
+
+enum IntegrationType {
+  IMAP
+  AZURE_DEVOPS
+  MCP_DATABASE
+
+  @@map("integration_type")
+}
+
+enum UserRole {
+  ADMIN
+  OPERATOR
+  CLIENT
+
+  @@map("user_role")
+}
+
+enum ClientUserType {
+  ADMIN
+  USER
+
+  @@map("client_user_type")
+}
+
+enum OverrideScope {
+  APP_WIDE
+  CLIENT
+
+  @@map("override_scope")
+}
+
+enum OverridePosition {
+  PREPEND
+  APPEND
+
+  @@map("override_position")
+}
+
+enum LogSummaryType {
+  TICKET
+  ORPHAN
+  SERVICE
+  UNCATEGORIZED
+
+  @@map("log_summary_type")
+}
+
+enum AttentionLevel {
+  NONE
+  LOW
+  MEDIUM
+  HIGH
+
+  @@map("attention_level")
+}
+
+enum ExternalServiceCheckType {
+  HTTP
+  OLLAMA
+  DOCKER
+
+  @@map("external_service_check_type")
+}
+
+// --- Release Notes (AI-enriched deployment changelog) ---
+
+model ReleaseNote {
+  id          String          @id @default(cuid())
+  commitSha   String          @unique @map("commit_sha")
+  commitDate  DateTime        @map("commit_date")
+  rawMessage  String          @map("raw_message")
+  summary     String?         // AI-generated; null if AI not configured or failed
+  services    String[]
+  changeType  ReleaseNoteType @default(OTHER) @map("change_type")
+  releaseTag  String?         @map("release_tag") // semver tag (e.g. v0.1.0) from the deploy that ingested this commit
+  isVisible   Boolean         @default(true) @map("is_visible")
+  createdAt   DateTime        @default(now()) @map("created_at")
+
+  @@index([commitDate])
+  @@index([changeType])
+  @@index([releaseTag])
+  @@index([isVisible, commitDate])
+  @@map("release_notes")
+}
+
+enum ReleaseNoteType {
+  FEATURE
+  FIX
+  MAINTENANCE
+  OTHER
+
+  @@map("release_note_type")
+}
+
+// --- Service status monitoring & alerting ---
+
+model NotificationChannel {
+  id        String                  @id @default(uuid()) @db.Uuid
+  name      String                  @unique
+  type      NotificationChannelType @default(EMAIL)
+  config    Json                    // Type-specific config (secrets encrypted)
+  isActive  Boolean                 @default(true) @map("is_active")
+  createdAt DateTime                @default(now()) @map("created_at")
+  updatedAt DateTime                @updatedAt @map("updated_at")
+
+  @@map("notification_channels")
+}
+
+model ServiceAlert {
+  id             String   @id @default(uuid()) @db.Uuid
+  componentName  String   @map("component_name")
+  previousStatus String   @map("previous_status")
+  newStatus      String   @map("new_status")
+  notifiedVia    String[] @map("notified_via")
+  message        String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([componentName, createdAt])
+  @@map("service_alerts")
+}
+
+enum NotificationChannelType {
+  EMAIL
+  PUSHOVER
+
+  @@map("notification_channel_type")
+}
+
+enum OperationalTaskStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING
+  RESOLVED
+  CLOSED
+
+  @@map("operational_task_status")
+}
+
+enum OperationalTaskSource {
+  MANUAL
+  AZURE_DEVOPS
+
+  @@map("operational_task_source")
+}
+
+enum OperationalTaskEventType {
+  COMMENT
+  STATUS_CHANGE
+  PRIORITY_CHANGE
+  AI_ANALYSIS
+  DEVOPS_INBOUND
+  DEVOPS_OUTBOUND
+  PLAN_PROPOSED
+  PLAN_APPROVED
+  PLAN_REJECTED
+  PLAN_EXECUTING
+  PLAN_COMPLETED
+  SYSTEM_NOTE
+
+  @@map("operational_task_event_type")
+}
+
+enum FollowerType {
+  REQUESTER
+  FOLLOWER
+
+  @@map("follower_type")
+}
+
+enum AnalysisStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  SKIPPED
+
+  @@map("analysis_status")
+}
+
+enum RouteStepType {
+  SUMMARIZE_EMAIL
+  CATEGORIZE
+  TRIAGE_PRIORITY
+  DRAFT_RECEIPT
+  GENERATE_TITLE
+  EXTRACT_FACTS
+  GATHER_REPO_CONTEXT
+  GATHER_DB_CONTEXT
+  DEEP_ANALYSIS
+  AGENTIC_ANALYSIS
+  DRAFT_FINDINGS_EMAIL
+  SUGGEST_NEXT_STEPS
+  UPDATE_TICKET_SUMMARY
+  LOAD_CLIENT_CONTEXT
+  NOTIFY_OPERATOR
+  DISPATCH_TO_ROUTE
+  ADD_FOLLOWER
+  CREATE_TICKET
+  CUSTOM_AI_QUERY
+
+  @@map("route_step_type")
+}
+
+enum RouteType {
+  INGESTION
+  ANALYSIS
+
+  @@map("route_type")
+}
+
+// --- Ticket Routes (customizable ticket processing pipelines) ---
+// Defines ordered sequences of processing steps that tickets go through.
+// INGESTION routes enrich + create tickets from a source (matched by source).
+// ANALYSIS routes investigate existing tickets (matched by category).
+// Routes can be global (clientId=null) or client-specific, and optionally
+// tied to a specific TicketCategory. A default route is used when no
+// category-specific route matches.
+
+model TicketRoute {
+  id          String          @id @default(uuid()) @db.Uuid
+  name        String
+  description String?
+  /// AI-generated summary describing what this route does — used for route selection.
+  summary     String?
+  /// INGESTION routes enrich + create tickets from a source. ANALYSIS routes investigate existing tickets.
+  routeType   RouteType       @default(ANALYSIS) @map("route_type")
+  category    TicketCategory?
+  /// Optional ticket source filter — only matches tickets with this source. Null means any source.
+  source      TicketSource?   @map("source")
+  clientId    String?         @map("client_id") @db.Uuid
+  isActive    Boolean         @default(true) @map("is_active")
+  isDefault   Boolean         @default(false) @map("is_default")
+  sortOrder   Int             @default(0) @map("sort_order")
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  client        Client?           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  steps         TicketRouteStep[]
+  ingestionRuns IngestionRun[]
+
+  @@unique([name, clientId])
+  @@index([routeType, category, clientId, source, isActive])
+  @@index([isDefault, isActive])
+  @@index([clientId])
+  @@map("ticket_routes")
+}
+
+model TicketRouteStep {
+  id               String   @id @default(uuid()) @db.Uuid
+  routeId          String   @map("route_id") @db.Uuid
+  stepOrder        Int      @map("step_order")
+  name             String
+  /// The built-in step type to execute (maps to RouteStepType in shared-types).
+  stepType         RouteStepType @map("step_type")
+  /// Optional AI task type override (e.g. use BUG_ANALYSIS instead of DEEP_ANALYSIS).
+  taskTypeOverride String?  @map("task_type_override")
+  /// Optional prompt key override for the AI step.
+  promptKeyOverride String? @map("prompt_key_override")
+  /// Step-specific configuration (JSON).
+  config           Json?
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  route TicketRoute @relation(fields: [routeId], references: [id], onDelete: Cascade)
+
+  @@unique([routeId, stepOrder])
+  @@index([routeId, isActive])
+  @@map("ticket_route_steps")
+}
+
+// --- Email Processing Logs (tracks every inbound email and its classification/processing result) ---
+
+model EmailProcessingLog {
+  id              String    @id @default(uuid()) @db.Uuid
+  messageId       String    @map("message_id")
+  from            String
+  fromName        String?   @map("from_name")
+  subject         String
+  receivedAt      DateTime  @map("received_at")
+  classification  String    @map("classification")  // TICKET_WORTHY, AUTO_REPLY, NOISE, THREAD_REPLY
+  status          String    @default("processed") @map("status")  // processed, failed, retried, discarded
+  clientId        String?   @map("client_id") @db.Uuid
+  ticketId        String?   @map("ticket_id") @db.Uuid
+  errorMessage    String?   @map("error_message")
+  processingMs    Int?      @map("processing_ms")
+  metadata        Json?
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  client          Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  ticket          Ticket?   @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+
+  @@unique([messageId])
+  @@index([status])
+  @@index([classification])
+  @@index([clientId, createdAt])
+  @@index([createdAt])
+  @@map("email_processing_logs")
+}
+
+// ── Client Memory ──────────────────────────────────────────────────
+// Per-client operational knowledge that guides AI analysis.
+// Entries are automatically injected into AI context when a ticket
+// is processed for the matching client (and optionally category).
+
+model ClientMemory {
+  id         String          @id @default(uuid()) @db.Uuid
+  clientId   String          @map("client_id") @db.Uuid
+  title      String
+  /// CONTEXT | PLAYBOOK | TOOL_GUIDANCE
+  memoryType String          @map("memory_type")
+  category   TicketCategory?
+  /// Free-form tags for flexible matching (e.g. "blocking", "deadlocks").
+  tags       String[]        @default([])
+  /// Markdown content — the actual knowledge injected into AI prompts.
+  content    String          @db.Text
+  isActive   Boolean         @default(true) @map("is_active")
+  sortOrder  Int             @default(0) @map("sort_order")
+  /// MANUAL | AI_LEARNED
+  source     String          @default("MANUAL")
+  createdAt  DateTime        @default(now()) @map("created_at")
+  updatedAt  DateTime        @updatedAt @map("updated_at")
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, title])
+  @@index([clientId, isActive])
+  @@index([clientId, category])
+  @@map("client_memories")
+}
+
+// ── Scheduled Probes ────────────────────────────────────────────────
+// Cron-driven MCP tool executions that create tickets when results
+// are actionable.
+
+model ScheduledProbe {
+  id             String          @id @default(uuid()) @db.Uuid
+  clientId       String          @map("client_id") @db.Uuid
+  integrationId  String?         @map("integration_id") @db.Uuid
+  name           String
+  description    String?
+  toolName       String          @map("tool_name")
+  toolParams     Json            @default("{}") @map("tool_params")
+  cronExpression    String          @map("cron_expression")
+  scheduleHour      Int?            @map("schedule_hour")
+  scheduleMinute    Int?            @default(0) @map("schedule_minute")
+  scheduleDaysOfWeek String?        @map("schedule_days_of_week")
+  scheduleTimezone  String?         @map("schedule_timezone")
+  category          TicketCategory?
+  /// create_ticket | email_direct | silent
+  action         String          @default("create_ticket")
+  actionConfig   Json?           @map("action_config")
+  isActive       Boolean         @default(true) @map("is_active")
+  lastRunAt      DateTime?       @map("last_run_at")
+  lastRunStatus  String?         @map("last_run_status")
+  lastRunResult  String?         @map("last_run_result") @db.Text
+  retentionDays    Int           @default(30) @map("retention_days")
+  retentionMaxRuns Int           @default(100) @map("retention_max_runs")
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+
+  client      Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  integration ClientIntegration? @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  runs        ProbeRun[]
+
+  @@index([clientId, isActive])
+  @@map("scheduled_probes")
+}
+
+// ── Probe Run History ─────────────────────────────────────────────────
+// Each execution of a ScheduledProbe creates a ProbeRun with step-level detail.
+
+model ProbeRun {
+  id          String    @id @default(uuid()) @db.Uuid
+  probeId     String    @map("probe_id") @db.Uuid
+  /// pending | running | success | error | skipped
+  status      String
+  startedAt   DateTime  @default(now()) @map("started_at")
+  completedAt DateTime? @map("completed_at")
+  durationMs  Int?      @map("duration_ms")
+  result      String?   @db.Text
+  error       String?   @db.Text
+  /// schedule | manual
+  triggeredBy String    @map("triggered_by")
+
+  probe ScheduledProbe @relation(fields: [probeId], references: [id], onDelete: Cascade)
+  steps ProbeRunStep[]
+
+  @@index([probeId, startedAt(sort: Desc)])
+  @@map("probe_runs")
+}
+
+model ProbeRunStep {
+  id          String    @id @default(uuid()) @db.Uuid
+  runId       String    @map("run_id") @db.Uuid
+  stepOrder   Int       @map("step_order")
+  stepName    String    @map("step_name")
+  /// pending | running | success | error | skipped
+  status      String
+  startedAt   DateTime? @map("started_at")
+  completedAt DateTime? @map("completed_at")
+  detail      String?   @db.Text
+  error       String?   @db.Text
+
+  run ProbeRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId, stepOrder])
+  @@map("probe_run_steps")
+}
+
+// ── Ingestion Run History ─────────────────────────────────────────────
+// Each execution of the ingestion pipeline creates an IngestionRun with
+// step-level detail for full observability.
+
+model IngestionRun {
+  id          String    @id @default(uuid()) @db.Uuid
+  jobId       String    @map("job_id")
+  source      TicketSource @map("source")
+  clientId    String    @map("client_id") @db.Uuid
+  routeId     String?   @map("route_id") @db.Uuid
+  routeName   String?   @map("route_name")
+  /// processing | success | error | no_route
+  status      String    @default("processing") @map("status")
+  ticketId    String?   @map("ticket_id") @db.Uuid
+  error       String?   @db.Text
+  startedAt   DateTime  @default(now()) @map("started_at")
+  completedAt DateTime? @map("completed_at")
+
+  client Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  route  TicketRoute? @relation(fields: [routeId], references: [id], onDelete: SetNull)
+  ticket Ticket?      @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+  steps  IngestionRunStep[]
+
+  @@index([clientId, startedAt])
+  @@index([routeId])
+  @@index([status])
+  @@index([ticketId])
+  @@map("ingestion_runs")
+}
+
+model IngestionRunStep {
+  id          String    @id @default(uuid()) @db.Uuid
+  runId       String    @map("run_id") @db.Uuid
+  stepOrder   Int       @map("step_order")
+  stepType    String    @map("step_type")
+  stepName    String    @map("step_name")
+  /// pending | processing | success | error | skipped
+  status      String    @default("pending") @map("status")
+  output      String?   @db.Text
+  error       String?   @db.Text
+  startedAt   DateTime? @map("started_at")
+  completedAt DateTime? @map("completed_at")
+  durationMs  Int?      @map("duration_ms")
+
+  run IngestionRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId, stepOrder])
+  @@map("ingestion_run_steps")
+}
+
+// --- App Settings (key-value JSON store for app-wide configuration) ---
+
+model AppSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("app_settings")
+}

@@ -1,0 +1,15 @@
+node_modules
+dist
+.git
+.github
+*.md
+.env
+.env.*
+!.env.example
+docker-compose*.yml
+Caddyfile
+TODO.md
+CLAUDE.md
+.vscode
+.idea
+*.log

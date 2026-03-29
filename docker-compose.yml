@@ -1,0 +1,296 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: bronco
+      POSTGRES_USER: bronco
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bronco"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction
+    volumes:
+      - redis_data:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  copilot-api:
+    image: ${COPILOT_API_IMAGE:-ghcr.io/siir/bronco/copilot-api:latest}
+    build:
+      context: .
+      dockerfile: services/copilot-api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://bronco:${POSTGRES_PASSWORD_URLENCODED}@postgres:5432/bronco
+      REDIS_URL: redis://redis:6379
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      API_KEY: ${API_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+      PORTAL_JWT_SECRET: ${PORTAL_JWT_SECRET}
+      ARTIFACT_STORAGE_PATH: ${ARTIFACT_STORAGE_PATH:-/mnt/qnap/artifacts}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_REPO: ${GITHUB_REPO:-siir/bronco}
+      INVOICE_STORAGE_PATH: /var/lib/copilot-api/invoices
+      PORT: "3000"
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      # Bind-mount QNAP from the HOST — do NOT mount SMB/NFS inside containers.
+      # The host Linux VM must have /mnt/qnap already mounted via NFS or SMB.
+      - ${QNAP_MOUNT_PATH:-/mnt/qnap}:/mnt/qnap
+      - copilot_invoices:/var/lib/copilot-api/invoices
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  imap-worker:
+    image: ${IMAP_WORKER_IMAGE:-ghcr.io/siir/bronco/imap-worker:latest}
+    build:
+      context: .
+      dockerfile: services/imap-worker/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://bronco:${POSTGRES_PASSWORD_URLENCODED}@postgres:5432/bronco
+      REDIS_URL: redis://redis:6379
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      IMAP_HOST: ${IMAP_HOST:-imap.gmail.com}
+      IMAP_PORT: ${IMAP_PORT:-993}
+      IMAP_USER: ${IMAP_USER}
+      IMAP_PASSWORD: ${IMAP_PASSWORD}
+      POLL_INTERVAL_SECONDS: "60"
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_FROM: ${SMTP_FROM}
+      EMAIL_SENDER_NAME: ${EMAIL_SENDER_NAME:-Support Team}
+      HEALTH_PORT: "3101"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3101/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  ticket-analyzer:
+    image: ${TICKET_ANALYZER_IMAGE:-ghcr.io/siir/bronco/ticket-analyzer:latest}
+    build:
+      context: .
+      dockerfile: services/ticket-analyzer/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://bronco:${POSTGRES_PASSWORD_URLENCODED}@postgres:5432/bronco
+      REDIS_URL: redis://redis:6379
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_FROM: ${SMTP_FROM}
+      EMAIL_SENDER_NAME: ${EMAIL_SENDER_NAME:-Support Team}
+      MCP_DATABASE_URL: ${MCP_DATABASE_URL:-http://localhost:3100}
+      REPO_WORKSPACE_PATH: /var/lib/ticket-analyzer/repos
+      REPO_RETENTION_DAYS: ${REPO_RETENTION_DAYS:-14}
+      ARTIFACT_STORAGE_PATH: ${ARTIFACT_STORAGE_PATH:-/mnt/qnap/artifacts}
+      HEALTH_PORT: "3106"
+    volumes:
+      - ticket_analyzer_repos:/var/lib/ticket-analyzer/repos
+      - ${QNAP_MOUNT_PATH:-/mnt/qnap}:/mnt/qnap
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3106/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  probe-worker:
+    image: ${PROBE_WORKER_IMAGE:-ghcr.io/siir/bronco/probe-worker:latest}
+    build:
+      context: .
+      dockerfile: services/probe-worker/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://bronco:${POSTGRES_PASSWORD_URLENCODED}@postgres:5432/bronco
+      REDIS_URL: redis://redis:6379
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_FROM: ${SMTP_FROM}
+      EMAIL_SENDER_NAME: ${EMAIL_SENDER_NAME:-Support Team}
+      HEALTH_PORT: "3107"
+      ARTIFACT_STORAGE_PATH: ${ARTIFACT_STORAGE_PATH:-/mnt/qnap/artifacts}
+    volumes:
+      - ${QNAP_MOUNT_PATH:-/mnt/qnap}:/mnt/qnap
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3107/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  issue-resolver:
+    image: ${ISSUE_RESOLVER_IMAGE:-ghcr.io/siir/bronco/issue-resolver:latest}
+    build:
+      context: .
+      dockerfile: services/issue-resolver/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://bronco:${POSTGRES_PASSWORD_URLENCODED}@postgres:5432/bronco
+      REDIS_URL: redis://redis:6379
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      REPO_WORKSPACE_PATH: /var/lib/issue-resolver/repos
+      REPO_RETENTION_DAYS: ${REPO_RETENTION_DAYS:-14}
+      GIT_AUTHOR_NAME: ${GIT_AUTHOR_NAME:-Bronco Bot}
+      GIT_AUTHOR_EMAIL: ${GIT_AUTHOR_EMAIL:-bot@bronco.dev}
+      HEALTH_PORT: "3103"
+    volumes:
+      - issue_resolver_repos:/var/lib/issue-resolver/repos
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3103/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  devops-worker:
+    image: ${DEVOPS_WORKER_IMAGE:-ghcr.io/siir/bronco/devops-worker:latest}
+    build:
+      context: .
+      dockerfile: services/devops-worker/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://bronco:${POSTGRES_PASSWORD_URLENCODED}@postgres:5432/bronco
+      REDIS_URL: redis://redis:6379
+      AZDO_ORG_URL: ${AZDO_ORG_URL}
+      AZDO_PROJECT: ${AZDO_PROJECT}
+      AZDO_PAT: ${AZDO_PAT}
+      AZDO_ASSIGNED_USER: ${AZDO_ASSIGNED_USER}
+      AZDO_CLIENT_SHORT_CODE: ${AZDO_CLIENT_SHORT_CODE:-}
+      POLL_INTERVAL_SECONDS: ${AZDO_POLL_INTERVAL_SECONDS:-120}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      HEALTH_PORT: "3102"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3102/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  status-monitor:
+    image: ${STATUS_MONITOR_IMAGE:-ghcr.io/siir/bronco/status-monitor:latest}
+    build:
+      context: .
+      dockerfile: services/status-monitor/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      copilot-api:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://bronco:${POSTGRES_PASSWORD_URLENCODED}@postgres:5432/bronco
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      STATUS_API_URL: http://copilot-api:3000/api/system-status
+      API_KEY: ${API_KEY}
+      POLL_INTERVAL_SECONDS: ${STATUS_MONITOR_POLL_SECONDS:-60}
+      COOLDOWN_SECONDS: ${STATUS_MONITOR_COOLDOWN_SECONDS:-300}
+      HEALTH_PORT: "3105"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3105/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # NOTE: mcp-database server runs in Azure App Service (same vnet as client Azure SQL MIs)
+  # ticket-analyzer reaches it via MCP_DATABASE_URL env var for DB-context analysis
+
+  # Caddy reverse proxy + static file server for Angular control panel
+  caddy:
+    image: ${CONTROL_PANEL_IMAGE:-ghcr.io/siir/bronco/control-panel:latest}
+    build:
+      context: .
+      dockerfile: services/control-panel/Dockerfile
+    restart: unless-stopped
+    ports:
+      # Bind to 127.0.0.1 — access via Tailscale, not public internet.
+      # If using a public domain with Caddy auto-TLS, open 80/443 on the
+      # VM only and restrict access at the network level (Tailscale ACLs,
+      # firewall rules). Do NOT port-forward on your router for prototypes.
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+      # TLS certs issued by acme.sh on the host and deployed to /etc/ssl/bronco/
+      # Run scripts/setup-acme.sh on the host to issue and configure auto-renewal.
+      - /etc/ssl/bronco:/etc/caddy/certs:ro
+    depends_on:
+      copilot-api:
+        condition: service_healthy
+
+volumes:
+  postgres_data:          # Persisted — control plane data
+  redis_data:             # Optional persistence (ephemeral is fine; BullMQ jobs re-enqueue)
+  ticket_analyzer_repos:  # Cached bare repo clones for ticket analysis
+  issue_resolver_repos:   # Cached repo clones for issue resolver
+  copilot_invoices:       # Generated PDF invoices
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "bronco-database": {
+      "type": "url",
+      "url": "https://your-mcp-database.azurecontainerapps.io/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_MCP_AUTH_TOKEN_HERE"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "frontend-design@claude-plugins-official": true
+  }
+}

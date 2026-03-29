@@ -1,0 +1,5 @@
+-- billing_markup_percent is mapped to Float in schema.prisma, which Prisma maps to
+-- DOUBLE PRECISION in PostgreSQL. The column was already created as DOUBLE PRECISION
+-- in migration 20260327010000_add_billing_markup_percent_to_client, so no type change
+-- is needed. This migration is intentionally a no-op to avoid unnecessary index
+-- rebuilds and downtime.

@@ -1,0 +1,820 @@
+import { writeFile, mkdir } from 'node:fs/promises';
+import { join, relative, resolve } from 'node:path';
+import type { Job, Queue } from 'bullmq';
+import type { PrismaClient } from '@bronco/db';
+import { Prisma } from '@bronco/db';
+import type { AIRouter } from '@bronco/ai-provider';
+import {
+  RouteStepType,
+  TaskType,
+  TicketCategory,
+  TicketSource,
+} from '@bronco/shared-types';
+import type {
+  IngestionJob,
+  TicketCreatedJob,
+  Priority,
+} from '@bronco/shared-types';
+import { createLogger } from '@bronco/shared-utils';
+import type { AppLogger, Mailer, ReplyOptions } from '@bronco/shared-utils';
+import { createIngestionRunTracker } from './ingestion-tracker.js';
+import type { IngestionRunTracker } from './ingestion-tracker.js';
+
+const logger = createLogger('ingestion-engine');
+
+/** No-op tracker used when the real tracker fails to initialize (e.g. missing tables). */
+const noopTracker: IngestionRunTracker = {
+  runId: 'noop',
+  startStep: async () => 'noop',
+  completeStep: async () => {},
+  failStep: async () => {},
+  skipStep: async () => {},
+  completeRun: async () => {},
+};
+
+// ---------------------------------------------------------------------------
+// AI call timeout — prevents hung Ollama calls from blocking the pipeline
+// ---------------------------------------------------------------------------
+
+const AI_STEP_TIMEOUT_MS = 60_000;
+
+async function withTimeout<T>(
+  fn: (signal: AbortSignal) => Promise<T>,
+  ms: number,
+  label: string,
+): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fn(controller.signal);
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error(`${label} timed out after ${ms}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Tracked step error for post-creation visibility. */
+interface StepError {
+  step: RouteStepType;
+  error: string;
+  fallback: string;
+}
+
+const VALID_CATEGORIES = new Set<string>(Object.values(TicketCategory));
+function isValidCategory(val: unknown): val is TicketCategory {
+  return typeof val === 'string' && VALID_CATEGORIES.has(val);
+}
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface IngestionDeps {
+  db: PrismaClient;
+  ai: AIRouter;
+  mailer: Mailer;
+  ticketCreatedQueue: Queue<TicketCreatedJob>;
+  senderSignature: string;
+  appLog?: AppLogger;
+  artifactStoragePath?: string;
+}
+
+/** Route with steps included. */
+type ResolvedRoute = Awaited<ReturnType<PrismaClient['ticketRoute']['findFirst']>> & {
+  steps: Array<{
+    id: string;
+    stepOrder: number;
+    name: string;
+    stepType: string;
+    taskTypeOverride: string | null;
+    promptKeyOverride: string | null;
+    config: unknown;
+    isActive: boolean;
+  }>;
+};
+
+/** Mutable state accumulated across ingestion steps. */
+interface IngestionContext {
+  source: TicketSource;
+  clientId: string;
+  payload: Record<string, unknown>;
+  // Accumulated by steps
+  title: string;
+  description: string;
+  summary: string;
+  category: string;
+  priority: string;
+  /** Set by CREATE_TICKET step. */
+  ticketId: string | null;
+  /** Contact ID to add as requester follower. */
+  requesterId: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Ticket number generation (same pattern as probe-worker / imap-worker)
+// ---------------------------------------------------------------------------
+
+const MAX_TICKET_RETRIES = 3;
+
+async function nextTicketNumber(db: PrismaClient, clientId: string): Promise<number> {
+  const last = await db.ticket.findFirst({
+    where: { clientId, ticketNumber: { gt: 0 } },
+    orderBy: { ticketNumber: 'desc' },
+    select: { ticketNumber: true },
+  });
+  return (last?.ticketNumber ?? 0) + 1;
+}
+
+// ---------------------------------------------------------------------------
+// Route resolution — find INGESTION route matching source + client
+// ---------------------------------------------------------------------------
+
+async function resolveIngestionRoute(
+  db: PrismaClient,
+  source: TicketSource,
+  clientId: string,
+): Promise<ResolvedRoute | null> {
+  const includeSteps = {
+    steps: { where: { isActive: true }, orderBy: { stepOrder: 'asc' as const } },
+  };
+
+  // 1. Client-specific + source-specific
+  const clientSourceRoute = await db.ticketRoute.findFirst({
+    where: { routeType: 'INGESTION', clientId, source, isActive: true } as never,
+    include: includeSteps,
+    orderBy: { sortOrder: 'asc' },
+  });
+  if (clientSourceRoute && clientSourceRoute.steps.length > 0) return clientSourceRoute as ResolvedRoute;
+
+  // 2. Client-specific + any-source
+  const clientAnyRoute = await db.ticketRoute.findFirst({
+    where: { routeType: 'INGESTION', clientId, source: null, isActive: true } as never,
+    include: includeSteps,
+    orderBy: { sortOrder: 'asc' },
+  });
+  if (clientAnyRoute && clientAnyRoute.steps.length > 0) return clientAnyRoute as ResolvedRoute;
+
+  // 3. Global + source-specific
+  const globalSourceRoute = await db.ticketRoute.findFirst({
+    where: { routeType: 'INGESTION', clientId: null, source, isActive: true } as never,
+    include: includeSteps,
+    orderBy: { sortOrder: 'asc' },
+  });
+  if (globalSourceRoute && globalSourceRoute.steps.length > 0) return globalSourceRoute as ResolvedRoute;
+
+  // 4. Global + any-source
+  const globalAnyRoute = await db.ticketRoute.findFirst({
+    where: { routeType: 'INGESTION', clientId: null, source: null, isActive: true } as never,
+    include: includeSteps,
+    orderBy: { sortOrder: 'asc' },
+  });
+  if (globalAnyRoute && globalAnyRoute.steps.length > 0) return globalAnyRoute as ResolvedRoute;
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Payload helpers — read source-specific fields from the generic payload
+// ---------------------------------------------------------------------------
+
+function payloadStr(payload: Record<string, unknown>, key: string): string {
+  const val = payload[key];
+  return typeof val === 'string' ? val : '';
+}
+
+// ---------------------------------------------------------------------------
+// Ingestion pipeline execution
+// ---------------------------------------------------------------------------
+
+async function executeIngestionPipeline(
+  deps: IngestionDeps,
+  route: ResolvedRoute,
+  ctx: IngestionContext,
+  tracker: IngestionRunTracker,
+): Promise<void> {
+  const { db, ai, mailer, ticketCreatedQueue, senderSignature } = deps;
+  const { source, clientId, payload } = ctx;
+
+  // Wrap tracker in a best-effort proxy so tracking failures never affect pipeline correctness.
+  // BullMQ will retry failed jobs, and a tracking DB error after ticket creation would cause
+  // duplicate tickets if the job is retried — so observability must be non-blocking.
+  const safeTracker: IngestionRunTracker = {
+    runId: tracker.runId,
+    startStep: (...args) => tracker.startStep(...args).catch((err) => {
+      logger.warn({ err }, 'Tracker startStep failed — continuing without tracking');
+      return 'noop';
+    }),
+    completeStep: (...args) => tracker.completeStep(...args).catch((err) => {
+      logger.warn({ err }, 'Tracker completeStep failed — continuing');
+    }),
+    failStep: (...args) => tracker.failStep(...args).catch((err) => {
+      logger.warn({ err }, 'Tracker failStep failed — continuing');
+    }),
+    skipStep: (...args) => tracker.skipStep(...args).catch((err) => {
+      logger.warn({ err }, 'Tracker skipStep failed — continuing');
+    }),
+    completeRun: (...args) => tracker.completeRun(...args).catch((err) => {
+      logger.warn({ err }, 'Tracker completeRun failed — continuing');
+    }),
+  };
+
+  const stepErrors: StepError[] = [];
+
+  logger.info({ source, clientId, routeId: route!.id, routeName: route!.name, steps: route!.steps.length }, 'Executing ingestion pipeline');
+
+  for (const step of route!.steps) {
+    logger.info({ stepType: step.stepType, stepName: step.name, clientId }, `Executing ingestion step: ${step.name}`);
+    const stepId = await safeTracker.startStep(step.stepOrder, step.stepType, step.name);
+
+    switch (step.stepType) {
+      // ── SUMMARIZE_EMAIL ─────────────────────────────────────────────
+      case RouteStepType.SUMMARIZE_EMAIL: {
+        const body = payloadStr(payload, 'body');
+        const subject = payloadStr(payload, 'subject');
+        if (!body && !subject) {
+          logger.info({ clientId }, 'Skipping SUMMARIZE_EMAIL — no email content in payload');
+          await safeTracker.skipStep(stepId, 'No email content in payload');
+          break;
+        }
+        try {
+          const promptKey = step.promptKeyOverride ?? 'imap.summarize.system';
+          const taskType = (step.taskTypeOverride ?? TaskType.SUMMARIZE) as string;
+          const summaryRes = await withTimeout(
+            (signal) => ai.generate({
+              taskType: taskType as typeof TaskType.SUMMARIZE,
+              context: { clientId },
+              prompt: `Summarize the following support email in 2-3 concise bullet points:\n\nSubject: ${subject}\n\n${body}`,
+              promptKey,
+              signal,
+            }),
+            AI_STEP_TIMEOUT_MS,
+            'SUMMARIZE_EMAIL',
+          );
+          ctx.summary = summaryRes.content;
+          if (!ctx.description) ctx.description = ctx.summary;
+          await safeTracker.completeStep(stepId, ctx.summary);
+        } catch (err) {
+          logger.error({ err, clientId, stepType: step.stepType }, 'Ingestion step failed — skipping summary');
+          stepErrors.push({ step: RouteStepType.SUMMARIZE_EMAIL, error: err instanceof Error ? err.message : String(err), fallback: 'empty (use raw description)' });
+          await safeTracker.failStep(stepId, err instanceof Error ? err.message : String(err));
+        }
+        break;
+      }
+
+      // ── CATEGORIZE ──────────────────────────────────────────────────
+      case RouteStepType.CATEGORIZE: {
+        try {
+          const promptKey = step.promptKeyOverride ?? 'imap.categorize.system';
+          const taskType = (step.taskTypeOverride ?? TaskType.CATEGORIZE) as string;
+          // Use summary if available, otherwise payload content
+          const content = ctx.summary || ctx.description || payloadStr(payload, 'body') || payloadStr(payload, 'toolResult') || payloadStr(payload, 'description');
+          const subject = ctx.title || payloadStr(payload, 'subject') || payloadStr(payload, 'title');
+          const categorizeRes = await withTimeout(
+            (signal) => ai.generate({
+              taskType: taskType as typeof TaskType.CATEGORIZE,
+              context: { clientId },
+              prompt: `Categorize this support request into exactly one of: DATABASE_PERF, BUG_FIX, FEATURE_REQUEST, SCHEMA_CHANGE, CODE_REVIEW, ARCHITECTURE, GENERAL.\n\nSubject: ${subject}\n\n${content}\n\nRespond with only the category name.`,
+              promptKey,
+              signal,
+            }),
+            AI_STEP_TIMEOUT_MS,
+            'CATEGORIZE',
+          );
+          const rawCategory = categorizeRes.content.trim().toUpperCase();
+          ctx.category = isValidCategory(rawCategory) ? rawCategory : TicketCategory.GENERAL;
+          await safeTracker.completeStep(stepId, ctx.category);
+        } catch (err) {
+          logger.error({ err, clientId, stepType: step.stepType }, 'Ingestion step failed — using fallback');
+          ctx.category = TicketCategory.GENERAL;
+          stepErrors.push({ step: RouteStepType.CATEGORIZE, error: err instanceof Error ? err.message : String(err), fallback: 'GENERAL' });
+          await safeTracker.failStep(stepId, err instanceof Error ? err.message : String(err));
+        }
+        break;
+      }
+
+      // ── TRIAGE_PRIORITY ─────────────────────────────────────────────
+      case RouteStepType.TRIAGE_PRIORITY: {
+        try {
+          const promptKey = step.promptKeyOverride ?? 'imap.triage.system';
+          const taskType = (step.taskTypeOverride ?? TaskType.TRIAGE) as string;
+          const content = ctx.summary || ctx.description || payloadStr(payload, 'body') || payloadStr(payload, 'toolResult');
+          const subject = ctx.title || payloadStr(payload, 'subject') || payloadStr(payload, 'title');
+          const triageRes = await withTimeout(
+            (signal) => ai.generate({
+              taskType: taskType as typeof TaskType.TRIAGE,
+              context: { clientId },
+              prompt: `Assess the priority of this support request. Choose one of: LOW, MEDIUM, HIGH, CRITICAL.\n\nSubject: ${subject}\n\n${content}\n\nRespond with only the priority level.`,
+              promptKey,
+              signal,
+            }),
+            AI_STEP_TIMEOUT_MS,
+            'TRIAGE_PRIORITY',
+          );
+          const rawPriority = triageRes.content.trim().toUpperCase();
+          const validPriorities = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
+          ctx.priority = validPriorities.includes(rawPriority) ? rawPriority : 'MEDIUM';
+          await safeTracker.completeStep(stepId, ctx.priority);
+        } catch (err) {
+          logger.error({ err, clientId, stepType: step.stepType }, 'Ingestion step failed — using fallback');
+          ctx.priority = 'MEDIUM';
+          stepErrors.push({ step: RouteStepType.TRIAGE_PRIORITY, error: err instanceof Error ? err.message : String(err), fallback: 'MEDIUM' });
+          await safeTracker.failStep(stepId, err instanceof Error ? err.message : String(err));
+        }
+        break;
+      }
+
+      // ── GENERATE_TITLE ──────────────────────────────────────────────
+      case RouteStepType.GENERATE_TITLE: {
+        try {
+          const promptKey = step.promptKeyOverride?.trim() || undefined;
+          const taskType = (step.taskTypeOverride ?? TaskType.GENERATE_TITLE) as string;
+          const content = ctx.summary || ctx.description || payloadStr(payload, 'body') || payloadStr(payload, 'toolResult');
+          const titleRes = await withTimeout(
+            (signal) => ai.generate({
+              taskType: taskType as typeof TaskType.GENERATE_TITLE,
+              context: { clientId },
+              prompt: `Output ONLY a concise ticket title, max 80 characters. No quotes, no preamble, no explanation — just the title text.\n\n${content.slice(0, 1000)}`,
+              ...(promptKey && { promptKey }),
+              signal,
+            }),
+            AI_STEP_TIMEOUT_MS,
+            'GENERATE_TITLE',
+          );
+          let newTitle = titleRes.content.trim();
+          newTitle = newTitle.replace(/^["']|["']$/g, '');
+          newTitle = newTitle.replace(/^(here'?s?\s+(a\s+)?(concise\s+)?ticket\s+title:?\s*)/i, '');
+          newTitle = newTitle.replace(/^title:\s*/i, '');
+          newTitle = newTitle.slice(0, 80);
+          if (newTitle) ctx.title = newTitle;
+          await safeTracker.completeStep(stepId, ctx.title);
+        } catch (err) {
+          logger.error({ err, clientId, stepType: step.stepType }, 'Ingestion step failed — keeping original title');
+          stepErrors.push({ step: RouteStepType.GENERATE_TITLE, error: err instanceof Error ? err.message : String(err), fallback: 'original subject/probeName' });
+          await safeTracker.failStep(stepId, err instanceof Error ? err.message : String(err));
+        }
+        break;
+      }
+
+      // ── CREATE_TICKET ───────────────────────────────────────────────
+      case RouteStepType.CREATE_TICKET: {
+        if (ctx.ticketId) {
+          logger.warn({ clientId }, 'CREATE_TICKET skipped — ticket already created in this pipeline');
+          await safeTracker.skipStep(stepId, 'Ticket already created in this pipeline');
+          break;
+        }
+
+        // Resolve requester contact from payload
+        const operatorEmail = payloadStr(payload, 'operatorEmail');
+        const contactId = payloadStr(payload, 'contactId');
+        let requesterContactId: string | undefined;
+        if (contactId) {
+          // Verify payload contactId belongs to this client
+          const verified = await db.contact.findFirst({
+            where: { id: contactId, clientId },
+            select: { id: true },
+          });
+          requesterContactId = verified?.id ?? undefined;
+        }
+        if (!requesterContactId && operatorEmail) {
+          const contact = await db.contact.findFirst({
+            where: { email: { equals: operatorEmail.trim(), mode: 'insensitive' }, clientId },
+            select: { id: true },
+          });
+          requesterContactId = contact?.id ?? undefined;
+        }
+        ctx.requesterId = requesterContactId ?? null;
+
+        // Build ticket subject — use accumulated title or fall back to payload
+        const subject = ctx.title
+          || payloadStr(payload, 'subject')
+          || payloadStr(payload, 'title')
+          || payloadStr(payload, 'probeName')
+          || 'New ticket';
+
+        // Build description — use accumulated description/summary or payload
+        const description = (ctx.description || ctx.summary || payloadStr(payload, 'body') || payloadStr(payload, 'toolResult') || payloadStr(payload, 'description')).slice(0, 2000);
+
+        // Build metadata from known payload fields
+        const metadata: Record<string, unknown> = {};
+        if (payload['probeId']) metadata['probeId'] = payload['probeId'];
+        if (payload['toolName']) metadata['toolName'] = payload['toolName'];
+        if (payload['integrationId']) metadata['integrationId'] = payload['integrationId'];
+        if (payload['workItemId']) metadata['workItemId'] = payload['workItemId'];
+        if (payload['messageId']) metadata['messageId'] = payload['messageId'];
+
+        // External ref for DevOps or email
+        const externalRef = payloadStr(payload, 'externalRef') || payloadStr(payload, 'messageId') || null;
+
+        for (let attempt = 0; attempt <= MAX_TICKET_RETRIES; attempt++) {
+          const ticketNumber = await nextTicketNumber(db, clientId);
+          try {
+            const ticket = await db.ticket.create({
+              data: {
+                clientId,
+                subject: subject.slice(0, 200),
+                description: description || null,
+                summary: ctx.summary || null,
+                source: source as never,
+                category: (ctx.category !== 'GENERAL' ? ctx.category : null) as TicketCategory | null,
+                priority: ctx.priority as Priority,
+                ticketNumber,
+                externalRef,
+                metadata: Object.keys(metadata).length > 0 ? (metadata as Prisma.InputJsonValue) : Prisma.DbNull,
+                ...(requesterContactId && {
+                  followers: {
+                    create: { contactId: requesterContactId, followerType: 'REQUESTER' },
+                  },
+                }),
+              },
+              select: { id: true },
+            });
+            ctx.ticketId = ticket.id;
+            logger.info({ clientId, ticketId: ticket.id, source, category: ctx.category, priority: ctx.priority }, 'Ticket created via ingestion pipeline');
+            deps.appLog?.info(
+              `Ticket created via ingestion (${source})`,
+              { ticketId: ctx.ticketId, source, clientId, category: ctx.category, priority: ctx.priority },
+              ctx.ticketId,
+              'ticket',
+            );
+            break;
+          } catch (err) {
+            if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002' && attempt < MAX_TICKET_RETRIES) {
+              logger.warn({ attempt, clientId }, 'Ticket number conflict — retrying');
+              await new Promise(resolve => setTimeout(resolve, 50 * 2 ** attempt));
+              continue;
+            }
+            throw err;
+          }
+        }
+
+        if (!ctx.ticketId) {
+          throw new Error('Failed to create ticket after max retries');
+        }
+
+        // Record initial inbound event based on source
+        if (source === TicketSource.EMAIL) {
+          await db.ticketEvent.create({
+            data: {
+              ticketId: ctx.ticketId,
+              eventType: 'EMAIL_INBOUND',
+              content: description.slice(0, 2000),
+              metadata: {
+                messageId: payload['messageId'] ?? null,
+                from: payload['from'] ?? null,
+                fromName: payload['fromName'] ?? null,
+                subject: payload['subject'] ?? null,
+                inReplyTo: payload['inReplyTo'] ?? null,
+                references: payload['references'] ?? null,
+                hasAttachments: payload['hasAttachments'] ?? null,
+              } as Prisma.InputJsonValue,
+              actor: `system:ingestion:${source.toLowerCase()}`,
+              ...(typeof payload['messageId'] === 'string' ? { emailMessageId: payload['messageId'] } : {}),
+            },
+          });
+        } else {
+          await db.ticketEvent.create({
+            data: {
+              ticketId: ctx.ticketId,
+              eventType: 'SYSTEM_NOTE',
+              content: `Ticket created via ${source.toLowerCase()} ingestion.\n\n${ctx.summary || description.slice(0, 500)}`,
+              metadata: { source, ...metadata },
+              actor: `system:ingestion:${source.toLowerCase()}`,
+            },
+          });
+        }
+
+        // Save raw probe result artifact when available
+        const toolResult = payloadStr(payload, 'toolResult');
+        const probeName = payloadStr(payload, 'probeName');
+        const toolName = payloadStr(payload, 'toolName');
+        if (toolResult && probeName && deps.artifactStoragePath) {
+          await saveProbeArtifact(db, ctx.ticketId, probeName, toolName, toolResult, deps.artifactStoragePath);
+        }
+
+        await safeTracker.completeStep(stepId, `Ticket created: ${ctx.ticketId}`);
+        break;
+      }
+
+      // ── ADD_FOLLOWER ────────────────────────────────────────────────
+      case RouteStepType.ADD_FOLLOWER: {
+        if (!ctx.ticketId) {
+          logger.warn({ clientId }, 'ADD_FOLLOWER skipped — no ticket created yet');
+          await safeTracker.skipStep(stepId, 'No ticket created yet');
+          break;
+        }
+        try {
+          const config = (step.config ?? {}) as Record<string, unknown>;
+          const email = typeof config['email'] === 'string' ? config['email'] : '';
+          const emailDomain = typeof config['emailDomain'] === 'string' ? config['emailDomain'] : '';
+          const followerType = config['followerType'] === 'REQUESTER' ? 'REQUESTER' : 'FOLLOWER';
+
+          let addedCount = 0;
+          if (email) {
+            const contact = await db.contact.findFirst({
+              where: { email: { equals: email, mode: 'insensitive' }, clientId },
+              select: { id: true },
+            });
+            if (contact) {
+              await db.ticketFollower.create({
+                data: { ticketId: ctx.ticketId, contactId: contact.id, followerType },
+              }).catch((err) => {
+                if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') return;
+                throw err;
+              });
+              addedCount = 1;
+            }
+          } else if (emailDomain) {
+            const contacts = await db.contact.findMany({
+              where: { email: { endsWith: `@${emailDomain}`, mode: 'insensitive' }, clientId },
+              select: { id: true },
+            });
+            if (contacts.length > 0) {
+              await db.ticketFollower.createMany({
+                data: contacts.map(c => ({ ticketId: ctx.ticketId!, contactId: c.id, followerType })),
+                skipDuplicates: true,
+              });
+              addedCount = contacts.length;
+            }
+          }
+          await safeTracker.completeStep(stepId, `Added ${addedCount} follower(s)`);
+        } catch (err) {
+          logger.warn({ err, clientId, stepType: step.stepType, ticketId: ctx.ticketId }, 'Ingestion step failed — skipping follower');
+          stepErrors.push({ step: RouteStepType.ADD_FOLLOWER, error: err instanceof Error ? err.message : String(err), fallback: 'skipped' });
+          await safeTracker.failStep(stepId, err instanceof Error ? err.message : String(err));
+        }
+        break;
+      }
+
+      // ── DRAFT_RECEIPT ───────────────────────────────────────────────
+      case RouteStepType.DRAFT_RECEIPT: {
+        if (!ctx.ticketId) {
+          logger.warn({ clientId }, 'DRAFT_RECEIPT skipped — no ticket created yet');
+          await safeTracker.skipStep(stepId, 'No ticket created yet');
+          break;
+        }
+        const emailFrom = payloadStr(payload, 'from');
+        if (!emailFrom) {
+          logger.info({ clientId }, 'Skipping DRAFT_RECEIPT — no email sender in payload');
+          await safeTracker.skipStep(stepId, 'No email sender in payload');
+          break;
+        }
+        try {
+          // Resolve recipient name
+          const fromName = payloadStr(payload, 'fromName');
+          let recipientName = fromName;
+          if (!recipientName) {
+            const contact = await db.contact.findFirst({
+              where: { clientId, email: { equals: emailFrom, mode: 'insensitive' } },
+              select: { name: true },
+            });
+            recipientName = contact?.name || emailFrom.split('@')[0] || 'there';
+          }
+          const subject = ctx.title || payloadStr(payload, 'subject');
+          const promptKey = step.promptKeyOverride ?? 'imap.draft-receipt.system';
+          const taskType = (step.taskTypeOverride ?? TaskType.DRAFT_EMAIL) as string;
+          const draftRes = await withTimeout(
+            (signal) => ai.generate({
+              taskType: taskType as typeof TaskType.DRAFT_EMAIL,
+              context: { ticketId: ctx.ticketId, clientId },
+              prompt: [
+                'Draft a short, professional email confirming receipt of a support request.',
+                `Recipient name: ${recipientName}`,
+                `Sender name (sign as): ${senderSignature}`,
+                `Ticket ID: ${ctx.ticketId}`,
+                `Subject: ${subject}`,
+                '', 'Issue summary:', ctx.summary, '',
+                `Category: ${ctx.category}`, `Priority: ${ctx.priority}`, '',
+                'The email should:',
+                '- Acknowledge the request',
+                '- Show awareness of the core issue',
+                '- Set expectations for next steps',
+                '- Be warm but concise (3-5 short paragraphs)',
+              ].join('\n'),
+              promptKey,
+              signal,
+            }),
+            AI_STEP_TIMEOUT_MS,
+            'DRAFT_RECEIPT',
+          );
+
+          try {
+            const replySubject = /^re:\s*/i.test(subject) ? subject : `Re: ${subject}`;
+            const origMessageId = payloadStr(payload, 'messageId');
+            const origReferences = payload['references'];
+            const replyOpts: ReplyOptions = {
+              to: emailFrom,
+              subject: replySubject,
+              body: draftRes.content,
+              ...(origMessageId && { inReplyTo: origMessageId }),
+              ...(Array.isArray(origReferences) && { references: origReferences as string[] }),
+            };
+            const messageId = await mailer.sendReply(replyOpts);
+            await db.ticketEvent.create({
+              data: {
+                ticketId: ctx.ticketId,
+                eventType: 'EMAIL_OUTBOUND',
+                content: draftRes.content,
+                metadata: { type: 'receipt', to: emailFrom, outboundMessageId: messageId },
+                actor: 'system:ingestion',
+              },
+            });
+            logger.info({ ticketId: ctx.ticketId, to: emailFrom }, 'Receipt email sent via ingestion');
+            await safeTracker.completeStep(stepId, `Receipt sent to ${emailFrom}`);
+          } catch (sendErr) {
+            logger.warn({ err: sendErr, ticketId: ctx.ticketId }, 'Failed to send receipt email');
+            stepErrors.push({ step: RouteStepType.DRAFT_RECEIPT, error: sendErr instanceof Error ? sendErr.message : String(sendErr), fallback: 'email send failed' });
+            await safeTracker.failStep(stepId, sendErr instanceof Error ? sendErr.message : String(sendErr));
+          }
+        } catch (err) {
+          logger.warn({ err, clientId, stepType: step.stepType, ticketId: ctx.ticketId }, 'Ingestion step failed — skipping receipt draft');
+          stepErrors.push({ step: RouteStepType.DRAFT_RECEIPT, error: err instanceof Error ? err.message : String(err), fallback: 'skipped' });
+          await safeTracker.failStep(stepId, err instanceof Error ? err.message : String(err));
+        }
+        break;
+      }
+
+      default:
+        logger.warn({ stepType: step.stepType, clientId }, `Unknown ingestion step type: ${step.stepType} — skipping`);
+        await safeTracker.skipStep(stepId, `Unknown step type: ${step.stepType}`);
+        break;
+    }
+  }
+
+  // Record any step errors as a ticket event so the operator can see them
+  if (ctx.ticketId && stepErrors.length > 0) {
+    try {
+      const metadataErrors = stepErrors.map(({ step, error, fallback }) => ({ step, error, fallback }));
+      await db.ticketEvent.create({
+        data: {
+          ticketId: ctx.ticketId,
+          eventType: 'SYSTEM_NOTE',
+          content: `Ingestion pipeline completed with ${stepErrors.length} step error(s):\n${stepErrors.map(e => `- ${e.step}: ${e.error} (fallback: ${e.fallback})`).join('\n')}`,
+          metadata: { type: 'ingestion-errors', errors: metadataErrors } as Prisma.InputJsonValue,
+          actor: 'system:ingestion',
+        },
+      });
+    } catch (err) {
+      logger.warn({ err, ticketId: ctx.ticketId }, 'Failed to record step errors as ticket event');
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Probe artifact storage (mirrors saveRawResultArtifact in probe-worker)
+// ---------------------------------------------------------------------------
+
+/**
+ * Sanitize a string to be safe for use as a filename component.
+ * Only allows alphanumerics, dots, hyphens, and underscores; replaces all
+ * other characters (including path separators) with underscores and trims
+ * to 64 characters to prevent path traversal or excessively long filenames.
+ */
+function sanitizeFilenameSegment(value: string): string {
+  return value.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 64);
+}
+
+async function saveProbeArtifact(
+  db: PrismaClient,
+  ticketId: string,
+  probeName: string,
+  toolName: string,
+  rawResult: string,
+  storagePath: string,
+): Promise<void> {
+  try {
+    let isJson = false;
+    try { JSON.parse(rawResult); isJson = true; } catch { /* not JSON */ }
+    const mimeType = isJson ? 'application/json' : 'text/plain';
+    const ext = isJson ? 'json' : 'txt';
+    const safeToolName = sanitizeFilenameSegment(toolName || 'unknown');
+    const filename = `probe-${safeToolName}-${Date.now()}.${ext}`;
+    const resolvedStorage = resolve(storagePath);
+    const ticketDir = resolve(resolvedStorage, 'tickets', ticketId);
+    // Guard: ensure the resolved path stays within storagePath to prevent traversal.
+    // Use path.relative() rather than startsWith() so the check is correct on all
+    // platforms (Windows uses backslash separators) and when resolvedStorage is '/'.
+    const rel = relative(resolvedStorage, ticketDir);
+    if (rel.startsWith('..') || rel === '') {
+      logger.warn({ ticketId, ticketDir, resolvedStorage }, 'Probe artifact path escaped storage root — skipping');
+      return;
+    }
+    const fullPath = join(ticketDir, filename);
+    await mkdir(ticketDir, { recursive: true });
+    await writeFile(fullPath, rawResult, 'utf-8');
+    const relativePath = `tickets/${ticketId}/${filename}`;
+    await db.artifact.create({
+      data: {
+        ticketId,
+        filename,
+        mimeType,
+        sizeBytes: Buffer.byteLength(rawResult, 'utf-8'),
+        storagePath: relativePath,
+        description: `Raw MCP tool output from probe "${probeName}" (${toolName})`,
+      },
+    });
+    logger.info({ ticketId, filename }, 'Probe artifact saved via ingestion engine');
+  } catch (err) {
+    logger.warn({ err, ticketId }, 'Failed to save probe artifact — continuing');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public: create the BullMQ processor
+// ---------------------------------------------------------------------------
+
+export function createIngestionProcessor(deps: IngestionDeps) {
+  return async function processIngestion(job: Job<IngestionJob>): Promise<void> {
+    const { source, clientId, payload } = job.data;
+    const jobId = job.id ?? `unknown-${Date.now()}`;
+
+    logger.info({ source, clientId, jobId }, 'Processing ingestion job');
+
+    // Verify client exists
+    const client = await deps.db.client.findUnique({ where: { id: clientId }, select: { id: true } });
+    if (!client) {
+      logger.error({ clientId }, 'Ingestion job references non-existent client — dropping');
+      return;
+    }
+
+    // Resolve ingestion route
+    const route = await resolveIngestionRoute(deps.db, source as TicketSource, clientId);
+    if (!route) {
+      logger.warn({ source, clientId }, 'No ingestion route found — dropping payload');
+      // Record a no_route run so the operator can see it was attempted (best-effort — don't throw).
+      await createIngestionRunTracker(deps.db, jobId, source as TicketSource, clientId)
+        .then((tracker) => tracker.completeRun('no_route', undefined, 'No matching ingestion route found'))
+        .catch((err) => { logger.warn({ err }, 'Failed to record no_route ingestion run — non-fatal'); });
+      return;
+    }
+
+    // Create the run tracker — fall back to a no-op tracker if the ingestion_runs
+    // tables aren't present yet (deploy ordering) or the DB insert fails, so
+    // ingestion can proceed without observability.
+    let tracker: IngestionRunTracker;
+    try {
+      tracker = await createIngestionRunTracker(
+        deps.db,
+        jobId,
+        source as TicketSource,
+        clientId,
+        route.id,
+        route.name,
+      );
+    } catch (err) {
+      logger.warn({ err, jobId, clientId, source }, 'Failed to create ingestion run tracker — proceeding with no-op tracker');
+      tracker = noopTracker;
+    }
+
+    // Build initial context from payload
+    const ctx: IngestionContext = {
+      source: source as TicketSource,
+      clientId,
+      payload,
+      title: payloadStr(payload, 'subject') || payloadStr(payload, 'title') || '',
+      description: (payloadStr(payload, 'body') || payloadStr(payload, 'toolResult') || payloadStr(payload, 'description')).slice(0, 2000),
+      summary: '',
+      category: isValidCategory(payload['category']) ? (payload['category'] as string) : 'GENERAL',
+      priority: 'MEDIUM',
+      ticketId: null,
+      requesterId: null,
+    };
+
+    let pipelineError: unknown = undefined;
+    try {
+      // Execute the ingestion pipeline
+      await executeIngestionPipeline(deps, route, ctx, tracker);
+
+      // If a ticket was created, enqueue for analysis dispatch
+      if (ctx.ticketId) {
+        await deps.ticketCreatedQueue.add('ticket-created', {
+          ticketId: ctx.ticketId,
+          clientId,
+          source: source as TicketSource,
+          category: (ctx.category !== 'GENERAL' ? ctx.category : null) as TicketCreatedJob['category'],
+        }, {
+          jobId: `ticket-created-${ctx.ticketId}`,
+          attempts: 4,
+          backoff: { type: 'exponential', delay: 30_000 },
+        });
+        logger.info({ ticketId: ctx.ticketId, source, clientId }, 'Ingestion complete — enqueued ticket-created for analysis dispatch');
+      } else {
+        logger.info({ source, clientId, routeId: route.id }, 'Ingestion pipeline completed without creating a ticket (no CREATE_TICKET step)');
+      }
+    } catch (err) {
+      pipelineError = err;
+      throw err;
+    } finally {
+      // Complete the run tracking in a finally block so a tracker DB failure never causes
+      // the pipeline to appear failed or triggers a BullMQ retry that could duplicate tickets.
+      const runStatus = pipelineError ? 'error' : 'success';
+      const runError = pipelineError instanceof Error ? pipelineError.message : pipelineError != null ? String(pipelineError) : undefined;
+      await tracker.completeRun(runStatus, ctx.ticketId ?? undefined, runError).catch((trackErr) => {
+        logger.warn({ trackErr }, 'Failed to record ingestion run completion — tracking only, pipeline result unaffected');
+      });
+    }
+  };
+}

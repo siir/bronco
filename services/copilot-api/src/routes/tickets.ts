@@ -1,0 +1,474 @@
+import type { FastifyInstance } from 'fastify';
+import type { Queue } from 'bullmq';
+import type { AIRouter } from '@bronco/ai-provider';
+import { ensureClientUser, Prisma } from '@bronco/db';
+import { TicketStatus, TicketCategory, TicketEventType, Priority, TicketSource, TaskType, isClosedStatus, AnalysisStatus } from '@bronco/shared-types';
+import type { TicketCreatedJob } from '@bronco/shared-types';
+
+interface TicketRouteOpts {
+  logSummarizeQueue?: Queue;
+  systemAnalysisQueue?: Queue;
+  ticketCreatedQueue?: Queue<TicketCreatedJob>;
+  ai?: AIRouter;
+}
+
+const VALID_PRIORITIES: Set<string> = new Set(Object.values(Priority));
+const VALID_SOURCES: Set<string> = new Set(Object.values(TicketSource));
+const VALID_CATEGORIES: Set<string> = new Set(Object.values(TicketCategory));
+const VALID_STATUSES: Set<string> = new Set(Object.values(TicketStatus));
+const VALID_EVENT_TYPES: Set<string> = new Set(Object.values(TicketEventType));
+
+export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteOpts): Promise<void> {
+  fastify.get<{ Querystring: { clientId?: string; status?: string; category?: string; environmentId?: string; limit?: string; offset?: string } }>(
+    '/api/tickets',
+    async (request) => {
+      const { clientId, status, category, environmentId, limit: rawLimit = '50', offset: rawOffset = '0' } = request.query;
+
+      const take = Math.trunc(Number(rawLimit));
+      const skip = Math.trunc(Number(rawOffset));
+      if (!Number.isFinite(take) || take < 0 || !Number.isFinite(skip) || skip < 0) {
+        return fastify.httpErrors.badRequest('limit and offset must be non-negative integers');
+      }
+
+      // Validate and parse status filter (supports comma-separated values)
+      let statusFilter: TicketStatus | { in: TicketStatus[] } | undefined;
+      if (status) {
+        const values = status.split(',').map(s => s.trim()).filter(Boolean);
+        const invalid = values.filter(v => !VALID_STATUSES.has(v));
+        if (invalid.length > 0) {
+          return fastify.httpErrors.badRequest(`Invalid status values: ${invalid.join(', ')}`);
+        }
+        statusFilter = values.length === 1
+          ? values[0] as TicketStatus
+          : { in: values as TicketStatus[] };
+      }
+
+      return fastify.db.ticket.findMany({
+        where: {
+          ...(clientId && { clientId }),
+          ...(statusFilter && { status: statusFilter }),
+          ...(category && { category: category as TicketCategory }),
+          ...(environmentId && { environmentId }),
+        },
+        include: {
+          client: { select: { name: true, shortCode: true } },
+          system: { select: { name: true } },
+          _count: { select: { events: true, artifacts: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take,
+        skip,
+      });
+    },
+  );
+
+  // GET /api/tickets/stats — aggregate ticket counts by status, priority, category, and source
+  fastify.get<{ Querystring: { clientId?: string } }>(
+    '/api/tickets/stats',
+    async (request) => {
+      const { clientId } = request.query;
+      const where = clientId ? { clientId } : {};
+
+      const [total, byStatus, byPriority, byCategory, bySource] = await Promise.all([
+        fastify.db.ticket.count({ where }),
+        fastify.db.ticket.groupBy({ by: ['status'], where, _count: true }),
+        fastify.db.ticket.groupBy({ by: ['priority'], where, _count: true }),
+        fastify.db.ticket.groupBy({ by: ['category'], where, _count: true }),
+        fastify.db.ticket.groupBy({ by: ['source'], where, _count: true }),
+      ]);
+
+      const toRecord = <T extends string>(
+        rows: Array<{ _count: number } & { [K in T]: string | null }>,
+        key: T,
+      ): Record<string, number> => {
+        const record: Record<string, number> = {};
+        for (const row of rows) {
+          const value = row[key];
+          if (value != null) record[value] = row._count;
+        }
+        return record;
+      };
+
+      return {
+        total,
+        byStatus: toRecord(byStatus, 'status'),
+        byPriority: toRecord(byPriority, 'priority'),
+        byCategory: toRecord(byCategory, 'category'),
+        bySource: toRecord(bySource, 'source'),
+      };
+    },
+  );
+
+  fastify.get<{ Params: { id: string } }>('/api/tickets/:id', async (request) => {
+    const ticket = await fastify.db.ticket.findUnique({
+      where: { id: request.params.id },
+      include: {
+        client: true,
+        system: true,
+        followers: { include: { contact: true }, orderBy: { createdAt: 'asc' } },
+        events: { orderBy: { createdAt: 'asc' } },
+        artifacts: true,
+      },
+    });
+    if (!ticket) return fastify.httpErrors.notFound('Ticket not found');
+    return ticket;
+  });
+
+  fastify.post<{
+    Body: {
+      clientId: string;
+      subject: string;
+      description?: string;
+      systemId?: string;
+      environmentId?: string | null;
+      requesterId?: string;
+      priority?: string;
+      source?: string;
+      category?: string;
+    };
+  }>('/api/tickets', async (request, reply) => {
+    const { clientId, subject, description, systemId, environmentId, requesterId, priority, source, category } = request.body;
+
+    if (priority && !VALID_PRIORITIES.has(priority)) return fastify.httpErrors.badRequest(`Invalid priority: ${priority}`);
+    if (source && !VALID_SOURCES.has(source)) return fastify.httpErrors.badRequest(`Invalid source: ${source}`);
+    if (category && !VALID_CATEGORIES.has(category)) return fastify.httpErrors.badRequest(`Invalid category: ${category}`);
+
+    if (requesterId) {
+      const requesterContact = await fastify.db.contact.findUnique({
+        where: { id: requesterId },
+        select: { clientId: true },
+      });
+      if (!requesterContact || requesterContact.clientId !== clientId) {
+        return fastify.httpErrors.badRequest(`requesterId does not belong to client ${clientId}`);
+      }
+    }
+
+    if (environmentId !== undefined && environmentId !== null) {
+      const env = await fastify.db.clientEnvironment.findUnique({
+        where: { id: environmentId },
+        select: { clientId: true },
+      });
+      if (!env) return fastify.httpErrors.badRequest('Referenced environment not found');
+      if (env.clientId !== clientId) return fastify.httpErrors.forbidden('environmentId belongs to a different client');
+    }
+
+    let ticket: Awaited<ReturnType<typeof fastify.db.ticket.create>>;
+    for (let attempt = 0; attempt <= 3; attempt++) {
+      const lastApiTicket = await fastify.db.ticket.findFirst({
+        where: { clientId, ticketNumber: { gt: 0 } },
+        orderBy: { ticketNumber: 'desc' },
+        select: { ticketNumber: true },
+      });
+      const apiTicketNumber = (lastApiTicket?.ticketNumber ?? 0) + 1;
+
+      try {
+        ticket = await fastify.db.ticket.create({
+          data: {
+            clientId,
+            subject,
+            description,
+            systemId,
+            environmentId: environmentId ?? undefined,
+            priority: priority as Priority,
+            source: source as TicketSource,
+            category: category as TicketCategory,
+            ticketNumber: apiTicketNumber,
+            ...(requesterId && {
+              followers: {
+                create: { contactId: requesterId, followerType: 'REQUESTER' },
+              },
+            }),
+          },
+        });
+        break;
+      } catch (err) {
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002' && attempt < 3) {
+          continue;
+        }
+        throw err;
+      }
+    }
+    ticket = ticket!;
+
+    // Enqueue ticket-created event for route dispatch
+    if (opts?.ticketCreatedQueue) {
+      await opts.ticketCreatedQueue.add('ticket-created', {
+        ticketId: ticket.id,
+        clientId: ticket.clientId,
+        source: (ticket.source ?? TicketSource.MANUAL) as TicketCreatedJob['source'],
+        category: ticket.category ?? null,
+      }, {
+        jobId: `ticket-created-${ticket.id}`,
+        attempts: 4,
+        backoff: { type: 'exponential', delay: 30_000 },
+      });
+    }
+
+    // Auto-provision a CLIENT user account for the requester contact
+    if (requesterId) {
+      const contact = await fastify.db.contact.findUnique({
+        where: { id: requesterId },
+        select: { email: true, name: true, clientId: true },
+      });
+      if (contact) {
+        try {
+          await ensureClientUser(fastify.db, contact);
+        } catch (error) {
+          fastify.log.error({ err: error }, 'Failed to auto-provision CLIENT user');
+        }
+      }
+    }
+
+    reply.code(201);
+    return ticket;
+  });
+
+  fastify.post<{
+    Params: { id: string };
+    Body: {
+      eventType: string;
+      content?: string;
+      metadata?: Record<string, unknown>;
+      actor?: string;
+    };
+  }>('/api/tickets/:id/events', async (request, reply) => {
+    const { eventType, content, metadata, actor } = request.body;
+
+    if (!VALID_EVENT_TYPES.has(eventType)) return fastify.httpErrors.badRequest(`Invalid eventType: ${eventType}`);
+
+    const event = await fastify.db.ticketEvent.create({
+      data: {
+        ticketId: request.params.id,
+        eventType: eventType as TicketEventType,
+        content,
+        metadata: metadata as never ?? undefined,
+        actor,
+      },
+    });
+    reply.code(201);
+    return event;
+  });
+
+  fastify.patch<{ Params: { id: string }; Body: { status?: string; priority?: string; systemId?: string; environmentId?: string | null; category?: string | null } }>(
+    '/api/tickets/:id',
+    async (request, reply) => {
+      const { status: newStatus, priority, systemId, environmentId, category } = request.body;
+      if (newStatus && !VALID_STATUSES.has(newStatus)) return fastify.httpErrors.badRequest(`Invalid status: ${newStatus}`);
+      if (priority && !VALID_PRIORITIES.has(priority)) return fastify.httpErrors.badRequest(`Invalid priority: ${priority}`);
+      if (category && !VALID_CATEGORIES.has(category)) return fastify.httpErrors.badRequest(`Invalid category: ${category}`);
+
+      const needsExisting = request.body.status !== undefined || environmentId !== undefined;
+      const existing = needsExisting
+        ? await fastify.db.ticket.findUnique({ where: { id: request.params.id }, select: { status: true, clientId: true } })
+        : null;
+      if (request.body.status && !existing) return fastify.httpErrors.notFound('Ticket not found');
+      if (environmentId !== undefined && !existing) return fastify.httpErrors.notFound('Ticket not found');
+
+      if (environmentId !== undefined && environmentId !== null && existing) {
+        const env = await fastify.db.clientEnvironment.findUnique({
+          where: { id: environmentId },
+          select: { clientId: true },
+        });
+        if (!env) return fastify.httpErrors.badRequest('Referenced environment not found');
+        if (env.clientId !== existing.clientId) return fastify.httpErrors.forbidden('environmentId belongs to a different client');
+      }
+
+      const ticket = await fastify.db.ticket.update({
+        where: { id: request.params.id },
+        data: {
+          ...(newStatus && { status: newStatus as TicketStatus }),
+          ...(priority && { priority: priority as Priority }),
+          ...(systemId && { systemId }),
+          ...(environmentId !== undefined && { environmentId }),
+          ...(category !== undefined && { category: category as TicketCategory | null }),
+        },
+      });
+
+      // Trigger log summarization only when ticket status actually changes
+      if (request.body.status && request.body.status !== existing?.status && opts?.logSummarizeQueue) {
+        await opts.logSummarizeQueue.add(
+          'summarize-ticket-logs',
+          { ticketId: request.params.id },
+          { jobId: `ticket-status-${request.params.id}-${Date.now()}` },
+        );
+      }
+
+      // Trigger system analysis when ticket transitions to a closed status from a non-closed status
+      const statusChanged = request.body.status && request.body.status !== existing?.status;
+      if (statusChanged && existing && !isClosedStatus(existing.status) && isClosedStatus(request.body.status!) && opts?.systemAnalysisQueue) {
+        await opts.systemAnalysisQueue.add(
+          'analyze-ticket-closure',
+          { ticketId: request.params.id },
+          { jobId: `closure-${request.params.id}-${Date.now()}` },
+        );
+      }
+
+      return ticket;
+    },
+  );
+
+  // POST /api/tickets/:id/reanalyze — re-enqueue ticket for route dispatch
+  fastify.post<{ Params: { id: string } }>('/api/tickets/:id/reanalyze', async (request, reply) => {
+    const ticket = await fastify.db.ticket.findUnique({
+      where: { id: request.params.id },
+      select: { id: true, clientId: true, source: true, category: true },
+    });
+    if (!ticket) return fastify.httpErrors.notFound('Ticket not found');
+    if (!opts?.ticketCreatedQueue) return fastify.httpErrors.serviceUnavailable('Ticket queue not available');
+
+    const jobId = `ticket-created-reanalyze-${ticket.id}`;
+    const existingJob = await opts.ticketCreatedQueue.getJob(jobId);
+    let queued = true;
+
+    if (existingJob) {
+      const state = await existingJob.getState();
+      if (state === 'completed' || state === 'failed') {
+        await existingJob.remove();
+      } else {
+        queued = false;
+      }
+    }
+
+    if (queued) {
+      await fastify.db.ticket.update({
+        where: { id: ticket.id },
+        data: { analysisStatus: AnalysisStatus.PENDING, analysisError: null },
+      });
+
+      await opts.ticketCreatedQueue.add('ticket-created', {
+        ticketId: ticket.id,
+        clientId: ticket.clientId,
+        source: (ticket.source ?? TicketSource.MANUAL) as TicketCreatedJob['source'],
+        category: ticket.category ?? null,
+      }, {
+        jobId,
+        attempts: 4,
+        backoff: { type: 'exponential', delay: 30_000 },
+      });
+    }
+
+    await fastify.db.ticketEvent.create({
+      data: {
+        ticketId: ticket.id,
+        eventType: TicketEventType.SYSTEM_NOTE,
+        content: queued
+          ? 'Analysis pipeline re-triggered by operator.'
+          : 'Re-analysis skipped — a job is already queued or running.',
+        actor: 'operator',
+      },
+    });
+
+    const updated = await fastify.db.ticket.findUnique({ where: { id: ticket.id } });
+
+    reply.code(202);
+    return { queued, ticketId: ticket.id, jobId, ticket: updated };
+  });
+
+  // POST /api/tickets/:id/ai-help — ask AI for help on a ticket
+  const MAX_QUESTION_LENGTH = 2000;
+
+  /** Task types allowed for the ai-help endpoint (analysis/reasoning tasks only). */
+  const AI_HELP_ALLOWED_TASK_TYPES = new Set<TaskType>([
+    TaskType.SUGGEST_NEXT_STEPS,
+    TaskType.DEEP_ANALYSIS,
+    TaskType.BUG_ANALYSIS,
+    TaskType.FEATURE_ANALYSIS,
+    TaskType.ARCHITECTURE_REVIEW,
+    TaskType.SCHEMA_REVIEW,
+    TaskType.REVIEW_CODE,
+    TaskType.ANALYZE_QUERY,
+    TaskType.SUMMARIZE_TICKET,
+  ]);
+
+  fastify.post<{ Params: { id: string }; Body: { question?: string; provider?: string; model?: string; taskType?: string } }>(
+    '/api/tickets/:id/ai-help',
+    { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
+    async (request) => {
+      if (!opts?.ai) return fastify.httpErrors.serviceUnavailable('AI router not available');
+
+      const ticket = await fastify.db.ticket.findUnique({
+        where: { id: request.params.id },
+        include: {
+          client: { select: { id: true, name: true } },
+          system: { select: { name: true } },
+          events: { orderBy: { createdAt: 'desc' }, take: 50 },
+        },
+      });
+      if (!ticket) return fastify.httpErrors.notFound('Ticket not found');
+
+      const eventsSummary = ticket.events
+        .slice()
+        .reverse()
+        .map(e => `[${e.eventType}] ${e.actor ?? 'system'}: ${(e.content ?? '').slice(0, 300)}`)
+        .join('\n');
+
+      const { question, provider: providerOverride, model: modelOverride, taskType: taskTypeOverride } = request.body ?? {};
+
+      if ((providerOverride && !modelOverride) || (!providerOverride && modelOverride)) {
+        return fastify.httpErrors.badRequest('Both provider and model must be specified together, or neither');
+      }
+
+      let userQuestion = typeof question === 'string' ? question.trim() : undefined;
+      if (userQuestion && userQuestion.length > MAX_QUESTION_LENGTH) {
+        fastify.log.warn({ ticketId: request.params.id, questionLength: userQuestion.length }, 'ai-help question exceeds max length, truncating');
+        userQuestion = userQuestion.slice(0, MAX_QUESTION_LENGTH);
+      }
+
+      // Restrict taskType override to the allow-list of analysis/reasoning tasks
+      if (taskTypeOverride && !AI_HELP_ALLOWED_TASK_TYPES.has(taskTypeOverride as TaskType)) {
+        return fastify.httpErrors.badRequest(
+          `Invalid taskType "${taskTypeOverride}". Allowed values: ${[...AI_HELP_ALLOWED_TASK_TYPES].join(', ')}`,
+        );
+      }
+
+      const effectiveTaskType = taskTypeOverride
+        ? taskTypeOverride as TaskType
+        : TaskType.SUGGEST_NEXT_STEPS;
+
+      const prompt = [
+        `Ticket: ${ticket.subject}`,
+        `Status: ${ticket.status} | Priority: ${ticket.priority} | Category: ${ticket.category ?? 'none'}`,
+        ticket.client ? `Client: ${ticket.client.name}` : null,
+        ticket.system ? `System: ${ticket.system.name}` : null,
+        ticket.description ? `\nDescription:\n${ticket.description.slice(0, 2000)}` : null,
+        eventsSummary ? `\nTimeline (${ticket.events.length} events):\n${eventsSummary}` : null,
+        userQuestion ? `\nOperator question: ${userQuestion}` : null,
+      ].filter(Boolean).join('\n');
+
+      const response = await opts.ai.generate({
+        taskType: effectiveTaskType,
+        prompt,
+        systemPrompt:
+          'You are a support operations assistant helping an operator triage and resolve tickets. ' +
+          'Analyze the ticket context and provide actionable recommendations. ' +
+          'If the operator asked a specific question, answer it directly. ' +
+          'Otherwise, suggest concrete next steps: what to investigate, who to contact, ' +
+          'what status/priority changes to make, and whether deeper AI analysis is warranted. ' +
+          'Be concise and practical. Use markdown formatting.',
+        context: { ticketId: ticket.id, clientId: ticket.clientId },
+        ...(providerOverride && modelOverride && { providerOverride, modelOverride }),
+      });
+
+      // Record the AI help as a ticket event
+      await fastify.db.ticketEvent.create({
+        data: {
+          ticketId: ticket.id,
+          eventType: TicketEventType.AI_ANALYSIS,
+          content: response.content,
+          actor: 'ai',
+          metadata: {
+            phase: 'ai_help',
+            aiProvider: response.provider,
+            aiModel: response.model,
+            taskType: effectiveTaskType,
+            ...(userQuestion && { question: userQuestion }),
+            ...(response.usage != null && { usage: response.usage }),
+            ...(response.durationMs != null && { durationMs: response.durationMs }),
+          },
+        },
+      });
+
+      return { content: response.content, provider: response.provider, model: response.model };
+    },
+  );
+}

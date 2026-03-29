@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+*.tsbuildinfo
+.angular/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Prisma (migrations are version-controlled — do NOT ignore them)
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+!**/features/logs/
+
+# Docker
+docker-compose.override.yml
+
+# Coverage
+coverage/
+
+# Python
+__pycache__/
+
+# User-local scripts
+usr/

@@ -1,0 +1,364 @@
+name: Deploy Hugo
+
+# Deploys copilot-api, imap-worker, devops-worker, issue-resolver, status-monitor, and control-panel (+ ticket-portal) to Hugo (control plane VM) via GHCR.
+# NOTE: ticket-portal is built as a stage within services/control-panel/Dockerfile.
+# It does NOT need a separate build matrix entry — rebuilding the control-panel image rebuilds it.
+# Builds Docker images, pushes to ghcr.io, then SSHs to Hugo
+# (via Tailscale) to pull the new images and restart services.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: deploy-hugo
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/bronco
+
+jobs:
+  detect-changes:
+    name: Detect Changed Services
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      services: ${{ steps.detect.outputs.services }}
+      matrix: ${{ steps.detect.outputs.matrix }}
+      compose_changed: ${{ steps.detect.outputs.compose_changed }}
+      all_services: ${{ steps.detect.outputs.all_services }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed services
+        id: detect
+        run: |
+          # Full service list with their Dockerfiles
+          declare -A DOCKERFILES=(
+            [copilot-api]="services/copilot-api/Dockerfile"
+            [imap-worker]="services/imap-worker/Dockerfile"
+            [ticket-analyzer]="services/ticket-analyzer/Dockerfile"
+            [probe-worker]="services/probe-worker/Dockerfile"
+            [devops-worker]="services/devops-worker/Dockerfile"
+            [issue-resolver]="services/issue-resolver/Dockerfile"
+            [status-monitor]="services/status-monitor/Dockerfile"
+            [control-panel]="services/control-panel/Dockerfile"
+          )
+
+          ALL_SERVICES=(copilot-api imap-worker ticket-analyzer probe-worker devops-worker issue-resolver status-monitor control-panel)
+
+          # ai-provider dependents (not all services)
+          AI_PROVIDER_DEPENDENTS=(copilot-api imap-worker ticket-analyzer probe-worker issue-resolver devops-worker)
+
+          build_matrix() {
+            local svcs=("$@")
+            local json="["
+            local first=true
+            for svc in "${svcs[@]}"; do
+              if [ "$first" = true ]; then first=false; else json+=","; fi
+              json+="{\"service\":\"${svc}\",\"dockerfile\":\"${DOCKERFILES[$svc]}\"}"
+            done
+            json+="]"
+            echo "$json"
+          }
+
+          build_services_json() {
+            local svcs=("$@")
+            local json="["
+            local first=true
+            for svc in "${svcs[@]}"; do
+              if [ "$first" = true ]; then first=false; else json+=","; fi
+              json+="\"${svc}\""
+            done
+            json+="]"
+            echo "$json"
+          }
+
+          output_all() {
+            echo "services=$(build_services_json "${ALL_SERVICES[@]}")" >> "$GITHUB_OUTPUT"
+            echo "matrix=$(build_matrix "${ALL_SERVICES[@]}")" >> "$GITHUB_OUTPUT"
+            echo "compose_changed=${1:-false}" >> "$GITHUB_OUTPUT"
+            echo "all_services=true" >> "$GITHUB_OUTPUT"
+          }
+
+          # workflow_dispatch: always rebuild everything
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Manual dispatch — rebuilding all services."
+            output_all
+            exit 0
+          fi
+
+          # Find previous release tag (same logic as tag-release.yml)
+          PREV_TAG=""
+          while IFS= read -r candidate; do
+            [ -z "$candidate" ] && continue
+            ver="${candidate#v}"
+            maj="${ver%%.*}"; rest="${ver#*.}"
+            min="${rest%%.*}"; patch="${rest#*.}"
+            if [[ "$maj" =~ ^[0-9]+$ && "$min" =~ ^[0-9]+$ && "$patch" =~ ^[0-9]+$ && "$maj.$min.$patch" == "$ver" ]]; then
+              # Skip the current tag (the one that triggered this workflow)
+              if [ "$candidate" != "${{ github.ref_name }}" ]; then
+                PREV_TAG="$candidate"
+                break
+              fi
+            fi
+          done <<< "$(git tag --list 'v[0-9]*' --sort=-version:refname)"
+
+          if [ -z "$PREV_TAG" ]; then
+            echo "No previous release tag found — rebuilding all services."
+            output_all
+            exit 0
+          fi
+
+          echo "Comparing $PREV_TAG → HEAD"
+          CHANGED_FILES=$(git diff --name-only "$PREV_TAG" HEAD)
+
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "No files changed — skipping all builds."
+            echo "services=[]" >> "$GITHUB_OUTPUT"
+            echo "matrix=[]" >> "$GITHUB_OUTPUT"
+            echo "compose_changed=false" >> "$GITHUB_OUTPUT"
+            echo "all_services=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+
+          # Check for compose changes
+          COMPOSE_CHANGED=false
+          if echo "$CHANGED_FILES" | grep -q "^docker-compose\.yml$"; then
+            COMPOSE_CHANGED=true
+          fi
+
+          # Check for paths that trigger all services
+          REBUILD_ALL=false
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            case "$file" in
+              packages/shared-types/*|packages/shared-utils/*|packages/shared-ui/*|packages/db/*|pnpm-lock.yaml|package.json|.github/workflows/deploy-hugo.yml)
+                REBUILD_ALL=true
+                break
+                ;;
+            esac
+          done <<< "$CHANGED_FILES"
+
+          if [ "$REBUILD_ALL" = true ]; then
+            echo "Global dependency changed — rebuilding all services."
+            output_all "$COMPOSE_CHANGED"
+            exit 0
+          fi
+
+          # Map changed files to affected services
+          declare -A AFFECTED=()
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            case "$file" in
+              packages/ai-provider/*)
+                for svc in "${AI_PROVIDER_DEPENDENTS[@]}"; do
+                  AFFECTED[$svc]=1
+                done
+                ;;
+              services/ticket-portal/*)
+                # ticket-portal is built as a stage in control-panel Dockerfile
+                AFFECTED[control-panel]=1
+                ;;
+              services/*/*)
+                # Extract service name from path: services/<name>/...
+                svc_name=$(echo "$file" | cut -d/ -f2)
+                # Only add if it's a known service
+                if [ -n "${DOCKERFILES[$svc_name]+x}" ]; then
+                  AFFECTED[$svc_name]=1
+                fi
+                ;;
+            esac
+          done <<< "$CHANGED_FILES"
+
+          AFFECTED_LIST=()
+          for svc in "${ALL_SERVICES[@]}"; do
+            if [ -n "${AFFECTED[$svc]+x}" ]; then
+              AFFECTED_LIST+=("$svc")
+            fi
+          done
+
+          echo "Affected services: ${AFFECTED_LIST[*]:-none}"
+          echo "services=$(build_services_json "${AFFECTED_LIST[@]}")" >> "$GITHUB_OUTPUT"
+          echo "matrix=$(build_matrix "${AFFECTED_LIST[@]}")" >> "$GITHUB_OUTPUT"
+          echo "compose_changed=$COMPOSE_CHANGED" >> "$GITHUB_OUTPUT"
+          echo "all_services=false" >> "$GITHUB_OUTPUT"
+
+  build-and-push:
+    name: Build & Push Images
+    needs: detect-changes
+    if: needs.detect-changes.outputs.services != '[]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      matrix:
+        include: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          build-args: |
+            BUILD_VERSION=${{ github.ref_name }}
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:latest
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  deploy:
+    name: Deploy to Hugo
+    needs: [detect-changes, build-and-push]
+    if: always() && (needs.build-and-push.result == 'success' || (needs.build-and-push.result == 'skipped' && needs.detect-changes.outputs.compose_changed == 'true'))
+    runs-on: ubuntu-latest
+    permissions:
+      packages: read
+
+    steps:
+      # Tailscale connects the runner to your tailnet so it can SSH to Hugo
+      - uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:hugo
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SERVICES: ${{ needs.detect-changes.outputs.services }}
+          COMPOSE_CHANGED: ${{ needs.detect-changes.outputs.compose_changed }}
+          ALL_SERVICES: ${{ needs.detect-changes.outputs.all_services }}
+        with:
+          host: ${{ secrets.HUGO_TAILSCALE_IP }}
+          username: ${{ secrets.HUGO_SSH_USER }}
+          key: ${{ secrets.HUGO_SSH_KEY }}
+          envs: GHCR_TOKEN,SERVICES,COMPOSE_CHANGED,ALL_SERVICES
+          command_timeout: 60m
+          script: |
+            set -e
+            cd ~/bronco
+
+            # Fetch and reset to the exact tagged commit so docker-compose.yml/Caddyfile
+            # always match the images built for this release (no drift from newer master commits).
+            git fetch origin --tags
+            git reset --hard ${{ github.ref }}
+
+            # Log in to GHCR
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            # Pull only the images that were rebuilt
+            IMAGE_PREFIX="${{ env.IMAGE_PREFIX }}"
+            for svc in $(echo "$SERVICES" | jq -r '.[]'); do
+              echo "Pulling $IMAGE_PREFIX/$svc:latest"
+              docker pull "$IMAGE_PREFIX/$svc:latest"
+            done
+
+            # Clean up old images and build cache to prevent disk exhaustion
+            docker image prune -a --filter "until=24h" --force
+            docker builder prune --force
+
+            # Restart services
+            # Migrations run automatically in the copilot-api entrypoint before the app starts.
+            if [ "$COMPOSE_CHANGED" = "true" ] || [ "$ALL_SERVICES" = "true" ]; then
+              docker compose up -d --no-build
+            else
+              SVC_LIST=$(echo "$SERVICES" | jq -r '.[]' | tr '\n' ' ')
+              docker compose up -d --no-build $SVC_LIST
+            fi
+
+            # Wait for copilot-api to pass its health check (includes migration completion)
+            echo "Waiting for copilot-api to become healthy..."
+            docker compose ps
+            sleep 15
+            curl -sf http://localhost:3000/api/health
+
+      - name: Ingest release notes (push)
+        if: github.event_name == 'push'
+        uses: appleboy/ssh-action@v1
+        env:
+          API_KEY: ${{ secrets.API_KEY }}
+          TO_SHA: ${{ github.sha }}
+          TAG_NAME: ${{ github.ref_name }}
+          COMMITS_JSON: ${{ toJSON(github.event.commits) }}
+        with:
+          host: ${{ secrets.HUGO_TAILSCALE_IP }}
+          username: ${{ secrets.HUGO_SSH_USER }}
+          key: ${{ secrets.HUGO_SSH_KEY }}
+          envs: API_KEY,TO_SHA,TAG_NAME,COMMITS_JSON
+          script: |
+            LATEST_SHA=$(curl -sf \
+              -H "X-Api-Key: $API_KEY" \
+              "http://localhost:3000/api/release-notes?limit=1" \
+              | jq -r '.items[0].commitSha // empty') || true
+
+            if [ -n "$LATEST_SHA" ]; then
+              # Backfill from last known SHA — catches any gaps from failed deploys
+              jq -n --arg from "$LATEST_SHA" --arg to "$TO_SHA" --arg tag "$TAG_NAME" \
+                '{"fromSha":$from,"toSha":$to,"tag":$tag}' > /tmp/rc-release-payload.json
+            else
+              # No existing notes yet — bootstrap from push event commits
+              printf '%s' "$COMMITS_JSON" | jq --arg tag "$TAG_NAME" '{commits:.,tag:$tag}' > /tmp/rc-release-payload.json
+            fi
+
+            curl -sf -X POST "http://localhost:3000/api/release-notes/ingest" \
+              -H "X-Api-Key: $API_KEY" \
+              -H "Content-Type: application/json" \
+              --data-binary @/tmp/rc-release-payload.json
+            rm -f /tmp/rc-release-payload.json
+
+      - name: Ingest release notes (backfill)
+        if: github.event_name == 'workflow_dispatch'
+        uses: appleboy/ssh-action@v1
+        env:
+          API_KEY: ${{ secrets.API_KEY }}
+          TO_SHA: ${{ github.sha }}
+          TAG_NAME: ${{ github.ref_name }}
+        with:
+          host: ${{ secrets.HUGO_TAILSCALE_IP }}
+          username: ${{ secrets.HUGO_SSH_USER }}
+          key: ${{ secrets.HUGO_SSH_KEY }}
+          envs: API_KEY,TO_SHA,TAG_NAME
+          script: |
+            LATEST_SHA=$(curl -sf \
+              -H "X-Api-Key: $API_KEY" \
+              "http://localhost:3000/api/release-notes?limit=1" \
+              | jq -r '.items[0].commitSha // empty') || true
+
+            if [ -z "$LATEST_SHA" ]; then
+              echo "No existing release notes found — skipping backfill ingest."
+              echo "Run a manual backfill from the control panel to bootstrap."
+              exit 0
+            fi
+
+            jq -n --arg from "$LATEST_SHA" --arg to "$TO_SHA" --arg tag "$TAG_NAME" \
+              '{"fromSha":$from,"toSha":$to,"tag":$tag}' > /tmp/rc-release-payload.json
+            curl -sf -X POST "http://localhost:3000/api/release-notes/ingest" \
+              -H "X-Api-Key: $API_KEY" \
+              -H "Content-Type: application/json" \
+              --data-binary @/tmp/rc-release-payload.json
+            rm -f /tmp/rc-release-payload.json

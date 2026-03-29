@@ -1,0 +1,3 @@
+-- AlterEnum
+ALTER TYPE "route_step_type" ADD VALUE 'AGENTIC_ANALYSIS';
+ALTER TYPE "route_step_type" ADD VALUE 'LOAD_CLIENT_CONTEXT';

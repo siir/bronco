@@ -1,0 +1,141 @@
+name: Tag Release
+
+# Automatically creates a semver tag when master receives a new commit.
+# The tag triggers deploy-hugo.yml and conditionally deploy-mcp.yml
+# (only when MCP-relevant paths changed since the previous release).
+#
+# Version strategy: auto-increment patch (v0.0.1 → v0.0.2).
+# To bump major or minor, push a tag manually before merging to master.
+
+on:
+  push:
+    branches: [master]
+
+concurrency:
+  group: tag-release
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: Create Release Tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute next tag
+        id: next
+        run: |
+          # Find the latest strict vMAJOR.MINOR.PATCH tag, skipping pre-release/extra-suffix tags.
+          # Iterates newest-first so v1.2.3-beta doesn't block finding v1.2.3.
+          LATEST=""
+          while IFS= read -r candidate; do
+            ver="${candidate#v}"
+            maj="${ver%%.*}"; rest="${ver#*.}"
+            min="${rest%%.*}"; patch="${rest#*.}"
+            if [[ "$maj" =~ ^[0-9]+$ && "$min" =~ ^[0-9]+$ && "$patch" =~ ^[0-9]+$ && "$maj.$min.$patch" == "$ver" ]]; then
+              LATEST="$candidate"
+              break
+            fi
+          done <<< "$(git tag --list 'v[0-9]*' --sort=-version:refname)"
+          if [ -z "$LATEST" ]; then
+            NEXT="v0.0.1"
+          else
+            VERSION="${LATEST#v}"
+            MAJOR=$(echo "$VERSION" | cut -d. -f1)
+            MINOR=$(echo "$VERSION" | cut -d. -f2)
+            PATCH=$(echo "$VERSION" | cut -d. -f3)
+            NEXT="v${MAJOR}.${MINOR}.$((PATCH + 1))"
+          fi
+          echo "latest=${LATEST:-none}" >> "$GITHUB_OUTPUT"
+          echo "next=${NEXT}" >> "$GITHUB_OUTPUT"
+
+      - name: Create tag
+        run: |
+          TAG="${{ steps.next.outputs.next }}"
+
+          # Idempotency: if the tag already exists pointing at the current SHA, exit cleanly.
+          # Prevents failures on workflow reruns after the tag was already created.
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            EXISTING_SHA=$(git rev-list -n1 "refs/tags/$TAG")
+            if [ "$EXISTING_SHA" = "$GITHUB_SHA" ]; then
+              echo "Tag $TAG already exists and points to the current commit ($GITHUB_SHA); nothing to do."
+              exit 0
+            else
+              echo "Tag $TAG already exists but points to $EXISTING_SHA (current: $GITHUB_SHA)." >&2
+              echo "Refusing to retag — resolve the tag conflict manually." >&2
+              exit 1
+            fi
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Automated release tag $TAG for commit $GITHUB_SHA via workflow '$GITHUB_WORKFLOW' (run $GITHUB_RUN_ID, attempt $GITHUB_RUN_ATTEMPT)."
+          git push origin "$TAG"
+          echo "Tagged $GITHUB_SHA as $TAG (previous: ${{ steps.next.outputs.latest }})"
+
+      - name: Generate staging sync token
+        id: sync-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.SYNC_APP_ID }}
+          private-key: ${{ secrets.SYNC_APP_PRIVATE_KEY }}
+
+      - name: Sync staging to master
+        env:
+          SYNC_TOKEN: ${{ steps.sync-token.outputs.token }}
+        run: |
+          # Fast-forward staging to the tagged master commit using a GitHub App token.
+          # Requires the staging-sync app in the staging ruleset bypass list.
+          # Eliminates the GitHub "merge master into staging" drift prompt after each release.
+          # Skips (non-destructively) if staging has commits not yet in master (non-fast-forward).
+          set -e
+
+          # Ensure we have the latest staging ref from origin.
+          git fetch origin staging:refs/remotes/origin/staging
+
+          # Only push if staging can be fast-forwarded to HEAD.
+          if ! git merge-base --is-ancestor origin/staging HEAD; then
+            echo "Skipping staging sync: staging has commits not yet in master (non-fast-forward)."
+            exit 0
+          fi
+
+          # Replace the GITHUB_TOKEN credential that actions/checkout persists
+          # with the App token so only the App token is used for this push.
+          git config --local --unset http.https://github.com/.extraheader || true
+          AUTH_HEADER=$(printf "x-access-token:%s" "${SYNC_TOKEN}" | base64 -w0)
+          git config --local http.extraheader "AUTHORIZATION: Basic ${AUTH_HEADER}"
+          git push origin HEAD:refs/heads/staging
+          git config --local --unset http.extraheader
+          echo "Staging fast-forwarded to ${GITHUB_SHA}."
+
+      - name: Trigger deploy workflows
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.next.outputs.next }}"
+          PREV="${{ steps.next.outputs.latest }}"
+
+          gh workflow run deploy-hugo.yml --ref "$TAG"
+
+          # Only deploy the MCP server when its source files changed.
+          # Paths: the server itself and the workspace packages it depends on.
+          if [ "$PREV" = "none" ]; then
+            echo "First release; deploying MCP server."
+            gh workflow run deploy-mcp.yml --ref "$TAG"
+          else
+            MCP_CHANGES=$(git diff --name-only "refs/tags/$PREV" HEAD -- \
+              mcp-servers/database/ packages/shared-types/ packages/shared-utils/ \
+              pnpm-lock.yaml pnpm-workspace.yaml package.json tsconfig.base.json)
+            if [ -n "$MCP_CHANGES" ]; then
+              echo "MCP-relevant files changed since $PREV; deploying MCP server."
+              gh workflow run deploy-mcp.yml --ref "$TAG"
+            else
+              echo "No MCP-relevant files changed since $PREV; skipping MCP deploy."
+            fi
+          fi
