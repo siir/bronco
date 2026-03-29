@@ -123,20 +123,20 @@ jobs:
           TAG="${{ steps.next.outputs.next }}"
           PREV="${{ steps.next.outputs.latest }}"
 
-          gh workflow run deploy-hugo.yml --ref "$TAG"
+          gh workflow run deploy-hugo.yml --ref "$TAG" || echo "Warning: deploy-hugo dispatch skipped (workflow may not be registered yet)"
 
           # Only deploy the MCP server when its source files changed.
           # Paths: the server itself and the workspace packages it depends on.
           if [ "$PREV" = "none" ]; then
             echo "First release; deploying MCP server."
-            gh workflow run deploy-mcp.yml --ref "$TAG"
+            gh workflow run deploy-mcp.yml --ref "$TAG" || echo "Warning: deploy-mcp dispatch skipped (workflow may not be registered yet)"
           else
             MCP_CHANGES=$(git diff --name-only "refs/tags/$PREV" HEAD -- \
               mcp-servers/database/ packages/shared-types/ packages/shared-utils/ \
               pnpm-lock.yaml pnpm-workspace.yaml package.json tsconfig.base.json)
             if [ -n "$MCP_CHANGES" ]; then
               echo "MCP-relevant files changed since $PREV; deploying MCP server."
-              gh workflow run deploy-mcp.yml --ref "$TAG"
+              gh workflow run deploy-mcp.yml --ref "$TAG" || echo "Warning: deploy-mcp dispatch skipped (workflow may not be registered yet)"
             else
               echo "No MCP-relevant files changed since $PREV; skipping MCP deploy."
             fi
