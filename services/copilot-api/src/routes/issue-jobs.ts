@@ -155,11 +155,12 @@ export async function issueJobRoutes(fastify: FastifyInstance, opts: IssueJobRou
     Params: { id: string };
     Body: {
       approvedBy?: string;
+      operatorId?: string;
     };
   }>('/api/issue-jobs/:id/approve', async (request) => {
     const job = await fastify.db.issueJob.findUnique({
       where: { id: request.params.id },
-      select: { id: true, status: true, plan: true },
+      select: { id: true, status: true, plan: true, ticketId: true },
     });
     if (!job) return fastify.httpErrors.notFound('Issue job not found');
     if (job.status !== 'AWAITING_APPROVAL') {
@@ -169,7 +170,18 @@ export async function issueJobRoutes(fastify: FastifyInstance, opts: IssueJobRou
       return fastify.httpErrors.badRequest('Cannot approve job without a plan');
     }
 
-    const approvedBy = request.body?.approvedBy ?? 'operator';
+    // Resolve operator identity for approval audit trail
+    const operatorId = request.body?.operatorId;
+    let approvedBy = request.body?.approvedBy ?? 'operator';
+    let approvedByOperatorId: string | null = null;
+
+    if (operatorId) {
+      const operator = await fastify.db.operator.findUnique({ where: { id: operatorId }, select: { id: true, name: true, isActive: true } });
+      if (operator && operator.isActive) {
+        approvedByOperatorId = operator.id;
+        approvedBy = operator.name;
+      }
+    }
 
     // Atomic transition out of AWAITING_APPROVAL to prevent duplicate approvals
     const updated = await fastify.db.issueJob.updateMany({
@@ -178,11 +190,27 @@ export async function issueJobRoutes(fastify: FastifyInstance, opts: IssueJobRou
         status: 'CLONING',
         approvedAt: new Date(),
         approvedBy,
+        approvedByOperatorId,
       },
     });
     if (updated.count === 0) {
       return fastify.httpErrors.conflict('Job is no longer in AWAITING_APPROVAL — it may have already been approved or rejected');
     }
+
+    // Create audit event for the approval
+    await fastify.db.ticketEvent.create({
+      data: {
+        ticketId: job.ticketId,
+        eventType: 'PLAN_APPROVED',
+        content: `Plan approved by ${approvedBy}`,
+        metadata: {
+          issueJobId: request.params.id,
+          approvedBy,
+          approvedByOperatorId,
+        },
+        actor: approvedByOperatorId ?? 'operator',
+      },
+    });
 
     // Enqueue a resume job with deterministic ID to prevent duplicates
     await issueResolveQueue.add('resolve-issue', {

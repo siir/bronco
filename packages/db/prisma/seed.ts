@@ -19,6 +19,19 @@ async function main() {
   });
   console.log('Seeded admin user:', adminUser.email);
 
+  // Create default operator (mirrors the admin user for single-operator deployments)
+  const defaultOperator = await prisma.operator.upsert({
+    where: { email: 'admin@bronco.dev' },
+    update: {},
+    create: {
+      email: 'admin@bronco.dev',
+      name: 'Admin',
+      notifyEmail: true,
+      notifySlack: false,
+    },
+  });
+  console.log('Seeded default operator:', defaultOperator.email);
+
   // Create a sample client for development
   const client = await prisma.client.upsert({
     where: { shortCode: 'demo' },

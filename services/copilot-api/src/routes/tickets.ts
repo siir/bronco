@@ -21,10 +21,10 @@ const VALID_EVENT_TYPES: Set<string> = new Set(Object.values(TicketEventType));
 const VALID_SUFFICIENCY_STATUSES: Set<string> = new Set(Object.values(SufficiencyStatus));
 
 export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteOpts): Promise<void> {
-  fastify.get<{ Querystring: { clientId?: string; status?: string; category?: string; environmentId?: string; limit?: string; offset?: string } }>(
+  fastify.get<{ Querystring: { clientId?: string; status?: string; category?: string; environmentId?: string; assignedOperatorId?: string; limit?: string; offset?: string } }>(
     '/api/tickets',
     async (request) => {
-      const { clientId, status, category, environmentId, limit: rawLimit = '50', offset: rawOffset = '0' } = request.query;
+      const { clientId, status, category, environmentId, assignedOperatorId, limit: rawLimit = '50', offset: rawOffset = '0' } = request.query;
 
       const take = Math.trunc(Number(rawLimit));
       const skip = Math.trunc(Number(rawOffset));
@@ -51,6 +51,9 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
           ...(statusFilter && { status: statusFilter }),
           ...(category && { category: category as TicketCategory }),
           ...(environmentId && { environmentId }),
+          ...(assignedOperatorId !== undefined && {
+            assignedOperatorId: assignedOperatorId === 'unassigned' ? null : assignedOperatorId,
+          }),
         },
         include: {
           client: { select: { name: true, shortCode: true } },
@@ -295,21 +298,22 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     return event;
   });
 
-  fastify.patch<{ Params: { id: string }; Body: { status?: string; priority?: string; systemId?: string; environmentId?: string | null; category?: string | null; sufficiencyStatus?: string | null } }>(
+  fastify.patch<{ Params: { id: string }; Body: { status?: string; priority?: string; systemId?: string; environmentId?: string | null; category?: string | null; sufficiencyStatus?: string | null; assignedOperatorId?: string | null } }>(
     '/api/tickets/:id',
     async (request, reply) => {
-      const { status: newStatus, priority, systemId, environmentId, category, sufficiencyStatus } = request.body;
+      const { status: newStatus, priority, systemId, environmentId, category, sufficiencyStatus, assignedOperatorId } = request.body;
       if (newStatus && !VALID_STATUSES.has(newStatus)) return fastify.httpErrors.badRequest(`Invalid status: ${newStatus}`);
       if (priority && !VALID_PRIORITIES.has(priority)) return fastify.httpErrors.badRequest(`Invalid priority: ${priority}`);
       if (category && !VALID_CATEGORIES.has(category)) return fastify.httpErrors.badRequest(`Invalid category: ${category}`);
       if (sufficiencyStatus !== undefined && sufficiencyStatus !== null && !VALID_SUFFICIENCY_STATUSES.has(sufficiencyStatus)) return fastify.httpErrors.badRequest(`Invalid sufficiencyStatus: ${sufficiencyStatus}`);
 
-      const needsExisting = request.body.status !== undefined || environmentId !== undefined;
+      const needsExisting = request.body.status !== undefined || environmentId !== undefined || assignedOperatorId !== undefined;
       const existing = needsExisting
-        ? await fastify.db.ticket.findUnique({ where: { id: request.params.id }, select: { status: true, clientId: true } })
+        ? await fastify.db.ticket.findUnique({ where: { id: request.params.id }, select: { status: true, clientId: true, assignedOperatorId: true } })
         : null;
       if (request.body.status && !existing) return fastify.httpErrors.notFound('Ticket not found');
       if (environmentId !== undefined && !existing) return fastify.httpErrors.notFound('Ticket not found');
+      if (assignedOperatorId !== undefined && !existing) return fastify.httpErrors.notFound('Ticket not found');
 
       if (environmentId !== undefined && environmentId !== null && existing) {
         const env = await fastify.db.clientEnvironment.findUnique({
@@ -318,6 +322,13 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
         });
         if (!env) return fastify.httpErrors.badRequest('Referenced environment not found');
         if (env.clientId !== existing.clientId) return fastify.httpErrors.forbidden('environmentId belongs to a different client');
+      }
+
+      // Validate operator exists and is active
+      if (assignedOperatorId !== undefined && assignedOperatorId !== null) {
+        const operator = await fastify.db.operator.findUnique({ where: { id: assignedOperatorId }, select: { id: true, isActive: true } });
+        if (!operator) return fastify.httpErrors.badRequest('Referenced operator not found');
+        if (!operator.isActive) return fastify.httpErrors.badRequest('Cannot assign to an inactive operator');
       }
 
       const ticket = await fastify.db.ticket.update({
@@ -329,8 +340,30 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
           ...(environmentId !== undefined && { environmentId }),
           ...(category !== undefined && { category: category as TicketCategory | null }),
           ...(sufficiencyStatus !== undefined && { sufficiencyStatus: sufficiencyStatus as SufficiencyStatus | null }),
+          ...(assignedOperatorId !== undefined && { assignedOperatorId }),
         },
       });
+
+      // Create assignment event for audit trail when operator assignment changes
+      if (assignedOperatorId !== undefined && assignedOperatorId !== existing?.assignedOperatorId) {
+        const operatorName = assignedOperatorId
+          ? (await fastify.db.operator.findUnique({ where: { id: assignedOperatorId }, select: { name: true } }))?.name ?? 'Unknown'
+          : null;
+        await fastify.db.ticketEvent.create({
+          data: {
+            ticketId: request.params.id,
+            eventType: 'ASSIGNMENT',
+            content: assignedOperatorId
+              ? `Ticket assigned to operator: ${operatorName}`
+              : 'Ticket unassigned from operator',
+            metadata: {
+              assignedOperatorId,
+              previousOperatorId: existing?.assignedOperatorId ?? null,
+            },
+            actor: 'operator',
+          },
+        });
+      }
 
       // Trigger log summarization only when ticket status actually changes
       if (request.body.status && request.body.status !== existing?.status && opts?.logSummarizeQueue) {

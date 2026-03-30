@@ -11,7 +11,7 @@ import type { PrismaClient } from '@bronco/db';
 import type { TicketCategory, Priority, TicketStatus, TicketSource, AnalysisJob } from '@bronco/shared-types';
 import { AIRouter } from '@bronco/ai-provider';
 import { TaskType, RouteStepType, isClosedStatus, AnalysisStatus, SufficiencyStatus, SufficiencyConfidence } from '@bronco/shared-types';
-import { createLogger, AppLogger, createPrismaLogWriter, decrypt, looksEncrypted, MCP_TOOL_TIMEOUT_MS, mcpUrl, callMcpToolViaSdk } from '@bronco/shared-utils';
+import { createLogger, AppLogger, createPrismaLogWriter, decrypt, looksEncrypted, MCP_TOOL_TIMEOUT_MS, mcpUrl, callMcpToolViaSdk, notifyOperators as notifyOperatorsFn } from '@bronco/shared-utils';
 import type { AIToolDefinition, AIMessage, AIToolUseBlock, AITextBlock, AIToolResponse, AIToolResultBlock } from '@bronco/shared-types';
 import type { Mailer, ReplyOptions } from '@bronco/shared-utils';
 
@@ -3253,15 +3253,6 @@ async function executeRoutePipeline(
         const notifyTo = typeof rawEmailTo === 'string' ? rawEmailTo.trim() : '';
         const isValidEmail = notifyTo !== '' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(notifyTo);
 
-        if (!isValidEmail) {
-          appLog.warn(
-            'NOTIFY_OPERATOR skipped — invalid or missing emailTo in step config',
-            { ticketId, stepId: step.id, emailTo: rawEmailTo },
-            ticketId,
-          );
-          break;
-        }
-
         const notifySubject = `[Bronco] Ticket requires attention: ${emailSubject}`;
         const notifyBody = [
           `A ticket requires your attention.`,
@@ -3277,21 +3268,52 @@ async function executeRoutePipeline(
           `View this ticket in the control panel to take action.`,
         ].filter(Boolean).join('\n');
 
-        try {
-          await mailer.send({ to: notifyTo, subject: notifySubject, body: notifyBody });
-          await db.ticketEvent.create({
-            data: {
-              ticketId,
-              eventType: 'EMAIL_OUTBOUND',
-              content: notifyBody,
-              metadata: { type: 'operator_notification', to: notifyTo, subject: notifySubject },
-              actor: 'system:analyzer',
-            },
-          });
-          appLog.info(`Operator notification sent to ${notifyTo}`, { ticketId, to: notifyTo }, ticketId);
-        } catch (err) {
-          const errMsg = err instanceof Error ? err.message : String(err);
-          appLog.error(`NOTIFY_OPERATOR email failed: ${errMsg}`, { err, ticketId, to: notifyTo }, ticketId);
+        // If an explicit emailTo is configured, use it (legacy single-recipient mode).
+        // Otherwise, notify all active operators via the Operator table.
+        if (isValidEmail) {
+          try {
+            await mailer.send({ to: notifyTo, subject: notifySubject, body: notifyBody });
+            await db.ticketEvent.create({
+              data: {
+                ticketId,
+                eventType: 'EMAIL_OUTBOUND',
+                content: notifyBody,
+                metadata: { type: 'operator_notification', to: notifyTo, subject: notifySubject },
+                actor: 'system:analyzer',
+              },
+            });
+            appLog.info(`Operator notification sent to ${notifyTo}`, { ticketId, to: notifyTo }, ticketId);
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            appLog.error(`NOTIFY_OPERATOR email failed: ${errMsg}`, { err, ticketId, to: notifyTo }, ticketId);
+          }
+        } else {
+          try {
+            // Look up assigned operator for targeted notification
+            const ticket = ticketId ? await db.ticket.findUnique({ where: { id: ticketId }, select: { assignedOperatorId: true } }) : null;
+            const notified = await notifyOperatorsFn(
+              mailer,
+              () => db.operator.findMany({ where: { isActive: true } }),
+              { subject: notifySubject, body: notifyBody, operatorId: ticket?.assignedOperatorId ?? undefined },
+            );
+            if (notified.length > 0) {
+              await db.ticketEvent.create({
+                data: {
+                  ticketId,
+                  eventType: 'EMAIL_OUTBOUND',
+                  content: notifyBody,
+                  metadata: { type: 'operator_notification', to: notified, subject: notifySubject },
+                  actor: 'system:analyzer',
+                },
+              });
+              appLog.info(`Operator notifications sent to ${notified.join(', ')}`, { ticketId, to: notified }, ticketId);
+            } else {
+              appLog.warn('NOTIFY_OPERATOR skipped — no operators configured for email notifications', { ticketId, stepId: step.id }, ticketId);
+            }
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            appLog.error(`NOTIFY_OPERATOR multi-operator email failed: ${errMsg}`, { err, ticketId }, ticketId);
+          }
         }
         break;
       }

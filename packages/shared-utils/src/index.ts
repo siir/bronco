@@ -13,3 +13,5 @@ export { buildUtcCron } from './cron-tz.js';
 export type { BuildUtcCronOpts } from './cron-tz.js';
 export { Mailer } from './mailer.js';
 export type { SmtpConfig, ReplyOptions } from './mailer.js';
+export { notifyOperators } from './notify-operators.js';
+export type { OperatorRecord, NotifyOperatorsOpts } from './notify-operators.js';
