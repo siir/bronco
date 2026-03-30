@@ -14,18 +14,18 @@ importers:
 
   mcp-servers/database:
     dependencies:
-      '@hono/node-server':
-        specifier: ^1.19.9
-        version: 1.19.9(hono@4.12.0)
-      '@modelcontextprotocol/sdk':
-        specifier: ^1.0.0
-        version: 1.26.0(zod@3.25.76)
       '@bronco/shared-types':
         specifier: workspace:*
         version: link:../../packages/shared-types
       '@bronco/shared-utils':
         specifier: workspace:*
         version: link:../../packages/shared-utils
+      '@hono/node-server':
+        specifier: ^1.19.9
+        version: 1.19.9(hono@4.12.0)
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.0.0
+        version: 1.26.0(zod@3.25.76)
       express:
         specifier: ^4.21.0
         version: 4.22.1
@@ -211,6 +211,18 @@ importers:
 
   services/copilot-api:
     dependencies:
+      '@bronco/ai-provider':
+        specifier: workspace:*
+        version: link:../../packages/ai-provider
+      '@bronco/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@bronco/shared-types':
+        specifier: workspace:*
+        version: link:../../packages/shared-types
+      '@bronco/shared-utils':
+        specifier: workspace:*
+        version: link:../../packages/shared-utils
       '@fastify/cors':
         specifier: ^10.0.0
         version: 10.1.0
@@ -226,18 +238,6 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.26.0
         version: 1.26.0(zod@3.25.76)
-      '@bronco/ai-provider':
-        specifier: workspace:*
-        version: link:../../packages/ai-provider
-      '@bronco/db':
-        specifier: workspace:*
-        version: link:../../packages/db
-      '@bronco/shared-types':
-        specifier: workspace:*
-        version: link:../../packages/shared-types
-      '@bronco/shared-utils':
-        specifier: workspace:*
-        version: link:../../packages/shared-utils
       bcryptjs:
         specifier: ^2.4.3
         version: 2.4.3
@@ -339,9 +339,6 @@ importers:
       mailparser:
         specifier: ^3.7.0
         version: 3.9.3
-      nodemailer:
-        specifier: ^6.9.0
-        version: 6.10.1
       zod:
         specifier: ^3.23.0
         version: 3.25.76
@@ -352,9 +349,6 @@ importers:
       '@types/node':
         specifier: ^25.3.0
         version: 25.3.0
-      '@types/nodemailer':
-        specifier: ^6.4.17
-        version: 6.4.23
       tsx:
         specifier: ^4.0.0
         version: 4.21.0

@@ -13,6 +13,7 @@ import {
 import type {
   IngestionJob,
   TicketCreatedJob,
+  AnalysisJob,
   Priority,
 } from '@bronco/shared-types';
 import { createLogger } from '@bronco/shared-utils';
@@ -78,6 +79,7 @@ interface IngestionDeps {
   ai: AIRouter;
   mailer: Mailer;
   ticketCreatedQueue: Queue<TicketCreatedJob>;
+  analysisQueue?: Queue<AnalysisJob>;
   senderSignature: string;
   appLog?: AppLogger;
   artifactStoragePath?: string;
@@ -97,6 +99,16 @@ type ResolvedRoute = Awaited<ReturnType<PrismaClient['ticketRoute']['findFirst']
   }>;
 };
 
+/** Thread resolution result from RESOLVE_THREAD step. */
+interface ThreadResolution {
+  /** Whether the email matched an existing ticket thread. */
+  isReply: boolean;
+  /** Existing ticket ID if threaded to an existing ticket. */
+  existingTicketId: string | null;
+  /** How the thread was resolved. */
+  method: 'message-id-reference' | 'subject-match' | 'none';
+}
+
 /** Mutable state accumulated across ingestion steps. */
 interface IngestionContext {
   source: TicketSource;
@@ -112,6 +124,8 @@ interface IngestionContext {
   ticketId: string | null;
   /** Contact ID to add as requester follower. */
   requesterId: string | null;
+  /** Set by RESOLVE_THREAD step — indicates whether this email is a reply to an existing ticket. */
+  threadResolution: ThreadResolution | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -231,8 +245,136 @@ async function executeIngestionPipeline(
     const stepId = await safeTracker.startStep(step.stepOrder, step.stepType, step.name);
 
     switch (step.stepType) {
+      // ── RESOLVE_THREAD ──────────────────────────────────────────────
+      case RouteStepType.RESOLVE_THREAD: {
+        // Only relevant for EMAIL source — skip for other sources
+        if (source !== TicketSource.EMAIL) {
+          logger.info({ clientId, source }, 'Skipping RESOLVE_THREAD — not an email source');
+          await safeTracker.skipStep(stepId, 'Not an email source');
+          break;
+        }
+
+        const inReplyTo = payloadStr(payload, 'inReplyTo');
+        const references = payload['references'] as string[] | undefined;
+        const emailHash = payloadStr(payload, 'emailHash');
+        const emailMessageId = payloadStr(payload, 'messageId');
+        const emailSubject = payloadStr(payload, 'subject');
+        const emailFrom = payloadStr(payload, 'from');
+        const emailFromName = payloadStr(payload, 'fromName');
+        const emailBody = payloadStr(payload, 'body');
+
+        let existingTicketId: string | null = null;
+        let threadMethod: 'message-id-reference' | 'subject-match' | 'none' = 'none';
+
+        // 1. Try Message-ID reference matching
+        if (inReplyTo || (references && references.length > 0)) {
+          const refIds = [
+            ...(inReplyTo ? [inReplyTo] : []),
+            ...(references ?? []),
+          ];
+
+          logger.info({ refIds, clientId }, 'Attempting thread match by message references');
+
+          const existingEvent = await db.ticketEvent.findFirst({
+            where: { emailMessageId: { in: refIds } },
+            select: { ticketId: true },
+          });
+
+          if (existingEvent) {
+            existingTicketId = existingEvent.ticketId;
+            threadMethod = 'message-id-reference';
+            logger.info({ ticketId: existingTicketId, clientId }, 'Threaded to existing ticket via message reference');
+          } else {
+            logger.info({ refIds, clientId }, 'No thread match found via message references');
+          }
+        }
+
+        // 2. Fallback: subject matching within 7 days
+        if (!existingTicketId) {
+          const normalized = emailSubject.replace(/^(Re|Fwd|Fw):\s*/gi, '').trim();
+          if (normalized) {
+            const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+            logger.info({ normalized, clientId, since: sevenDaysAgo.toISOString() }, 'Attempting thread match by subject');
+
+            const existingTicket = await db.ticket.findFirst({
+              where: {
+                clientId,
+                subject: { contains: normalized, mode: 'insensitive' },
+                createdAt: { gte: sevenDaysAgo },
+                status: { not: 'CLOSED' },
+              },
+              orderBy: { createdAt: 'desc' },
+            });
+
+            if (existingTicket) {
+              existingTicketId = existingTicket.id;
+              threadMethod = 'subject-match';
+              logger.info({ ticketId: existingTicketId, clientId }, 'Threaded to existing ticket via subject match');
+            } else {
+              logger.info({ normalized, clientId }, 'No thread match found by subject');
+            }
+          }
+        }
+
+        const isReply = existingTicketId !== null;
+        ctx.threadResolution = { isReply, existingTicketId, method: threadMethod };
+
+        if (isReply) {
+          // --- Reply to existing ticket ---
+          // Append EMAIL_INBOUND event to existing ticket
+          const hasRealMessageId = emailMessageId && !emailMessageId.startsWith('uid-');
+          await db.ticketEvent.create({
+            data: {
+              ticketId: existingTicketId!,
+              eventType: 'EMAIL_INBOUND',
+              content: emailBody.slice(0, 2000),
+              emailMessageId: hasRealMessageId ? emailMessageId : null,
+              emailHash: emailHash || null,
+              metadata: {
+                messageId: emailMessageId || null,
+                from: emailFrom,
+                fromName: emailFromName || null,
+                subject: emailSubject,
+                inReplyTo: inReplyTo || null,
+                references: references ?? [],
+                hasAttachments: payload['hasAttachments'] ?? false,
+              },
+              actor: `email:${emailFrom}`,
+            },
+          });
+
+          logger.info({ ticketId: existingTicketId, threadMethod, clientId }, 'Reply appended to existing ticket');
+          deps.appLog?.info(
+            `Email reply threaded to existing ticket (${threadMethod})`,
+            { ticketId: existingTicketId, threadMethod, from: emailFrom, subject: emailSubject, clientId },
+            existingTicketId!,
+            'ticket',
+          );
+
+          // Trigger re-analysis if conditions are met
+          if (deps.analysisQueue) {
+            await maybeEnqueueReanalysis(db, deps.analysisQueue, existingTicketId!, emailFrom, logger);
+          }
+
+          // Set ticketId so downstream steps know this ticket already exists
+          ctx.ticketId = existingTicketId;
+
+          await safeTracker.completeStep(stepId, `Reply threaded to ticket ${existingTicketId} (${threadMethod})`);
+        } else {
+          // --- New email — continue pipeline ---
+          logger.info({ clientId, subject: emailSubject }, 'No thread match — proceeding as new ticket');
+          await safeTracker.completeStep(stepId, 'New email — no matching thread');
+        }
+
+        break;
+      }
+
       // ── SUMMARIZE_EMAIL ─────────────────────────────────────────────
       case RouteStepType.SUMMARIZE_EMAIL: {
+        if (ctx.threadResolution?.isReply) {
+          await safeTracker.skipStep(stepId, 'Skipped for reply — ticket already exists');
+          break;
+        }
         const body = payloadStr(payload, 'body');
         const subject = payloadStr(payload, 'subject');
         if (!body && !subject) {
@@ -267,6 +409,10 @@ async function executeIngestionPipeline(
 
       // ── CATEGORIZE ──────────────────────────────────────────────────
       case RouteStepType.CATEGORIZE: {
+        if (ctx.threadResolution?.isReply) {
+          await safeTracker.skipStep(stepId, 'Skipped for reply — ticket already exists');
+          break;
+        }
         try {
           const promptKey = step.promptKeyOverride ?? 'imap.categorize.system';
           const taskType = (step.taskTypeOverride ?? TaskType.CATEGORIZE) as string;
@@ -298,6 +444,10 @@ async function executeIngestionPipeline(
 
       // ── TRIAGE_PRIORITY ─────────────────────────────────────────────
       case RouteStepType.TRIAGE_PRIORITY: {
+        if (ctx.threadResolution?.isReply) {
+          await safeTracker.skipStep(stepId, 'Skipped for reply — ticket already exists');
+          break;
+        }
         try {
           const promptKey = step.promptKeyOverride ?? 'imap.triage.system';
           const taskType = (step.taskTypeOverride ?? TaskType.TRIAGE) as string;
@@ -329,6 +479,10 @@ async function executeIngestionPipeline(
 
       // ── GENERATE_TITLE ──────────────────────────────────────────────
       case RouteStepType.GENERATE_TITLE: {
+        if (ctx.threadResolution?.isReply) {
+          await safeTracker.skipStep(stepId, 'Skipped for reply — ticket already exists');
+          break;
+        }
         try {
           const promptKey = step.promptKeyOverride?.trim() || undefined;
           const taskType = (step.taskTypeOverride ?? TaskType.GENERATE_TITLE) as string;
@@ -551,6 +705,10 @@ async function executeIngestionPipeline(
 
       // ── DRAFT_RECEIPT ───────────────────────────────────────────────
       case RouteStepType.DRAFT_RECEIPT: {
+        if (ctx.threadResolution?.isReply) {
+          await safeTracker.skipStep(stepId, 'Skipped for reply — no receipt needed');
+          break;
+        }
         if (!ctx.ticketId) {
           logger.warn({ clientId }, 'DRAFT_RECEIPT skipped — no ticket created yet');
           await safeTracker.skipStep(stepId, 'No ticket created yet');
@@ -661,6 +819,118 @@ async function executeIngestionPipeline(
       logger.warn({ err, ticketId: ctx.ticketId }, 'Failed to record step errors as ticket event');
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Re-analysis detection — checks conditions and enqueues a re-analysis job
+// (ported from imap-worker/processor.ts)
+// ---------------------------------------------------------------------------
+
+async function maybeEnqueueReanalysis(
+  db: PrismaClient,
+  analysisQueue: Queue<AnalysisJob>,
+  ticketId: string,
+  senderAddress: string,
+  log: { info: (...args: unknown[]) => void; warn: (...args: unknown[]) => void },
+): Promise<void> {
+  // 1. Load ticket to check status
+  const ticket = await db.ticket.findUnique({
+    where: { id: ticketId },
+    select: { status: true, clientId: true },
+  });
+  if (!ticket) return;
+
+  // Only re-analyze tickets in WAITING or OPEN status
+  if (ticket.status !== 'WAITING' && ticket.status !== 'OPEN') {
+    log.info({ ticketId, status: ticket.status }, 'Reply on non-active ticket — re-analysis skipped');
+    return;
+  }
+
+  // 2. Check the ticket has had a completed analysis (findings email was sent to requester).
+  const findingsEmail = await db.ticketEvent.findFirst({
+    where: {
+      ticketId,
+      eventType: 'EMAIL_OUTBOUND',
+      OR: [
+        { metadata: { path: ['type'], equals: 'analysis_findings' } },
+        { metadata: { path: ['type'], equals: 'reanalysis_findings' } },
+      ],
+    },
+  });
+  if (!findingsEmail) {
+    log.info({ ticketId }, 'Ticket has no completed analysis (no findings email sent) — re-analysis skipped');
+    return;
+  }
+
+  // 3. Prevent loops — check sender is not the system's own outbound email
+  const normalizedSender = senderAddress.trim().toLowerCase();
+
+  // Check against IMAP integration inboxes for this client
+  if (ticket.clientId) {
+    const imapIntegrations = await db.clientIntegration.findMany({
+      where: { clientId: ticket.clientId, type: 'IMAP', isActive: true },
+      select: { config: true },
+    });
+    const isOwnInbox = imapIntegrations.some((integ) => {
+      const cfg = integ.config as Record<string, unknown>;
+      const user = typeof cfg['user'] === 'string' ? cfg['user'].trim().toLowerCase() : '';
+      return user === normalizedSender;
+    });
+    if (isOwnInbox) {
+      log.info({ ticketId, from: senderAddress }, 'Reply from own IMAP inbox — re-analysis skipped (loop prevention)');
+      return;
+    }
+  }
+
+  // Check against outbound email addresses used on this ticket
+  const outboundEvents = await db.ticketEvent.findMany({
+    where: { ticketId, eventType: 'EMAIL_OUTBOUND' },
+    select: { metadata: true },
+  });
+  const outboundAddresses = new Set<string>();
+  for (const ev of outboundEvents) {
+    const meta = ev.metadata as Record<string, unknown> | null;
+    if (typeof meta?.['from'] === 'string') {
+      outboundAddresses.add(meta['from'].trim().toLowerCase());
+    }
+  }
+  if (outboundAddresses.has(normalizedSender)) {
+    log.info({ ticketId, from: senderAddress }, 'Reply from system outbound address — re-analysis skipped (loop prevention)');
+    return;
+  }
+
+  // 4. Dedupe: use deterministic jobId to prevent duplicate reanalysis jobs
+  const reanalysisJobId = `reanalysis-${ticketId}`;
+  const existingJob = await analysisQueue.getJob(reanalysisJobId);
+  if (existingJob) {
+    const state = await existingJob.getState();
+    if (state === 'waiting' || state === 'delayed' || state === 'active') {
+      log.info({ ticketId, jobId: reanalysisJobId, state }, 'Re-analysis job already pending for this ticket — skipping');
+      return;
+    }
+    try { await existingJob.remove(); } catch { /* job may have been cleaned up already */ }
+  }
+
+  // 5. Find the trigger event (most recent EMAIL_INBOUND for this ticket)
+  const triggerEvent = await db.ticketEvent.findFirst({
+    where: { ticketId, eventType: 'EMAIL_INBOUND' },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true },
+  });
+
+  // All conditions met — enqueue re-analysis
+  await analysisQueue.add('analyze-ticket', {
+    ticketId,
+    clientId: ticket.clientId ?? undefined,
+    reanalysis: true,
+    triggerEventId: triggerEvent?.id,
+  }, {
+    jobId: reanalysisJobId,
+    attempts: 4,
+    backoff: { type: 'exponential', delay: 30_000 },
+  });
+
+  log.info({ ticketId, triggerEventId: triggerEvent?.id }, 'Enqueued re-analysis for reply on analyzed ticket');
 }
 
 // ---------------------------------------------------------------------------
@@ -781,6 +1051,7 @@ export function createIngestionProcessor(deps: IngestionDeps) {
       priority: 'MEDIUM',
       ticketId: null,
       requesterId: null,
+      threadResolution: null,
     };
 
     let pipelineError: unknown = undefined;
@@ -788,8 +1059,9 @@ export function createIngestionProcessor(deps: IngestionDeps) {
       // Execute the ingestion pipeline
       await executeIngestionPipeline(deps, route, ctx, tracker);
 
-      // If a ticket was created, enqueue for analysis dispatch
-      if (ctx.ticketId) {
+      // If a new ticket was created (not a reply threaded to existing), enqueue for analysis dispatch
+      const isReply = ctx.threadResolution?.isReply === true;
+      if (ctx.ticketId && !isReply) {
         await deps.ticketCreatedQueue.add('ticket-created', {
           ticketId: ctx.ticketId,
           clientId,
@@ -801,6 +1073,8 @@ export function createIngestionProcessor(deps: IngestionDeps) {
           backoff: { type: 'exponential', delay: 30_000 },
         });
         logger.info({ ticketId: ctx.ticketId, source, clientId }, 'Ingestion complete — enqueued ticket-created for analysis dispatch');
+      } else if (isReply) {
+        logger.info({ ticketId: ctx.ticketId, source, clientId }, 'Ingestion complete — reply threaded to existing ticket (re-analysis handled by RESOLVE_THREAD)');
       } else {
         logger.info({ source, clientId, routeId: route.id }, 'Ingestion pipeline completed without creating a ticket (no CREATE_TICKET step)');
       }

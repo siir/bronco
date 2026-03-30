@@ -1162,6 +1162,7 @@ enum AnalysisStatus {
 }
 
 enum RouteStepType {
+  RESOLVE_THREAD
   SUMMARIZE_EMAIL
   CATEGORIZE
   TRIAGE_PRIORITY

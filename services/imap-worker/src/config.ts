@@ -11,13 +11,6 @@ const configSchema = z.object({
   IMAP_PASSWORD: z.string().optional().default(''),
   POLL_INTERVAL_SECONDS: z.coerce.number().default(60),
   ENCRYPTION_KEY: z.string().min(64),
-  // SMTP for outbound email replies
-  SMTP_HOST: z.string(),
-  SMTP_PORT: z.coerce.number().default(587),
-  SMTP_USER: z.string(),
-  SMTP_PASSWORD: z.string(),
-  SMTP_FROM: z.string(),
-  EMAIL_SENDER_NAME: z.string().default('Support Team'),
   HEALTH_PORT: z.coerce.number().default(3101),
 });
 
