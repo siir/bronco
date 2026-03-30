@@ -507,6 +507,11 @@ model IssueJob {
   repoId       String         @map("repo_id") @db.Uuid
   branchName   String         @map("branch_name")
   status       IssueJobStatus @default(PENDING)
+  plan         Json?
+  planRevision Int            @default(0) @map("plan_revision")
+  planFeedback String?        @map("plan_feedback")
+  approvedAt   DateTime?      @map("approved_at")
+  approvedBy   String?        @map("approved_by")
   commitSha    String?        @map("commit_sha")
   filesChanged Int?           @map("files_changed")
   error        String?
@@ -976,6 +981,8 @@ enum IssueJobStatus {
   PENDING
   CLONING
   ANALYZING
+  PLANNING
+  AWAITING_APPROVAL
   APPLYING
   PUSHING
   COMPLETED

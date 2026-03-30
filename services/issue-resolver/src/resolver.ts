@@ -3,6 +3,7 @@ import { join, relative, dirname, normalize, resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import { z } from 'zod';
 import { TaskType } from '@bronco/shared-types';
+import type { ResolutionPlan } from '@bronco/shared-types';
 import type { AIRouter } from '@bronco/ai-provider';
 import { createLogger } from '@bronco/shared-utils';
 
@@ -165,22 +166,27 @@ export async function resolveIssue(opts: {
   issueDescription: string;
   issueCategory: string | null;
   clientId?: string;
+  plan?: ResolutionPlan;
 }): Promise<ResolveResult> {
-  const { ai, repoPath, issueTitle, issueDescription, issueCategory, clientId } = opts;
+  const { ai, repoPath, issueTitle, issueDescription, issueCategory, clientId, plan } = opts;
 
-  logger.info({ issueTitle }, 'Starting issue analysis');
+  logger.info({ issueTitle, hasPlan: !!plan }, 'Starting issue analysis');
 
   // Gather repo context
   const allFiles = await listFiles(repoPath, repoPath);
   const fileTree = allFiles.join('\n');
   const sourceContext = await gatherContext(repoPath, allFiles);
 
+  const planSection = plan
+    ? `\n## Approved Resolution Plan\n\`\`\`json\n${JSON.stringify(plan, null, 2)}\n\`\`\`\n\nFollow this approved plan when generating file changes. Only implement actions categorized as "WILL_DO".\n`
+    : '';
+
   const prompt = `## Issue
 **Title:** ${issueTitle}
 **Category:** ${issueCategory ?? 'Not categorized'}
 **Description:**
 ${issueDescription ?? 'No description provided.'}
-
+${planSection}
 ## Repository Structure
 \`\`\`
 ${fileTree}

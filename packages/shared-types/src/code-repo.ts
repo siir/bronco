@@ -5,12 +5,38 @@ export const IssueJobStatus = {
   PENDING: 'PENDING',
   CLONING: 'CLONING',
   ANALYZING: 'ANALYZING',
+  PLANNING: 'PLANNING',
+  AWAITING_APPROVAL: 'AWAITING_APPROVAL',
   APPLYING: 'APPLYING',
   PUSHING: 'PUSHING',
   COMPLETED: 'COMPLETED',
   FAILED: 'FAILED',
 } as const;
 export type IssueJobStatus = (typeof IssueJobStatus)[keyof typeof IssueJobStatus];
+
+export const PlanActionCategory = {
+  WILL_DO: 'WILL_DO',
+  CAN_DO_IF_ALLOWED: 'CAN_DO_IF_ALLOWED',
+  CANNOT_DO: 'CANNOT_DO',
+} as const;
+export type PlanActionCategory = (typeof PlanActionCategory)[keyof typeof PlanActionCategory];
+
+export interface ResolutionPlanAction {
+  description: string;
+  category: PlanActionCategory;
+  files?: string[];
+  manualSteps?: string;
+  requirement?: string;
+}
+
+export interface ResolutionPlan {
+  summary: string;
+  approach: string;
+  actions: ResolutionPlanAction[];
+  assumptions: string[];
+  openQuestions: string[];
+  estimatedFiles: number;
+}
 
 export interface CodeRepo {
   id: string;
@@ -31,6 +57,11 @@ export interface IssueJob {
   repoId: string;
   branchName: string;
   status: IssueJobStatus;
+  plan: ResolutionPlan | null;
+  planRevision: number;
+  planFeedback: string | null;
+  approvedAt: Date | null;
+  approvedBy: string | null;
   commitSha: string | null;
   filesChanged: number | null;
   error: string | null;
