@@ -1,7 +1,7 @@
 import type { Job, Queue } from 'bullmq';
 import { type PrismaClient, Prisma } from '@bronco/db';
-import { Priority } from '@bronco/shared-types';
-import type { TicketCreatedJob } from '@bronco/shared-types';
+import { Priority, TicketSource } from '@bronco/shared-types';
+import type { IngestionJob } from '@bronco/shared-types';
 import { createLogger, AppLogger, createPrismaLogWriter } from '@bronco/shared-utils';
 import type { AzDoClient, AzDoWorkItem } from './client.js';
 import { BOT_MARKER, type WorkflowEngine } from './workflow.js';
@@ -108,8 +108,8 @@ export interface ProcessorOptions {
   integrationId?: string | null;
   /** When 'operational-task', creates OperationalTask instead of Ticket (for global/internal integration). */
   mode?: 'ticket' | 'operational-task';
-  /** Optional BullMQ queue for ticket-created events — when provided, newly created tickets are enqueued for route dispatch. */
-  ticketCreatedQueue?: Queue<TicketCreatedJob>;
+  /** BullMQ queue for the unified ingestion pipeline — new work items are enqueued here instead of creating tickets directly. */
+  ingestQueue?: Queue<IngestionJob>;
 }
 
 export function createDevOpsProcessor(
@@ -125,7 +125,7 @@ export function createDevOpsProcessor(
   const clientShortCode = opts?.clientShortCode;
   const integrationId = opts?.integrationId ?? null;
   const mode = opts?.mode ?? 'ticket';
-  const ticketCreatedQueue = opts?.ticketCreatedQueue;
+  const ingestQueue = opts?.ingestQueue;
   const entityType = mode === 'operational-task' ? 'operational_task' : 'ticket';
 
   /** Build a where filter for DevOpsSyncState scoped by workItemId + integrationId. */
@@ -256,44 +256,13 @@ export function createDevOpsProcessor(
 
         appLog.info(`Created operational task from work item #${workItemId}: actionable=${actionable}`, { taskId: task.id, workItemId, actionable, title, workItemType }, task.id, entityType);
       } else {
-        // Create a ticket (per-client integration)
+        // Per-client integration: enqueue to the ingestion pipeline instead of creating tickets directly.
         const clientId = await resolveClientId();
-        let ticket: { id: string };
-        for (let attempt = 0; attempt <= 3; attempt++) {
-          const lastAzdoTicket = await db.ticket.findFirst({
-            where: { clientId, ticketNumber: { gt: 0 } },
-            orderBy: { ticketNumber: 'desc' },
-            select: { ticketNumber: true },
-          });
-          const azdoTicketNumber = (lastAzdoTicket?.ticketNumber ?? 0) + 1;
 
-          try {
-            ticket = await db.ticket.create({
-              data: {
-                clientId,
-                subject: `[${workItemType}] ${title}`,
-                description: description.slice(0, maxDescriptionLength) || null,
-                source: 'AZURE_DEVOPS',
-                priority: mapPriority(priority),
-                externalRef,
-                ticketNumber: azdoTicketNumber,
-              },
-            });
-            break;
-          } catch (err) {
-            if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002' && attempt < 3) {
-              logger.warn({ attempt, workItemId }, 'Ticket number conflict — retrying');
-              continue;
-            }
-            throw err;
-          }
-        }
-        ticket = ticket!;
-        entityId = ticket.id;
-
-        await db.devOpsSyncState.create({
+        // Create sync state with ticketId=null — the ingestion engine will link it
+        // after creating the ticket (via syncStateId in the payload metadata).
+        const syncState = await db.devOpsSyncState.create({
           data: {
-            ticketId: ticket.id,
             workItemId,
             integrationId,
             revision: wi.rev,
@@ -302,49 +271,50 @@ export function createDevOpsProcessor(
             workflowState: 'idle',
           },
         });
+        entityId = syncState.id; // Use sync state ID as entity reference until ticket exists
 
-        await db.ticketEvent.create({
-          data: {
-            ticketId: ticket.id,
-            eventType: 'SYSTEM_NOTE',
-            content: `Imported from Azure DevOps ${workItemType} #${workItemId}`,
-            metadata: {
-              workItemId, workItemType, state,
-              assignedTo: assignedTo?.displayName ?? null,
-              tags, areaPath, iterationPath,
-              url: client.getWorkItemUrl(workItemId),
-            },
-            actor: 'system:devops-worker',
-          },
-        });
-
+        // Gather linked work item context to include in the payload description
         const linkedContext = await fetchLinkedWorkItemContext(wi);
-        if (linkedContext) {
-          await db.ticketEvent.create({
-            data: {
-              ticketId: ticket.id,
-              eventType: 'SYSTEM_NOTE',
-              content: linkedContext,
-              actor: 'system:devops-worker',
-            },
-          });
-        }
 
-        if (ticketCreatedQueue) {
-          await ticketCreatedQueue.add('ticket-created', {
-            ticketId: ticket.id,
+        if (ingestQueue) {
+          const fullDescription = [
+            description.slice(0, maxDescriptionLength),
+            linkedContext ? `\n\n${linkedContext}` : '',
+          ].join('').trim();
+
+          const job: IngestionJob = {
+            source: TicketSource.AZURE_DEVOPS,
             clientId,
-            source: 'AZURE_DEVOPS' as const,
-            category: null,
-          }, {
-            jobId: `ticket-created-${ticket.id}`,
+            payload: {
+              workItemId,
+              workItemType,
+              title: `[${workItemType}] ${title}`,
+              description: fullDescription || description.slice(0, maxDescriptionLength),
+              priority: priority ?? 3,
+              state,
+              tags: tags ?? undefined,
+              areaPath: areaPath ?? undefined,
+              iterationPath: iterationPath ?? undefined,
+              assignedTo: assignedTo?.displayName ?? undefined,
+              externalRef,
+              integrationId: integrationId ?? undefined,
+              syncStateId: syncState.id,
+              devopsUrl: client.getWorkItemUrl(workItemId),
+            },
+          };
+
+          await ingestQueue.add('ticket-ingest', job, {
+            jobId: `ingest-azdo-${integrationId ?? 'global'}-${workItemId}`,
             attempts: 4,
             backoff: { type: 'exponential', delay: 30_000 },
           });
-          logger.info({ ticketId: ticket.id, workItemId }, 'Enqueued ticket-created event');
+
+          logger.info({ workItemId, clientId, syncStateId: syncState.id }, 'Enqueued DevOps work item to ingestion queue');
+        } else {
+          logger.warn({ workItemId }, 'No ingest queue available — work item will not be processed');
         }
 
-        appLog.info(`Created ticket from work item #${workItemId}: actionable=${actionable}`, { ticketId: ticket.id, workItemId, actionable, title, workItemType }, ticket.id, entityType);
+        appLog.info(`Enqueued work item #${workItemId} for ingestion: actionable=${actionable}`, { workItemId, actionable, title, workItemType, clientId }, syncState.id, entityType);
       }
 
       // Sync comments from DevOps

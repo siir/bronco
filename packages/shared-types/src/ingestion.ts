@@ -69,4 +69,16 @@ export interface ManualIngestionPayload {
   category?: string;
   requesterId?: string;
   systemId?: string;
+  environmentId?: string;
+}
+
+/** Portal ticket payload submitted by a client portal user. */
+export interface PortalIngestionPayload {
+  subject: string;
+  description?: string;
+  priority?: string;
+  /** Portal user ID (ClientUser.id) who created the ticket. */
+  portalCreatorId: string;
+  /** Contact ID resolved from the portal user's email. */
+  contactId?: string;
 }

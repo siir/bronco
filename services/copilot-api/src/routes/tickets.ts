@@ -3,12 +3,13 @@ import type { Queue } from 'bullmq';
 import type { AIRouter } from '@bronco/ai-provider';
 import { ensureClientUser, Prisma } from '@bronco/db';
 import { TicketStatus, TicketCategory, TicketEventType, Priority, TicketSource, TaskType, isClosedStatus, AnalysisStatus } from '@bronco/shared-types';
-import type { TicketCreatedJob } from '@bronco/shared-types';
+import type { TicketCreatedJob, IngestionJob } from '@bronco/shared-types';
 
 interface TicketRouteOpts {
   logSummarizeQueue?: Queue;
   systemAnalysisQueue?: Queue;
   ticketCreatedQueue?: Queue<TicketCreatedJob>;
+  ingestQueue?: Queue<IngestionJob>;
   ai?: AIRouter;
 }
 
@@ -115,6 +116,7 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
   });
 
   fastify.post<{
+    Querystring: { sync?: string };
     Body: {
       clientId: string;
       subject: string;
@@ -128,6 +130,7 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     };
   }>('/api/tickets', async (request, reply) => {
     const { clientId, subject, description, systemId, environmentId, requesterId, priority, source, category } = request.body;
+    const syncMode = request.query.sync === 'true';
 
     if (priority && !VALID_PRIORITIES.has(priority)) return fastify.httpErrors.badRequest(`Invalid priority: ${priority}`);
     if (source && !VALID_SOURCES.has(source)) return fastify.httpErrors.badRequest(`Invalid source: ${source}`);
@@ -152,6 +155,48 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
       if (env.clientId !== clientId) return fastify.httpErrors.forbidden('environmentId belongs to a different client');
     }
 
+    // --- Async mode (default): enqueue to ingestion pipeline ---
+    if (!syncMode && opts?.ingestQueue) {
+      const job: IngestionJob = {
+        source: (source as TicketSource) ?? TicketSource.MANUAL,
+        clientId,
+        payload: {
+          subject,
+          description,
+          priority,
+          category,
+          requesterId,
+          systemId,
+          environmentId: environmentId ?? undefined,
+        },
+      };
+
+      await opts.ingestQueue.add('ticket-ingest', job, {
+        jobId: `ingest-manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        attempts: 4,
+        backoff: { type: 'exponential', delay: 30_000 },
+      });
+
+      // Auto-provision a CLIENT user account for the requester contact
+      if (requesterId) {
+        const contact = await fastify.db.contact.findUnique({
+          where: { id: requesterId },
+          select: { email: true, name: true, clientId: true },
+        });
+        if (contact) {
+          try {
+            await ensureClientUser(fastify.db, contact);
+          } catch (error) {
+            fastify.log.error({ err: error }, 'Failed to auto-provision CLIENT user');
+          }
+        }
+      }
+
+      reply.code(202);
+      return { queued: true, source: job.source, clientId };
+    }
+
+    // --- Sync mode (?sync=true): create ticket directly for interactive callers ---
     let ticket: Awaited<ReturnType<typeof fastify.db.ticket.create>>;
     for (let attempt = 0; attempt <= 3; attempt++) {
       const lastApiTicket = await fastify.db.ticket.findFirst({

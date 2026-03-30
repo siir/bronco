@@ -2,7 +2,7 @@ import { Redis } from 'ioredis';
 import { getDb, disconnectDb } from '@bronco/db';
 import { createLogger, createQueue, createWorker, decrypt, AppLogger, createPrismaLogWriter, setGlobalLogWriter, createHealthServer, createGracefulShutdown } from '@bronco/shared-utils';
 import { createAIRouter } from '@bronco/ai-provider';
-import type { TicketCreatedJob } from '@bronco/shared-types';
+import type { IngestionJob } from '@bronco/shared-types';
 import { AzDoClient } from './client.js';
 import { getConfig } from './config.js';
 import { pollWorkItems } from './poller.js';
@@ -80,8 +80,8 @@ async function main(): Promise<void> {
     encryptionKey: config.ENCRYPTION_KEY,
   });
 
-  // --- Ticket-created queue for route dispatch ---
-  const ticketCreatedQueue = createQueue<TicketCreatedJob>('ticket-created', config.REDIS_URL);
+  // --- Ingestion queue for unified ticket creation pipeline ---
+  const ingestQueue = createQueue<IngestionJob>('ticket-ingest', config.REDIS_URL);
 
   // Redis connection for watermark persistence
   const redis = new Redis(config.REDIS_URL, { maxRetriesPerRequest: null, lazyConnect: true });
@@ -207,7 +207,7 @@ async function main(): Promise<void> {
         clientShortCode: integ.client.shortCode,
         maxDescriptionLength: config.MAX_DESCRIPTION_LENGTH,
         integrationId,
-        ticketCreatedQueue,
+        ingestQueue,
       },
     );
 
@@ -364,7 +364,7 @@ async function main(): Promise<void> {
             clientShortCode: integ.client.shortCode,
             maxDescriptionLength: config.MAX_DESCRIPTION_LENGTH,
             integrationId: integ.id,
-            ticketCreatedQueue,
+            ingestQueue,
           },
         );
         perClientProcessors.set(integ.id, {
@@ -455,7 +455,7 @@ async function main(): Promise<void> {
               clientShortCode: integ.client.shortCode,
               maxDescriptionLength: config.MAX_DESCRIPTION_LENGTH,
               integrationId: integ.id,
-              ticketCreatedQueue,
+              ingestQueue,
             },
           );
           perClientProcessors.set(integ.id, {
@@ -555,7 +555,7 @@ async function main(): Promise<void> {
     health,
     worker,
     queue,
-    ticketCreatedQueue,
+    ingestQueue,
     { fn: async () => { await redis.quit(); } },
     { fn: disconnectDb },
   ]);

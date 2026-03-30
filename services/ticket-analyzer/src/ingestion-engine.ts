@@ -563,6 +563,8 @@ async function executeIngestionPipeline(
         if (payload['integrationId']) metadata['integrationId'] = payload['integrationId'];
         if (payload['workItemId']) metadata['workItemId'] = payload['workItemId'];
         if (payload['messageId']) metadata['messageId'] = payload['messageId'];
+        if (payload['portalCreatorId']) metadata['portalCreatorId'] = payload['portalCreatorId'];
+        if (payload['devopsUrl']) metadata['devopsUrl'] = payload['devopsUrl'];
 
         // External ref for DevOps or email
         const externalRef = payloadStr(payload, 'externalRef') || payloadStr(payload, 'messageId') || null;
@@ -570,6 +572,10 @@ async function executeIngestionPipeline(
         for (let attempt = 0; attempt <= MAX_TICKET_RETRIES; attempt++) {
           const ticketNumber = await nextTicketNumber(db, clientId);
           try {
+            // Optional system/environment from Manual/Portal payloads
+            const systemId = payloadStr(payload, 'systemId') || undefined;
+            const environmentId = payloadStr(payload, 'environmentId') || undefined;
+
             const ticket = await db.ticket.create({
               data: {
                 clientId,
@@ -581,6 +587,8 @@ async function executeIngestionPipeline(
                 priority: ctx.priority as Priority,
                 ticketNumber,
                 externalRef,
+                ...(systemId && { systemId }),
+                ...(environmentId && { environmentId }),
                 metadata: Object.keys(metadata).length > 0 ? (metadata as Prisma.InputJsonValue) : Prisma.DbNull,
                 ...(requesterContactId && {
                   followers: {
@@ -644,6 +652,20 @@ async function executeIngestionPipeline(
               actor: `system:ingestion:${source.toLowerCase()}`,
             },
           });
+        }
+
+        // Link DevOpsSyncState to the newly created ticket (if this came from the DevOps ingestion path)
+        const syncStateId = payloadStr(payload, 'syncStateId');
+        if (syncStateId && source === TicketSource.AZURE_DEVOPS) {
+          try {
+            await db.devOpsSyncState.update({
+              where: { id: syncStateId },
+              data: { ticketId: ctx.ticketId },
+            });
+            logger.info({ syncStateId, ticketId: ctx.ticketId }, 'Linked DevOpsSyncState to ingested ticket');
+          } catch (linkErr) {
+            logger.warn({ linkErr, syncStateId, ticketId: ctx.ticketId }, 'Failed to link DevOpsSyncState — non-fatal');
+          }
         }
 
         // Save raw probe result artifact when available
@@ -1035,6 +1057,17 @@ export function createIngestionProcessor(deps: IngestionDeps) {
     }
 
     // Build initial context from payload
+    // Resolve initial priority: DevOps payloads use a numeric priority (1-4), others use string.
+    let initialPriority = 'MEDIUM';
+    if (typeof payload['priority'] === 'number') {
+      // DevOps numeric mapping: 1=CRITICAL, 2=HIGH, 3=MEDIUM, 4=LOW
+      const numMap: Record<number, string> = { 1: 'CRITICAL', 2: 'HIGH', 3: 'MEDIUM', 4: 'LOW' };
+      initialPriority = numMap[payload['priority'] as number] ?? 'MEDIUM';
+    } else if (typeof payload['priority'] === 'string') {
+      const valid = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
+      initialPriority = valid.includes(payload['priority'].toUpperCase()) ? payload['priority'].toUpperCase() : 'MEDIUM';
+    }
+
     const ctx: IngestionContext = {
       source: source as TicketSource,
       clientId,
@@ -1043,7 +1076,7 @@ export function createIngestionProcessor(deps: IngestionDeps) {
       description: (payloadStr(payload, 'body') || payloadStr(payload, 'toolResult') || payloadStr(payload, 'description')).slice(0, 2000),
       summary: '',
       category: isValidCategory(payload['category']) ? (payload['category'] as string) : 'GENERAL',
-      priority: 'MEDIUM',
+      priority: initialPriority,
       ticketId: null,
       requesterId: null,
       threadResolution: null,

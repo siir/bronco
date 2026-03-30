@@ -157,6 +157,63 @@ async function main() {
   await prisma.ticketRouteStep.createMany({ data: emailRouteSteps.map(s => ({ ...s, routeId: emailRouteId })) });
   console.log('Seeded email ingestion route:', emailRoute.name);
 
+  // Seed default AZURE_DEVOPS ingestion route
+  const devopsRouteId = '00000000-0000-0000-0000-000000000011';
+  const devopsRouteSteps = [
+    { stepOrder: 1, name: 'Categorize', stepType: 'CATEGORIZE', isActive: true },
+    { stepOrder: 2, name: 'Triage Priority', stepType: 'TRIAGE_PRIORITY', isActive: true },
+    { stepOrder: 3, name: 'Generate Title', stepType: 'GENERATE_TITLE', isActive: true },
+    { stepOrder: 4, name: 'Create Ticket', stepType: 'CREATE_TICKET', isActive: true },
+  ];
+  const devopsRoute = await prisma.ticketRoute.upsert({
+    where: { id: devopsRouteId },
+    update: {
+      name: 'Default DevOps Ingestion',
+      description: 'Categorizes, triages, generates title, and creates ticket from Azure DevOps work items.',
+    },
+    create: {
+      id: devopsRouteId,
+      name: 'Default DevOps Ingestion',
+      description: 'Categorizes, triages, generates title, and creates ticket from Azure DevOps work items.',
+      routeType: 'INGESTION',
+      source: 'AZURE_DEVOPS',
+      isActive: true,
+      isDefault: true,
+      sortOrder: 101,
+      steps: { createMany: { data: devopsRouteSteps } },
+    },
+  });
+  await prisma.ticketRouteStep.deleteMany({ where: { routeId: devopsRouteId } });
+  await prisma.ticketRouteStep.createMany({ data: devopsRouteSteps.map(s => ({ ...s, routeId: devopsRouteId })) });
+  console.log('Seeded DevOps ingestion route:', devopsRoute.name);
+
+  // Seed default MANUAL ingestion route (minimal — operator provides all fields)
+  const manualRouteId = '00000000-0000-0000-0000-000000000012';
+  const manualRouteSteps = [
+    { stepOrder: 1, name: 'Create Ticket', stepType: 'CREATE_TICKET', isActive: true },
+  ];
+  const manualRoute = await prisma.ticketRoute.upsert({
+    where: { id: manualRouteId },
+    update: {
+      name: 'Default Manual Ingestion',
+      description: 'Creates ticket directly from operator-provided fields.',
+    },
+    create: {
+      id: manualRouteId,
+      name: 'Default Manual Ingestion',
+      description: 'Creates ticket directly from operator-provided fields.',
+      routeType: 'INGESTION',
+      source: 'MANUAL',
+      isActive: true,
+      isDefault: true,
+      sortOrder: 102,
+      steps: { createMany: { data: manualRouteSteps } },
+    },
+  });
+  await prisma.ticketRouteStep.deleteMany({ where: { routeId: manualRouteId } });
+  await prisma.ticketRouteStep.createMany({ data: manualRouteSteps.map(s => ({ ...s, routeId: manualRouteId })) });
+  console.log('Seeded Manual ingestion route:', manualRoute.name);
+
   // Seed prompt keywords ({{token}} placeholders used in AI prompts)
   await seedPromptKeywords(prisma);
 }
