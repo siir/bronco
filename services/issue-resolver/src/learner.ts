@@ -1,5 +1,5 @@
 import { getDb } from '@bronco/db';
-import { TaskType, MemorySource, MemoryType } from '@bronco/shared-types';
+import { TaskType, MemorySource, MemoryType, TicketCategory } from '@bronco/shared-types';
 import type { ResolutionPlan } from '@bronco/shared-types';
 import type { AIRouter, ClientMemoryResolver } from '@bronco/ai-provider';
 import { createLogger } from '@bronco/shared-utils';
@@ -72,19 +72,29 @@ async function persistLearning(
   eventTags: string[],
 ): Promise<void> {
   const db = getDb();
-  const tags = [...entry.tags, ...eventTags, `ticket:${ctx.ticketId}`];
+  const tags = [...new Set([...entry.tags, ...eventTags, `ticket:${ctx.ticketId}`])];
 
-  // Check for duplicate: same client, similar title
-  const existing = await db.clientMemory.findFirst({
+  // Check for duplicate using the unique constraint (clientId, title)
+  const existing = await db.clientMemory.findUnique({
     where: {
-      clientId: ctx.clientId,
-      source: MemorySource.AI_LEARNED,
-      title: entry.title,
+      clientId_title: {
+        clientId: ctx.clientId,
+        title: entry.title,
+      },
     },
   });
 
   if (existing) {
-    // Update existing memory with enriched content
+    if (existing.source === MemorySource.MANUAL) {
+      // Respect manually curated memories — do not overwrite or duplicate
+      logger.info(
+        { memoryId: existing.id, clientId: ctx.clientId, title: entry.title },
+        'Skipping learned memory because a manual memory already exists for this title',
+      );
+      return;
+    }
+
+    // Update existing AI-learned memory with enriched content
     await db.clientMemory.update({
       where: { id: existing.id },
       data: {
@@ -99,7 +109,11 @@ async function persistLearning(
         clientId: ctx.clientId,
         title: entry.title,
         memoryType: entry.memoryType,
-        category: (entry.category ?? null) as never,
+        category: entry.category && Object.values(TicketCategory).includes(entry.category as TicketCategory)
+          ? entry.category as TicketCategory
+          : (ctx.issueCategory && Object.values(TicketCategory).includes(ctx.issueCategory as TicketCategory)
+            ? ctx.issueCategory as TicketCategory
+            : null),
         tags,
         content: entry.content,
         source: MemorySource.AI_LEARNED,
