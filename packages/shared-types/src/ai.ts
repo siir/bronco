@@ -25,6 +25,7 @@ export const TaskType = {
   SCHEMA_REVIEW: 'SCHEMA_REVIEW',
   FEATURE_ANALYSIS: 'FEATURE_ANALYSIS',
   // Automated issue resolution (Claude API — agentic code generation)
+  GENERATE_RESOLUTION_PLAN: 'GENERATE_RESOLUTION_PLAN',
   RESOLVE_ISSUE: 'RESOLVE_ISSUE',
   // Codebase modification (tiered by scope)
   CHANGE_CODEBASE_SMALL: 'CHANGE_CODEBASE_SMALL',
@@ -90,6 +91,7 @@ export const TASK_APP_SCOPE: Record<TaskType, AppScope> = {
   [TaskType.ARCHITECTURE_REVIEW]: AppScope.CORE,
   [TaskType.SCHEMA_REVIEW]: AppScope.CORE,
   [TaskType.FEATURE_ANALYSIS]: AppScope.CORE,
+  [TaskType.GENERATE_RESOLUTION_PLAN]: AppScope.CORE,
   [TaskType.RESOLVE_ISSUE]: AppScope.CORE,
   [TaskType.CHANGE_CODEBASE_SMALL]: AppScope.CORE,
   [TaskType.CHANGE_CODEBASE_LARGE]: AppScope.CORE,

@@ -46,7 +46,7 @@ export const RESOLVER_GENERATE_PLAN_SYSTEM: PromptDefinition = {
   description:
     'Analyzes a codebase and generates a resolution plan (no code). ' +
     'Outputs JSON with approach, actions categorized by capability, assumptions, and open questions.',
-  taskType: 'RESOLVE_ISSUE',
+  taskType: 'GENERATE_RESOLUTION_PLAN',
   role: 'SYSTEM',
   content: `You are an expert software engineer tasked with creating a resolution plan for an issue in a codebase.
 You will be given:

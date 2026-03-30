@@ -160,7 +160,7 @@ ${sourceContext}
 Analyze this issue and generate a resolution plan. Do NOT generate code — describe the approach and list specific actions needed.`;
 
   const response = await ai.generate({
-    taskType: TaskType.RESOLVE_ISSUE,
+    taskType: TaskType.GENERATE_RESOLUTION_PLAN,
     prompt,
     promptKey: 'resolver.generate-plan.system',
     context: { clientId },
@@ -228,7 +228,7 @@ ${feedback}
 The operator has rejected the previous plan with the feedback above. Generate an updated resolution plan that addresses the feedback. Do NOT generate code — describe the approach and list specific actions needed.`;
 
   const response = await ai.generate({
-    taskType: TaskType.RESOLVE_ISSUE,
+    taskType: TaskType.GENERATE_RESOLUTION_PLAN,
     prompt,
     promptKey: 'resolver.generate-plan.system',
     context: { clientId },
