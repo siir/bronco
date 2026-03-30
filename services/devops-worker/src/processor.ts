@@ -315,21 +315,29 @@ export function createDevOpsProcessor(
         }
 
         appLog.info(`Enqueued work item #${workItemId} for ingestion: actionable=${actionable}`, { workItemId, actionable, title, workItemType, clientId }, syncState.id, entityType);
+
+        // Skip comment sync and workflow for ingestion path — ticket doesn't exist yet.
+        // The ingestion engine will link the DevOpsSyncState to the ticket after creation.
+        // Comment sync and workflow will be triggered on subsequent poll cycles when
+        // existingSync.ticketId is populated.
+        entityId = ''; // Clear entityId so comment sync and workflow are skipped below
       }
 
-      // Sync comments from DevOps
-      try {
-        await syncComments(entityId, workItemId);
-      } catch (err) {
-        logger.error({ entityId, workItemId, err }, 'Failed to sync comments for new work item');
-      }
+      if (entityId) {
+        // Only sync comments and start workflow when we have a real ticket/task ID
+        // (global integration path creates tickets directly, per-client path defers to ingestion)
+        try {
+          await syncComments(entityId, workItemId);
+        } catch (err) {
+          logger.error({ entityId, workItemId, err }, 'Failed to sync comments for new work item');
+        }
 
-      // If actionable, kick off the conversational workflow
-      if (actionable) {
-        appLog.info('Work item is actionable — starting workflow', { entityId, workItemId }, entityId, entityType);
-        await workflow.onNewEntity(entityId, workItemId);
-      } else {
-        appLog.info('Work item is not actionable — no workflow started', { entityId, workItemId }, entityId, entityType);
+        if (actionable) {
+          appLog.info('Work item is actionable — starting workflow', { entityId, workItemId }, entityId, entityType);
+          await workflow.onNewEntity(entityId, workItemId);
+        } else {
+          appLog.info('Work item is not actionable — no workflow started', { entityId, workItemId }, entityId, entityType);
+        }
       }
     } else {
       // --- Existing work item: check for changes ---

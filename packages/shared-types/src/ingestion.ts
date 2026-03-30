@@ -59,6 +59,10 @@ export interface DevOpsIngestionPayload {
   assignedTo?: string;
   externalRef: string;
   integrationId?: string;
+  /** DevOpsSyncState ID for linking the ticket back after ingestion. */
+  syncStateId?: string;
+  /** Azure DevOps work item URL. */
+  devopsUrl?: string;
 }
 
 /** Manual ticket payload submitted via API. */
@@ -67,7 +71,8 @@ export interface ManualIngestionPayload {
   description?: string;
   priority?: string;
   category?: string;
-  requesterId?: string;
+  /** Contact ID for the ticket requester. */
+  contactId?: string;
   systemId?: string;
   environmentId?: string;
 }
