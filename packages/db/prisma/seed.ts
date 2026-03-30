@@ -214,6 +214,33 @@ async function main() {
   await prisma.ticketRouteStep.createMany({ data: manualRouteSteps.map(s => ({ ...s, routeId: manualRouteId })) });
   console.log('Seeded Manual ingestion route:', manualRoute.name);
 
+  // Seed default re-analysis route (used for incremental update after user reply)
+  const reanalysisRouteId = '00000000-0000-0000-0000-000000000013';
+  const reanalysisRouteSteps = [
+    { stepOrder: 1, name: 'Update Analysis', stepType: 'UPDATE_ANALYSIS', isActive: true },
+    { stepOrder: 2, name: 'Draft Findings Email', stepType: 'DRAFT_FINDINGS_EMAIL', isActive: true },
+  ];
+  const reanalysisRoute = await prisma.ticketRoute.upsert({
+    where: { id: reanalysisRouteId },
+    update: {
+      name: 'Default Re-analysis (Update)',
+      description: 'Incremental analysis triggered by a reply to an already-analyzed ticket. Compares new information against prior findings and sends updated results.',
+    },
+    create: {
+      id: reanalysisRouteId,
+      name: 'Default Re-analysis (Update)',
+      description: 'Incremental analysis triggered by a reply to an already-analyzed ticket. Compares new information against prior findings and sends updated results.',
+      routeType: 'ANALYSIS',
+      isActive: true,
+      isDefault: false,
+      sortOrder: 200,
+      steps: { createMany: { data: reanalysisRouteSteps } },
+    },
+  });
+  await prisma.ticketRouteStep.deleteMany({ where: { routeId: reanalysisRouteId } });
+  await prisma.ticketRouteStep.createMany({ data: reanalysisRouteSteps.map(s => ({ ...s, routeId: reanalysisRouteId })) });
+  console.log('Seeded re-analysis route:', reanalysisRoute.name);
+
   // Seed prompt keywords ({{token}} placeholders used in AI prompts)
   await seedPromptKeywords(prisma);
 }

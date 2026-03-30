@@ -187,6 +187,14 @@ const STEP_TYPE_INFO: RouteStepTypeInfo[] = [
     defaultTaskType: TaskType.CUSTOM_AI_QUERY,
     defaultPromptKey: null,
   },
+  {
+    type: RouteStepType.UPDATE_ANALYSIS,
+    name: 'Update Analysis',
+    description: 'Incremental analysis triggered by a reply to an already-analyzed ticket. Compares the new information against prior findings and reports only what changed, what gaps were filled, and what open questions were answered.',
+    phase: 'analysis',
+    defaultTaskType: TaskType.DEEP_ANALYSIS,
+    defaultPromptKey: null,
+  },
 ];
 
 /** Map from step type → phase for mismatch detection. */
