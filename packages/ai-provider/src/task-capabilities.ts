@@ -26,7 +26,7 @@ export const TASK_CAPABILITY_REQUIREMENTS: Record<string, string> = {
   [TaskType.GENERATE_RELEASE_NOTE]: CapabilityLevel.STANDARD,
 
   // ADVANCED — large models (planning, SQL generation, code review)
-  [TaskType.GENERATE_PLAN]: CapabilityLevel.ADVANCED,
+  [TaskType.GENERATE_DEVOPS_PLAN]: CapabilityLevel.ADVANCED,
   [TaskType.ANALYZE_QUERY]: CapabilityLevel.ADVANCED,
   [TaskType.GENERATE_SQL]: CapabilityLevel.ADVANCED,
   [TaskType.REVIEW_CODE]: CapabilityLevel.ADVANCED,
@@ -38,6 +38,7 @@ export const TASK_CAPABILITY_REQUIREMENTS: Record<string, string> = {
   [TaskType.ARCHITECTURE_REVIEW]: CapabilityLevel.DEEP_ADVANCED,
   [TaskType.SCHEMA_REVIEW]: CapabilityLevel.DEEP_ADVANCED,
   [TaskType.FEATURE_ANALYSIS]: CapabilityLevel.DEEP_ADVANCED,
+  [TaskType.GENERATE_RESOLUTION_PLAN]: CapabilityLevel.DEEP_ADVANCED,
   [TaskType.RESOLVE_ISSUE]: CapabilityLevel.DEEP_ADVANCED,
   [TaskType.CHANGE_CODEBASE_LARGE]: CapabilityLevel.DEEP_ADVANCED,
   [TaskType.ANALYZE_TICKET_CLOSURE]: CapabilityLevel.DEEP_ADVANCED,

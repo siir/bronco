@@ -115,7 +115,7 @@ System prompts for each task are registered in `packages/ai-provider/src/prompts
 - `SUMMARIZE_LOGS` — Summarize application log entries
 - `ANALYZE_WORK_ITEM` — Analyze DevOps work items and compose user-facing responses
 - `DRAFT_COMMENT` — Compose DevOps comments (clarifications, execution results)
-- `GENERATE_PLAN` — Generate structured execution plans for user approval
+- `GENERATE_DEVOPS_PLAN` — Generate structured execution plans for DevOps workflow approval
 - `GENERATE_TITLE` — Generate concise ticket titles from email content
 - `CLASSIFY_EMAIL` — Classify inbound emails (ticket-worthy vs noise/auto-reply)
 - `GENERATE_RELEASE_NOTE` — Generate concise release note from a git commit message and changed files
@@ -135,7 +135,21 @@ System prompts for each task are registered in `packages/ai-provider/src/prompts
 - `CHANGE_CODEBASE_SMALL` — Small-scope codebase modifications
 - `CHANGE_CODEBASE_LARGE` — Large-scope codebase modifications
 - `ANALYZE_TICKET_CLOSURE` — Post-closure analysis for system improvement suggestions
+- `GENERATE_RESOLUTION_PLAN` — Generate a resolution plan for operator review before code execution
 - `CUSTOM_AI_QUERY` — Flexible configurable AI query within a route pipeline (task type and model overridable per step)
+
+### Task Type Discipline (CRITICAL)
+
+Each AI task type controls provider routing (Ollama vs Claude), model selection, and per-client overrides via `AiModelConfig`. **Never reuse an existing task type for a different purpose.** If an operator overrides `DEEP_ANALYSIS` to use a cheaper model for a client, that override affects every call site using `DEEP_ANALYSIS` — including any unrelated operations that were reusing it as a catch-all.
+
+Rules:
+- **Create a new task type** when the work has a fundamentally different capability requirement, output format, or provider routing need than any existing type.
+- **`DEEP_ANALYSIS` is for single-shot ticket analysis**, not a generic fallback. Do not use it for agentic tool loops, admin operations, or plan generation.
+- **`SUMMARIZE` is for email threads.** Use `SUMMARIZE_LOGS` for monitoring data, probe results, and log entries.
+- **`GENERATE_DEVOPS_PLAN` is for DevOps workflow plans (Ollama).** Use `GENERATE_RESOLUTION_PLAN` for code resolution plans (Claude).
+- **`RESOLVE_ISSUE` is for code generation**, not plan generation.
+- **`CUSTOM_AI_QUERY` is the correct choice** for one-off administrative AI calls that don't fit any specific task type (e.g., pricing catalog refresh).
+- When adding a new task type: add to `packages/shared-types/src/ai.ts`, `packages/ai-provider/src/model-config-resolver.ts` (default provider), `packages/ai-provider/src/task-capabilities.ts`, and update this section of CLAUDE.md.
 
 ## Client Memory Management
 

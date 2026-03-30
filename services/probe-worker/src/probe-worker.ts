@@ -558,7 +558,7 @@ async function summarizeForEmail(
 ): Promise<string> {
   try {
     const res = await ai.generate({
-      taskType: TaskType.SUMMARIZE,
+      taskType: TaskType.SUMMARIZE_LOGS,
       context: { clientId: probe.clientId, entityId: probe.id, entityType: 'probe' },
       prompt: `Summarize the following monitoring probe result into a clear, human-readable email body.
 
@@ -583,7 +583,7 @@ async function summarizeForTicket(
 ): Promise<string> {
   try {
     const res = await ai.generate({
-      taskType: TaskType.SUMMARIZE,
+      taskType: TaskType.SUMMARIZE_LOGS,
       context: { clientId: probe.clientId, entityId: probe.id, entityType: 'probe' },
       prompt: `Summarize the following monitoring probe result for a support ticket description.
 Include key findings, error counts, severity levels, and any items requiring attention.

@@ -14,7 +14,7 @@ export const TaskType = {
   // Local LLM tasks — user-facing DevOps interactions
   ANALYZE_WORK_ITEM: 'ANALYZE_WORK_ITEM',
   DRAFT_COMMENT: 'DRAFT_COMMENT',
-  GENERATE_PLAN: 'GENERATE_PLAN',
+  GENERATE_DEVOPS_PLAN: 'GENERATE_DEVOPS_PLAN',
   // Claude API tasks (heavy reasoning)
   ANALYZE_QUERY: 'ANALYZE_QUERY',
   GENERATE_SQL: 'GENERATE_SQL',
@@ -25,6 +25,7 @@ export const TaskType = {
   SCHEMA_REVIEW: 'SCHEMA_REVIEW',
   FEATURE_ANALYSIS: 'FEATURE_ANALYSIS',
   // Automated issue resolution (Claude API — agentic code generation)
+  GENERATE_RESOLUTION_PLAN: 'GENERATE_RESOLUTION_PLAN',
   RESOLVE_ISSUE: 'RESOLVE_ISSUE',
   // Codebase modification (tiered by scope)
   CHANGE_CODEBASE_SMALL: 'CHANGE_CODEBASE_SMALL',
@@ -78,7 +79,7 @@ export const TASK_APP_SCOPE: Record<TaskType, AppScope> = {
   [TaskType.CLASSIFY_EMAIL]: AppScope.CORE,
   [TaskType.ANALYZE_WORK_ITEM]: AppScope.CORE,
   [TaskType.DRAFT_COMMENT]: AppScope.CORE,
-  [TaskType.GENERATE_PLAN]: AppScope.CORE,
+  [TaskType.GENERATE_DEVOPS_PLAN]: AppScope.CORE,
   [TaskType.GENERATE_RELEASE_NOTE]: AppScope.CORE,
 
   // Core platform tasks — Claude API
@@ -90,6 +91,7 @@ export const TASK_APP_SCOPE: Record<TaskType, AppScope> = {
   [TaskType.ARCHITECTURE_REVIEW]: AppScope.CORE,
   [TaskType.SCHEMA_REVIEW]: AppScope.CORE,
   [TaskType.FEATURE_ANALYSIS]: AppScope.CORE,
+  [TaskType.GENERATE_RESOLUTION_PLAN]: AppScope.CORE,
   [TaskType.RESOLVE_ISSUE]: AppScope.CORE,
   [TaskType.CHANGE_CODEBASE_SMALL]: AppScope.CORE,
   [TaskType.CHANGE_CODEBASE_LARGE]: AppScope.CORE,

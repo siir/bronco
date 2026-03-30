@@ -715,7 +715,7 @@ export async function aiUsageRoutes(
           .join('\n');
 
         const response = await opts.ai.generate({
-          taskType: TaskType.DEEP_ANALYSIS,
+          taskType: TaskType.CUSTOM_AI_QUERY,
           prompt: `You are updating an AI model pricing database. Below are the models we currently track:\n\n${currentModelsRef}\n\nReturn a JSON array with the LATEST pricing for these providers: Anthropic (provider: "CLAUDE"), OpenAI (provider: "OPENAI"), xAI (provider: "GROK"), Google (provider: "GOOGLE"), Local (provider: "LOCAL" at $0).\n\nFor each model: { provider, model (exact API ID), displayName, inputCostPer1m (number), outputCostPer1m (number) }.\n\nInclude any new models released since this list was created. Return ONLY the JSON array.`,
           systemPrompt: 'Return only valid JSON arrays with no markdown formatting, no code blocks, no explanation.',
           maxTokens: 8192,
