@@ -1,6 +1,6 @@
 import type { Job } from 'bullmq';
 import { type PrismaClient, getDb } from '@bronco/db';
-import type { AIRouter } from '@bronco/ai-provider';
+import type { AIRouter, ClientMemoryResolver } from '@bronco/ai-provider';
 import type { ResolutionPlan } from '@bronco/shared-types';
 import { createLogger, AppLogger, createPrismaLogWriter } from '@bronco/shared-utils';
 import type { Config } from './config.js';
@@ -8,6 +8,7 @@ import { prepareRepo, commitAndPush } from './git.js';
 import { resolveIssue, applyChanges } from './resolver.js';
 import { generatePlan, regeneratePlan } from './planner.js';
 import { notifyPlanGenerated } from './notify.js';
+import { extractLearningFromRejection, extractLearningFromIteration, extractLearningFromApproval } from './learner.js';
 
 const logger = createLogger('issue-resolver:worker');
 const appLog = new AppLogger('issue-resolver');
@@ -36,7 +37,7 @@ async function updateJobStatus(
   });
 }
 
-export function createProcessor(config: Config, ai: AIRouter) {
+export function createProcessor(config: Config, ai: AIRouter, clientMemoryResolver: ClientMemoryResolver) {
   return async function processIssueResolve(job: Job<IssueResolvePayload>): Promise<void> {
     const { issueJobId, resume, regenerateFeedback } = job.data;
     const db = getDb();
@@ -128,6 +129,23 @@ export function createProcessor(config: Config, ai: AIRouter) {
           issueJobId,
         }).catch(() => {});
 
+        // Non-blocking learning extraction from rejection + iteration
+        if (issueJob.ticket.clientId) {
+          const learningCtx = {
+            ai,
+            clientMemoryResolver,
+            clientId: issueJob.ticket.clientId,
+            ticketId: issueJob.ticketId,
+            issueCategory: issueJob.ticket.category,
+          };
+          extractLearningFromRejection(learningCtx, previousPlan, regenerateFeedback).catch((err) => {
+            logger.warn({ err, issueJobId }, 'Failed to extract learning from rejection');
+          });
+          extractLearningFromIteration(learningCtx, previousPlan, planResult.plan, regenerateFeedback).catch((err) => {
+            logger.warn({ err, issueJobId }, 'Failed to extract learning from iteration');
+          });
+        }
+
         return;
       }
 
@@ -207,6 +225,23 @@ export function createProcessor(config: Config, ai: AIRouter) {
         });
 
         appLog.info(`Issue resolved: ${filesChanged} file(s) changed, pushed to ${issueJob.branchName}`, { issueJobId, sha, filesChanged, branchName: issueJob.branchName, ticketId: issueJob.ticketId }, issueJob.ticketId, 'ticket');
+
+        // Non-blocking learning extraction from approval
+        if (issueJob.ticket.clientId) {
+          extractLearningFromApproval(
+            {
+              ai,
+              clientMemoryResolver,
+              clientId: issueJob.ticket.clientId,
+              ticketId: issueJob.ticketId,
+              issueCategory: issueJob.ticket.category,
+            },
+            plan,
+          ).catch((err) => {
+            logger.warn({ err, issueJobId }, 'Failed to extract learning from approval');
+          });
+        }
+
         return;
       }
 
