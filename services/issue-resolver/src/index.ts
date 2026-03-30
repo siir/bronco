@@ -18,11 +18,11 @@ async function main(): Promise<void> {
   initWorkerLogger(db);
   appLog.info('Issue resolver starting');
 
-  const { ai } = createAIRouter(db, {
+  const { ai, clientMemoryResolver } = createAIRouter(db, {
     encryptionKey: config.ENCRYPTION_KEY,
   });
 
-  const processor = createProcessor(config, ai);
+  const processor = createProcessor(config, ai, clientMemoryResolver);
   const worker = createWorker('issue-resolve', config.REDIS_URL, processor);
 
   let lastJobAt: Date | undefined;
