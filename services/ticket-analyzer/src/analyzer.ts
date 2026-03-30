@@ -6,6 +6,7 @@ import { join, resolve, basename } from 'node:path';
 import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Job } from 'bullmq';
+import { Prisma } from '@bronco/db';
 import type { PrismaClient } from '@bronco/db';
 import type { TicketCategory, Priority, TicketStatus, TicketSource, AnalysisJob } from '@bronco/shared-types';
 import { AIRouter } from '@bronco/ai-provider';
@@ -1887,6 +1888,8 @@ interface ReanalysisContext {
   conversationHistory: string;
   /** The raw reply text that triggered this re-analysis. */
   triggerReplyText: string;
+  /** The ticket event ID that triggered this re-analysis (for metadata tracking). */
+  triggerEventId?: string;
 }
 
 /** Pre-populated state passed into a dispatched route to avoid redundant work. */
@@ -2526,6 +2529,87 @@ async function executeRoutePipeline(
           },
         });
         appLog.info(`Agentic analysis complete: ${toolCallLog.length} tool calls across conversation`, { ticketId, toolCalls: toolCallLog.length }, ticketId);
+        break;
+      }
+
+      case RouteStepType.UPDATE_ANALYSIS: {
+        // Incremental analysis for replies — requires reanalysisCtx (conversation history + trigger reply).
+        if (!reanalysisCtx) {
+          appLog.info('Skipping UPDATE_ANALYSIS — not a re-analysis (no reply context)', { ticketId }, ticketId);
+          break;
+        }
+
+        const updateTaskType = (step.taskTypeOverride ?? TaskType.DEEP_ANALYSIS) as TaskType;
+
+        const updatePromptParts = [
+          '## Prior Analysis Context',
+          '',
+          reanalysisCtx.conversationHistory,
+          '',
+          '## New Information from User',
+          '',
+          reanalysisCtx.triggerReplyText || '(No reply text available — the user replied but the content could not be extracted.)',
+          '',
+          '## Your Task',
+          'Review the prior analysis in light of this new information. Report only:',
+          '1. What conclusions have changed (and why)',
+          '2. What gaps have been filled',
+          '3. What open questions have been answered',
+          '4. Any NEW questions or concerns raised by the reply',
+          '',
+          'If nothing has materially changed, say so briefly.',
+        ];
+
+        // Include accumulated pipeline context if available
+        if (clientContext) updatePromptParts.push('', clientContext);
+        if (summary) updatePromptParts.push('', '## Ticket Summary', summary);
+
+        const updateRes = await ai.generate({
+          taskType: updateTaskType,
+          context: {
+            ticketId,
+            clientId,
+            ticketCategory: category,
+            skipClientMemory: !!clientContext,
+          },
+          prompt: updatePromptParts.join('\n'),
+          systemPrompt: 'You are reviewing a prior analysis in light of new information from the user. Focus on what has changed — do not repeat the full analysis. Be concise and specific.',
+        });
+        analysis = updateRes.content;
+
+        // Store as AI_ANALYSIS event with update metadata to distinguish from initial analysis
+        const currentReanalysisCount = (await db.ticket.findUnique({ where: { id: ticketId }, select: { reanalysisCount: true } }))?.reanalysisCount ?? 0;
+
+        await db.ticketEvent.create({
+          data: {
+            ticketId,
+            eventType: 'AI_ANALYSIS',
+            content: analysis,
+            metadata: {
+              type: 'update_analysis',
+              triggerEventId: reanalysisCtx.triggerEventId ?? null,
+              reanalysisCount: currentReanalysisCount,
+              taskType: updateTaskType,
+              aiProvider: updateRes.provider,
+              aiModel: updateRes.model,
+              durationMs: updateRes.durationMs,
+              usage: updateRes.usage as Prisma.InputJsonValue,
+              routeId: route.id,
+              routeName: route.name,
+            },
+            actor: 'system:analyzer',
+          },
+        });
+
+        // Update ticket summary if conclusions changed
+        if (analysis && analysis.length > 20) {
+          await db.ticket.update({
+            where: { id: ticketId },
+            data: { summary: analysis.slice(0, 2000) },
+          });
+        }
+
+        appLog.info(`Update analysis complete via ${updateRes.provider}/${updateRes.model}`, { ticketId, taskType: updateTaskType }, ticketId);
         break;
       }
 
@@ -3199,44 +3283,103 @@ export function createAnalysisProcessor(deps: AnalyzerDeps) {
       select: { category: true, clientId: true },
     });
 
-    const route = await resolveTicketRoute(deps, ticketId, ctx.clientId ?? ticket?.clientId ?? undefined, ticket?.category ?? null, false, ctx.ticketSource);
-
-    if (route) {
-      // Route-driven pipeline
+    // --- Re-analysis: use a lightweight UPDATE_ANALYSIS + DRAFT_FINDINGS_EMAIL pipeline ---
+    // Instead of re-running the full analysis route, build a synthetic two-step route
+    // that performs incremental analysis on the new reply and sends updated findings.
+    if (reanalysis) {
       try {
-        // Load conversation history and trigger event for re-analysis
-        let reanalysisContext: ReanalysisContext | undefined;
-        if (reanalysis) {
-          const conversationHistory = await loadConversationHistory(deps.db, ticketId);
-          let triggerReplyText = '';
-          if (triggerEventId) {
-            const triggerEvent = await deps.db.ticketEvent.findUnique({
-              where: { id: triggerEventId },
-              select: { content: true },
-            });
-            triggerReplyText = triggerEvent?.content ?? '';
-          }
-          // If no trigger event found, use the most recent inbound email/comment
-          if (!triggerReplyText) {
-            const latestReply = conversationHistory
-              .filter((e) => e.eventType === 'EMAIL_INBOUND' || e.eventType === 'COMMENT')
-              .pop();
-            triggerReplyText = latestReply?.content ?? '';
-          }
-          reanalysisContext = {
-            conversationHistory: formatConversationHistory(conversationHistory),
-            triggerReplyText,
-          };
+        const conversationHistory = await loadConversationHistory(deps.db, ticketId);
+        let triggerReplyText = '';
+        if (triggerEventId) {
+          const triggerEvent = await deps.db.ticketEvent.findUnique({
+            where: { id: triggerEventId },
+            select: { content: true },
+          });
+          triggerReplyText = triggerEvent?.content ?? '';
         }
+        // If no trigger event found, use the most recent inbound email/comment
+        if (!triggerReplyText) {
+          const latestReply = conversationHistory
+            .filter((e) => e.eventType === 'EMAIL_INBOUND' || e.eventType === 'COMMENT')
+            .pop();
+          triggerReplyText = latestReply?.content ?? '';
+        }
+        const reanalysisContext: ReanalysisContext = {
+          conversationHistory: formatConversationHistory(conversationHistory),
+          triggerReplyText,
+          triggerEventId,
+        };
 
-        await executeRoutePipeline(deps, ctx, route, String(job.id ?? randomUUID()), undefined, 0, reanalysisContext);
+        // Synthetic re-analysis route: UPDATE_ANALYSIS → DRAFT_FINDINGS_EMAIL
+        const syntheticRoute: ResolvedRoute = {
+          id: 'synthetic-reanalysis',
+          name: 'Re-analysis (Update)',
+          steps: [
+            {
+              id: 'synthetic-update-analysis',
+              stepOrder: 1,
+              name: 'Update Analysis',
+              stepType: RouteStepType.UPDATE_ANALYSIS,
+              taskTypeOverride: null,
+              promptKeyOverride: null,
+              config: null,
+            },
+            {
+              id: 'synthetic-draft-findings',
+              stepOrder: 2,
+              name: 'Draft Findings Email',
+              stepType: RouteStepType.DRAFT_FINDINGS_EMAIL,
+              taskTypeOverride: null,
+              promptKeyOverride: null,
+              config: null,
+            },
+          ],
+        };
+
+        await executeRoutePipeline(deps, ctx, syntheticRoute, String(job.id ?? randomUUID()), undefined, 0, reanalysisContext);
         await deps.db.ticket.update({
           where: { id: ticketId },
           data: { analysisStatus: AnalysisStatus.COMPLETED, analysisError: null, lastAnalyzedAt: new Date() },
         });
         appLog.info(
-          reanalysis ? 'Re-analysis pipeline completed successfully (route-driven)' : 'Ticket analysis pipeline completed successfully (route-driven)',
-          { ticketId, routeId: route.id, reanalysis: !!reanalysis },
+          'Re-analysis pipeline completed successfully (update analysis)',
+          { ticketId },
+          ticketId,
+        );
+      } catch (err) {
+        const rawMsg = err instanceof Error ? err.message : String(err);
+        const analysisError = redactUrls(rawMsg).slice(0, 1000);
+        await deps.db.ticket.update({
+          where: { id: ticketId },
+          data: { analysisStatus: AnalysisStatus.FAILED, analysisError },
+        });
+        appLog.error(`Re-analysis pipeline failed: ${rawMsg}`, { err, ticketId }, ticketId);
+        await deps.db.ticketEvent.create({
+          data: {
+            ticketId,
+            eventType: 'SYSTEM_NOTE',
+            content: `Re-analysis (update) pipeline failed: ${analysisError}`,
+            actor: 'system:analyzer',
+          },
+        });
+        throw err;
+      }
+      return;
+    }
+
+    const route = await resolveTicketRoute(deps, ticketId, ctx.clientId ?? ticket?.clientId ?? undefined, ticket?.category ?? null, false, ctx.ticketSource);
+
+    if (route) {
+      // Route-driven pipeline
+      try {
+        await executeRoutePipeline(deps, ctx, route, String(job.id ?? randomUUID()));
+        await deps.db.ticket.update({
+          where: { id: ticketId },
+          data: { analysisStatus: AnalysisStatus.COMPLETED, analysisError: null, lastAnalyzedAt: new Date() },
+        });
+        appLog.info(
+          'Ticket analysis pipeline completed successfully (route-driven)',
+          { ticketId, routeId: route.id },
           ticketId,
         );
       } catch (err) {
@@ -3257,18 +3400,6 @@ export function createAnalysisProcessor(deps: AnalyzerDeps) {
         });
         throw err;
       }
-      return;
-    }
-
-    // Fallback: Original hardcoded two-phase pipeline (not used for re-analysis —
-    // re-analysis requires a route to skip triage and inject conversation context).
-    if (reanalysis) {
-      appLog.warn(
-        'Re-analysis requested but no route found — skipping (re-analysis not supported without a route)',
-        { ticketId },
-        ticketId,
-        'ticket',
-      );
       return;
     }
 

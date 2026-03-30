@@ -51,6 +51,9 @@ export const RouteStepType = {
   // Follower management step
   ADD_FOLLOWER: 'ADD_FOLLOWER',
 
+  // Incremental update analysis step (reply-triggered)
+  UPDATE_ANALYSIS: 'UPDATE_ANALYSIS',
+
   // Custom AI query step
   CUSTOM_AI_QUERY: 'CUSTOM_AI_QUERY',
 } as const;

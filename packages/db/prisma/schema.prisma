@@ -1182,6 +1182,7 @@ enum RouteStepType {
   ADD_FOLLOWER
   CREATE_TICKET
   CUSTOM_AI_QUERY
+  UPDATE_ANALYSIS
 
   @@map("route_step_type")
 }
