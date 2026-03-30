@@ -73,7 +73,7 @@ export const DEVOPS_PLAN_SYSTEM: PromptDefinition = {
   description:
     'Creates a detailed step-by-step execution plan based on the full conversation. ' +
     'Outputs JSON array of plan steps.',
-  taskType: 'GENERATE_PLAN',
+  taskType: 'GENERATE_DEVOPS_PLAN',
   role: 'SYSTEM',
   content: `You are an AI operations assistant creating an execution plan.
 Based on the full conversation, create a detailed step-by-step plan.

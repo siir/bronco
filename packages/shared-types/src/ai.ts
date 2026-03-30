@@ -14,7 +14,7 @@ export const TaskType = {
   // Local LLM tasks — user-facing DevOps interactions
   ANALYZE_WORK_ITEM: 'ANALYZE_WORK_ITEM',
   DRAFT_COMMENT: 'DRAFT_COMMENT',
-  GENERATE_PLAN: 'GENERATE_PLAN',
+  GENERATE_DEVOPS_PLAN: 'GENERATE_DEVOPS_PLAN',
   // Claude API tasks (heavy reasoning)
   ANALYZE_QUERY: 'ANALYZE_QUERY',
   GENERATE_SQL: 'GENERATE_SQL',
@@ -79,7 +79,7 @@ export const TASK_APP_SCOPE: Record<TaskType, AppScope> = {
   [TaskType.CLASSIFY_EMAIL]: AppScope.CORE,
   [TaskType.ANALYZE_WORK_ITEM]: AppScope.CORE,
   [TaskType.DRAFT_COMMENT]: AppScope.CORE,
-  [TaskType.GENERATE_PLAN]: AppScope.CORE,
+  [TaskType.GENERATE_DEVOPS_PLAN]: AppScope.CORE,
   [TaskType.GENERATE_RELEASE_NOTE]: AppScope.CORE,
 
   // Core platform tasks — Claude API

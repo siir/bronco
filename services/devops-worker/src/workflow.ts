@@ -295,7 +295,7 @@ export class WorkflowEngine {
 
     try {
       const response = await this.ai.generate({
-        taskType: TaskType.GENERATE_PLAN,
+        taskType: TaskType.GENERATE_DEVOPS_PLAN,
         context: { entityId, entityType: this.target.entityType, ...(context.clientId ? { clientId: context.clientId } : {}) },
         promptKey: 'devops.plan.system',
         prompt: buildPlanPrompt(context),

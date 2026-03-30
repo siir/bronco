@@ -49,7 +49,7 @@ const LOCAL_TASK_TYPES = new Set<string>([
   TaskType.CLASSIFY_INTENT,
   TaskType.ANALYZE_WORK_ITEM,
   TaskType.DRAFT_COMMENT,
-  TaskType.GENERATE_PLAN,
+  TaskType.GENERATE_DEVOPS_PLAN,
 ]);
 
 const DEFAULT_OLLAMA_MODEL = 'llama3.1:8b';
