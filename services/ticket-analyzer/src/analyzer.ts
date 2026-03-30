@@ -3287,9 +3287,12 @@ async function executeRoutePipeline(
             const errMsg = err instanceof Error ? err.message : String(err);
             appLog.error(`NOTIFY_OPERATOR email failed: ${errMsg}`, { err, ticketId, to: notifyTo }, ticketId);
           }
+        } else if (notifyTo !== '') {
+          // Non-empty emailTo configured but invalid — warn and skip to avoid broad operator broadcast
+          appLog.warn('NOTIFY_OPERATOR skipped — invalid emailTo configured', { ticketId, stepId: step.id, emailTo: notifyTo }, ticketId);
         } else {
           try {
-            // Look up assigned operator for targeted notification
+            // No emailTo configured — look up assigned operator for targeted notification
             const ticket = ticketId ? await db.ticket.findUnique({ where: { id: ticketId }, select: { assignedOperatorId: true } }) : null;
             const notified = await notifyOperatorsFn(
               mailer,

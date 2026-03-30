@@ -45,6 +45,12 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
           : { in: values as TicketStatus[] };
       }
 
+      // Validate assignedOperatorId is a UUID or 'unassigned'
+      const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (assignedOperatorId !== undefined && assignedOperatorId !== 'unassigned' && !UUID_RE.test(assignedOperatorId)) {
+        return fastify.httpErrors.badRequest('assignedOperatorId must be a valid UUID or "unassigned"');
+      }
+
       return fastify.db.ticket.findMany({
         where: {
           ...(clientId && { clientId }),
@@ -325,10 +331,16 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
       }
 
       // Validate operator exists and is active
+      const UUID_PATCH_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (assignedOperatorId !== undefined && assignedOperatorId !== null && !UUID_PATCH_RE.test(assignedOperatorId)) {
+        return fastify.httpErrors.badRequest('assignedOperatorId must be a valid UUID');
+      }
+      let resolvedOperatorName: string | null = null;
       if (assignedOperatorId !== undefined && assignedOperatorId !== null) {
-        const operator = await fastify.db.operator.findUnique({ where: { id: assignedOperatorId }, select: { id: true, isActive: true } });
+        const operator = await fastify.db.operator.findUnique({ where: { id: assignedOperatorId }, select: { id: true, isActive: true, name: true } });
         if (!operator) return fastify.httpErrors.badRequest('Referenced operator not found');
         if (!operator.isActive) return fastify.httpErrors.badRequest('Cannot assign to an inactive operator');
+        resolvedOperatorName = operator.name;
       }
 
       const ticket = await fastify.db.ticket.update({
@@ -346,9 +358,7 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
 
       // Create assignment event for audit trail when operator assignment changes
       if (assignedOperatorId !== undefined && assignedOperatorId !== existing?.assignedOperatorId) {
-        const operatorName = assignedOperatorId
-          ? (await fastify.db.operator.findUnique({ where: { id: assignedOperatorId }, select: { name: true } }))?.name ?? 'Unknown'
-          : null;
+        const operatorName = assignedOperatorId ? resolvedOperatorName : null;
         await fastify.db.ticketEvent.create({
           data: {
             ticketId: request.params.id,
