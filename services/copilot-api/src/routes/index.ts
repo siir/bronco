@@ -69,7 +69,7 @@ export async function registerRoutes(fastify: FastifyInstance, opts: RouteOpts):
 
   // Portal routes — client user auth (separate JWT, handled at plugin level)
   await fastify.register(portalAuthRoutes);
-  await fastify.register(portalTicketRoutes, { config: opts.config, ticketCreatedQueue: opts.ticketCreatedQueue });
+  await fastify.register(portalTicketRoutes, { config: opts.config, ticketCreatedQueue: opts.ticketCreatedQueue, ingestQueue: opts.ingestQueue });
   await fastify.register(portalUserRoutes);
 
   // Control panel routes — require ADMIN or OPERATOR role.
@@ -83,7 +83,7 @@ export async function registerRoutes(fastify: FastifyInstance, opts: RouteOpts):
     await scoped.register(clientRoutes);
     await scoped.register(contactRoutes);
     await scoped.register(systemRoutes);
-    await scoped.register(ticketRoutes, { logSummarizeQueue: opts.logSummarizeQueue, systemAnalysisQueue: opts.systemAnalysisQueue, ticketCreatedQueue: opts.ticketCreatedQueue, ai: opts.ai });
+    await scoped.register(ticketRoutes, { logSummarizeQueue: opts.logSummarizeQueue, systemAnalysisQueue: opts.systemAnalysisQueue, ticketCreatedQueue: opts.ticketCreatedQueue, ingestQueue: opts.ingestQueue, ai: opts.ai });
     await scoped.register(artifactRoutes, { config: opts.config });
     await scoped.register(repoRoutes);
     await scoped.register(issueJobRoutes, { issueResolveQueue: opts.issueResolveQueue });

@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { Prisma } from '@bronco/db';
 import { ClientUserType, TicketStatus, Priority, TicketCategory, TicketSource } from '@bronco/shared-types';
-import type { TicketCreatedJob } from '@bronco/shared-types';
+import type { TicketCreatedJob, IngestionJob } from '@bronco/shared-types';
 import type { PortalUser } from '../plugins/auth.js';
 import type { Queue } from 'bullmq';
 import type { Config } from '../config.js';
@@ -21,6 +21,7 @@ function requirePortalUser(request: { portalUser?: PortalUser }): PortalUser {
 interface PortalTicketOpts {
   config: Config;
   ticketCreatedQueue?: Queue<TicketCreatedJob>;
+  ingestQueue?: Queue<IngestionJob>;
 }
 
 export async function portalTicketRoutes(fastify: FastifyInstance, opts: PortalTicketOpts): Promise<void> {
@@ -212,7 +213,7 @@ export async function portalTicketRoutes(fastify: FastifyInstance, opts: PortalT
         }
       }
 
-      // Find or create a contact for this portal user
+      // Find or create a contact for this portal user so we can pass the contactId to the ingestion pipeline
       let contact = await fastify.db.contact.findFirst({
         where: { clientId: portalUser.clientId, email: portalUser.email },
       });
@@ -231,6 +232,31 @@ export async function portalTicketRoutes(fastify: FastifyInstance, opts: PortalT
         });
       }
 
+      // --- Async mode: enqueue to ingestion pipeline ---
+      if (opts.ingestQueue) {
+        const job: IngestionJob = {
+          source: TicketSource.MANUAL,
+          clientId: portalUser.clientId,
+          payload: {
+            subject: subject.trim(),
+            description: description?.trim() || undefined,
+            priority,
+            portalCreatorId: portalUser.id,
+            contactId: contact.id,
+          },
+        };
+
+        await opts.ingestQueue.add('ticket-ingest', job, {
+          jobId: `ingest-portal-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          attempts: 4,
+          backoff: { type: 'exponential', delay: 30_000 },
+        });
+
+        reply.code(202);
+        return { queued: true, message: 'Ticket submitted successfully' };
+      }
+
+      // --- Fallback: direct creation if ingest queue not available ---
       let ticket: Awaited<ReturnType<typeof fastify.db.ticket.create>>;
       for (let attempt = 0; attempt <= 3; attempt++) {
         const lastPortalTicket = await fastify.db.ticket.findFirst({
