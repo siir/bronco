@@ -28,6 +28,14 @@ function prismaP2002Target(err: unknown): string[] {
 /** Registry of built-in step types with metadata for the UI. */
 const STEP_TYPE_INFO: RouteStepTypeInfo[] = [
   {
+    type: RouteStepType.RESOLVE_THREAD,
+    name: 'Resolve Thread',
+    description: 'Determines whether an email is a new ticket or a reply to an existing thread. Replies are appended to the existing ticket and downstream creation steps are skipped.',
+    phase: 'ingestion',
+    defaultTaskType: null,
+    defaultPromptKey: null,
+  },
+  {
     type: RouteStepType.SUMMARIZE_EMAIL,
     name: 'Summarize Email',
     description: 'Summarizes the inbound email into 2-3 concise bullet points.',
@@ -204,7 +212,7 @@ const VALID_PHASES_BY_ROUTE_TYPE: Record<RouteType, Set<RouteStepTypeInfo['phase
  * Step types that are phase-compatible with ANALYSIS routes per the phase map, but are
  * functionally meaningless there (the ticket already exists). Warn explicitly for these.
  */
-const ANALYSIS_INCOMPATIBLE_STEP_TYPES = new Set<RouteStepType>([RouteStepType.CREATE_TICKET]);
+const ANALYSIS_INCOMPATIBLE_STEP_TYPES = new Set<RouteStepType>([RouteStepType.CREATE_TICKET, RouteStepType.RESOLVE_THREAD]);
 
 /** Build a phase mismatch warning if the step type is incompatible with the route type. */
 function checkStepPhaseMismatch(stepType: RouteStepType, routeType: RouteType): string | null {

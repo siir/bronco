@@ -18,10 +18,16 @@ export interface EmailIngestionPayload {
   fromName?: string;
   subject: string;
   body: string;
+  /** HTML body of the email (if available). */
+  bodyHtml?: string;
   messageId?: string;
   inReplyTo?: string;
   references?: string[];
+  /** Email date from the Date header. */
+  date?: string;
   hasAttachments?: boolean;
+  /** SHA-256 hash of the raw email source for dedup. */
+  emailHash?: string;
   /** Pre-resolved contact ID for the sender (if matched by imap-worker). */
   contactId?: string;
 }

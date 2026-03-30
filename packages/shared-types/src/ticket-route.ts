@@ -21,6 +21,7 @@ export type RouteType = (typeof RouteType)[keyof typeof RouteType];
  */
 export const RouteStepType = {
   // Ingestion steps (source-specific ticket enrichment + creation)
+  RESOLVE_THREAD: 'RESOLVE_THREAD',
   SUMMARIZE_EMAIL: 'SUMMARIZE_EMAIL',
   CATEGORIZE: 'CATEGORIZE',
   TRIAGE_PRIORITY: 'TRIAGE_PRIORITY',

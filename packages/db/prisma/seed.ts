@@ -121,6 +121,42 @@ async function main() {
 
   console.log('Seeded ticket:', ticket.subject);
 
+  // Seed default EMAIL ingestion route (global, any-source would match but
+  // source=EMAIL is explicit for clarity). Uses upsert on a well-known ID
+  // so re-running the seed is idempotent and doesn't duplicate.
+  const emailRouteId = '00000000-0000-0000-0000-000000000010';
+  const emailRouteSteps = [
+    { stepOrder: 1, name: 'Resolve Thread', stepType: 'RESOLVE_THREAD', isActive: true },
+    { stepOrder: 2, name: 'Summarize Email', stepType: 'SUMMARIZE_EMAIL', isActive: true },
+    { stepOrder: 3, name: 'Categorize', stepType: 'CATEGORIZE', isActive: true },
+    { stepOrder: 4, name: 'Triage Priority', stepType: 'TRIAGE_PRIORITY', isActive: true },
+    { stepOrder: 5, name: 'Generate Title', stepType: 'GENERATE_TITLE', isActive: true },
+    { stepOrder: 6, name: 'Create Ticket', stepType: 'CREATE_TICKET', isActive: true },
+    { stepOrder: 7, name: 'Draft Receipt', stepType: 'DRAFT_RECEIPT', isActive: true },
+  ];
+  const emailRoute = await prisma.ticketRoute.upsert({
+    where: { id: emailRouteId },
+    update: {
+      name: 'Default Email Ingestion',
+      description: 'Resolves email threads, summarizes, categorizes, triages, generates title, creates ticket, and sends receipt.',
+    },
+    create: {
+      id: emailRouteId,
+      name: 'Default Email Ingestion',
+      description: 'Resolves email threads, summarizes, categorizes, triages, generates title, creates ticket, and sends receipt.',
+      routeType: 'INGESTION',
+      source: 'EMAIL',
+      isActive: true,
+      isDefault: true,
+      sortOrder: 100,
+      steps: { createMany: { data: emailRouteSteps } },
+    },
+  });
+  // Reconcile steps on existing routes — delete stale steps and upsert current ones
+  await prisma.ticketRouteStep.deleteMany({ where: { routeId: emailRouteId } });
+  await prisma.ticketRouteStep.createMany({ data: emailRouteSteps.map(s => ({ ...s, routeId: emailRouteId })) });
+  console.log('Seeded email ingestion route:', emailRoute.name);
+
   // Seed prompt keywords ({{token}} placeholders used in AI prompts)
   await seedPromptKeywords(prisma);
 }
