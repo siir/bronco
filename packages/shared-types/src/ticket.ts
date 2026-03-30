@@ -97,6 +97,20 @@ export const FollowerType = {
 } as const;
 export type FollowerType = (typeof FollowerType)[keyof typeof FollowerType];
 
+export const SufficiencyStatus = {
+  SUFFICIENT: 'SUFFICIENT',
+  NEEDS_USER_INPUT: 'NEEDS_USER_INPUT',
+  INSUFFICIENT: 'INSUFFICIENT',
+} as const;
+export type SufficiencyStatus = (typeof SufficiencyStatus)[keyof typeof SufficiencyStatus];
+
+export const SufficiencyConfidence = {
+  HIGH: 'HIGH',
+  MEDIUM: 'MEDIUM',
+  LOW: 'LOW',
+} as const;
+export type SufficiencyConfidence = (typeof SufficiencyConfidence)[keyof typeof SufficiencyConfidence];
+
 export const AnalysisStatus = {
   PENDING: 'PENDING',
   IN_PROGRESS: 'IN_PROGRESS',
@@ -128,6 +142,7 @@ export interface Ticket {
   environmentId: string | null;
   analysisStatus: AnalysisStatus;
   analysisError: string | null;
+  sufficiencyStatus: SufficiencyStatus | null;
   lastAnalyzedAt: Date | null;
   metadata: Record<string, unknown> | null;
   externalRef: string | null;

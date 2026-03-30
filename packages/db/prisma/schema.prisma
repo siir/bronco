@@ -275,6 +275,7 @@ model Ticket {
   reanalysisCount Int             @default(0) @map("reanalysis_count")
   analysisStatus  AnalysisStatus  @default(PENDING) @map("analysis_status")
   analysisError   String?         @map("analysis_error")
+  sufficiencyStatus SufficiencyStatus? @map("sufficiency_status")
   lastAnalyzedAt  DateTime?       @map("last_analyzed_at")
   resolvedAt      DateTime?    @map("resolved_at")
   createdAt   DateTime     @default(now()) @map("created_at")
@@ -1159,6 +1160,14 @@ enum AnalysisStatus {
   SKIPPED
 
   @@map("analysis_status")
+}
+
+enum SufficiencyStatus {
+  SUFFICIENT
+  NEEDS_USER_INPUT
+  INSUFFICIENT
+
+  @@map("sufficiency_status")
 }
 
 enum RouteStepType {
