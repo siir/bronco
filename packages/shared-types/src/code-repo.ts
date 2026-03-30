@@ -62,6 +62,7 @@ export interface IssueJob {
   planFeedback: string | null;
   approvedAt: Date | null;
   approvedBy: string | null;
+  approvedByOperatorId: string | null;
   commitSha: string | null;
   filesChanged: number | null;
   error: string | null;

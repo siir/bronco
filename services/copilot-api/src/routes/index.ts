@@ -45,6 +45,7 @@ import { ingestRoutes } from './ingest.js';
 import { invoiceRoutes } from './invoices.js';
 import { failedJobRoutes } from './failed-jobs.js';
 import { emailLogRoutes } from './email-logs.js';
+import { operatorRoutes } from './operators.js';
 
 interface RouteOpts {
   config: Config;
@@ -115,5 +116,6 @@ export async function registerRoutes(fastify: FastifyInstance, opts: RouteOpts):
     await scoped.register(invoiceRoutes, { invoiceStoragePath: opts.config.INVOICE_STORAGE_PATH });
     await scoped.register(failedJobRoutes, { queueMap: opts.queueMap });
     await scoped.register(emailLogRoutes);
+    await scoped.register(operatorRoutes);
   });
 }

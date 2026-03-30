@@ -96,6 +96,24 @@ model ClientUserRefreshToken {
   @@map("client_user_refresh_tokens")
 }
 
+// --- Operators (multi-operator identity and notification preferences) ---
+
+model Operator {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  name         String
+  isActive     Boolean  @default(true) @map("is_active")
+  notifyEmail  Boolean  @default(true) @map("notify_email")
+  notifySlack  Boolean  @default(false) @map("notify_slack")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  assignedTickets Ticket[]
+  approvedJobs    IssueJob[] @relation("ApprovedByOperator")
+
+  @@map("operators")
+}
+
 // --- Core entities ---
 
 model Client {
@@ -281,14 +299,16 @@ model Ticket {
   createdAt   DateTime     @default(now()) @map("created_at")
   updatedAt   DateTime     @updatedAt @map("updated_at")
 
-  environmentId String? @map("environment_id") @db.Uuid
+  environmentId      String? @map("environment_id") @db.Uuid
+  assignedOperatorId String? @map("assigned_operator_id") @db.Uuid
 
-  client          Client              @relation(fields: [clientId], references: [id])
-  system          System?             @relation(fields: [systemId], references: [id])
-  environment     ClientEnvironment?  @relation(fields: [environmentId], references: [id], onDelete: Restrict)
-  followers       TicketFollower[]
-  events          TicketEvent[]
-  artifacts       Artifact[]
+  client             Client              @relation(fields: [clientId], references: [id])
+  system             System?             @relation(fields: [systemId], references: [id])
+  environment        ClientEnvironment?  @relation(fields: [environmentId], references: [id], onDelete: Restrict)
+  assignedOperator   Operator?           @relation(fields: [assignedOperatorId], references: [id], onDelete: SetNull)
+  followers          TicketFollower[]
+  events             TicketEvent[]
+  artifacts          Artifact[]
   issueJobs           IssueJob[]
   devopsSyncState     DevOpsSyncState?
   systemAnalyses      SystemAnalysis[]
@@ -299,6 +319,7 @@ model Ticket {
   @@index([clientId, status])
   @@index([clientId, category])
   @@index([environmentId])
+  @@index([assignedOperatorId])
   @@index([createdAt])
   @@map("tickets")
 }
@@ -502,28 +523,30 @@ model CodeRepo {
 }
 
 model IssueJob {
-  id           String         @id @default(uuid()) @db.Uuid
-  ticketId     String         @map("ticket_id") @db.Uuid
-  repoId       String         @map("repo_id") @db.Uuid
-  branchName   String         @map("branch_name")
-  status       IssueJobStatus @default(PENDING)
-  plan         Json?
-  planRevision Int            @default(0) @map("plan_revision")
-  planFeedback String?        @map("plan_feedback")
-  approvedAt   DateTime?      @map("approved_at")
-  approvedBy   String?        @map("approved_by")
-  commitSha    String?        @map("commit_sha")
-  filesChanged Int?           @map("files_changed")
-  error        String?
-  aiModel      String?        @map("ai_model")
-  aiUsage      Json?          @map("ai_usage")
-  startedAt    DateTime?      @map("started_at")
-  completedAt  DateTime?      @map("completed_at")
-  createdAt    DateTime       @default(now()) @map("created_at")
-  updatedAt    DateTime       @updatedAt @map("updated_at")
+  id                    String         @id @default(uuid()) @db.Uuid
+  ticketId              String         @map("ticket_id") @db.Uuid
+  repoId                String         @map("repo_id") @db.Uuid
+  branchName            String         @map("branch_name")
+  status                IssueJobStatus @default(PENDING)
+  plan                  Json?
+  planRevision          Int            @default(0) @map("plan_revision")
+  planFeedback          String?        @map("plan_feedback")
+  approvedAt            DateTime?      @map("approved_at")
+  approvedBy            String?        @map("approved_by")
+  approvedByOperatorId  String?        @map("approved_by_operator_id") @db.Uuid
+  commitSha             String?        @map("commit_sha")
+  filesChanged          Int?           @map("files_changed")
+  error                 String?
+  aiModel               String?        @map("ai_model")
+  aiUsage               Json?          @map("ai_usage")
+  startedAt             DateTime?      @map("started_at")
+  completedAt           DateTime?      @map("completed_at")
+  createdAt             DateTime       @default(now()) @map("created_at")
+  updatedAt             DateTime       @updatedAt @map("updated_at")
 
-  ticket Ticket   @relation(fields: [ticketId], references: [id])
-  repo   CodeRepo @relation(fields: [repoId], references: [id])
+  ticket            Ticket    @relation(fields: [ticketId], references: [id])
+  repo              CodeRepo  @relation(fields: [repoId], references: [id])
+  approvedByOperator Operator? @relation("ApprovedByOperator", fields: [approvedByOperatorId], references: [id], onDelete: SetNull)
 
   @@index([ticketId])
   @@index([repoId, status])

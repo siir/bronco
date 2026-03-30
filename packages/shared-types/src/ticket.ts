@@ -140,6 +140,7 @@ export interface Ticket {
   source: TicketSource;
   category: TicketCategory | null;
   environmentId: string | null;
+  assignedOperatorId: string | null;
   analysisStatus: AnalysisStatus;
   analysisError: string | null;
   sufficiencyStatus: SufficiencyStatus | null;
