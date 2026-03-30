@@ -131,6 +131,7 @@ async function main() {
       source: 'EMAIL',
       category: 'DATABASE_PERF',
       priority: 'HIGH',
+      ticketNumber: 1,
       followers: {
         create: { contactId: contact.id, followerType: 'REQUESTER' },
       },
