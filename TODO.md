@@ -244,9 +244,9 @@ With infrastructure running, wire up the AI triage and analysis pipeline and dep
 
 ## Non-Goals (For Now)
 
-- ~~Multi-user authentication / RBAC~~ ✅ Implemented — JWT auth with ADMIN/OPERATOR/CLIENT roles
+- ~~Multi-user authentication / RBAC~~ ✅ Implemented — JWT auth with ADMIN/OPERATOR/CLIENT roles + multi-operator support (#7)
 - Public SaaS model
-- Client-facing portal
+- ~~Client-facing portal~~ ✅ Implemented — `services/ticket-portal/` (Angular app for client users)
 - Billing / invoicing automation
 - Real-time WebSocket push (polling is fine for single operator)
 - Mobile app

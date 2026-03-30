@@ -2,41 +2,42 @@
 
 Prisma ORM package for the control plane PostgreSQL database. Defines the schema for all core entities and provides a singleton PrismaClient.
 
-## Models (27)
+## Models
+
+The schema defines 50+ models. Key models include:
 
 | Model | Description |
 |-------|-------------|
 | **User** | Application users with role-based access. |
+| **Operator** | System operators with notification preferences (multi-operator support). |
 | **Client** | DBA clients (companies). Has `shortCode` for quick reference. |
+| **ClientEnvironment** | Per-client environment configurations. |
+| **ClientUser** | Portal users scoped to a client. |
 | **Contact** | People at client organizations. Linked to clients, can be ticket requesters. |
-| **Repository** | Legacy repository model. |
-| **System** | Client database instances (SQL Server, Postgres, MySQL). Stores encrypted connection details consumed by the MCP Database Server at runtime. |
-| **Ticket** | Work items. Created from emails, manual entry, DevOps, or AI detection. Linked to a client and optionally a system. |
-| **TicketEvent** | Timeline entries on a ticket: comments, status changes, inbound/outbound emails, AI analysis results, DevOps sync, code changes. |
-| **DevOpsSyncState** | Tracks Azure DevOps work item sync state and conversational workflow state. |
-| **Artifact** | File metadata for stored artifacts (query plans, deadlock XML, scripts). Files live on QNAP; metadata in Postgres. |
-| **Finding** | DBA findings (performance issues, missing indexes, blocking patterns). Linked to a system. |
-| **Playbook** | Runbooks for addressing findings. Can be templates or linked to specific findings. |
-| **QueryAuditLog** | Audit trail of every query the MCP Database Server executes against client SQL Servers. |
-| **CodeRepo** | Git repositories registered for automated issue resolution. |
-| **IssueJob** | Issue resolution job tracking (status, branch, commit SHA). |
-| **ExternalService** | External service definitions for health monitoring. |
+| **System** | Client database instances. Stores encrypted connection details for the MCP server. |
+| **Ticket** | Work items with sufficiency tracking and operator assignment. |
+| **TicketEvent** | Timeline entries: comments, status changes, emails, AI analysis, code changes, plan events. |
+| **TicketRoute** / **TicketRouteStep** | Configurable analysis pipelines with ordered steps. |
+| **TicketFollower** | Contacts following a ticket (requester, CC). |
+| **DevOpsSyncState** | Azure DevOps work item sync state and workflow state. |
+| **Artifact** | File metadata for stored artifacts. |
+| **Finding** / **Playbook** | DBA findings and runbooks. |
+| **CodeRepo** | Git repositories for automated issue resolution. |
+| **IssueJob** | Resolution job tracking with plan, approval, and execution state. |
 | **ClientIntegration** | Per-client integration configurations (IMAP, Azure DevOps). |
-| **AppLog** | Application-level structured logs. |
-| **LogSummary** | AI-generated log summaries. |
-| **AiUsageLog** | AI provider usage tracking (tokens, duration, cost). |
-| **AiModelCost** | Per-model cost configuration (input/output token pricing). |
-| **AiProviderConfig** | DB-managed AI provider configurations (model, capability level). |
+| **ClientMemory** | Per-client AI memories (MANUAL or AI_LEARNED). |
+| **ScheduledProbe** / **ProbeRun** | Scheduled monitoring probes and execution history. |
+| **IngestionRun** / **IngestionRunStep** | Ingestion pipeline execution tracking. |
+| **AiProvider** / **AiProviderModel** | AI provider configs with per-model capabilities. |
 | **AiModelConfig** | Per-task-type AI model overrides (APP_WIDE or CLIENT scoped). |
-| **PromptOverride** | System prompt overrides (prepend/append, per-client). |
-| **PromptKeyword** | Keyword-based prompt routing rules. |
-| **GoogleAccount** | Google OAuth2 account credentials (encrypted tokens). |
-| **YoutubeScheduleJob** | YouTube broadcast scheduling job configuration. |
-| **YoutubeBroadcastLog** | YouTube broadcast execution history. |
+| **EmailProcessingLog** | Email processing audit trail. |
+| **ReleaseNote** | Auto-generated release notes from commits. |
+| **AppLog** / **LogSummary** | Application logs and AI summaries. |
+| **AiUsageLog** / **AiModelCost** | AI usage tracking and cost configuration. |
 
-## Enums (19)
+## Enums (30+)
 
-`LogLevel`, `DbEngine`, `AuthMethod`, `Environment`, `TicketStatus`, `Priority`, `TicketSource`, `TicketEventType`, `Severity`, `TicketCategory`, `FindingStatus`, `IssueJobStatus`, `IntegrationType`, `UserRole`, `OverrideScope`, `OverridePosition`, `LogSummaryType`, `BroadcastStatus`, `ExternalServiceCheckType`
+`LogLevel`, `DbEngine`, `AuthMethod`, `Environment`, `TicketStatus`, `Priority`, `TicketSource`, `TicketEventType`, `Severity`, `TicketCategory`, `FindingStatus`, `IssueJobStatus`, `IntegrationType`, `UserRole`, `OverrideScope`, `OverridePosition`, `LogSummaryType`, `ExternalServiceCheckType`, `SufficiencyStatus`, `RouteStepType`, `RouteType`, `FollowerType`, `AnalysisStatus`, `MemoryType`, `MemorySource`, `ClientUserType`, `AttentionLevel`, `ReleaseNoteType`, `NotificationChannelType`, `OperationalTaskStatus`, `OperationalTaskSource`, `OperationalTaskEventType`, `SystemAnalysisStatus`
 
 ## Usage
 
@@ -86,7 +87,7 @@ When the MCP Database Server receives a tool call with a `systemId`, it queries 
 
 ```
 prisma/
-├── schema.prisma    # Full Prisma schema (27 models, 19 enums)
+├── schema.prisma    # Full Prisma schema (50+ models, 30+ enums)
 └── seed.ts          # Development seed data
 src/
 ├── client.ts        # Singleton PrismaClient factory

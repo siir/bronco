@@ -288,6 +288,7 @@ pnpm dev:mcp-db           # Start MCP database server (Express, port 3100, needs
 pnpm dev:resolver         # Start issue-resolver worker
 pnpm dev:status-monitor   # Start system status monitor
 pnpm dev:panel            # Start control panel (Angular, port 4200)
+pnpm dev:portal           # Start ticket portal (Angular, port 4201)
 ```
 
 ## Important Files
@@ -306,12 +307,17 @@ pnpm dev:panel            # Start control panel (Angular, port 4200)
 | `packages/ai-provider/src/model-config-resolver.ts` | DB-backed model config resolver (CLIENT → APP_WIDE → default layering, cached). |
 | `services/copilot-api/src/routes/ai-config.ts` | AI model config CRUD + resolution preview endpoints (`/api/ai-config`). |
 | `services/copilot-api/src/routes/tickets.ts` | Ticket CRUD endpoints. |
-| `services/imap-worker/src/processor.ts` | Email threading and dedup logic. |
+| `services/imap-worker/src/processor.ts` | Email collector: parse, noise-filter, push to ingestion queue. |
 | `services/ticket-analyzer/src/analyzer.ts` | Ticket analysis with repo cloning (bare+worktree) and MCP tools. |
 | `services/ticket-analyzer/src/index.ts` | Ticket analyzer service entry (BullMQ workers, probe scheduler, health). |
 | `services/ticket-analyzer/src/probe-worker.ts` | Scheduled probe execution (cron + one-off via API). |
-| `services/issue-resolver/src/worker.ts` | Issue resolution BullMQ worker (git + Claude). |
+| `services/issue-resolver/src/worker.ts` | Issue resolution BullMQ worker with plan/approve/execute flow. |
 | `services/issue-resolver/src/resolver.ts` | Claude-based code analysis and generation. |
+| `services/issue-resolver/src/planner.ts` | Resolution plan generation and regeneration (GENERATE_RESOLUTION_PLAN). |
+| `services/issue-resolver/src/learner.ts` | Learning extraction from plan approvals/rejections → client memory. |
+| `services/issue-resolver/src/notify.ts` | Operator notification on plan generation (email). |
+| `services/copilot-api/src/routes/operators.ts` | Operator CRUD endpoints (multi-operator support). |
+| `packages/shared-utils/src/notify-operators.ts` | Broadcast notifications to active operators. |
 | `services/copilot-api/src/routes/repos.ts` | Code repo CRUD endpoints. |
 | `services/copilot-api/src/routes/issue-jobs.ts` | Issue resolution job trigger and status. |
 | `services/devops-worker/src/processor.ts` | Azure DevOps work item sync and comment threading. |
@@ -335,7 +341,7 @@ pnpm dev:panel            # Start control panel (Angular, port 4200)
 Every new service or worker **must** integrate with the operational infrastructure before it ships. Follow this checklist:
 
 ### Health & Monitoring
-1. **Health endpoint** — Use `createHealthServer(name, port, { getDetails })` from shared-utils. Pick the next available `HEALTH_PORT` (current: imap-worker=3101, devops-worker=3102, issue-resolver=3103, status-monitor=3105, ticket-analyzer=3106). Note: copilot-api uses port 3000 for its API server with a `/api/health` route, not a separate health port.
+1. **Health endpoint** — Use `createHealthServer(name, port, { getDetails })` from shared-utils. Pick the next available `HEALTH_PORT` (current: imap-worker=3101, devops-worker=3102, issue-resolver=3103, status-monitor=3105, ticket-analyzer=3106, probe-worker=3107). Note: copilot-api uses port 3000 for its API server with a `/api/health` route, not a separate health port.
 2. **Structured logging** — Use `createLogger(name)` from shared-utils (Pino, writes to stderr).
 3. **Zod config** — Validate all env vars via `loadConfig(schema)` from shared-utils.
 
