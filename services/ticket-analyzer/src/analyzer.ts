@@ -10,7 +10,7 @@ import { Prisma } from '@bronco/db';
 import type { PrismaClient } from '@bronco/db';
 import type { TicketCategory, Priority, TicketStatus, TicketSource, AnalysisJob } from '@bronco/shared-types';
 import { AIRouter } from '@bronco/ai-provider';
-import { TaskType, RouteStepType, isClosedStatus, AnalysisStatus } from '@bronco/shared-types';
+import { TaskType, RouteStepType, isClosedStatus, AnalysisStatus, SufficiencyStatus, SufficiencyConfidence } from '@bronco/shared-types';
 import { createLogger, AppLogger, createPrismaLogWriter, decrypt, looksEncrypted, MCP_TOOL_TIMEOUT_MS, mcpUrl, callMcpToolViaSdk } from '@bronco/shared-utils';
 import type { AIToolDefinition, AIMessage, AIToolUseBlock, AITextBlock, AIToolResponse, AIToolResultBlock } from '@bronco/shared-types';
 import type { Mailer, ReplyOptions } from '@bronco/shared-utils';
@@ -47,6 +47,97 @@ const KNOWN_ACTIONS = [
 function redactUrls(msg: string): string {
   return msg.replace(/https?:\/\/[^@]+@/g, 'https://***@');
 }
+
+// ---------------------------------------------------------------------------
+// Sufficiency evaluation parsing
+// ---------------------------------------------------------------------------
+
+const SUFFICIENCY_DELIMITER = '---SUFFICIENCY---';
+
+interface SufficiencyEvaluation {
+  status: SufficiencyStatus;
+  questions: string[];
+  confidence: SufficiencyConfidence;
+  reason: string;
+}
+
+const VALID_SUFFICIENCY_STATUSES = new Set<string>(Object.values(SufficiencyStatus));
+const VALID_SUFFICIENCY_CONFIDENCES = new Set<string>(Object.values(SufficiencyConfidence));
+
+/**
+ * Parse the structured sufficiency suffix from an analysis response.
+ * Returns the clean analysis text (without the suffix) and the parsed evaluation.
+ * If no suffix is found, defaults to SUFFICIENT to avoid blocking tickets.
+ */
+function parseSufficiencyEvaluation(rawAnalysis: string): { analysis: string; evaluation: SufficiencyEvaluation } {
+  const delimIdx = rawAnalysis.lastIndexOf(SUFFICIENCY_DELIMITER);
+  if (delimIdx === -1) {
+    return {
+      analysis: rawAnalysis,
+      evaluation: { status: SufficiencyStatus.SUFFICIENT, questions: [], confidence: SufficiencyConfidence.MEDIUM, reason: 'No sufficiency evaluation provided — defaulting to SUFFICIENT' },
+    };
+  }
+
+  const analysis = rawAnalysis.slice(0, delimIdx).trimEnd();
+  const suffBlock = rawAnalysis.slice(delimIdx + SUFFICIENCY_DELIMITER.length).trim();
+
+  let status: SufficiencyStatus = SufficiencyStatus.SUFFICIENT;
+  let confidence: SufficiencyConfidence = SufficiencyConfidence.MEDIUM;
+  let reason = '';
+  const questions: string[] = [];
+
+  let inQuestions = false;
+  for (const line of suffBlock.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    if (trimmed.startsWith('STATUS:')) {
+      const val = trimmed.slice('STATUS:'.length).trim();
+      if (VALID_SUFFICIENCY_STATUSES.has(val)) status = val as SufficiencyStatus;
+      inQuestions = false;
+    } else if (trimmed.startsWith('CONFIDENCE:')) {
+      const val = trimmed.slice('CONFIDENCE:'.length).trim();
+      if (VALID_SUFFICIENCY_CONFIDENCES.has(val)) confidence = val as SufficiencyConfidence;
+      inQuestions = false;
+    } else if (trimmed.startsWith('REASON:')) {
+      reason = trimmed.slice('REASON:'.length).trim();
+      inQuestions = false;
+    } else if (trimmed.startsWith('QUESTIONS:')) {
+      const inline = trimmed.slice('QUESTIONS:'.length).trim();
+      if (inline) questions.push(inline);
+      inQuestions = true;
+    } else if (inQuestions && (trimmed.startsWith('-') || trimmed.startsWith('*') || /^\d+[.)]/.test(trimmed))) {
+      questions.push(trimmed.replace(/^[-*]\s*|^\d+[.)]\s*/, ''));
+    }
+  }
+
+  return { analysis, evaluation: { status, questions, confidence, reason } };
+}
+
+/** Instructions appended to the agentic analysis system prompt for sufficiency evaluation. */
+const SUFFICIENCY_EVAL_INSTRUCTIONS = [
+  '',
+  '## Sufficiency Evaluation',
+  '',
+  'Before providing your final analysis, evaluate whether you have enough information to propose a resolution plan.',
+  'Consider: Do you understand the root cause? Do you have enough evidence? Are there gaps only the user can fill?',
+  '',
+  'After your analysis, include a structured suffix on new lines:',
+  '',
+  '```',
+  '---SUFFICIENCY---',
+  'STATUS: SUFFICIENT | NEEDS_USER_INPUT | INSUFFICIENT',
+  'QUESTIONS: [only if NEEDS_USER_INPUT — specific questions for the user, one per line starting with -]',
+  'CONFIDENCE: HIGH | MEDIUM | LOW',
+  'REASON: [brief explanation of why this status was chosen]',
+  '```',
+  '',
+  'Guidelines:',
+  '- SUFFICIENT: You have enough context from system sources to propose a concrete resolution plan.',
+  '- NEEDS_USER_INPUT: You have exhausted system sources (databases, code repos) but have specific questions only the user can answer. Ask targeted questions — not vague "can you tell me more?"',
+  '- INSUFFICIENT: You cannot determine what is needed — the ticket may be too vague or the systems are inaccessible. Flag for operator review.',
+  '- Always provide your best analysis regardless of sufficiency status.',
+].join('\n');
 
 // ---------------------------------------------------------------------------
 // Retry configuration for outbound emails
@@ -181,6 +272,8 @@ interface AnalysisContext {
   emailMessageId?: string;
   /** The ticket's source (EMAIL, SCHEDULED, MANUAL, etc.) for route matching. */
   ticketSource: TicketSource;
+  /** Populated by AGENTIC_ANALYSIS or UPDATE_ANALYSIS — consumed by DRAFT_FINDINGS_EMAIL. */
+  sufficiencyEval?: SufficiencyEvaluation;
 }
 
 export interface AnalyzerDeps {
@@ -2415,6 +2508,7 @@ async function executeRoutePipeline(
         if (codeContext.length > 0) systemParts.push('', '## Previously Gathered Code Context', ...codeContext);
         if (dbContext) systemParts.push('', '## Previously Gathered DB Context', dbContext);
         if (stepConfig?.systemPromptOverride) systemParts.push('', stepConfig.systemPromptOverride);
+        systemParts.push(SUFFICIENCY_EVAL_INSTRUCTIONS);
 
         const agenticSystemPrompt = systemParts.join('\n');
 
@@ -2506,9 +2600,14 @@ async function executeRoutePipeline(
           finalAnalysis = 'Agentic analysis reached maximum iterations without a final conclusion. Review the tool call log for partial findings.';
         }
 
-        analysis = finalAnalysis;
+        // Parse sufficiency evaluation from the analysis response
+        const { analysis: cleanAnalysis, evaluation: sufficiency } = parseSufficiencyEvaluation(finalAnalysis);
+        analysis = cleanAnalysis;
 
-        // Store as AI_ANALYSIS event with tool call log in metadata
+        // Store sufficiency questions in pipeline context so DRAFT_FINDINGS_EMAIL can include them
+        ctx.sufficiencyEval = sufficiency;
+
+        // Store as AI_ANALYSIS event with tool call log and sufficiency in metadata
         await db.ticketEvent.create({
           data: {
             ticketId,
@@ -2524,11 +2623,29 @@ async function executeRoutePipeline(
               totalUsage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
               routeId: route.id,
               routeName: route.name,
+              sufficiencyStatus: sufficiency.status,
+              sufficiencyQuestions: sufficiency.questions,
+              sufficiencyConfidence: sufficiency.confidence,
+              sufficiencyReason: sufficiency.reason,
             })),
             actor: 'system:analyzer',
           },
         });
-        appLog.info(`Agentic analysis complete: ${toolCallLog.length} tool calls across conversation`, { ticketId, toolCalls: toolCallLog.length }, ticketId);
+
+        // Update ticket sufficiency status
+        const suffTicketUpdate: Record<string, unknown> = {
+          sufficiencyStatus: sufficiency.status,
+        };
+        if (sufficiency.status === SufficiencyStatus.NEEDS_USER_INPUT) {
+          suffTicketUpdate.status = 'WAITING';
+        }
+        await db.ticket.update({ where: { id: ticketId }, data: suffTicketUpdate });
+
+        appLog.info(
+          `Agentic analysis complete: ${toolCallLog.length} tool calls, sufficiency=${sufficiency.status}`,
+          { ticketId, toolCalls: toolCallLog.length, sufficiencyStatus: sufficiency.status, sufficiencyConfidence: sufficiency.confidence },
+          ticketId,
+        );
         break;
       }
 
@@ -2544,6 +2661,14 @@ async function executeRoutePipeline(
         }
 
         const updateTaskType = (step.taskTypeOverride ?? TaskType.DEEP_ANALYSIS) as TaskType;
+
+        // Load the ticket's prior sufficiency status to determine if re-evaluation is needed
+        const priorTicket = await db.ticket.findUnique({
+          where: { id: ticketId },
+          select: { sufficiencyStatus: true, reanalysisCount: true },
+        });
+        const priorSufficiency = priorTicket?.sufficiencyStatus as SufficiencyStatus | null;
+        const currentReanalysisCount = priorTicket?.reanalysisCount ?? 0;
 
         const updatePromptParts = [
           '## Prior Analysis Context',
@@ -2568,6 +2693,9 @@ async function executeRoutePipeline(
         if (clientContext) updatePromptParts.push('', clientContext);
         if (summary) updatePromptParts.push('', '## Ticket Summary', summary);
 
+        // Add sufficiency evaluation instructions so the update also signals readiness
+        updatePromptParts.push(SUFFICIENCY_EVAL_INSTRUCTIONS);
+
         const updateRes = await ai.generate({
           taskType: updateTaskType,
           context: {
@@ -2579,10 +2707,22 @@ async function executeRoutePipeline(
           prompt: updatePromptParts.join('\n'),
           systemPrompt: 'You are reviewing a prior analysis in light of new information from the user. Focus on what has changed — do not repeat the full analysis. Be concise and specific.',
         });
-        analysis = updateRes.content;
 
-        // Store as AI_ANALYSIS event with update metadata to distinguish from initial analysis
-        const currentReanalysisCount = (await db.ticket.findUnique({ where: { id: ticketId }, select: { reanalysisCount: true } }))?.reanalysisCount ?? 0;
+        // Parse sufficiency from the update response
+        const { analysis: cleanUpdate, evaluation: updateSufficiency } = parseSufficiencyEvaluation(updateRes.content);
+        analysis = cleanUpdate;
+
+        // Store sufficiency in pipeline context for downstream DRAFT_FINDINGS_EMAIL
+        ctx.sufficiencyEval = updateSufficiency;
+
+        // Diminishing returns guard: if still NEEDS_USER_INPUT after 3+ re-analysis cycles, escalate to INSUFFICIENT
+        const effectiveSufficiency = (
+          updateSufficiency.status === SufficiencyStatus.NEEDS_USER_INPUT && currentReanalysisCount >= 3
+        )
+          ? { ...updateSufficiency, status: SufficiencyStatus.INSUFFICIENT as SufficiencyStatus, reason: `Escalated to INSUFFICIENT after ${currentReanalysisCount} re-analysis cycles with no resolution` }
+          : updateSufficiency;
+
+        ctx.sufficiencyEval = effectiveSufficiency;
 
         await db.ticketEvent.create({
           data: {
@@ -2600,10 +2740,43 @@ async function executeRoutePipeline(
               usage: updateRes.usage as Prisma.InputJsonValue,
               routeId: route.id,
               routeName: route.name,
+              sufficiencyStatus: effectiveSufficiency.status,
+              sufficiencyQuestions: effectiveSufficiency.questions,
+              sufficiencyConfidence: effectiveSufficiency.confidence,
+              sufficiencyReason: effectiveSufficiency.reason,
             },
             actor: 'system:analyzer',
           },
         });
+
+        // Update ticket sufficiency status and adjust ticket status
+        const updateSuffData: Record<string, unknown> = {
+          sufficiencyStatus: effectiveSufficiency.status,
+        };
+        if (effectiveSufficiency.status === SufficiencyStatus.SUFFICIENT && priorSufficiency !== SufficiencyStatus.SUFFICIENT) {
+          // Transition from WAITING/NEEDS_USER_INPUT to IN_PROGRESS now that we have enough info
+          updateSuffData.status = 'IN_PROGRESS';
+        } else if (effectiveSufficiency.status === SufficiencyStatus.NEEDS_USER_INPUT) {
+          updateSuffData.status = 'WAITING';
+        }
+        await db.ticket.update({ where: { id: ticketId }, data: updateSuffData });
+
+        // If INSUFFICIENT after diminishing returns, create a system note for operator review
+        if (effectiveSufficiency.status === SufficiencyStatus.INSUFFICIENT) {
+          await db.ticketEvent.create({
+            data: {
+              ticketId,
+              eventType: 'SYSTEM_NOTE',
+              content: `Sufficiency evaluation: INSUFFICIENT after ${currentReanalysisCount} re-analysis cycles. This ticket requires manual operator review. Reason: ${effectiveSufficiency.reason}`,
+              actor: 'system:analyzer',
+            },
+          });
+          appLog.warn(
+            `Sufficiency escalated to INSUFFICIENT after ${currentReanalysisCount} cycles`,
+            { ticketId, reanalysisCount: currentReanalysisCount },
+            ticketId,
+          );
+        }
 
         // Regenerate ticket summary from recent events if conclusions changed
         if (analysis && analysis.length > 20) {
@@ -2823,18 +2996,36 @@ async function executeRoutePipeline(
           }
         }
 
+        const needsUserInput = ctx.sufficiencyEval?.status === SufficiencyStatus.NEEDS_USER_INPUT;
+        const suffQuestions = ctx.sufficiencyEval?.questions ?? [];
+
         const findingsPromptParts = [
           reanalysisCtx
             ? 'Draft a professional email sharing updated analysis findings in response to the user\'s reply on a support ticket.'
-            : 'Draft a professional email sharing the analysis findings for a support ticket.',
+            : needsUserInput
+              ? 'Draft a professional email sharing preliminary analysis findings and asking the user specific questions we need answered to continue.'
+              : 'Draft a professional email sharing the analysis findings for a support ticket.',
           `Recipient name: ${recipientName}`,
           `Sender name (sign as): ${senderSignature}`,
           `Ticket ID: ${ticketId}`, `Subject: ${emailSubject}`, '',
           'Analysis findings:', analysis, '',
+        ];
+        if (needsUserInput && suffQuestions.length > 0) {
+          findingsPromptParts.push(
+            'IMPORTANT: The analysis is incomplete — we need the user to answer specific questions before we can propose a resolution.',
+            'Include a clearly separated "Questions" section after the findings with these questions:',
+            '',
+            ...suffQuestions.map((q, i) => `${i + 1}. ${q}`),
+            '',
+            'Ask the user to reply with answers so we can continue the investigation.',
+            '',
+          );
+        }
+        findingsPromptParts.push(
           'The email should:',
           `- Address the recipient by their first name (derived from "${recipientName}")`,
           '- Reference the ticket ID',
-        ];
+        );
         if (reanalysisCtx) {
           findingsPromptParts.push('- Acknowledge the user\'s reply and address their specific request');
         }
@@ -2844,7 +3035,7 @@ async function executeRoutePipeline(
           '- Note any risks or things to verify',
           '- Offer to discuss further if needed',
           '- Be professional but not overly formal',
-          '- Keep it under 300 words',
+          needsUserInput ? '- Keep it under 400 words (findings + questions)' : '- Keep it under 300 words',
           `- Sign off with the sender name: ${senderSignature}`,
         );
         if (loopGuardNote) {
@@ -2880,16 +3071,18 @@ async function executeRoutePipeline(
             data: {
               ticketId, eventType: 'EMAIL_OUTBOUND', content: findingsBody,
               metadata: {
-                type: reanalysisCtx ? 'reanalysis_findings' : 'analysis_findings',
+                type: reanalysisCtx ? 'reanalysis_findings' : needsUserInput ? 'analysis_findings_with_questions' : 'analysis_findings',
                 to: emailFrom!,
                 subject: `Re: ${emailSubject}`,
                 messageId: outboundMsgId,
+                ...(needsUserInput && { sufficiencyQuestions: suffQuestions }),
               },
               actor: 'system:analyzer',
             },
           });
+          // Keep ticket in WAITING — the AGENTIC_ANALYSIS step already set it for NEEDS_USER_INPUT
           await db.ticket.update({ where: { id: ticketId }, data: { status: 'WAITING', resolvedAt: null } });
-          appLog.info(`${reanalysisCtx ? 'Re-analysis' : 'Analysis'} findings email sent to ${emailFrom}`, { ticketId, to: emailFrom, reanalysis: !!reanalysisCtx }, ticketId);
+          appLog.info(`${reanalysisCtx ? 'Re-analysis' : 'Analysis'} findings email sent to ${emailFrom}${needsUserInput ? ' (with questions)' : ''}`, { ticketId, to: emailFrom, reanalysis: !!reanalysisCtx, needsUserInput }, ticketId);
         } else {
           appLog.info(`${reanalysisCtx ? 'Re-analysis' : 'Analysis'} findings email skipped (send blocked by loop guard)`, { ticketId, to: emailFrom, reanalysis: !!reanalysisCtx }, ticketId);
         }

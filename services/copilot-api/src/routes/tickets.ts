@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Queue } from 'bullmq';
 import type { AIRouter } from '@bronco/ai-provider';
 import { ensureClientUser, Prisma } from '@bronco/db';
-import { TicketStatus, TicketCategory, TicketEventType, Priority, TicketSource, TaskType, isClosedStatus, AnalysisStatus } from '@bronco/shared-types';
+import { TicketStatus, TicketCategory, TicketEventType, Priority, TicketSource, TaskType, isClosedStatus, AnalysisStatus, SufficiencyStatus } from '@bronco/shared-types';
 import type { TicketCreatedJob, IngestionJob } from '@bronco/shared-types';
 
 interface TicketRouteOpts {
@@ -18,6 +18,7 @@ const VALID_SOURCES: Set<string> = new Set(Object.values(TicketSource));
 const VALID_CATEGORIES: Set<string> = new Set(Object.values(TicketCategory));
 const VALID_STATUSES: Set<string> = new Set(Object.values(TicketStatus));
 const VALID_EVENT_TYPES: Set<string> = new Set(Object.values(TicketEventType));
+const VALID_SUFFICIENCY_STATUSES: Set<string> = new Set(Object.values(SufficiencyStatus));
 
 export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteOpts): Promise<void> {
   fastify.get<{ Querystring: { clientId?: string; status?: string; category?: string; environmentId?: string; limit?: string; offset?: string } }>(
@@ -294,13 +295,14 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     return event;
   });
 
-  fastify.patch<{ Params: { id: string }; Body: { status?: string; priority?: string; systemId?: string; environmentId?: string | null; category?: string | null } }>(
+  fastify.patch<{ Params: { id: string }; Body: { status?: string; priority?: string; systemId?: string; environmentId?: string | null; category?: string | null; sufficiencyStatus?: string | null } }>(
     '/api/tickets/:id',
     async (request, reply) => {
-      const { status: newStatus, priority, systemId, environmentId, category } = request.body;
+      const { status: newStatus, priority, systemId, environmentId, category, sufficiencyStatus } = request.body;
       if (newStatus && !VALID_STATUSES.has(newStatus)) return fastify.httpErrors.badRequest(`Invalid status: ${newStatus}`);
       if (priority && !VALID_PRIORITIES.has(priority)) return fastify.httpErrors.badRequest(`Invalid priority: ${priority}`);
       if (category && !VALID_CATEGORIES.has(category)) return fastify.httpErrors.badRequest(`Invalid category: ${category}`);
+      if (sufficiencyStatus !== undefined && sufficiencyStatus !== null && !VALID_SUFFICIENCY_STATUSES.has(sufficiencyStatus)) return fastify.httpErrors.badRequest(`Invalid sufficiencyStatus: ${sufficiencyStatus}`);
 
       const needsExisting = request.body.status !== undefined || environmentId !== undefined;
       const existing = needsExisting
@@ -326,6 +328,7 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
           ...(systemId && { systemId }),
           ...(environmentId !== undefined && { environmentId }),
           ...(category !== undefined && { category: category as TicketCategory | null }),
+          ...(sufficiencyStatus !== undefined && { sufficiencyStatus: sufficiencyStatus as SufficiencyStatus | null }),
         },
       });
 
