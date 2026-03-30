@@ -312,7 +312,7 @@ devops-worker (processor, from Skill 1b)
       │   └─ Poll for user replies in DevOps comments
       │       → AIRouter → Ollama: CLASSIFY_INTENT (approval / rejection / question)
       ├─ PLANNING
-      │   └─ AIRouter → Ollama: GENERATE_PLAN
+      │   └─ AIRouter → Ollama: GENERATE_DEVOPS_PLAN
       │       → post proposed plan as DevOps comment
       ├─ AWAITING_APPROVAL
       │   └─ Poll for user approval/rejection comment
@@ -324,7 +324,7 @@ devops-worker (processor, from Skill 1b)
           └─ Update DevOpsSyncState, create TicketEvents
 ```
 
-**Key calls:** Azure DevOps comment POST, Ollama (ANALYZE_WORK_ITEM, CLASSIFY_INTENT, GENERATE_PLAN, DRAFT_COMMENT), Prisma DevOpsSyncState updates
+**Key calls:** Azure DevOps comment POST, Ollama (ANALYZE_WORK_ITEM, CLASSIFY_INTENT, GENERATE_DEVOPS_PLAN, DRAFT_COMMENT), Prisma DevOpsSyncState updates
 
 **Configurability:**
 
@@ -465,8 +465,8 @@ Heavy-reasoning AI tasks that require Claude for complex analysis. Triggered as 
 
 | Provider | Tasks | Cost | Latency |
 |----------|-------|------|---------|
-| **Ollama** (Mac Mini) | TRIAGE, CATEGORIZE, SUMMARIZE, SUMMARIZE_TICKET, SUMMARIZE_LOGS, DRAFT_EMAIL, EXTRACT_FACTS, SUGGEST_NEXT_STEPS, CLASSIFY_INTENT, ANALYZE_WORK_ITEM, DRAFT_COMMENT, GENERATE_PLAN, GENERATE_TITLE, CLASSIFY_EMAIL, GENERATE_RELEASE_NOTE, SUMMARIZE_ROUTE, SELECT_ROUTE | Free | ~1-5s |
-| **Claude API** | ANALYZE_QUERY, GENERATE_SQL, REVIEW_CODE, DEEP_ANALYSIS, BUG_ANALYSIS, ARCHITECTURE_REVIEW, SCHEMA_REVIEW, FEATURE_ANALYSIS, RESOLVE_ISSUE, CHANGE_CODEBASE_SMALL, CHANGE_CODEBASE_LARGE, ANALYZE_TICKET_CLOSURE | Per-token | ~5-60s |
+| **Ollama** (Mac Mini) | TRIAGE, CATEGORIZE, SUMMARIZE, SUMMARIZE_TICKET, SUMMARIZE_LOGS, DRAFT_EMAIL, EXTRACT_FACTS, SUGGEST_NEXT_STEPS, CLASSIFY_INTENT, ANALYZE_WORK_ITEM, DRAFT_COMMENT, GENERATE_DEVOPS_PLAN, GENERATE_TITLE, CLASSIFY_EMAIL, GENERATE_RELEASE_NOTE, SUMMARIZE_ROUTE, SELECT_ROUTE | Free | ~1-5s |
+| **Claude API** | ANALYZE_QUERY, GENERATE_SQL, REVIEW_CODE, DEEP_ANALYSIS, BUG_ANALYSIS, ARCHITECTURE_REVIEW, SCHEMA_REVIEW, FEATURE_ANALYSIS, RESOLVE_ISSUE, GENERATE_RESOLUTION_PLAN, CHANGE_CODEBASE_SMALL, CHANGE_CODEBASE_LARGE, ANALYZE_TICKET_CLOSURE, CUSTOM_AI_QUERY | Per-token | ~5-60s |
 
 ---
 

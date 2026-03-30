@@ -75,8 +75,8 @@ import {
 
 | Export | Type | Values |
 |--------|------|--------|
-| `TaskType` | const enum | `TRIAGE`, `CATEGORIZE`, `SUMMARIZE`, `DRAFT_EMAIL`, `EXTRACT_FACTS`, `SUMMARIZE_TICKET`, `SUGGEST_NEXT_STEPS`, `CLASSIFY_INTENT`, `SUMMARIZE_LOGS`, `ANALYZE_WORK_ITEM`, `DRAFT_COMMENT`, `GENERATE_DEVOPS_PLAN`, `GENERATE_RESOLUTION_PLAN`, `ANALYZE_QUERY`, `GENERATE_SQL`, `REVIEW_CODE`, `DEEP_ANALYSIS`, `BUG_ANALYSIS`, `ARCHITECTURE_REVIEW`, `SCHEMA_REVIEW`, `FEATURE_ANALYSIS`, `RESOLVE_ISSUE`, `CHANGE_CODEBASE_SMALL`, `CHANGE_CODEBASE_LARGE` |
-| `AIProvider` | const enum | `LOCAL`, `CLAUDE` |
+| `TaskType` | const enum | `TRIAGE`, `CATEGORIZE`, `SUMMARIZE`, `DRAFT_EMAIL`, `EXTRACT_FACTS`, `SUMMARIZE_TICKET`, `SUGGEST_NEXT_STEPS`, `CLASSIFY_INTENT`, `SUMMARIZE_LOGS`, `GENERATE_TITLE`, `CLASSIFY_EMAIL`, `ANALYZE_WORK_ITEM`, `DRAFT_COMMENT`, `GENERATE_DEVOPS_PLAN`, `GENERATE_RESOLUTION_PLAN`, `ANALYZE_QUERY`, `GENERATE_SQL`, `REVIEW_CODE`, `DEEP_ANALYSIS`, `BUG_ANALYSIS`, `ARCHITECTURE_REVIEW`, `SCHEMA_REVIEW`, `FEATURE_ANALYSIS`, `RESOLVE_ISSUE`, `CHANGE_CODEBASE_SMALL`, `CHANGE_CODEBASE_LARGE`, `ANALYZE_TICKET_CLOSURE`, `GENERATE_RELEASE_NOTE`, `CUSTOM_AI_QUERY`, `SUMMARIZE_ROUTE`, `SELECT_ROUTE` |
+| `AIProvider` | const enum | `LOCAL`, `CLAUDE`, `OPENAI`, `GROK`, `GOOGLE` |
 
 | Interface | Key Fields |
 |-----------|-----------|
@@ -84,7 +84,8 @@ import {
 | `AIResponse` | `provider`, `content`, `model`, `usage?` (`{ inputTokens, outputTokens }`), `durationMs` |
 | `AiModelConfigRecord` | `id`, `taskType`, `scope`, `clientId?`, `provider`, `model`, `isActive` |
 | `TaskTypeDefault` | `taskType`, `provider`, `model` |
-| `AiProviderConfigRecord` | `id`, `name`, `provider`, `baseUrl?`, `model`, `capabilityLevel`, `isActive`, `hasApiKey` |
+| `AiProviderRecord` | `id`, `name`, `provider`, `baseUrl?`, `isActive`, `hasApiKey` |
+| `AiProviderModelRecord` | `id`, `providerId`, `model`, `displayName?`, `capabilityLevel`, `isActive` |
 
 ## Source Layout
 
@@ -93,19 +94,31 @@ src/
 ├── index.ts              # Barrel re-export of all modules
 ├── client.ts             # Client, Contact
 ├── system.ts             # DbEngine, AuthMethod, Environment, System, SystemConnectionConfig
-├── ticket.ts             # TicketStatus, Priority, TicketSource, TicketCategory, TicketEventType, Ticket, TicketEvent
+├── ticket.ts             # TicketStatus, Priority, TicketSource, TicketCategory, TicketEventType, SufficiencyStatus, Ticket, TicketEvent
+├── ticket-route.ts       # RouteStepType, RouteType, TicketRoute, TicketRouteStep
 ├── artifact.ts           # Severity, FindingStatus, Artifact, Finding, Playbook
-├── ai.ts                 # TaskType, AIProvider, CapabilityLevel, AIRequest, AIResponse, AiModelConfigRecord, AiProviderConfigRecord
+├── ai.ts                 # TaskType, AIProvider, CapabilityLevel, AIRequest, AIResponse, AiModelConfigRecord
 ├── ai-usage.ts           # AI usage logging types
-├── code-repo.ts          # CodeRepo, IssueJob types
+├── code-repo.ts          # CodeRepo, IssueJob, ResolutionPlan, IssueJobStatus, PlanActionCategory
+├── client-memory.ts      # MemoryType, MemorySource, ClientMemory
+├── client-user.ts        # ClientUser types
+├── client-environment.ts # ClientEnvironment types
 ├── devops.ts             # DevOps sync and work item types
+├── email-log.ts          # EmailClassification, EmailProcessingStatus, EmailProcessingLog
 ├── external-service.ts   # External service monitoring types
+├── ingestion.ts          # IngestionJob, EmailIngestionPayload, DevOpsIngestionPayload, ManualIngestionPayload, PortalIngestionPayload
 ├── integration.ts        # Client integration types
 ├── log.ts                # Application log types
+├── notification.ts       # NotificationChannel types
+├── operational-alert.ts  # Operational alert types
+├── operational-task.ts   # OperationalTask types
+├── operator.ts           # Operator interface
 ├── prompt.ts             # Prompt override types
-├── user.ts               # User and role types
-├── workflow.ts           # Workflow state types
-└── youtube.ts            # YouTube account, job, broadcast types
+├── release-notes.ts      # ReleaseNote types
+├── scheduled-probe.ts    # ScheduledProbe, ProbeRun types
+├── system-analysis.ts    # SystemAnalysis types
+├── system-config.ts      # System config types
+└── user.ts               # User and role types
 ```
 
 ## Design Notes

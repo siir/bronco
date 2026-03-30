@@ -58,20 +58,32 @@ src/app/
 │   └── services/             # Core services (API client, auth)
 └── features/
     ├── activity-feed/        # Activity/event feed
+    ├── ai-providers/         # AI provider configuration
     ├── ai-usage/             # AI usage analytics
     ├── clients/              # Client management
     ├── contacts/             # Contact directory
     ├── dashboard/            # Main dashboard
+    ├── email-logs/           # Email processing log viewer
+    ├── failed-jobs/          # BullMQ failed job management
+    ├── ingestion-jobs/       # Ingestion pipeline run viewer
     ├── integrations/         # Third-party integrations
     ├── login/                # Authentication
     ├── logs/                 # System logs viewer
+    ├── notification-channels/ # Notification channel config
     ├── profile/              # User profile
     ├── prompts/              # AI prompt management
+    ├── release-notes/        # Release notes viewer
     ├── repos/                # Code repository management
+    ├── scheduled-probes/     # Scheduled probe management
     ├── settings/             # Configuration settings
+    ├── system-analysis/      # System closure analysis
+    ├── system-issues/        # System issue tracking
+    ├── system-settings/      # System-level settings
     ├── system-status/        # Service health monitoring
     ├── systems/              # Database systems management
-    └── tickets/              # Ticket/issue management
+    ├── ticket-routes/        # Configurable analysis pipelines
+    ├── tickets/              # Ticket/issue management
+    └── users/                # Internal user management
 ```
 
 ## Dependencies
