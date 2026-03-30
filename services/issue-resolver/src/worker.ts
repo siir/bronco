@@ -75,7 +75,7 @@ export function createProcessor(config: Config, ai: AIRouter) {
 
         await updateJobStatus(issueJobId, 'PLANNING');
 
-        const { git, localPath } = await prepareRepo({
+        const { localPath } = await prepareRepo({
           repoUrl: issueJob.repo.repoUrl,
           defaultBranch: issueJob.repo.defaultBranch,
           branchName: issueJob.branchName,
@@ -86,6 +86,9 @@ export function createProcessor(config: Config, ai: AIRouter) {
         });
 
         const previousPlan = issueJob.plan as unknown as ResolutionPlan;
+        if (!previousPlan) {
+          throw new Error('Cannot regenerate: no existing plan found on job');
+        }
         const planResult = await regeneratePlan({
           ai,
           repoPath: localPath,
@@ -99,10 +102,12 @@ export function createProcessor(config: Config, ai: AIRouter) {
 
         await updateJobStatus(issueJobId, 'AWAITING_APPROVAL', {
           plan: planResult.plan as unknown as Record<string, unknown>,
-          planRevision: issueJob.planRevision + 1,
+          planRevision: { increment: 1 },
           planFeedback: regenerateFeedback,
           aiModel: planResult.model,
           aiUsage: planResult.usage,
+          approvedAt: null,
+          approvedBy: null,
         });
 
         appLog.info(
@@ -210,7 +215,7 @@ export function createProcessor(config: Config, ai: AIRouter) {
       // Step 1: Clone/prepare the repo
       await updateJobStatus(issueJobId, 'CLONING', { startedAt: new Date() });
 
-      const { git, localPath } = await prepareRepo({
+      const { localPath } = await prepareRepo({
         repoUrl: issueJob.repo.repoUrl,
         defaultBranch: issueJob.repo.defaultBranch,
         branchName: issueJob.branchName,

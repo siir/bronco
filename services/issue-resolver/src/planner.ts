@@ -40,10 +40,11 @@ async function listFiles(dirPath: string, basePath: string): Promise<string[]> {
 }
 
 function isTextFile(filePath: string): boolean {
+  const basename = filePath.split('/').pop() ?? '';
+  if (basename === '.env.example') return true;
   const lastDotIndex = filePath.lastIndexOf('.');
   const ext = lastDotIndex === -1 ? '' : filePath.slice(lastDotIndex);
   if (ext && TEXT_EXTENSIONS.has(ext)) return true;
-  const basename = filePath.split('/').pop() ?? '';
   return ['Makefile', 'Dockerfile', 'Caddyfile', 'Procfile', 'Gemfile', 'Rakefile'].includes(basename);
 }
 

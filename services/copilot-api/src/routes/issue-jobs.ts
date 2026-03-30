@@ -171,21 +171,28 @@ export async function issueJobRoutes(fastify: FastifyInstance, opts: IssueJobRou
 
     const approvedBy = request.body?.approvedBy ?? 'operator';
 
-    await fastify.db.issueJob.update({
-      where: { id: request.params.id },
+    // Atomic transition out of AWAITING_APPROVAL to prevent duplicate approvals
+    const updated = await fastify.db.issueJob.updateMany({
+      where: { id: request.params.id, status: 'AWAITING_APPROVAL' },
       data: {
+        status: 'CLONING',
         approvedAt: new Date(),
         approvedBy,
       },
     });
+    if (updated.count === 0) {
+      return fastify.httpErrors.conflict('Job is no longer in AWAITING_APPROVAL — it may have already been approved or rejected');
+    }
 
-    // Enqueue a resume job
+    // Enqueue a resume job with deterministic ID to prevent duplicates
     await issueResolveQueue.add('resolve-issue', {
       issueJobId: request.params.id,
       resume: true,
-    } satisfies IssueResolvePayload);
+    } satisfies IssueResolvePayload, {
+      jobId: `resume-${request.params.id}`,
+    });
 
-    return { id: request.params.id, status: 'AWAITING_APPROVAL', message: 'Plan approved — execution queued' };
+    return { id: request.params.id, status: 'CLONING', message: 'Plan approved — execution queued' };
   });
 
   // Reject an issue job plan — triggers plan regeneration with feedback
@@ -204,10 +211,24 @@ export async function issueJobRoutes(fastify: FastifyInstance, opts: IssueJobRou
       return fastify.httpErrors.badRequest(`Cannot reject job in status "${job.status}" — must be AWAITING_APPROVAL`);
     }
 
+    if (!job.plan) {
+      return fastify.httpErrors.badRequest('Cannot reject job without a plan');
+    }
+
     const feedback = request.body?.feedback;
     if (!feedback || typeof feedback !== 'string' || feedback.trim().length === 0) {
       return fastify.httpErrors.badRequest('Feedback is required when rejecting a plan');
     }
+
+    // Atomic transition to PLANNING and clear stale approval metadata
+    await fastify.db.issueJob.updateMany({
+      where: { id: request.params.id, status: 'AWAITING_APPROVAL' },
+      data: {
+        status: 'PLANNING',
+        approvedAt: null,
+        approvedBy: null,
+      },
+    });
 
     // Enqueue a regeneration job
     await issueResolveQueue.add('resolve-issue', {
@@ -215,6 +236,6 @@ export async function issueJobRoutes(fastify: FastifyInstance, opts: IssueJobRou
       regenerateFeedback: feedback.trim(),
     } satisfies IssueResolvePayload);
 
-    return { id: request.params.id, status: 'AWAITING_APPROVAL', message: 'Plan rejected — regeneration queued with feedback' };
+    return { id: request.params.id, status: 'PLANNING', message: 'Plan rejected — regeneration queued with feedback' };
   });
 }
