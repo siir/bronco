@@ -12,7 +12,7 @@ AI-augmented database and software architecture operations platform. Single-oper
 - **AI routing**: Local Ollama for triage/categorize/summarize/extract; Claude API for deep analysis, code review, architecture review, bug analysis, schema review, feature analysis.
 - **Hugo** (control plane VM): Ubuntu 24.04 LTS on ESXi NUC. Runs copilot-api (Fastify), imap-worker, ticket-analyzer, devops-worker, issue-resolver, status-monitor, Postgres, Redis, Caddy via Docker Compose.
 - **Mac mini (siiriaplex)**: Runs Ollama for local LLM inference.
-- **CI/CD**: GitHub Actions — CI runs on push to `staging` (typecheck + build), not on every PR update. Feature branches PR into `staging`; staging PRs into `master`. Every push to `master` auto-tags a semver release (`tag-release.yml`), which triggers deploy-hugo (GHCR + SSH via Tailscale) and deploy-mcp (conditional — only when MCP-relevant paths changed). To bump major/minor, push a tag manually before merging staging → master.
+- **CI/CD**: GitHub Actions — CI runs on push to `staging` (typecheck + build), not on every PR update. Feature branches PR into `staging`; staging PRs into `master`. Pushes to `master` that change app-relevant paths (packages/, services/, mcp-servers/, docker-compose.yml, lockfile, deploy workflows) auto-tag a semver release (`tag-release.yml`), which triggers deploy-hugo (GHCR + SSH via Tailscale) and deploy-mcp (conditional — only when MCP-relevant paths changed). Docs-only changes do not trigger a release or deploy. To bump major/minor, push a tag manually before merging staging → master.
 
 ## Key Conventions
 
