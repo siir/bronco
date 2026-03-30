@@ -27,6 +27,7 @@ pnpm dev:status-monitor
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `DATABASE_URL` | Yes | — | PostgreSQL connection string |
+| `REDIS_URL` | Yes | — | Redis connection string |
 | `ENCRYPTION_KEY` | Yes | — | 64+ char hex for decrypting stored credentials |
 | `STATUS_API_URL` | No | `http://copilot-api:3000/api/system-status` | Copilot API status endpoint |
 | `API_KEY` | Yes | — | Auth header for status endpoint |
@@ -41,7 +42,8 @@ pnpm dev:status-monitor
 src/
 ├── index.ts          # Entry point, polling loop
 ├── config.ts         # Zod-validated env config
-├── poller.ts         # Status polling and state diffing
-├── notifier.ts       # Notification dispatch (email, Pushover)
-└── channels.ts       # Notification channel loading from DB
+├── monitor.ts        # Status polling and state diffing
+└── notifiers/
+    ├── email.ts      # Email notification dispatch
+    └── pushover.ts   # Pushover notification dispatch
 ```

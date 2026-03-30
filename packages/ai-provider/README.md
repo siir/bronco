@@ -8,8 +8,8 @@ The `AIRouter` classifies each request by its `TaskType` and sends it to the app
 
 | Backend | Task Types (defaults) | Use Case |
 |---------|-----------|----------|
-| **Ollama** (local) | `TRIAGE`, `CATEGORIZE`, `SUMMARIZE`, `DRAFT_EMAIL`, `EXTRACT_FACTS`, `SUMMARIZE_TICKET`, `SUGGEST_NEXT_STEPS`, `CLASSIFY_INTENT`, `SUMMARIZE_LOGS`, `ANALYZE_WORK_ITEM`, `DRAFT_COMMENT`, `GENERATE_PLAN` | Fast, cost-free tasks that run on the Mac Mini |
-| **Claude** (API) | `ANALYZE_QUERY`, `GENERATE_SQL`, `REVIEW_CODE`, `DEEP_ANALYSIS`, `BUG_ANALYSIS`, `ARCHITECTURE_REVIEW`, `SCHEMA_REVIEW`, `FEATURE_ANALYSIS`, `RESOLVE_ISSUE`, `CHANGE_CODEBASE_SMALL`, `CHANGE_CODEBASE_LARGE` | Heavy reasoning tasks requiring Claude's capabilities |
+| **Ollama** (local) | `TRIAGE`, `CATEGORIZE`, `SUMMARIZE`, `DRAFT_EMAIL`, `EXTRACT_FACTS`, `SUMMARIZE_TICKET`, `SUGGEST_NEXT_STEPS`, `CLASSIFY_INTENT`, `SUMMARIZE_LOGS`, `GENERATE_TITLE`, `CLASSIFY_EMAIL`, `ANALYZE_WORK_ITEM`, `DRAFT_COMMENT`, `GENERATE_DEVOPS_PLAN`, `GENERATE_RELEASE_NOTE`, `SUMMARIZE_ROUTE`, `SELECT_ROUTE` | Fast, cost-free tasks that run on the Mac Mini |
+| **Claude** (API) | `ANALYZE_QUERY`, `GENERATE_SQL`, `REVIEW_CODE`, `DEEP_ANALYSIS`, `BUG_ANALYSIS`, `ARCHITECTURE_REVIEW`, `SCHEMA_REVIEW`, `FEATURE_ANALYSIS`, `RESOLVE_ISSUE`, `GENERATE_RESOLUTION_PLAN`, `CHANGE_CODEBASE_SMALL`, `CHANGE_CODEBASE_LARGE`, `ANALYZE_TICKET_CLOSURE`, `CUSTOM_AI_QUERY` | Heavy reasoning tasks requiring Claude's capabilities |
 
 ## Exports
 
@@ -111,7 +111,7 @@ import type { AIProviderClient, AIRouterConfig } from '@bronco/ai-provider';
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `provider` | `'LOCAL' \| 'CLAUDE'` | Which backend handled the request |
+| `provider` | `'LOCAL' \| 'CLAUDE' \| 'OPENAI' \| 'GROK' \| 'GOOGLE'` | Which backend handled the request |
 | `content` | `string` | The generated text |
 | `model` | `string` | Actual model name used |
 | `usage` | `{ inputTokens, outputTokens }` | Token usage (when available) |
@@ -130,15 +130,18 @@ src/
 ├── model-config-resolver.ts    # DB-backed per-task model config resolver
 ├── provider-config-resolver.ts # DB-backed AI provider config resolver
 ├── prompt-resolver.ts          # Prompt registry with override/keyword support
+├── client-memory-resolver.ts   # Per-client memory context resolver (cached, 5-min TTL)
 ├── task-capabilities.ts        # Task → capability level mapping
 └── prompts/                    # Registered system prompt templates
     ├── index.ts                # Barrel export + ALL_PROMPTS registry
     ├── types.ts                # Prompt registration types
     ├── imap.ts                 # Email triage, categorize, summarize prompts
     ├── devops.ts               # DevOps workflow prompts
-    ├── resolver.ts             # Issue resolution prompts
+    ├── resolver.ts             # Issue resolution + plan generation prompts
     ├── logs.ts                 # Log summarization prompts
-    └── youtube.ts              # YouTube scheduling prompts
+    ├── routing.ts              # Ticket routing prompts
+    ├── release-notes.ts        # Release note generation prompts
+    └── system-analysis.ts      # System closure analysis prompts
 ```
 
 ## Dependencies

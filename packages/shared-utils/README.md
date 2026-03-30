@@ -60,13 +60,33 @@ const worker = createWorker('email-ingestion', 'redis://localhost:6379', async (
 });
 ```
 
+### Additional Exports
+
+| Export | Module | Description |
+|--------|--------|-------------|
+| `AppLogger`, `createPrismaLogWriter`, `setGlobalLogWriter` | `app-logger.ts` | Structured application logging with DB persistence |
+| `createHealthServer` | `health-server.ts` | Standalone HTTP health endpoint for workers |
+| `createGracefulShutdown` | `graceful-shutdown.ts` | Graceful shutdown with cleanup hooks |
+| `Mailer` | `mailer.ts` | SMTP email sending (nodemailer wrapper) |
+| `notifyOperators` | `notify-operators.ts` | Broadcast notifications to active operators |
+| `callMcpToolWithAuth`, `callMcpToolViaSdk` | `mcp-client.ts` | MCP tool invocation helpers |
+| `buildUtcCron` | `cron-tz.ts` | Timezone-aware cron expression builder |
+| `looksEncrypted` | `crypto.ts` | Check if a string looks like an encrypted value |
+
 ## Source Layout
 
 ```
 src/
-├── index.ts     # Barrel exports
-├── logger.ts    # Pino logger factory
-├── config.ts    # Zod-based env config loader
-├── crypto.ts    # AES-256-GCM encrypt/decrypt
-└── queue.ts     # BullMQ Queue and Worker factories
+├── index.ts              # Barrel exports
+├── logger.ts             # Pino logger factory
+├── app-logger.ts         # Structured app logging with DB persistence
+├── config.ts             # Zod-based env config loader
+├── crypto.ts             # AES-256-GCM encrypt/decrypt + looksEncrypted
+├── queue.ts              # BullMQ Queue and Worker factories
+├── health-server.ts      # Standalone HTTP health endpoint
+├── graceful-shutdown.ts   # Graceful shutdown with cleanup hooks
+├── mailer.ts             # SMTP email sending (nodemailer)
+├── mcp-client.ts         # MCP tool invocation helpers
+├── cron-tz.ts            # Timezone-aware cron expression builder
+└── notify-operators.ts   # Broadcast notifications to active operators
 ```

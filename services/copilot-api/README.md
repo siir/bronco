@@ -141,6 +141,11 @@ Caddy sits in front as a reverse proxy, providing HTTPS. The API listens on port
 | `JWT_SECRET` | Yes | — | JWT signing secret (min 32 chars) |
 | `ARTIFACT_STORAGE_PATH` | No | /tmp/artifacts | File storage path for artifacts |
 | `PORT` | No | 3000 | HTTP listen port |
+| `PORTAL_JWT_SECRET` | Yes | — | JWT signing secret for portal auth (min 32 chars) |
+| `INVOICE_STORAGE_PATH` | No | /var/lib/copilot-api/invoices | File storage path for invoices |
+| `GITHUB_TOKEN` | No | — | GitHub token for release note backfill |
+| `GITHUB_REPO` | No | siir/bronco | GitHub repo for release notes |
+| `BUILD_VERSION` | No | dev | Build version string for health endpoint |
 | `LOG_LEVEL` | No | info | Pino log level |
 | `IMAP_WORKER_HEALTH_URL` | No | http://imap-worker:3101 | imap-worker health endpoint |
 | `DEVOPS_WORKER_HEALTH_URL` | No | http://devops-worker:3102 | devops-worker health endpoint |
@@ -202,5 +207,6 @@ src/
     ├── system-analyses.ts    # System analysis jobs
     ├── system-issues.ts      # System issues
     ├── settings.ts           # App settings
-    └── release-notes.ts      # Release notes
+    ├── release-notes.ts      # Release notes
+    └── operators.ts          # Operator CRUD (multi-operator support)
 ```

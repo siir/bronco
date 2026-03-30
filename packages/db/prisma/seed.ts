@@ -1,6 +1,11 @@
+import { config as loadEnv } from 'dotenv';
+import { resolve } from 'node:path';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { seedPromptKeywords } from './seed-prompts.js';
+
+// Load .env from monorepo root (needed when running outside Docker, e.g. on Hugo via pnpm db:seed)
+loadEnv({ path: resolve(import.meta.dirname, '../../../.env') });
 
 const prisma = new PrismaClient();
 

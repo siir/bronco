@@ -159,7 +159,7 @@ src/
 │   └── pool-manager.ts      # Multi-tenant SQL Server connection pool manager
 ├── security/
 │   ├── query-validator.ts   # SQL keyword blocklist + READ UNCOMMITTED wrapper
-│   └── audit-logger.ts      # Query audit logging to Postgres
+│   └── audit-logger.ts      # Query audit logging (Pino structured JSON to stdout)
 └── tools/
     ├── index.ts             # Tool registration (Zod schemas + handlers)
     ├── run-query.ts         # Read-only SQL execution

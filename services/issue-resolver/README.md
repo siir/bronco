@@ -61,7 +61,10 @@ docker compose logs -f issue-resolver
 src/
 ├── index.ts          # Worker bootstrap: config, queue, health server, repo cleanup
 ├── config.ts         # Zod-validated env config
-├── worker.ts         # BullMQ job processor
-├── resolver.ts       # Claude-based code analysis and generation
+├── worker.ts         # BullMQ job processor (plan → approve → execute flow)
+├── planner.ts        # Resolution plan generation and regeneration (GENERATE_RESOLUTION_PLAN)
+├── resolver.ts       # Claude-based code analysis and generation (RESOLVE_ISSUE)
+├── learner.ts        # Learning extraction from plan approvals/rejections → client memory
+├── notify.ts         # Operator notification on plan generation (email)
 └── git.ts            # Git operations: clone, commit, push, branch safety, cleanup
 ```
