@@ -2535,8 +2535,12 @@ async function executeRoutePipeline(
       case RouteStepType.UPDATE_ANALYSIS: {
         // Incremental analysis for replies — requires reanalysisCtx (conversation history + trigger reply).
         if (!reanalysisCtx) {
-          appLog.info('Skipping UPDATE_ANALYSIS — not a re-analysis (no reply context)', { ticketId }, ticketId);
-          break;
+          appLog.warn(
+            'UPDATE_ANALYSIS step requires reanalysisCtx but none was provided. This is likely a route configuration error; failing pipeline to avoid incomplete analysis.',
+            { ticketId, routeId: route.id, stepType: RouteStepType.UPDATE_ANALYSIS },
+            ticketId,
+          );
+          throw new Error('UPDATE_ANALYSIS step requires reanalysis context (reanalysisCtx) but none was provided');
         }
 
         const updateTaskType = (step.taskTypeOverride ?? TaskType.DEEP_ANALYSIS) as TaskType;
@@ -2601,12 +2605,9 @@ async function executeRoutePipeline(
           },
         });
 
-        // Update ticket summary if conclusions changed
+        // Regenerate ticket summary from recent events if conclusions changed
         if (analysis && analysis.length > 20) {
-          await db.ticket.update({
-            where: { id: ticketId },
-            data: { summary: analysis.slice(0, 2000) },
-          });
+          await updateTicketSummary(deps, ticketId);
         }
 
         appLog.info(`Update analysis complete via ${updateRes.provider}/${updateRes.model}`, { ticketId, taskType: updateTaskType }, ticketId);
@@ -3288,11 +3289,14 @@ export function createAnalysisProcessor(deps: AnalyzerDeps) {
     // that performs incremental analysis on the new reply and sends updated findings.
     if (reanalysis) {
       try {
-        const conversationHistory = await loadConversationHistory(deps.db, ticketId);
+        const allHistory = await loadConversationHistory(deps.db, ticketId);
+        // Limit to the most recent 20 events to keep UPDATE_ANALYSIS prompts lightweight.
+        // Always includes the latest AI_ANALYSIS + trigger reply.
+        const conversationHistory = allHistory.slice(-20);
         let triggerReplyText = '';
         if (triggerEventId) {
-          const triggerEvent = await deps.db.ticketEvent.findUnique({
-            where: { id: triggerEventId },
+          const triggerEvent = await deps.db.ticketEvent.findFirst({
+            where: { id: triggerEventId, ticketId },
             select: { content: true },
           });
           triggerReplyText = triggerEvent?.content ?? '';
