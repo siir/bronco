@@ -2633,11 +2633,12 @@ async function executeRoutePipeline(
         });
 
         // Update ticket sufficiency status
-        const suffTicketUpdate: Record<string, unknown> = {
+        const suffTicketUpdate: Prisma.TicketUpdateInput = {
           sufficiencyStatus: sufficiency.status,
         };
         if (sufficiency.status === SufficiencyStatus.NEEDS_USER_INPUT) {
           suffTicketUpdate.status = 'WAITING';
+          suffTicketUpdate.resolvedAt = null;
         }
         await db.ticket.update({ where: { id: ticketId }, data: suffTicketUpdate });
 
@@ -2750,14 +2751,16 @@ async function executeRoutePipeline(
         });
 
         // Update ticket sufficiency status and adjust ticket status
-        const updateSuffData: Record<string, unknown> = {
+        const updateSuffData: Prisma.TicketUpdateInput = {
           sufficiencyStatus: effectiveSufficiency.status,
         };
         if (effectiveSufficiency.status === SufficiencyStatus.SUFFICIENT && priorSufficiency !== SufficiencyStatus.SUFFICIENT) {
           // Transition from WAITING/NEEDS_USER_INPUT to IN_PROGRESS now that we have enough info
           updateSuffData.status = 'IN_PROGRESS';
+          updateSuffData.resolvedAt = null;
         } else if (effectiveSufficiency.status === SufficiencyStatus.NEEDS_USER_INPUT) {
           updateSuffData.status = 'WAITING';
+          updateSuffData.resolvedAt = null;
         }
         await db.ticket.update({ where: { id: ticketId }, data: updateSuffData });
 
@@ -3080,8 +3083,13 @@ async function executeRoutePipeline(
               actor: 'system:analyzer',
             },
           });
-          // Keep ticket in WAITING — the AGENTIC_ANALYSIS step already set it for NEEDS_USER_INPUT
-          await db.ticket.update({ where: { id: ticketId }, data: { status: 'WAITING', resolvedAt: null } });
+          // After sending findings:
+          // - For needsUserInput, ensure the ticket is WAITING (AGENTIC_ANALYSIS should have set this already).
+          // - Otherwise, avoid clobbering any existing status (e.g., IN_PROGRESS when sufficiency is SUFFICIENT).
+          const ticketUpdateData: Prisma.TicketUpdateInput = needsUserInput
+            ? { status: 'WAITING', resolvedAt: null }
+            : { resolvedAt: null };
+          await db.ticket.update({ where: { id: ticketId }, data: ticketUpdateData });
           appLog.info(`${reanalysisCtx ? 'Re-analysis' : 'Analysis'} findings email sent to ${emailFrom}${needsUserInput ? ' (with questions)' : ''}`, { ticketId, to: emailFrom, reanalysis: !!reanalysisCtx, needsUserInput }, ticketId);
         } else {
           appLog.info(`${reanalysisCtx ? 'Re-analysis' : 'Analysis'} findings email skipped (send blocked by loop guard)`, { ticketId, to: emailFrom, reanalysis: !!reanalysisCtx }, ticketId);
