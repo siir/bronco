@@ -10,6 +10,16 @@ name: Tag Release
 on:
   push:
     branches: [master]
+    paths:
+      - 'packages/**'
+      - 'services/**'
+      - 'mcp-servers/**'
+      - 'docker-compose.yml'
+      - 'pnpm-lock.yaml'
+      - 'package.json'
+      - 'Caddyfile'
+      - 'pnpm-workspace.yaml'
+      - 'tsconfig.base.json'
 
 concurrency:
   group: tag-release
