@@ -630,7 +630,8 @@ async function executeIngestionPipeline(
                 hasAttachments: payload['hasAttachments'] ?? null,
               } as Prisma.InputJsonValue,
               actor: `system:ingestion:${source.toLowerCase()}`,
-              ...(typeof payload['messageId'] === 'string' ? { emailMessageId: payload['messageId'] } : {}),
+              ...(typeof payload['messageId'] === 'string' && !payload['messageId'].startsWith('uid-') ? { emailMessageId: payload['messageId'] as string } : {}),
+              ...(typeof payload['emailHash'] === 'string' && payload['emailHash'].trim() !== '' ? { emailHash: payload['emailHash'] as string } : {}),
             },
           });
         } else {
