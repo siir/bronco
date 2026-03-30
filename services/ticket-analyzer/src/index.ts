@@ -89,6 +89,7 @@ async function main(): Promise<void> {
     ticketCreatedQueue,
     analysisQueue,
     senderSignature: config.EMAIL_SENDER_NAME,
+    smtpFrom: config.SMTP_FROM,
     appLog,
     artifactStoragePath: config.ARTIFACT_STORAGE_PATH,
   });

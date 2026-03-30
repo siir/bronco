@@ -422,10 +422,14 @@ async function resolveRecipientName(
   db: PrismaClient,
   ticketId: string,
   emailFrom: string,
+  clientId?: string | null,
 ): Promise<string> {
-  // 1. Check if there's a contact record with a name
+  // 1. Check if there's a contact record with a name (scoped to client to prevent cross-tenant leakage)
   const contact = await db.contact.findFirst({
-    where: { email: { equals: emailFrom, mode: 'insensitive' } },
+    where: {
+      email: { equals: emailFrom, mode: 'insensitive' },
+      ...(clientId ? { clientId } : {}),
+    },
     select: { name: true },
   });
   if (contact?.name) return contact.name;
@@ -461,7 +465,7 @@ async function sendReceiptConfirmation(
   appLog.info('Phase 1: Starting receipt confirmation', { ticketId, emailFrom, emailSubject }, ticketId, 'ticket');
 
   // Resolve the recipient's display name (emailFrom is guaranteed non-null by caller)
-  const recipientName = await resolveRecipientName(db, ticketId, emailFrom!);
+  const recipientName = await resolveRecipientName(db, ticketId, emailFrom!, clientId);
   appLog.info(`Recipient resolved: ${recipientName}`, { ticketId, recipientName }, ticketId, 'ticket');
 
   // Summarize the email
@@ -879,7 +883,7 @@ async function deepAnalysis(
 
   // Resolve recipient name for outbound emails; for non-email tickets, fall back to a generic name
   const recipientName = emailFrom
-    ? await resolveRecipientName(db, ticketId, emailFrom)
+    ? await resolveRecipientName(db, ticketId, emailFrom, clientId)
     : 'there';
 
   // Load ticket with relations
@@ -2073,7 +2077,7 @@ async function executeRoutePipeline(
           break;
         }
         if (!recipientName) {
-          recipientName = await resolveRecipientName(db, ticketId, emailFrom!);
+          recipientName = await resolveRecipientName(db, ticketId, emailFrom!, clientId);
         }
         const promptKey = step.promptKeyOverride ?? 'imap.draft-receipt.system';
         const taskType = (step.taskTypeOverride ?? TaskType.DRAFT_EMAIL) as TaskType;
@@ -2717,7 +2721,7 @@ async function executeRoutePipeline(
           break;
         }
         if (!recipientName) {
-          recipientName = await resolveRecipientName(db, ticketId, emailFrom!);
+          recipientName = await resolveRecipientName(db, ticketId, emailFrom!, clientId);
         }
         const promptKey = step.promptKeyOverride ?? 'imap.draft-analysis-email.system';
         const taskType = (step.taskTypeOverride ?? TaskType.DRAFT_EMAIL) as TaskType;

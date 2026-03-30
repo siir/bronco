@@ -217,6 +217,11 @@ Respond with ONLY one word: ACTIONABLE or NOISE`,
     ).id;
     logClientId = clientId;
 
+    // --- Classify replies for email processing logs ---
+    if (inReplyTo || (Array.isArray(references) ? references.length > 0 : !!references)) {
+      classification = EmailClassification.THREAD_REPLY;
+    }
+
     // --- Build payload and push to ingestion queue ---
     const refsArray = Array.isArray(references) ? references : references ? [references] : [];
     const emailPayload: EmailIngestionPayload = {

@@ -81,6 +81,7 @@ interface IngestionDeps {
   ticketCreatedQueue: Queue<TicketCreatedJob>;
   analysisQueue?: Queue<AnalysisJob>;
   senderSignature: string;
+  smtpFrom: string;
   appLog?: AppLogger;
   artifactStoragePath?: string;
 }
@@ -276,7 +277,10 @@ async function executeIngestionPipeline(
           logger.info({ refIds, clientId }, 'Attempting thread match by message references');
 
           const existingEvent = await db.ticketEvent.findFirst({
-            where: { emailMessageId: { in: refIds } },
+            where: {
+              emailMessageId: { in: refIds },
+              ticket: { clientId },
+            },
             select: { ticketId: true },
           });
 
@@ -353,7 +357,7 @@ async function executeIngestionPipeline(
 
           // Trigger re-analysis if conditions are met
           if (deps.analysisQueue) {
-            await maybeEnqueueReanalysis(db, deps.analysisQueue, existingTicketId!, emailFrom, logger);
+            await maybeEnqueueReanalysis(db, deps.analysisQueue, existingTicketId!, emailFrom, deps.smtpFrom, logger);
           }
 
           // Set ticketId so downstream steps know this ticket already exists
@@ -831,6 +835,7 @@ async function maybeEnqueueReanalysis(
   analysisQueue: Queue<AnalysisJob>,
   ticketId: string,
   senderAddress: string,
+  smtpFrom: string,
   log: { info: (...args: unknown[]) => void; warn: (...args: unknown[]) => void },
 ): Promise<void> {
   // 1. Load ticket to check status
@@ -882,19 +887,8 @@ async function maybeEnqueueReanalysis(
     }
   }
 
-  // Check against outbound email addresses used on this ticket
-  const outboundEvents = await db.ticketEvent.findMany({
-    where: { ticketId, eventType: 'EMAIL_OUTBOUND' },
-    select: { metadata: true },
-  });
-  const outboundAddresses = new Set<string>();
-  for (const ev of outboundEvents) {
-    const meta = ev.metadata as Record<string, unknown> | null;
-    if (typeof meta?.['from'] === 'string') {
-      outboundAddresses.add(meta['from'].trim().toLowerCase());
-    }
-  }
-  if (outboundAddresses.has(normalizedSender)) {
+  // Check against the configured SMTP sender address
+  if (normalizedSender === smtpFrom.trim().toLowerCase()) {
     log.info({ ticketId, from: senderAddress }, 'Reply from system outbound address — re-analysis skipped (loop prevention)');
     return;
   }
