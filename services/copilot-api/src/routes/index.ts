@@ -101,7 +101,7 @@ export async function registerRoutes(fastify: FastifyInstance, opts: RouteOpts):
     await scoped.register(systemAnalysisRoutes, { systemAnalysisQueue: opts.systemAnalysisQueue });
     await scoped.register(systemIssuesRoutes, { redisUrl: opts.config.REDIS_URL });
     await scoped.register(notificationChannelRoutes, { encryptionKey: opts.config.ENCRYPTION_KEY });
-    await scoped.register(settingsRoutes, { encryptionKey: opts.config.ENCRYPTION_KEY });
+    await scoped.register(settingsRoutes, { encryptionKey: opts.config.ENCRYPTION_KEY, issueResolveQueue: opts.issueResolveQueue });
     await scoped.register(releaseNoteRoutes, { config: opts.config, ai: opts.ai });
     await scoped.register(operationalTaskRoutes);
     await scoped.register(ticketRouteRoutes, { ai: opts.ai });

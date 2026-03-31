@@ -126,6 +126,7 @@ function isPrismaError(err: unknown, code: string): boolean {
 
 interface SettingsRouteOpts {
   encryptionKey: string;
+  issueResolveQueue?: import('bullmq').Queue;
 }
 
 export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRouteOpts): Promise<void> {
@@ -794,8 +795,12 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
 
     const saved = row.value as Record<string, unknown>;
 
-    // Reconnect Slack with new config (non-blocking)
-    void reconnectSlack(fastify.db, opts.encryptionKey);
+    // Reconnect Slack with new config (non-blocking), preserving interaction handlers
+    void reconnectSlack(
+      fastify.db,
+      opts.encryptionKey,
+      opts.issueResolveQueue ? { db: fastify.db, issueResolveQueue: opts.issueResolveQueue } : undefined,
+    );
 
     return { ...saved, botToken: REDACTED, appToken: REDACTED };
   });

@@ -540,6 +540,7 @@ model IssueJob {
   error                 String?
   aiModel               String?        @map("ai_model")
   aiUsage               Json?          @map("ai_usage")
+  metadata              Json?
   startedAt             DateTime?      @map("started_at")
   completedAt           DateTime?      @map("completed_at")
   createdAt             DateTime       @default(now()) @map("created_at")

@@ -1,5 +1,6 @@
 import { createLogger } from './logger.js';
 import type { Mailer } from './mailer.js';
+import type { SlackMessageResult } from './slack-client.js';
 
 const logger = createLogger('notify-operators');
 
@@ -13,8 +14,10 @@ export interface OperatorRecord {
 }
 
 export interface SlackSender {
-  sendDM(slackUserId: string, text: string): Promise<void>;
-  sendMessage(channelId: string, text: string): Promise<void>;
+  sendDM(slackUserId: string, text: string, blocks?: unknown[]): Promise<void>;
+  sendDMWithTs?(slackUserId: string, text: string, blocks?: unknown[]): Promise<SlackMessageResult>;
+  sendMessage(channelId: string, text: string, blocks?: unknown[]): Promise<void>;
+  sendMessageWithTs?(channelId: string, text: string, blocks?: unknown[]): Promise<SlackMessageResult>;
   isConnected(): boolean;
 }
 
@@ -29,6 +32,16 @@ export interface NotifyOperatorsOpts {
   slack?: SlackSender;
   /** Default Slack channel ID (from System Settings) for operators without a slackUserId. */
   defaultSlackChannelId?: string;
+  /** Optional Block Kit blocks for rich Slack messages. */
+  slackBlocks?: unknown[];
+}
+
+/** Result of a notification run, including Slack message metadata for thread tracking. */
+export interface NotifyOperatorsResult {
+  /** Email addresses that received notifications. */
+  emailRecipients: string[];
+  /** Slack message metadata for each successfully sent Slack message. */
+  slackMessages: Array<SlackMessageResult & { operatorId?: string }>;
 }
 
 /**
@@ -46,7 +59,17 @@ export async function notifyOperators(
   mailer: Mailer,
   getActiveOperators: () => Promise<OperatorRecord[]>,
   opts: NotifyOperatorsOpts,
-): Promise<string[]> {
+): Promise<string[]>;
+export async function notifyOperators(
+  mailer: Mailer,
+  getActiveOperators: () => Promise<OperatorRecord[]>,
+  opts: NotifyOperatorsOpts & { returnResult: true },
+): Promise<NotifyOperatorsResult>;
+export async function notifyOperators(
+  mailer: Mailer,
+  getActiveOperators: () => Promise<OperatorRecord[]>,
+  opts: NotifyOperatorsOpts & { returnResult?: boolean },
+): Promise<string[] | NotifyOperatorsResult> {
   const operators = await getActiveOperators();
 
   let recipients: OperatorRecord[];
@@ -61,16 +84,18 @@ export async function notifyOperators(
 
   if (recipients.length === 0) {
     logger.warn('No operators to notify — either none are active or none have notifications enabled');
-    return [];
+    return opts.returnResult ? { emailRecipients: [], slackMessages: [] } : [];
   }
 
-  const notified: string[] = [];
+  const emailRecipients: string[] = [];
+  const slackMessages: Array<SlackMessageResult & { operatorId?: string }> = [];
+
   for (const op of recipients) {
     // Email notification
     if (op.notifyEmail) {
       try {
         await mailer.send({ to: op.email, subject: opts.subject, body: opts.body });
-        notified.push(op.email);
+        emailRecipients.push(op.email);
         logger.info({ to: op.email, subject: opts.subject }, 'Operator email notification sent');
       } catch (err) {
         logger.error({ err, to: op.email }, 'Failed to send operator email notification');
@@ -80,12 +105,23 @@ export async function notifyOperators(
     // Slack notification (non-blocking — never fail the overall notification)
     if (op.notifySlack && opts.slack?.isConnected()) {
       const slackText = `*${opts.subject}*\n${opts.body}`;
+      const blocks = opts.slackBlocks;
       try {
         if (op.slackUserId) {
-          await opts.slack.sendDM(op.slackUserId, slackText);
+          if (opts.slack.sendDMWithTs) {
+            const result = await opts.slack.sendDMWithTs(op.slackUserId, slackText, blocks);
+            slackMessages.push({ ...result, operatorId: op.id });
+          } else {
+            await opts.slack.sendDM(op.slackUserId, slackText, blocks);
+          }
           logger.info({ slackUserId: op.slackUserId }, 'Operator Slack DM sent');
         } else if (opts.defaultSlackChannelId) {
-          await opts.slack.sendMessage(opts.defaultSlackChannelId, slackText);
+          if (opts.slack.sendMessageWithTs) {
+            const result = await opts.slack.sendMessageWithTs(opts.defaultSlackChannelId, slackText, blocks);
+            slackMessages.push({ ...result, operatorId: op.id });
+          } else {
+            await opts.slack.sendMessage(opts.defaultSlackChannelId, slackText, blocks);
+          }
           logger.info({ channelId: opts.defaultSlackChannelId }, 'Operator Slack channel notification sent');
         } else {
           logger.warn({ operatorId: op.id }, 'Operator has notifySlack=true but no slackUserId and no default channel');
@@ -96,5 +132,8 @@ export async function notifyOperators(
     }
   }
 
-  return notified;
+  if (opts.returnResult) {
+    return { emailRecipients, slackMessages };
+  }
+  return emailRecipients;
 }
