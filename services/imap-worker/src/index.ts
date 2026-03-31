@@ -1,14 +1,24 @@
 import { getDb, disconnectDb } from '@bronco/db';
 import { createAIRouter } from '@bronco/ai-provider';
-import { createLogger, createQueue, createWorker, decrypt, AppLogger, createPrismaLogWriter, setGlobalLogWriter, createHealthServer, createGracefulShutdown } from '@bronco/shared-utils';
+import { createLogger, createQueue, createWorker, decrypt, looksEncrypted, AppLogger, createPrismaLogWriter, setGlobalLogWriter, createHealthServer, createGracefulShutdown } from '@bronco/shared-utils';
 import type { IngestionJob } from '@bronco/shared-types';
 import { getConfig } from './config.js';
 import { pollEmails } from './poller.js';
 import { createEmailProcessor, initEmailProcessorLogger } from './processor.js';
 import type { EmailJob } from './processor.js';
 
+const SETTINGS_KEY_IMAP = 'system-config-imap';
+
 const logger = createLogger('imap-worker');
 const appLog = new AppLogger('imap-worker');
+
+interface ImapDbConfig {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  pollIntervalSeconds?: number;
+}
 
 async function main(): Promise<void> {
   const config = getConfig();
@@ -42,18 +52,39 @@ async function main(): Promise<void> {
     appLog.error(`Email job failed: ${err.message}`, { err, jobId: job?.id, messageId: job?.data.messageId });
   });
 
-  const hasGlobalImap = !!(config.IMAP_HOST && config.IMAP_USER && config.IMAP_PASSWORD);
+  // Read global IMAP config from DB (AppSetting table)
+  const loadGlobalImapConfig = async (): Promise<ImapDbConfig | null> => {
+    try {
+      const row = await db.appSetting.findUnique({ where: { key: SETTINGS_KEY_IMAP } });
+      if (!row) return null;
+      const cfg = row.value as Record<string, unknown>;
+      if (!cfg.host || !cfg.user || !cfg.password) return null;
+      const password = typeof cfg.password === 'string' && looksEncrypted(cfg.password)
+        ? decrypt(cfg.password, config.ENCRYPTION_KEY)
+        : cfg.password as string;
+      return {
+        host: cfg.host as string,
+        port: (cfg.port as number) ?? 993,
+        user: cfg.user as string,
+        password,
+        pollIntervalSeconds: cfg.pollIntervalSeconds as number | undefined,
+      };
+    } catch (err) {
+      appLog.error('Failed to load global IMAP config from DB', { err });
+      return null;
+    }
+  };
 
   // Health tracking state
   let lastPollAt: Date | undefined;
   let pollCount = 0;
+  let effectivePollInterval = config.POLL_INTERVAL_SECONDS;
 
   const health = createHealthServer('imap-worker', config.HEALTH_PORT, {
     getDetails: () => ({
       lastPollAt: lastPollAt?.toISOString() ?? null,
       pollCount,
-      pollIntervalSeconds: config.POLL_INTERVAL_SECONDS,
-      hasGlobalImap,
+      pollIntervalSeconds: effectivePollInterval,
     }),
   });
 
@@ -84,15 +115,16 @@ async function main(): Promise<void> {
     }
   };
 
-  // Polling loop: polls the global IMAP mailbox + all active per-client IMAP integrations.
+  // Polling loop: polls the global IMAP mailbox (from DB) + all active per-client IMAP integrations.
   const poll = async () => {
     lastPollAt = new Date();
     pollCount++;
 
-    // 1. Poll the global/default mailbox (from env vars)
-    if (hasGlobalImap) {
+    // 1. Poll the global/default mailbox (from DB system settings)
+    const globalImap = await loadGlobalImapConfig();
+    if (globalImap) {
       await pollMailbox(
-        { host: config.IMAP_HOST, port: config.IMAP_PORT, user: config.IMAP_USER, password: config.IMAP_PASSWORD },
+        { host: globalImap.host, port: globalImap.port, user: globalImap.user, password: globalImap.password },
         'global',
       );
     }
@@ -131,20 +163,42 @@ async function main(): Promise<void> {
     }
   };
 
-  if (!hasGlobalImap) {
-    appLog.info('No global IMAP config — will poll per-client IMAP integrations only');
+  // Check initial state and log
+  const initialConfig = await loadGlobalImapConfig();
+  if (!initialConfig) {
+    appLog.info('No global IMAP config in DB — will poll per-client IMAP integrations only');
   }
 
-  // Initial poll
-  await poll();
+  // Self-scheduling poll loop: after each cycle, re-read the interval from DB so
+  // changes to pollIntervalSeconds take effect without a worker restart.
+  let pollTimeout: NodeJS.Timeout | undefined;
+  let stopped = false;
 
-  // Schedule recurring polls
-  const interval = setInterval(poll, config.POLL_INTERVAL_SECONDS * 1000);
+  const schedulePoll = async () => {
+    if (stopped) return;
+    await poll();
+    if (stopped) return;
+    // Reload config to pick up any interval change saved since the last cycle.
+    const currentDbConfig = await loadGlobalImapConfig();
+    effectivePollInterval = currentDbConfig?.pollIntervalSeconds ?? config.POLL_INTERVAL_SECONDS;
+    pollTimeout = setTimeout(schedulePoll, effectivePollInterval * 1000);
+  };
 
-  appLog.info('IMAP worker started', { intervalSeconds: config.POLL_INTERVAL_SECONDS });
+  // Set initial effective interval (from DB or env fallback) before first log line.
+  effectivePollInterval = initialConfig?.pollIntervalSeconds ?? config.POLL_INTERVAL_SECONDS;
+
+  // Kick off the first poll immediately, then self-schedule.
+  pollTimeout = setTimeout(schedulePoll, 0);
+
+  appLog.info('IMAP worker started', { intervalSeconds: effectivePollInterval });
 
   createGracefulShutdown(logger, [
-    { interval },
+    {
+      fn: () => {
+        stopped = true;
+        if (pollTimeout !== undefined) clearTimeout(pollTimeout);
+      },
+    },
     health,
     emailWorker,
     emailQueue,
