@@ -18,11 +18,46 @@ export class PoolManager {
   private configs = new Map<string, SystemConfigEntry>();
   private cleanupInterval: ReturnType<typeof setInterval>;
 
+  private onMissLoader: (() => Promise<SystemConfigEntry[]>) | undefined;
+
   constructor(systems: SystemConfigEntry[]) {
     for (const system of systems) {
       this.configs.set(system.id, system);
     }
     this.cleanupInterval = setInterval(() => this.cleanupIdlePools(), 60_000);
+  }
+
+  /**
+   * Register a callback that reloads all systems from the DB when a
+   * requested systemId is not found in the local cache. This lets the
+   * MCP server pick up newly added systems without a restart.
+   */
+  setOnMissLoader(loader: () => Promise<SystemConfigEntry[]>): void {
+    this.onMissLoader = loader;
+  }
+
+  /**
+   * Replace the current system configs with a fresh set.
+   * Existing pools for systems that are no longer in the new set are closed.
+   */
+  async reloadSystems(systems: SystemConfigEntry[]): Promise<void> {
+    const newIds = new Set(systems.map((s) => s.id));
+
+    // Close pools for removed systems
+    for (const [id, entry] of this.pools) {
+      if (!newIds.has(id)) {
+        logger.info({ systemId: id }, 'Closing pool for removed system');
+        entry.pool.close().catch(() => {});
+        this.pools.delete(id);
+      }
+    }
+
+    this.configs.clear();
+    for (const system of systems) {
+      this.configs.set(system.id, system);
+    }
+
+    logger.info({ count: systems.length }, 'Systems config reloaded');
   }
 
   async getPool(systemId: string): Promise<mssql.ConnectionPool> {
@@ -35,6 +70,14 @@ export class PoolManager {
       // Pool disconnected, recreate
       this.pools.delete(systemId);
     }
+
+    // If system not in config cache, try reloading from DB
+    if (!this.configs.has(systemId) && this.onMissLoader) {
+      logger.info({ systemId }, 'System not in cache, reloading from DB');
+      const fresh = await this.onMissLoader();
+      await this.reloadSystems(fresh);
+    }
+
     return this.createPool(systemId);
   }
 
@@ -134,8 +177,8 @@ export class PoolManager {
    * 1. Add the new value to DbEngine in:
    *      - packages/shared-types/src/system.ts (const + type)
    *
-   * 2. Add a new entry to the systems config JSON file with the new
-   *    dbEngine value.
+   * 2. Add a new system entry via the control panel or API with the
+   *    new dbEngine value.
    *
    * 3. Add a new case in the switch statement below, calling a new
    *    private buildXxxConfig() method.
@@ -158,10 +201,11 @@ export class PoolManager {
    *
    * 5. If the new engine needs additional fields, add them to:
    *      - SystemConnectionConfig in shared-types/src/system.ts
-   *      - systemConfigEntrySchema in config.ts
+   *      - SystemConfigEntry in config.ts
+   *      - System model in packages/db/prisma/schema.prisma
    *
    * 6. Test the connection manually before deploying:
-   *      - Add a system entry to the config JSON file
+   *      - Add a system entry via the control panel or API
    *      - Call list_systems to verify it appears
    *      - Call inspect_schema to verify connectivity
    * ─────────────────────────────────────────────────────────────────────

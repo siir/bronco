@@ -751,6 +751,7 @@ export class SystemStatusComponent implements OnInit, OnDestroy {
       'Status Monitor': 'status-monitor',
       'Ticket Analyzer': 'ticket-analyzer',
       'Probe Worker': 'probe-worker',
+      'MCP Database': 'mcp-database',
       'Caddy (Reverse Proxy)': 'caddy',
     };
     return map[name] ?? name.toLowerCase().replace(/\s+/g, '-');

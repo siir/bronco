@@ -39,5 +39,8 @@ coverage/
 # Python
 __pycache__/
 
+# Legacy MCP systems config (now read from DB)
+systems-config.json
+
 # User-local scripts
 usr/

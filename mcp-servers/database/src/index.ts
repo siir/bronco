@@ -1,7 +1,9 @@
 import express from 'express';
+import { PrismaClient } from '@bronco/db';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createLogger, createGracefulShutdown } from '@bronco/shared-utils';
-import { getConfig, loadSystemsConfig } from './config.js';
+import { getConfig } from './config.js';
+import { loadSystemsFromDb } from './systems-loader.js';
 import { createMcpServer } from './server.js';
 import { PoolManager } from './connections/pool-manager.js';
 import { AuditLogger } from './security/audit-logger.js';
@@ -17,11 +19,17 @@ const bridgeCaller = 'api:copilot';
 
 async function main(): Promise<void> {
   const config = getConfig();
-  const systems = loadSystemsConfig(config.SYSTEMS_CONFIG_PATH);
+  const db = new PrismaClient();
+
+  const systems = await loadSystemsFromDb(db, config.ENCRYPTION_KEY);
 
   // Shared pool manager and audit logger for both MCP and bridge routes
   const poolManager = new PoolManager(systems);
   const auditLogger = new AuditLogger();
+
+  // Register on-miss loader so new systems added via the control panel
+  // are picked up automatically without a restart.
+  poolManager.setOnMissLoader(() => loadSystemsFromDb(db, config.ENCRYPTION_KEY));
 
   // Shared deps for MCP tool registration
   const serverDeps = { poolManager, auditLogger };
@@ -176,6 +184,7 @@ async function main(): Promise<void> {
   createGracefulShutdown(logger, [
     { fn: () => new Promise<void>((resolve) => httpServer.close(() => resolve())) },
     { fn: () => poolManager.closeAll() },
+    { fn: () => db.$disconnect() },
   ]);
 }
 

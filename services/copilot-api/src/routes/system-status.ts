@@ -774,6 +774,7 @@ export async function systemStatusRoutes(
       statusMonitor,
       ticketAnalyzer,
       probeWorker,
+      mcpDatabase,
       queueStats,
       ...externalResults
     ] = await Promise.all([
@@ -785,6 +786,7 @@ export async function systemStatusRoutes(
       checkWorkerHealth('Status Monitor', opts.config.STATUS_MONITOR_HEALTH_URL, 'status-monitor', containers),
       checkWorkerHealth('Ticket Analyzer', opts.config.TICKET_ANALYZER_HEALTH_URL, 'ticket-analyzer', containers),
       checkWorkerHealth('Probe Worker', opts.config.PROBE_WORKER_HEALTH_URL, 'probe-worker', containers),
+      checkWorkerHealth('MCP Database', opts.config.MCP_DATABASE_HEALTH_URL, 'mcp-database', containers),
       getBullMQQueueStats(opts.config.REDIS_URL),
       ...externalServices.map(svc => checkExternalService(svc, containers)),
     ]);
@@ -811,6 +813,7 @@ export async function systemStatusRoutes(
       statusMonitor,
       ticketAnalyzer,
       probeWorker,
+      mcpDatabase,
       ...externalResults,
     ];
 
@@ -853,6 +856,7 @@ export async function systemStatusRoutes(
       'status-monitor': 'status-monitor',
       'ticket-analyzer': 'ticket-analyzer',
       'probe-worker': 'probe-worker',
+      'mcp-database': 'mcp-database',
       'caddy': 'caddy',
       'postgres': 'postgres',
       'redis': 'redis',

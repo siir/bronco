@@ -115,7 +115,7 @@ services:
       DATABASE_URL: postgresql://bronco:${POSTGRES_PASSWORD_URLENCODED}@postgres:5432/bronco
       REDIS_URL: redis://redis:6379
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
-      MCP_DATABASE_URL: ${MCP_DATABASE_URL:-http://localhost:3100}
+      MCP_DATABASE_URL: ${MCP_DATABASE_URL:-http://mcp-database:3100}
       REPO_WORKSPACE_PATH: /var/lib/ticket-analyzer/repos
       REPO_RETENTION_DAYS: ${REPO_RETENTION_DAYS:-14}
       ARTIFACT_STORAGE_PATH: ${ARTIFACT_STORAGE_PATH:-/mnt/qnap/artifacts}
@@ -240,8 +240,28 @@ services:
       retries: 3
       start_period: 15s
 
-  # NOTE: mcp-database server runs in Azure App Service (same vnet as client Azure SQL MIs)
-  # ticket-analyzer reaches it via MCP_DATABASE_URL env var for DB-context analysis
+  mcp-database:
+    image: ${MCP_DATABASE_IMAGE:-ghcr.io/siir/bronco/mcp-database:latest}
+    build:
+      context: .
+      dockerfile: mcp-servers/database/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://bronco:${POSTGRES_PASSWORD_URLENCODED}@postgres:5432/bronco
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      API_KEY: ${API_KEY}
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-}
+      PORT: "3100"
+      LOG_LEVEL: info
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3100/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # Caddy reverse proxy + static file server for Angular control panel
   caddy:
