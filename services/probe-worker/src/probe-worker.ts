@@ -42,7 +42,7 @@ interface ProbeConfig {
 interface ProbeWorkerDeps {
   db: PrismaClient;
   ai: AIRouter;
-  mailer: Mailer;
+  mailer: Mailer | null;
   encryptionKey: string;
   artifactStoragePath: string;
   /** Optional BullMQ queue for ticket-created events — legacy path, used when no ingestion route is configured. */
@@ -413,7 +413,12 @@ async function executeProbe(
           ? actionCfg['emailSubject']
           : `Probe Result: ${probe.name}`;
 
-        if (emailTo) {
+        if (!mailer) {
+          stepId = await tracker.startStep('Send email');
+          await tracker.failStep(stepId, 'SMTP not configured — email sending disabled');
+          await tracker.completeRun('error', undefined, 'SMTP not configured — email sending disabled');
+          await updateProbeRun(db, probe.id, 'error', 'SMTP not configured — email sending disabled');
+        } else if (emailTo) {
           stepId = await tracker.startStep('Send email');
           try {
             await mailer.send({ to: emailTo, subject: emailSubject, body: summary });

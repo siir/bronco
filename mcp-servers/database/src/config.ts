@@ -1,13 +1,11 @@
-import { readFileSync } from 'node:fs';
 import { z } from 'zod';
-import { loadConfig, createLogger } from '@bronco/shared-utils';
-import { DbEngine, AuthMethod, Environment } from '@bronco/shared-types';
-
-const logger = createLogger('mcp-config');
+import { loadConfig } from '@bronco/shared-utils';
+import type { DbEngine, AuthMethod, Environment } from '@bronco/shared-types';
 
 const configSchema = z.object({
-  // Path to JSON file containing system connection configs
-  SYSTEMS_CONFIG_PATH: z.string(),
+  // Control plane DB
+  DATABASE_URL: z.string().url(),
+  ENCRYPTION_KEY: z.string().min(64),
 
   // Server
   PORT: z.coerce.number().default(3100),
@@ -24,42 +22,25 @@ export function getConfig(): Config {
   return loadConfig(configSchema) as Config;
 }
 
-// --- Systems config file schema and loader ---
-
-const systemConfigEntrySchema = z.object({
-  id: z.string().uuid(),
-  clientId: z.string().uuid(),
-  clientName: z.string(),
-  clientCode: z.string(),
-  name: z.string(),
-  dbEngine: z.nativeEnum(DbEngine),
-  host: z.string(),
-  port: z.number().int(),
-  connectionString: z.string().nullable().optional().default(null),
-  instanceName: z.string().nullable().optional().default(null),
-  defaultDatabase: z.string().nullable().optional().default('master'),
-  authMethod: z.nativeEnum(AuthMethod),
-  username: z.string().nullable().optional().default(null),
-  password: z.string().nullable().optional().default(null),
-  useTls: z.boolean().default(true),
-  trustServerCert: z.boolean().default(false),
-  connectionTimeout: z.number().int().default(30000),
-  requestTimeout: z.number().int().default(30000),
-  maxPoolSize: z.number().int().default(5),
-  environment: z.nativeEnum(Environment),
-});
-
-const systemsConfigFileSchema = z.object({
-  systems: z.array(systemConfigEntrySchema).min(1),
-});
-
-export type SystemConfigEntry = z.output<typeof systemConfigEntrySchema>;
-
-export function loadSystemsConfig(filePath: string): SystemConfigEntry[] {
-  logger.info({ filePath }, 'Loading systems config');
-  const raw = readFileSync(filePath, 'utf-8');
-  const parsed = JSON.parse(raw);
-  const validated = systemsConfigFileSchema.parse(parsed);
-  logger.info({ count: validated.systems.length }, 'Loaded systems config');
-  return validated.systems;
+export interface SystemConfigEntry {
+  id: string;
+  clientId: string;
+  clientName: string;
+  clientCode: string;
+  name: string;
+  dbEngine: DbEngine;
+  host: string;
+  port: number;
+  connectionString: string | null;
+  instanceName: string | null;
+  defaultDatabase: string | null;
+  authMethod: AuthMethod;
+  username: string | null;
+  password: string | null;
+  useTls: boolean;
+  trustServerCert: boolean;
+  connectionTimeout: number;
+  requestTimeout: number;
+  maxPoolSize: number;
+  environment: Environment;
 }

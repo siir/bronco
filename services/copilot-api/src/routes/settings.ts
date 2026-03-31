@@ -37,6 +37,7 @@ const SETTINGS_KEY_SUPER_ADMIN = 'super-admin-user-id';
 const SETTINGS_KEY_SMTP = 'system-config-smtp';
 const SETTINGS_KEY_DEVOPS = 'system-config-devops';
 const SETTINGS_KEY_GITHUB = 'system-config-github';
+const SETTINGS_KEY_IMAP = 'system-config-imap';
 
 const REDACTED = '••••••••';
 
@@ -61,6 +62,14 @@ const devopsConfigSchema = z.object({
 const githubConfigSchema = z.object({
   token: z.string().min(1),
   repo: z.string().min(1),
+});
+
+const imapConfigSchema = z.object({
+  host: z.string().min(1),
+  port: z.coerce.number().int().min(1).max(65535).default(993),
+  user: z.string().min(1),
+  password: z.string().min(1),
+  pollIntervalSeconds: z.coerce.number().int().min(10).optional().default(60),
 });
 
 const operationalAlertConfigSchema = z
@@ -646,6 +655,83 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
       return { success: false, error: err instanceof Error ? err.message : 'GitHub test failed' };
     } finally {
       clearTimeout(timeout);
+    }
+  });
+
+  // ─── System Config: IMAP ───
+
+  // GET /api/settings/imap — get IMAP config (redacted)
+  fastify.get('/api/settings/imap', async () => {
+    const row = await fastify.db.appSetting.findUnique({ where: { key: SETTINGS_KEY_IMAP } });
+    if (!row) return null;
+    const config = row.value as Record<string, unknown>;
+    return { ...config, password: REDACTED };
+  });
+
+  // PUT /api/settings/imap — save IMAP config
+  fastify.put<{ Body: Record<string, unknown> }>('/api/settings/imap', async (request) => {
+    const parsed = imapConfigSchema.safeParse(request.body);
+    if (!parsed.success) {
+      const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+      return fastify.httpErrors.badRequest(`Invalid IMAP config: ${issues}`);
+    }
+
+    const incoming = parsed.data as Record<string, unknown>;
+
+    const existing = await fastify.db.appSetting.findUnique({ where: { key: SETTINGS_KEY_IMAP } });
+    if (incoming.password === REDACTED && existing) {
+      const prev = existing.value as Record<string, unknown>;
+      incoming.password = prev.password;
+    } else if (incoming.password === REDACTED) {
+      return fastify.httpErrors.badRequest('IMAP password is required when creating a new configuration');
+    } else if (typeof incoming.password === 'string' && !looksEncrypted(incoming.password)) {
+      incoming.password = encrypt(incoming.password, opts.encryptionKey);
+    }
+
+    const row = await fastify.db.appSetting.upsert({
+      where: { key: SETTINGS_KEY_IMAP },
+      update: { value: incoming as object },
+      create: { key: SETTINGS_KEY_IMAP, value: incoming as object },
+    });
+
+    const saved = row.value as Record<string, unknown>;
+    return { ...saved, password: REDACTED };
+  });
+
+  // POST /api/settings/imap/test — verify IMAP connectivity
+  fastify.post('/api/settings/imap/test', async () => {
+    const row = await fastify.db.appSetting.findUnique({ where: { key: SETTINGS_KEY_IMAP } });
+    if (!row) return fastify.httpErrors.badRequest('IMAP not configured');
+
+    const config = row.value as Record<string, unknown>;
+    const password = typeof config.password === 'string' && looksEncrypted(config.password)
+      ? decrypt(config.password, opts.encryptionKey)
+      : config.password as string;
+
+    const { ImapFlow } = await import('imapflow');
+    const port = Number(config.port) || 993;
+    const client = new ImapFlow({
+      host: config.host as string,
+      port,
+      secure: port === 993,
+      auth: { user: config.user as string, pass: password },
+      logger: false,
+    });
+
+    let connected = false;
+    try {
+      await client.connect();
+      connected = true;
+      const mailboxes = await client.list();
+      await client.logout();
+      connected = false;
+      return { success: true, message: `IMAP connected — ${mailboxes.length} folder(s) found` };
+    } catch (err) {
+      if (connected) {
+        client.logout().catch(() => {});
+      }
+      logger.error({ err }, 'IMAP test failed');
+      return { success: false, error: err instanceof Error ? err.message : 'IMAP test failed' };
     }
   });
 

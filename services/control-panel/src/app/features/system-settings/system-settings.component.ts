@@ -15,6 +15,7 @@ import {
   SmtpSystemConfig,
   DevOpsSystemConfig,
   GithubSystemConfig,
+  ImapSystemConfig,
 } from '../../core/services/settings.service';
 
 @Component({
@@ -189,6 +190,59 @@ import {
           }
         </div>
       </mat-tab>
+
+      <!-- IMAP Tab -->
+      <mat-tab label="IMAP">
+        <div class="tab-content">
+          @if (loading()) {
+            <div class="spinner-wrapper"><mat-spinner diameter="40" /></div>
+          } @else {
+            <mat-card>
+              <mat-card-header>
+                <mat-card-title>IMAP Configuration</mat-card-title>
+              </mat-card-header>
+              <mat-card-content>
+                <p class="hint">Configure the IMAP server used for polling inbound emails. Password is encrypted at rest.</p>
+                <div class="form-grid">
+                  <mat-form-field class="full-width">
+                    <mat-label>Host</mat-label>
+                    <input matInput [(ngModel)]="imap.host" placeholder="imap.example.com">
+                  </mat-form-field>
+                  <mat-form-field>
+                    <mat-label>Port</mat-label>
+                    <input matInput type="number" [(ngModel)]="imap.port" placeholder="993">
+                  </mat-form-field>
+                  <mat-form-field class="full-width">
+                    <mat-label>User</mat-label>
+                    <input matInput [(ngModel)]="imap.user" placeholder="user@example.com">
+                  </mat-form-field>
+                  <mat-form-field class="full-width">
+                    <mat-label>Password</mat-label>
+                    <input matInput type="password" [(ngModel)]="imap.password">
+                  </mat-form-field>
+                  <mat-form-field>
+                    <mat-label>Poll Interval (seconds)</mat-label>
+                    <input matInput type="number" [(ngModel)]="imap.pollIntervalSeconds" placeholder="60">
+                  </mat-form-field>
+                </div>
+              </mat-card-content>
+              <mat-card-actions>
+                <button mat-raised-button color="primary" (click)="saveImap()" [disabled]="saving()">
+                  <mat-icon>save</mat-icon> Save
+                </button>
+                <button mat-stroked-button (click)="testImap()" [disabled]="testing()">
+                  @if (testing()) {
+                    <mat-spinner diameter="18" />
+                  } @else {
+                    <mat-icon>send</mat-icon>
+                  }
+                  Test Connection
+                </button>
+              </mat-card-actions>
+            </mat-card>
+          }
+        </div>
+      </mat-tab>
     </mat-tab-group>
   `,
   styles: [`
@@ -239,12 +293,13 @@ export class SystemSettingsComponent implements OnInit {
   smtp: SmtpSystemConfig = { host: '', port: 587, user: '', password: '', from: '', fromName: '' };
   devops: DevOpsSystemConfig = { orgUrl: '', project: '', pat: '', assignedUser: '', clientShortCode: '', pollIntervalSeconds: 120 };
   github: GithubSystemConfig = { token: '', repo: '' };
+  imap: ImapSystemConfig = { host: '', port: 993, user: '', password: '', pollIntervalSeconds: 60 };
 
   ngOnInit(): void {
     const tab = this.route.snapshot.queryParamMap.get('tab');
     if (tab !== null) {
       const tabIndex = +tab;
-      if (Number.isInteger(tabIndex) && tabIndex >= 0 && tabIndex <= 2) {
+      if (Number.isInteger(tabIndex) && tabIndex >= 0 && tabIndex <= 3) {
         this.selectedTab.set(tabIndex);
       }
     }
@@ -258,7 +313,7 @@ export class SystemSettingsComponent implements OnInit {
 
   private loadAll(): void {
     this.loading.set(true);
-    let pending = 3;
+    let pending = 4;
     const done = () => { if (--pending === 0) this.loading.set(false); };
 
     this.settingsService.getSmtpConfig().subscribe({
@@ -271,6 +326,10 @@ export class SystemSettingsComponent implements OnInit {
     });
     this.settingsService.getGithubConfig().subscribe({
       next: (c) => { if (c) this.github = { ...this.github, ...c }; done(); },
+      error: () => done(),
+    });
+    this.settingsService.getImapConfig().subscribe({
+      next: (c) => { if (c) this.imap = { ...this.imap, ...c }; done(); },
       error: () => done(),
     });
   }
@@ -357,6 +416,35 @@ export class SystemSettingsComponent implements OnInit {
       },
       error: (err) => {
         this.snackBar.open(err?.error?.message || 'GitHub test failed', 'OK', { duration: 5000 });
+        this.testing.set(false);
+      },
+    });
+  }
+
+  saveImap(): void {
+    this.saving.set(true);
+    this.settingsService.saveImapConfig(this.imap).subscribe({
+      next: (c) => {
+        this.imap = { ...this.imap, ...c };
+        this.snackBar.open('IMAP config saved', 'OK', { duration: 3000 });
+        this.saving.set(false);
+      },
+      error: (err) => {
+        this.snackBar.open(err?.error?.message || 'Failed to save IMAP config', 'OK', { duration: 5000 });
+        this.saving.set(false);
+      },
+    });
+  }
+
+  testImap(): void {
+    this.testing.set(true);
+    this.settingsService.testImapConnection().subscribe({
+      next: (r) => {
+        this.snackBar.open(r.success ? (r.message || 'Success') : (r.error || 'Test failed'), 'OK', { duration: 5000 });
+        this.testing.set(false);
+      },
+      error: (err) => {
+        this.snackBar.open(err?.error?.message || 'IMAP test failed', 'OK', { duration: 5000 });
         this.testing.set(false);
       },
     });

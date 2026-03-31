@@ -77,7 +77,7 @@ function isValidCategory(val: unknown): val is TicketCategory {
 interface IngestionDeps {
   db: PrismaClient;
   ai: AIRouter;
-  mailer: Mailer;
+  mailer: Mailer | null;
   ticketCreatedQueue: Queue<TicketCreatedJob>;
   analysisQueue?: Queue<AnalysisJob>;
   senderSignature: string;
@@ -786,33 +786,38 @@ async function executeIngestionPipeline(
             'DRAFT_RECEIPT',
           );
 
-          try {
-            const replySubject = /^re:\s*/i.test(subject) ? subject : `Re: ${subject}`;
-            const origMessageId = payloadStr(payload, 'messageId');
-            const origReferences = payload['references'];
-            const replyOpts: ReplyOptions = {
-              to: emailFrom,
-              subject: replySubject,
-              body: draftRes.content,
-              ...(origMessageId && { inReplyTo: origMessageId }),
-              ...(Array.isArray(origReferences) && { references: origReferences as string[] }),
-            };
-            const messageId = await mailer.sendReply(replyOpts);
-            await db.ticketEvent.create({
-              data: {
-                ticketId: ctx.ticketId,
-                eventType: 'EMAIL_OUTBOUND',
-                content: draftRes.content,
-                metadata: { type: 'receipt', to: emailFrom, outboundMessageId: messageId },
-                actor: 'system:ingestion',
-              },
-            });
-            logger.info({ ticketId: ctx.ticketId, to: emailFrom }, 'Receipt email sent via ingestion');
-            await safeTracker.completeStep(stepId, `Receipt sent to ${emailFrom}`);
-          } catch (sendErr) {
-            logger.warn({ err: sendErr, ticketId: ctx.ticketId }, 'Failed to send receipt email');
-            stepErrors.push({ step: RouteStepType.DRAFT_RECEIPT, error: sendErr instanceof Error ? sendErr.message : String(sendErr), fallback: 'email send failed' });
-            await safeTracker.failStep(stepId, sendErr instanceof Error ? sendErr.message : String(sendErr));
+          if (!mailer) {
+            logger.warn({ ticketId: ctx.ticketId }, 'Skipping receipt email — SMTP not configured');
+            await safeTracker.completeStep(stepId, 'Skipped — SMTP not configured');
+          } else {
+            try {
+              const replySubject = /^re:\s*/i.test(subject) ? subject : `Re: ${subject}`;
+              const origMessageId = payloadStr(payload, 'messageId');
+              const origReferences = payload['references'];
+              const replyOpts: ReplyOptions = {
+                to: emailFrom,
+                subject: replySubject,
+                body: draftRes.content,
+                ...(origMessageId && { inReplyTo: origMessageId }),
+                ...(Array.isArray(origReferences) && { references: origReferences as string[] }),
+              };
+              const messageId = await mailer.sendReply(replyOpts);
+              await db.ticketEvent.create({
+                data: {
+                  ticketId: ctx.ticketId,
+                  eventType: 'EMAIL_OUTBOUND',
+                  content: draftRes.content,
+                  metadata: { type: 'receipt', to: emailFrom, outboundMessageId: messageId },
+                  actor: 'system:ingestion',
+                },
+              });
+              logger.info({ ticketId: ctx.ticketId, to: emailFrom }, 'Receipt email sent via ingestion');
+              await safeTracker.completeStep(stepId, `Receipt sent to ${emailFrom}`);
+            } catch (sendErr) {
+              logger.warn({ err: sendErr, ticketId: ctx.ticketId }, 'Failed to send receipt email');
+              stepErrors.push({ step: RouteStepType.DRAFT_RECEIPT, error: sendErr instanceof Error ? sendErr.message : String(sendErr), fallback: 'email send failed' });
+              await safeTracker.failStep(stepId, sendErr instanceof Error ? sendErr.message : String(sendErr));
+            }
           }
         } catch (err) {
           logger.warn({ err, clientId, stepType: step.stepType, ticketId: ctx.ticketId }, 'Ingestion step failed — skipping receipt draft');
@@ -1027,15 +1032,35 @@ export function createIngestionProcessor(deps: IngestionDeps) {
       return;
     }
 
-    // Resolve ingestion route
-    const route = await resolveIngestionRoute(deps.db, source as TicketSource, clientId);
+    // Resolve ingestion route — fall back to a synthetic default matching the architecture flowchart
+    let route = await resolveIngestionRoute(deps.db, source as TicketSource, clientId);
     if (!route) {
-      logger.warn({ source, clientId }, 'No ingestion route found — dropping payload');
-      // Record a no_route run so the operator can see it was attempted (best-effort — don't throw).
-      await createIngestionRunTracker(deps.db, jobId, source as TicketSource, clientId)
-        .then((tracker) => tracker.completeRun('no_route', undefined, 'No matching ingestion route found'))
-        .catch((err) => { logger.warn({ err }, 'Failed to record no_route ingestion run — non-fatal'); });
-      return;
+      logger.info({ source, clientId }, 'No ingestion route found — using default flowchart pipeline');
+      const isEmail = source === TicketSource.EMAIL;
+      const defaultSteps = [
+        ...(isEmail ? [{ id: 'default-resolve-thread', stepOrder: 1, name: 'Resolve Thread', stepType: RouteStepType.RESOLVE_THREAD, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true }] : []),
+        { id: 'default-summarize', stepOrder: isEmail ? 2 : 1, name: 'Summarize', stepType: RouteStepType.SUMMARIZE_EMAIL, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
+        { id: 'default-categorize', stepOrder: isEmail ? 3 : 2, name: 'Categorize', stepType: RouteStepType.CATEGORIZE, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
+        { id: 'default-triage', stepOrder: isEmail ? 4 : 3, name: 'Triage Priority', stepType: RouteStepType.TRIAGE_PRIORITY, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
+        { id: 'default-title', stepOrder: isEmail ? 5 : 4, name: 'Generate Title', stepType: RouteStepType.GENERATE_TITLE, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
+        { id: 'default-create', stepOrder: isEmail ? 6 : 5, name: 'Create Ticket', stepType: RouteStepType.CREATE_TICKET, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
+        ...(isEmail ? [{ id: 'default-receipt', stepOrder: 7, name: 'Draft Receipt', stepType: RouteStepType.DRAFT_RECEIPT, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true }] : []),
+      ];
+      route = {
+        id: null,
+        name: `Default ${isEmail ? 'Email' : source} Ingestion (fallback)`,
+        description: 'Built-in default ingestion pipeline — configure a route in the control panel to customize.',
+        routeType: 'INGESTION',
+        source: source as string,
+        clientId: null,
+        category: null,
+        isActive: true,
+        isDefault: true,
+        sortOrder: 9999,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        steps: defaultSteps,
+      } as unknown as NonNullable<typeof route>;
     }
 
     // Create the run tracker — fall back to a no-op tracker if the ingestion_runs

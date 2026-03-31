@@ -180,10 +180,14 @@ async function isImapInbox(
  * `undefined` is returned (no message ID).
  */
 async function sendReplyWithRetry(
-  mailer: Mailer,
+  mailer: Mailer | null,
   opts: ReplyOptions,
   context: { ticketId: string; db?: PrismaClient; clientId?: string },
 ): Promise<string | undefined> {
+  if (!mailer) {
+    logger.warn({ ticketId: context.ticketId }, 'Skipping email send — SMTP not configured');
+    return undefined;
+  }
   // Loop guard: block sends to IMAP inbox addresses
   if (context.db && context.clientId && opts.to) {
     const blocked = await isImapInbox(context.db, context.clientId, opts.to);
@@ -279,7 +283,7 @@ interface AnalysisContext {
 export interface AnalyzerDeps {
   db: PrismaClient;
   ai: AIRouter;
-  mailer: Mailer;
+  mailer: Mailer | null;
   mcpDatabaseUrl?: string;
   /** Display name for signing outbound emails (e.g. "John Smith") */
   senderSignature: string;
@@ -1259,13 +1263,15 @@ async function deepAnalysis(
     const receiptMsgId = (receiptEvent?.metadata as Record<string, unknown> | null)?.messageId as string | undefined;
     const references = await buildReferenceChain(db, ticketId, emailMessageId, receiptMsgId ? [receiptMsgId] : []);
 
-    const outboundMsgId = await mailer.sendReply({
-      to: ctx.emailFrom,
-      subject: emailSubject,
-      body: findingsBody,
-      inReplyTo: receiptMsgId ?? emailMessageId,
-      references,
-    });
+    const outboundMsgId = mailer
+      ? await mailer.sendReply({
+          to: ctx.emailFrom,
+          subject: emailSubject,
+          body: findingsBody,
+          inReplyTo: receiptMsgId ?? emailMessageId,
+          references,
+        })
+      : undefined;
 
     // Record the outbound findings email, even if the provider did not return a messageId
     await db.ticketEvent.create({
@@ -1597,7 +1603,7 @@ interface ResolvedRoute {
  * 2. Global route matching the ticket category
  * 3. AI-based selection using route summaries
  * 4. Default route (isDefault=true)
- * 5. null (fall back to hardcoded pipeline)
+ * 5. null (fall back to a synthetic default route matching the architecture flowchart)
  */
 async function resolveTicketRoute(
   deps: AnalyzerDeps,
@@ -3270,7 +3276,7 @@ async function executeRoutePipeline(
 
         // If an explicit emailTo is configured, use it (legacy single-recipient mode).
         // Otherwise, notify all active operators via the Operator table.
-        if (isValidEmail) {
+        if (isValidEmail && mailer) {
           try {
             await mailer.send({ to: notifyTo, subject: notifySubject, body: notifyBody });
             await db.ticketEvent.create({
@@ -3290,7 +3296,7 @@ async function executeRoutePipeline(
         } else if (notifyTo !== '') {
           // Non-empty emailTo configured but invalid — warn and skip to avoid broad operator broadcast
           appLog.warn('NOTIFY_OPERATOR skipped — invalid emailTo configured', { ticketId, stepId: step.id, emailTo: notifyTo }, ticketId);
-        } else {
+        } else if (mailer) {
           try {
             // No emailTo configured — look up assigned operator for targeted notification
             const ticket = ticketId ? await db.ticket.findUnique({ where: { id: ticketId }, select: { assignedOperatorId: true } }) : null;
@@ -3599,94 +3605,39 @@ export function createAnalysisProcessor(deps: AnalyzerDeps) {
 
     const route = await resolveTicketRoute(deps, ticketId, ctx.clientId ?? ticket?.clientId ?? undefined, ticket?.category ?? null, false, ctx.ticketSource);
 
-    if (route) {
-      // Route-driven pipeline
-      try {
-        await executeRoutePipeline(deps, ctx, route, String(job.id ?? randomUUID()));
-        await deps.db.ticket.update({
-          where: { id: ticketId },
-          data: { analysisStatus: AnalysisStatus.COMPLETED, analysisError: null, lastAnalyzedAt: new Date() },
-        });
-        appLog.info(
-          'Ticket analysis pipeline completed successfully (route-driven)',
-          { ticketId, routeId: route.id },
-          ticketId,
-        );
-      } catch (err) {
-        const rawMsg = err instanceof Error ? err.message : String(err);
-        const analysisError = redactUrls(rawMsg).slice(0, 1000);
-        await deps.db.ticket.update({
-          where: { id: ticketId },
-          data: { analysisStatus: AnalysisStatus.FAILED, analysisError },
-        });
-        appLog.error(`Route pipeline failed: ${rawMsg}`, { err, ticketId, routeId: route.id }, ticketId);
-        await deps.db.ticketEvent.create({
-          data: {
-            ticketId,
-            eventType: 'SYSTEM_NOTE',
-            content: `Route pipeline "${sanitizeName(route.name)}" failed: ${analysisError}`,
-            actor: 'system:analyzer',
-          },
-        });
-        throw err;
-      }
-      return;
+    // Use DB route if found, otherwise fall back to a synthetic route matching the architecture flowchart.
+    // The fallback ensures tickets are always analyzed with the full pipeline (sufficiency evaluation,
+    // agentic analysis, contact user) even without DB-configured routes.
+    const analysisRoute = route ?? {
+      id: 'default-analysis-fallback',
+      name: 'Default Analysis (fallback)',
+      steps: [
+        { id: 'default-load-context', stepOrder: 1, name: 'Load Client Context', stepType: RouteStepType.LOAD_CLIENT_CONTEXT, taskTypeOverride: null, promptKeyOverride: null, config: null },
+        { id: 'default-extract-facts', stepOrder: 2, name: 'Extract Facts', stepType: RouteStepType.EXTRACT_FACTS, taskTypeOverride: null, promptKeyOverride: null, config: null },
+        { id: 'default-gather-repo', stepOrder: 3, name: 'Gather Repo Context', stepType: RouteStepType.GATHER_REPO_CONTEXT, taskTypeOverride: null, promptKeyOverride: null, config: null },
+        { id: 'default-gather-db', stepOrder: 4, name: 'Gather DB Context', stepType: RouteStepType.GATHER_DB_CONTEXT, taskTypeOverride: null, promptKeyOverride: null, config: null },
+        { id: 'default-agentic', stepOrder: 5, name: 'Agentic Analysis', stepType: RouteStepType.AGENTIC_ANALYSIS, taskTypeOverride: null, promptKeyOverride: null, config: null },
+        { id: 'default-findings', stepOrder: 6, name: 'Draft Findings Email', stepType: RouteStepType.DRAFT_FINDINGS_EMAIL, taskTypeOverride: null, promptKeyOverride: null, config: null },
+        { id: 'default-next-steps', stepOrder: 7, name: 'Suggest Next Steps', stepType: RouteStepType.SUGGEST_NEXT_STEPS, taskTypeOverride: null, promptKeyOverride: null, config: null },
+        { id: 'default-summary', stepOrder: 8, name: 'Update Ticket Summary', stepType: RouteStepType.UPDATE_TICKET_SUMMARY, taskTypeOverride: null, promptKeyOverride: null, config: null },
+      ],
+    } satisfies ResolvedRoute;
+
+    if (!route) {
+      appLog.info('No analysis route found — using default flowchart pipeline', { ticketId }, ticketId);
     }
 
-    // Phase 1: Send receipt confirmation (fast, Ollama-only) — skip for non-email tickets
-    let triageSummaryPromise: Promise<void> | undefined;
-    if (ctx.emailFrom) {
     try {
-      const result = await sendReceiptConfirmation(deps, ctx);
-      triageSummaryPromise = result.triageSummaryPromise;
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      appLog.error(
-        `Receipt confirmation failed after ${EMAIL_RETRY_MAX_ATTEMPTS} attempts — continuing to analysis: ${errMsg}`,
-        { err, ticketId, attempts: EMAIL_RETRY_MAX_ATTEMPTS },
-        ticketId,
-        'ticket',
-      );
-
-      // Record a persistent alert on the ticket so the operator sees it.
-      // Best-effort — analysis must continue even if this DB write fails.
-      try {
-        await deps.db.ticketEvent.create({
-          data: {
-            ticketId,
-            eventType: 'SYSTEM_NOTE',
-            content: [
-              `⚠ Receipt confirmation email to ${ctx.emailFrom} failed after ${EMAIL_RETRY_MAX_ATTEMPTS} attempts.`,
-              `Error: ${errMsg}`,
-              'The analysis pipeline will continue, but the requester has not been notified.',
-              'Please send a manual confirmation or check SMTP configuration.',
-            ].join('\n'),
-            metadata: {
-              alertType: 'receipt_email_failure',
-              to: ctx.emailFrom,
-              attempts: EMAIL_RETRY_MAX_ATTEMPTS,
-              error: errMsg,
-            },
-            actor: 'system:analyzer',
-          },
-        });
-      } catch (eventErr) {
-        appLog.error('Failed to create ticketEvent for receipt confirmation failure', { err: eventErr, ticketId }, ticketId, 'ticket');
-      }
-      // Continue to analysis even if receipt (or alert creation) fails
-    }
-    } else {
-      appLog.info('Skipping receipt confirmation — no email context (non-email ticket)', { ticketId }, ticketId, 'ticket');
-    }
-
-    // Phase 2: Deep analysis and findings (involves repos, MCP, Claude)
-    try {
-      await deepAnalysis(deps, ctx, String(job.id ?? randomUUID()), triageSummaryPromise);
+      await executeRoutePipeline(deps, ctx, analysisRoute, String(job.id ?? randomUUID()));
       await deps.db.ticket.update({
         where: { id: ticketId },
         data: { analysisStatus: AnalysisStatus.COMPLETED, analysisError: null, lastAnalyzedAt: new Date() },
       });
-      appLog.info('Ticket analysis pipeline completed successfully', { ticketId }, ticketId, 'ticket');
+      appLog.info(
+        `Ticket analysis pipeline completed successfully (${route ? 'route-driven' : 'default fallback'})`,
+        { ticketId, routeId: analysisRoute.id },
+        ticketId,
+      );
     } catch (err) {
       const rawMsg = err instanceof Error ? err.message : String(err);
       const analysisError = redactUrls(rawMsg).slice(0, 1000);
@@ -3694,17 +3645,16 @@ export function createAnalysisProcessor(deps: AnalyzerDeps) {
         where: { id: ticketId },
         data: { analysisStatus: AnalysisStatus.FAILED, analysisError },
       });
-      appLog.error(`Deep analysis failed: ${rawMsg}`, { err, ticketId }, ticketId, 'ticket');
-      // Record the failure as a system note
+      appLog.error(`Analysis pipeline failed: ${rawMsg}`, { err, ticketId, routeId: analysisRoute.id }, ticketId);
       await deps.db.ticketEvent.create({
         data: {
           ticketId,
           eventType: 'SYSTEM_NOTE',
-          content: `Automated analysis failed: ${analysisError}`,
+          content: `Analysis pipeline "${sanitizeName(analysisRoute.name)}" failed: ${analysisError}`,
           actor: 'system:analyzer',
         },
       });
-      throw err; // Let BullMQ handle retry
+      throw err;
     }
   };
 }

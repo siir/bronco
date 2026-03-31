@@ -8,11 +8,11 @@ AI-augmented database and software architecture operations platform. Single-oper
 
 - **Monorepo**: pnpm workspaces. Shared packages in `packages/`, services in `services/`, MCP servers in `mcp-servers/`.
 - **Control plane DB**: PostgreSQL (Prisma ORM). Schema at `packages/db/prisma/schema.prisma`.
-- **Client databases**: Azure SQL Managed Instances (primary, SQL cred auth), on-prem SQL Server (future clients). Connected via MCP database server (Node.js/Express) running in Azure App Service. The MCP server reads system configs from a local JSON file (`SYSTEMS_CONFIG_PATH`), not from Postgres — it has no dependency on the control plane DB.
+- **Client databases**: Azure SQL Managed Instances (primary, SQL cred auth), on-prem SQL Server (future clients). Connected via MCP database server (Node.js/Express) running on Hugo in Docker Compose. The MCP server reads system configs directly from the control plane Postgres `System` table and decrypts passwords using `ENCRYPTION_KEY`.
 - **AI routing**: Local Ollama for triage/categorize/summarize/extract; Claude API for deep analysis, code review, architecture review, bug analysis, schema review, feature analysis.
-- **Hugo** (control plane VM): Ubuntu 24.04 LTS on ESXi NUC. Runs copilot-api (Fastify), imap-worker, ticket-analyzer, devops-worker, issue-resolver, status-monitor, Postgres, Redis, Caddy via Docker Compose.
+- **Hugo** (control plane VM): Ubuntu 24.04 LTS on ESXi NUC. Runs copilot-api (Fastify), imap-worker, ticket-analyzer, devops-worker, issue-resolver, status-monitor, mcp-database, Postgres, Redis, Caddy via Docker Compose.
 - **Mac mini (siiriaplex)**: Runs Ollama for local LLM inference.
-- **CI/CD**: GitHub Actions — CI runs on push to `staging` (typecheck + build), not on every PR update. Feature branches PR into `staging`; staging PRs into `master`. Pushes to `master` that change app-relevant paths (packages/, services/, mcp-servers/, docker-compose.yml, lockfile) auto-tag a semver release (`tag-release.yml`), which triggers deploy-hugo (GHCR + SSH via Tailscale) and deploy-mcp (conditional — only when MCP-relevant paths changed). Docs-only or workflow-only changes do not trigger a release or deploy. To bump major/minor, push a tag manually before merging staging → master.
+- **CI/CD**: GitHub Actions — CI runs on push to `staging` (typecheck + build), not on every PR update. Feature branches PR into `staging`; staging PRs into `master`. Pushes to `master` that change app-relevant paths (packages/, services/, mcp-servers/, docker-compose.yml, lockfile) auto-tag a semver release (`tag-release.yml`), which triggers deploy-hugo (GHCR + SSH via Tailscale). Docs-only or workflow-only changes do not trigger a release or deploy. To bump major/minor, push a tag manually before merging staging → master.
 
 ## Key Conventions
 
@@ -24,19 +24,19 @@ AI-augmented database and software architecture operations platform. Single-oper
 - Prisma enum values must match shared-types enum values exactly.
 - All services use Zod for config validation via `loadConfig()` from shared-utils. Use `z.output<typeof schema>` (not `z.infer`) when schema has `.default()` values.
 - Pino logging via `createLogger(name)` from shared-utils. Writes to stderr.
-- SQL Server credentials for the MCP database server are stored as plaintext in the systems config JSON file; Azure App Service handles secret management. The `encrypt`/`decrypt` AES-256-GCM utilities in shared-utils are used for storing IMAP passwords, AI provider API keys, MCP server API keys, in the control plane DB.
+- The `encrypt`/`decrypt` AES-256-GCM utilities in shared-utils are used for storing IMAP passwords, AI provider API keys, MCP server API keys, and SQL Server credentials (system passwords) in the control plane DB. The MCP database server decrypts system passwords at runtime using `ENCRYPTION_KEY`.
 - ESM throughout. Use `.js` extensions in relative imports (TypeScript resolves these).
 
 ## MCP Server Extensibility
 
-The MCP database server reads connection configs from a local JSON file (`SYSTEMS_CONFIG_PATH` env var). The pool manager at `mcp-servers/database/src/connections/pool-manager.ts` uses a factory pattern for creating database connections. To add support for a new database engine type:
+The MCP database server reads system connection configs from the control plane Postgres `System` table (via Prisma). The pool manager at `mcp-servers/database/src/connections/pool-manager.ts` uses a factory pattern for creating database connections. New systems added via the control panel are picked up automatically (on pool miss). To add support for a new database engine type:
 
 1. Add the engine to `DbEngine` in `packages/shared-types/src/system.ts` (const + type pattern)
 2. Add a new `buildXxxConfig()` method in `pool-manager.ts`
 3. Add the case to the switch in `buildMssqlConfig()`
 4. If the new engine uses a different driver (not mssql/tedious), see the extensibility guide in the `buildMssqlConfig()` JSDoc comment — it covers abstracting the pool type, updating tools, etc.
-5. If the new engine needs additional fields, add them to `SystemConnectionConfig` in shared-types and `systemConfigEntrySchema` in `mcp-servers/database/src/config.ts`
-6. Add a system entry to the config JSON file, call `list_systems` to verify, then `inspect_schema` to verify connectivity
+5. If the new engine needs additional fields, add them to `SystemConnectionConfig` in shared-types, `SystemConfigEntry` in `mcp-servers/database/src/config.ts`, and the `System` model in `packages/db/prisma/schema.prisma`
+6. Add a system entry via the control panel or API, call `list_systems` to verify, then `inspect_schema` to verify connectivity
 
 ## Ticket Sources
 
@@ -284,7 +284,7 @@ pnpm dev:api              # Start copilot-api (Fastify, port 3000)
 pnpm dev:worker           # Start imap-worker
 pnpm dev:analyzer         # Start ticket-analyzer worker
 pnpm dev:devops           # Start devops-worker (Azure DevOps sync)
-pnpm dev:mcp-db           # Start MCP database server (Express, port 3100, needs SYSTEMS_CONFIG_PATH)
+pnpm dev:mcp-db           # Start MCP database server (Express, port 3100, needs DATABASE_URL + ENCRYPTION_KEY)
 pnpm dev:resolver         # Start issue-resolver worker
 pnpm dev:status-monitor   # Start system status monitor
 pnpm dev:panel            # Start control panel (Angular, port 4200)
@@ -297,7 +297,8 @@ pnpm dev:portal           # Start ticket portal (Angular, port 4201)
 |------|---------|
 | `packages/shared-types/src/*.ts` | All enums and interfaces. Edit these first for any data model change. |
 | `packages/db/prisma/schema.prisma` | Prisma schema. Keep enums in sync with shared-types. |
-| `mcp-servers/database/src/config.ts` | Systems config file schema (Zod) and loader. |
+| `mcp-servers/database/src/config.ts` | Server config schema (Zod) and SystemConfigEntry interface. |
+| `mcp-servers/database/src/systems-loader.ts` | Loads active systems from Postgres, decrypts passwords. |
 | `mcp-servers/database/src/connections/pool-manager.ts` | Connection factory with extensibility guide. |
 | `mcp-servers/database/src/tools/index.ts` | MCP tool registration (Zod schemas + handlers). |
 | `mcp-servers/database/src/security/query-validator.ts` | SQL keyword blocklist. |
@@ -326,7 +327,6 @@ pnpm dev:portal           # Start ticket portal (Angular, port 4201)
 | `services/control-panel/src/app/shared/components/mcp-server-info.component.ts` | Reusable Angular component for MCP server info display. |
 | `.github/workflows/ci.yml` | CI: typecheck + build on push to staging. |
 | `.github/workflows/deploy-hugo.yml` | Deploy all Docker services to Hugo via GHCR. |
-| `.github/workflows/deploy-mcp.yml` | Deploy MCP database server to Azure App Service (ZIP deploy, publish profile). |
 | `services/copilot-api/src/routes/client-memory.ts` | Client memory CRUD endpoints with resolver cache invalidation. |
 | `services/copilot-api/src/routes/ticket-routes.ts` | Ticket route CRUD + step type registry for configurable analysis pipelines. |
 | `services/copilot-api/src/routes/release-notes.ts` | Release notes API: commit ingestion, AI summarization, GitHub backfill, service filtering. |
