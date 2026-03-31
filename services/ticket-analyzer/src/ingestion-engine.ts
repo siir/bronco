@@ -1098,7 +1098,7 @@ export function createIngestionProcessor(deps: IngestionDeps) {
       clientId,
       payload,
       title: payloadStr(payload, 'subject') || payloadStr(payload, 'title') || '',
-      description: (payloadStr(payload, 'body') || payloadStr(payload, 'toolResult') || payloadStr(payload, 'description')).slice(0, 2000),
+      description: (payloadStr(payload, 'body') || payloadStr(payload, 'text') || payloadStr(payload, 'toolResult') || payloadStr(payload, 'description')).slice(0, 2000),
       summary: '',
       category: isValidCategory(payload['category']) ? (payload['category'] as string) : 'GENERAL',
       priority: initialPriority,

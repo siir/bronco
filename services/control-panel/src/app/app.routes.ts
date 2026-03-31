@@ -80,6 +80,10 @@ export const routes: Routes = [
         loadComponent: () => import('./features/system-analysis/system-analysis.component').then(m => m.SystemAnalysisComponent),
       },
       {
+        path: 'notification-preferences',
+        loadComponent: () => import('./features/notification-preferences/notification-preferences.component').then(m => m.NotificationPreferencesComponent),
+      },
+      {
         path: 'system-settings',
         loadComponent: () => import('./features/system-settings/system-settings.component').then(m => m.SystemSettingsComponent),
       },

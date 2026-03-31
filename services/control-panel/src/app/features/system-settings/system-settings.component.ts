@@ -10,12 +10,14 @@ import { MatTabsModule } from '@angular/material/tabs';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatSnackBarModule } from '@angular/material/snack-bar';
+import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import {
   SettingsService,
   SmtpSystemConfig,
   DevOpsSystemConfig,
   GithubSystemConfig,
   ImapSystemConfig,
+  SlackSystemConfig,
 } from '../../core/services/settings.service';
 
 @Component({
@@ -30,6 +32,7 @@ import {
     MatTabsModule,
     MatProgressSpinnerModule,
     MatSnackBarModule,
+    MatSlideToggleModule,
   ],
   template: `
     <h1>System Settings</h1>
@@ -243,6 +246,51 @@ import {
           }
         </div>
       </mat-tab>
+      <!-- Slack Tab -->
+      <mat-tab label="Slack">
+        <div class="tab-content">
+          @if (loading()) {
+            <div class="spinner-wrapper"><mat-spinner diameter="40" /></div>
+          } @else {
+            <mat-card>
+              <mat-card-header>
+                <mat-card-title>Slack Configuration</mat-card-title>
+              </mat-card-header>
+              <mat-card-content>
+                <p class="hint">Configure Slack integration for operator notifications via Socket Mode. Tokens are encrypted at rest.</p>
+                <div class="form-grid">
+                  <mat-slide-toggle [(ngModel)]="slack.enabled">Enabled</mat-slide-toggle>
+                  <mat-form-field class="full-width">
+                    <mat-label>Bot Token (xoxb-...)</mat-label>
+                    <input matInput type="password" [(ngModel)]="slack.botToken" placeholder="xoxb-...">
+                  </mat-form-field>
+                  <mat-form-field class="full-width">
+                    <mat-label>App-Level Token (xapp-...)</mat-label>
+                    <input matInput type="password" [(ngModel)]="slack.appToken" placeholder="xapp-...">
+                  </mat-form-field>
+                  <mat-form-field class="full-width">
+                    <mat-label>Default Channel ID</mat-label>
+                    <input matInput [(ngModel)]="slack.defaultChannelId" placeholder="C0123456789">
+                  </mat-form-field>
+                </div>
+              </mat-card-content>
+              <mat-card-actions>
+                <button mat-raised-button color="primary" (click)="saveSlack()" [disabled]="saving()">
+                  <mat-icon>save</mat-icon> Save
+                </button>
+                <button mat-stroked-button (click)="testSlack()" [disabled]="testing()">
+                  @if (testing()) {
+                    <mat-spinner diameter="18" />
+                  } @else {
+                    <mat-icon>send</mat-icon>
+                  }
+                  Test Connection
+                </button>
+              </mat-card-actions>
+            </mat-card>
+          }
+        </div>
+      </mat-tab>
     </mat-tab-group>
   `,
   styles: [`
@@ -294,12 +342,13 @@ export class SystemSettingsComponent implements OnInit {
   devops: DevOpsSystemConfig = { orgUrl: '', project: '', pat: '', assignedUser: '', clientShortCode: '', pollIntervalSeconds: 120 };
   github: GithubSystemConfig = { token: '', repo: '' };
   imap: ImapSystemConfig = { host: '', port: 993, user: '', password: '', pollIntervalSeconds: 60 };
+  slack: SlackSystemConfig = { botToken: '', appToken: '', defaultChannelId: '', enabled: false };
 
   ngOnInit(): void {
     const tab = this.route.snapshot.queryParamMap.get('tab');
     if (tab !== null) {
       const tabIndex = +tab;
-      if (Number.isInteger(tabIndex) && tabIndex >= 0 && tabIndex <= 3) {
+      if (Number.isInteger(tabIndex) && tabIndex >= 0 && tabIndex <= 4) {
         this.selectedTab.set(tabIndex);
       }
     }
@@ -313,7 +362,7 @@ export class SystemSettingsComponent implements OnInit {
 
   private loadAll(): void {
     this.loading.set(true);
-    let pending = 4;
+    let pending = 5;
     const done = () => { if (--pending === 0) this.loading.set(false); };
 
     this.settingsService.getSmtpConfig().subscribe({
@@ -330,6 +379,10 @@ export class SystemSettingsComponent implements OnInit {
     });
     this.settingsService.getImapConfig().subscribe({
       next: (c) => { if (c) this.imap = { ...this.imap, ...c }; done(); },
+      error: () => done(),
+    });
+    this.settingsService.getSlackConfig().subscribe({
+      next: (c) => { if (c) this.slack = { ...this.slack, ...c }; done(); },
       error: () => done(),
     });
   }
@@ -445,6 +498,35 @@ export class SystemSettingsComponent implements OnInit {
       },
       error: (err) => {
         this.snackBar.open(err?.error?.message || 'IMAP test failed', 'OK', { duration: 5000 });
+        this.testing.set(false);
+      },
+    });
+  }
+
+  saveSlack(): void {
+    this.saving.set(true);
+    this.settingsService.saveSlackConfig(this.slack).subscribe({
+      next: (c) => {
+        this.slack = { ...this.slack, ...c };
+        this.snackBar.open('Slack config saved', 'OK', { duration: 3000 });
+        this.saving.set(false);
+      },
+      error: (err) => {
+        this.snackBar.open(err?.error?.message || 'Failed to save Slack config', 'OK', { duration: 5000 });
+        this.saving.set(false);
+      },
+    });
+  }
+
+  testSlack(): void {
+    this.testing.set(true);
+    this.settingsService.testSlackConnection().subscribe({
+      next: (r) => {
+        this.snackBar.open(r.success ? (r.message || 'Success') : (r.error || 'Test failed'), 'OK', { duration: 5000 });
+        this.testing.set(false);
+      },
+      error: (err) => {
+        this.snackBar.open(err?.error?.message || 'Slack test failed', 'OK', { duration: 5000 });
         this.testing.set(false);
       },
     });

@@ -3303,7 +3303,13 @@ async function executeRoutePipeline(
             const notified = await notifyOperatorsFn(
               mailer,
               () => db.operator.findMany({ where: { isActive: true } }),
-              { subject: notifySubject, body: notifyBody, operatorId: ticket?.assignedOperatorId ?? undefined },
+              {
+                subject: notifySubject,
+                body: notifyBody,
+                operatorId: ticket?.assignedOperatorId ?? undefined,
+                event: 'ANALYSIS_COMPLETE',
+                getPreference: (evt) => db.notificationPreference.findUnique({ where: { event: evt } }),
+              },
             );
             if (notified.length > 0) {
               await db.ticketEvent.create({

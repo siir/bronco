@@ -41,9 +41,10 @@ export async function operatorRoutes(fastify: FastifyInstance): Promise<void> {
       name: string;
       notifyEmail?: boolean;
       notifySlack?: boolean;
+      slackUserId?: string;
     };
   }>('/api/operators', async (request, reply) => {
-    const { email: rawEmail, name, notifyEmail, notifySlack } = request.body;
+    const { email: rawEmail, name, notifyEmail, notifySlack, slackUserId } = request.body;
 
     if (!rawEmail || !name) {
       return reply.code(400).send({ error: 'Email and name are required' });
@@ -56,12 +57,15 @@ export async function operatorRoutes(fastify: FastifyInstance): Promise<void> {
       return reply.code(409).send({ error: 'An operator with this email already exists' });
     }
 
+    const trimmedSlackUserId = slackUserId !== undefined ? (slackUserId.trim() || null) : undefined;
+
     const operator = await fastify.db.operator.create({
       data: {
         email,
         name: name.trim(),
         ...(notifyEmail !== undefined && { notifyEmail }),
         ...(notifySlack !== undefined && { notifySlack }),
+        ...(trimmedSlackUserId !== undefined && { slackUserId: trimmedSlackUserId }),
       },
     });
 
@@ -80,10 +84,11 @@ export async function operatorRoutes(fastify: FastifyInstance): Promise<void> {
       isActive?: boolean;
       notifyEmail?: boolean;
       notifySlack?: boolean;
+      slackUserId?: string | null;
     };
   }>('/api/operators/:id', async (request, reply) => {
     const { id } = request.params;
-    const { name, email: rawEmail, isActive, notifyEmail, notifySlack } = request.body;
+    const { name, email: rawEmail, isActive, notifyEmail, notifySlack, slackUserId } = request.body;
 
     const target = await fastify.db.operator.findUnique({ where: { id } });
     if (!target) {
@@ -98,6 +103,8 @@ export async function operatorRoutes(fastify: FastifyInstance): Promise<void> {
       }
     }
 
+    const trimmedSlackUserId = slackUserId !== undefined ? (typeof slackUserId === 'string' ? (slackUserId.trim() || null) : null) : undefined;
+
     const updated = await fastify.db.operator.update({
       where: { id },
       data: {
@@ -106,6 +113,7 @@ export async function operatorRoutes(fastify: FastifyInstance): Promise<void> {
         ...(isActive !== undefined && { isActive }),
         ...(notifyEmail !== undefined && { notifyEmail }),
         ...(notifySlack !== undefined && { notifySlack }),
+        ...(trimmedSlackUserId !== undefined && { slackUserId: trimmedSlackUserId }),
       },
     });
 

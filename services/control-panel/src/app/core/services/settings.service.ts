@@ -109,6 +109,13 @@ export interface ImapSystemConfig {
   pollIntervalSeconds?: number;
 }
 
+export interface SlackSystemConfig {
+  botToken: string;
+  appToken: string;
+  defaultChannelId: string;
+  enabled: boolean;
+}
+
 export interface TestResult {
   success: boolean;
   message?: string;
@@ -206,5 +213,16 @@ export class SettingsService {
   }
   testImapConnection(): Observable<TestResult> {
     return this.api.post<TestResult>('/settings/imap/test', {});
+  }
+
+  // --- System Config: Slack ---
+  getSlackConfig(): Observable<SlackSystemConfig | null> {
+    return this.api.get<SlackSystemConfig | null>('/settings/slack');
+  }
+  saveSlackConfig(config: SlackSystemConfig): Observable<SlackSystemConfig> {
+    return this.api.put<SlackSystemConfig>('/settings/slack', config);
+  }
+  testSlackConnection(): Observable<TestResult> {
+    return this.api.post<TestResult>('/settings/slack/test', {});
   }
 }

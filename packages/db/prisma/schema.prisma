@@ -105,6 +105,7 @@ model Operator {
   isActive     Boolean  @default(true) @map("is_active")
   notifyEmail  Boolean  @default(true) @map("notify_email")
   notifySlack  Boolean  @default(false) @map("notify_slack")
+  slackUserId  String?  @map("slack_user_id")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
@@ -199,15 +200,16 @@ model ClientAiCredential {
 }
 
 model Contact {
-  id        String   @id @default(uuid()) @db.Uuid
-  clientId  String   @map("client_id") @db.Uuid
-  name      String
-  email     String
-  phone     String?
-  role      String?
-  isPrimary Boolean  @default(false) @map("is_primary")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id          String   @id @default(uuid()) @db.Uuid
+  clientId    String   @map("client_id") @db.Uuid
+  name        String
+  email       String
+  phone       String?
+  role        String?
+  slackUserId String?  @map("slack_user_id")
+  isPrimary   Boolean  @default(false) @map("is_primary")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
   client           Client           @relation(fields: [clientId], references: [id])
   ticketFollowers  TicketFollower[]
@@ -539,6 +541,7 @@ model IssueJob {
   error                 String?
   aiModel               String?        @map("ai_model")
   aiUsage               Json?          @map("ai_usage")
+  metadata              Json?
   startedAt             DateTime?      @map("started_at")
   completedAt           DateTime?      @map("completed_at")
   createdAt             DateTime       @default(now()) @map("created_at")
@@ -941,6 +944,7 @@ enum TicketSource {
   AZURE_DEVOPS
   AI_DETECTED
   SCHEDULED
+  SLACK
 
   @@map("ticket_source")
 }
@@ -957,6 +961,8 @@ enum TicketEventType {
   EMAIL_OUTBOUND
   DEVOPS_INBOUND
   DEVOPS_OUTBOUND
+  SLACK_INBOUND
+  SLACK_OUTBOUND
   PLAN_PROPOSED
   PLAN_APPROVED
   PLAN_REJECTED
@@ -1018,6 +1024,7 @@ enum IntegrationType {
   IMAP
   AZURE_DEVOPS
   MCP_DATABASE
+  SLACK
 
   @@map("integration_type")
 }
@@ -1481,6 +1488,22 @@ model IngestionRunStep {
 
   @@index([runId, stepOrder])
   @@map("ingestion_run_steps")
+}
+
+// --- Notification Preferences (event → channel routing) ---
+
+model NotificationPreference {
+  id           String   @id @default(uuid()) @db.Uuid
+  event        String   @unique // e.g. TICKET_CREATED, PLAN_READY
+  emailEnabled Boolean  @default(true) @map("email_enabled")
+  slackEnabled Boolean  @default(false) @map("slack_enabled")
+  slackTarget  String?  @map("slack_target") // channel ID, "assigned_operator", "all_operators"
+  emailTarget  String?  @map("email_target") // "assigned_operator", "all_operators", or specific email
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("notification_preferences")
 }
 
 // --- App Settings (key-value JSON store for app-wide configuration) ---

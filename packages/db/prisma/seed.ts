@@ -233,6 +233,36 @@ async function main() {
   await prisma.ticketRouteStep.createMany({ data: manualRouteSteps.map(s => ({ ...s, routeId: manualRouteId })) });
   console.log('Seeded Manual ingestion route:', manualRoute.name);
 
+  // Seed default SLACK ingestion route
+  const slackRouteId = '00000000-0000-0000-0000-000000000014';
+  const slackRouteSteps = [
+    { stepOrder: 1, name: 'Categorize', stepType: 'CATEGORIZE', isActive: true },
+    { stepOrder: 2, name: 'Triage Priority', stepType: 'TRIAGE_PRIORITY', isActive: true },
+    { stepOrder: 3, name: 'Generate Title', stepType: 'GENERATE_TITLE', isActive: true },
+    { stepOrder: 4, name: 'Create Ticket', stepType: 'CREATE_TICKET', isActive: true },
+  ];
+  const slackRoute = await prisma.ticketRoute.upsert({
+    where: { id: slackRouteId },
+    update: {
+      name: 'Default Slack Ingestion',
+      description: 'Categorizes, triages, generates title, and creates ticket from Slack messages.',
+    },
+    create: {
+      id: slackRouteId,
+      name: 'Default Slack Ingestion',
+      description: 'Categorizes, triages, generates title, and creates ticket from Slack messages.',
+      routeType: 'INGESTION',
+      source: 'SLACK',
+      isActive: true,
+      isDefault: true,
+      sortOrder: 103,
+      steps: { createMany: { data: slackRouteSteps } },
+    },
+  });
+  await prisma.ticketRouteStep.deleteMany({ where: { routeId: slackRouteId } });
+  await prisma.ticketRouteStep.createMany({ data: slackRouteSteps.map(s => ({ ...s, routeId: slackRouteId })) });
+  console.log('Seeded Slack ingestion route:', slackRoute.name);
+
   // Seed default re-analysis route (used for incremental update after user reply)
   const reanalysisRouteId = '00000000-0000-0000-0000-000000000013';
   const reanalysisRouteSteps = [
@@ -259,6 +289,35 @@ async function main() {
   await prisma.ticketRouteStep.deleteMany({ where: { routeId: reanalysisRouteId } });
   await prisma.ticketRouteStep.createMany({ data: reanalysisRouteSteps.map(s => ({ ...s, routeId: reanalysisRouteId })) });
   console.log('Seeded re-analysis route:', reanalysisRoute.name);
+
+  // Seed default notification preferences (email enabled, Slack disabled)
+  const notificationEvents = [
+    'TICKET_CREATED',
+    'ANALYSIS_COMPLETE',
+    'SUFFICIENCY_CHANGED',
+    'USER_REPLIED',
+    'PLAN_READY',
+    'PLAN_APPROVED',
+    'PLAN_REJECTED',
+    'RESOLUTION_COMPLETE',
+    'SERVICE_HEALTH_ALERT',
+    'PROBE_ALERT',
+  ];
+  for (const event of notificationEvents) {
+    await prisma.notificationPreference.upsert({
+      where: { event },
+      update: {},
+      create: {
+        event,
+        emailEnabled: true,
+        slackEnabled: false,
+        slackTarget: null,
+        emailTarget: 'all_operators',
+        isActive: true,
+      },
+    });
+  }
+  console.log('Seeded notification preferences:', notificationEvents.length, 'events');
 
   // Seed prompt keywords ({{token}} placeholders used in AI prompts)
   await seedPromptKeywords(prisma);
