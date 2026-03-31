@@ -1,6 +1,6 @@
 import { getDb, disconnectDb } from '@bronco/db';
 import { createAIRouter } from '@bronco/ai-provider';
-import { createLogger, createQueue, createWorker, Mailer, AppLogger, createPrismaLogWriter, setGlobalLogWriter, createHealthServer, createGracefulShutdown } from '@bronco/shared-utils';
+import { createLogger, createQueue, createWorker, Mailer, AppLogger, createPrismaLogWriter, setGlobalLogWriter, createHealthServer, createGracefulShutdown, loadSmtpFromDb } from '@bronco/shared-utils';
 import type { TicketCreatedJob, IngestionJob } from '@bronco/shared-types';
 import { getConfig } from './config.js';
 import { ProbeScheduler, initProbeWorkerLogger } from './probe-worker.js';
@@ -19,15 +19,24 @@ async function main(): Promise<void> {
   initProbeWorkerLogger(db);
   appLog.info('Probe worker starting');
 
-  // --- SMTP mailer ---
-  const mailer = new Mailer({
-    host: config.SMTP_HOST,
-    port: config.SMTP_PORT,
-    user: config.SMTP_USER,
-    password: config.SMTP_PASSWORD,
-    from: config.SMTP_FROM,
-    fromName: config.EMAIL_SENDER_NAME,
-  });
+  // --- SMTP mailer (DB config takes priority, env vars as fallback) ---
+  let mailer: Mailer | null = null;
+  const dbSmtp = await loadSmtpFromDb(db, config.ENCRYPTION_KEY);
+  if (dbSmtp) {
+    mailer = new Mailer(dbSmtp);
+  } else if (config.SMTP_HOST && config.SMTP_USER && config.SMTP_FROM && config.SMTP_PASSWORD) {
+    logger.warn('No SMTP config in DB — falling back to env vars');
+    mailer = new Mailer({
+      host: config.SMTP_HOST,
+      port: config.SMTP_PORT,
+      user: config.SMTP_USER,
+      password: config.SMTP_PASSWORD,
+      from: config.SMTP_FROM,
+      fromName: config.EMAIL_SENDER_NAME,
+    });
+  } else {
+    logger.warn('No SMTP config available (DB or env vars) — email sending disabled');
+  }
 
   // --- AI router (DB-backed provider config) ---
   const { ai } = createAIRouter(db, {
@@ -72,7 +81,7 @@ async function main(): Promise<void> {
     probeQueue,
     ticketCreatedQueue,
     ingestQueue,
-    mailer,
+    ...(mailer ? [mailer] : []),
     { fn: () => probeScheduler.stop() },
     { fn: disconnectDb },
   ]);

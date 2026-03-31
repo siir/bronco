@@ -1,6 +1,6 @@
 import { getDb, disconnectDb } from '@bronco/db';
 import { createAIRouter } from '@bronco/ai-provider';
-import { createLogger, createQueue, createWorker, Mailer, AppLogger, createPrismaLogWriter, setGlobalLogWriter, createHealthServer, createGracefulShutdown } from '@bronco/shared-utils';
+import { createLogger, createQueue, createWorker, Mailer, AppLogger, createPrismaLogWriter, setGlobalLogWriter, createHealthServer, createGracefulShutdown, loadSmtpFromDb } from '@bronco/shared-utils';
 import type { TicketCreatedJob, IngestionJob } from '@bronco/shared-types';
 import { getConfig } from './config.js';
 import { createAnalysisProcessor, initAnalyzerLogger, cleanupStaleRepos } from './analyzer.js';
@@ -22,15 +22,28 @@ async function main(): Promise<void> {
   initAnalyzerLogger(db);
   appLog.info('Ticket analyzer starting');
 
-  // --- SMTP mailer ---
-  const mailer = new Mailer({
-    host: config.SMTP_HOST,
-    port: config.SMTP_PORT,
-    user: config.SMTP_USER,
-    password: config.SMTP_PASSWORD,
-    from: config.SMTP_FROM,
-    fromName: config.EMAIL_SENDER_NAME,
-  });
+  // --- SMTP mailer (DB config takes priority, env vars as fallback) ---
+  let mailer: Mailer | null = null;
+  const dbSmtp = await loadSmtpFromDb(db, config.ENCRYPTION_KEY);
+  if (dbSmtp) {
+    mailer = new Mailer(dbSmtp);
+  } else if (config.SMTP_HOST && config.SMTP_USER && config.SMTP_FROM && config.SMTP_PASSWORD) {
+    logger.warn('No SMTP config in DB — falling back to env vars');
+    mailer = new Mailer({
+      host: config.SMTP_HOST,
+      port: config.SMTP_PORT,
+      user: config.SMTP_USER,
+      password: config.SMTP_PASSWORD,
+      from: config.SMTP_FROM,
+      fromName: config.EMAIL_SENDER_NAME,
+    });
+  } else {
+    logger.warn('No SMTP config available (DB or env vars) — email sending disabled');
+  }
+
+  // Derive sender identity from DB config (preferred) or env vars (fallback)
+  const smtpFrom = dbSmtp?.from || config.SMTP_FROM;
+  const senderSignature = dbSmtp?.fromName || config.EMAIL_SENDER_NAME;
 
   // --- AI router (DB-backed provider config) ---
   const { ai } = createAIRouter(db, {
@@ -46,7 +59,7 @@ async function main(): Promise<void> {
     ai,
     mailer,
     mcpDatabaseUrl: config.MCP_DATABASE_URL,
-    senderSignature: config.EMAIL_SENDER_NAME,
+    senderSignature,
     repoWorkspacePath: config.REPO_WORKSPACE_PATH,
     encryptionKey: config.ENCRYPTION_KEY,
   });
@@ -88,8 +101,8 @@ async function main(): Promise<void> {
     mailer,
     ticketCreatedQueue,
     analysisQueue,
-    senderSignature: config.EMAIL_SENDER_NAME,
-    smtpFrom: config.SMTP_FROM,
+    senderSignature,
+    smtpFrom,
     appLog,
     artifactStoragePath: config.ARTIFACT_STORAGE_PATH,
   });
@@ -142,7 +155,7 @@ async function main(): Promise<void> {
     ticketCreatedQueue,
     analysisWorker,
     analysisQueue,
-    mailer,
+    ...(mailer ? [mailer] : []),
     { fn: disconnectDb },
   ]);
 }

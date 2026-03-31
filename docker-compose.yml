@@ -119,12 +119,6 @@ services:
       DATABASE_URL: postgresql://bronco:${POSTGRES_PASSWORD_URLENCODED}@postgres:5432/bronco
       REDIS_URL: redis://redis:6379
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
-      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_USER: ${SMTP_USER}
-      SMTP_PASSWORD: ${SMTP_PASSWORD}
-      SMTP_FROM: ${SMTP_FROM}
-      EMAIL_SENDER_NAME: ${EMAIL_SENDER_NAME:-Support Team}
       MCP_DATABASE_URL: ${MCP_DATABASE_URL:-http://localhost:3100}
       REPO_WORKSPACE_PATH: /var/lib/ticket-analyzer/repos
       REPO_RETENTION_DAYS: ${REPO_RETENTION_DAYS:-14}
@@ -155,12 +149,6 @@ services:
       DATABASE_URL: postgresql://bronco:${POSTGRES_PASSWORD_URLENCODED}@postgres:5432/bronco
       REDIS_URL: redis://redis:6379
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
-      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_USER: ${SMTP_USER}
-      SMTP_PASSWORD: ${SMTP_PASSWORD}
-      SMTP_FROM: ${SMTP_FROM}
-      EMAIL_SENDER_NAME: ${EMAIL_SENDER_NAME:-Support Team}
       HEALTH_PORT: "3107"
       ARTIFACT_STORAGE_PATH: ${ARTIFACT_STORAGE_PATH:-/mnt/qnap/artifacts}
     volumes:

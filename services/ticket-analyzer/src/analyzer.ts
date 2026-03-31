@@ -180,10 +180,14 @@ async function isImapInbox(
  * `undefined` is returned (no message ID).
  */
 async function sendReplyWithRetry(
-  mailer: Mailer,
+  mailer: Mailer | null,
   opts: ReplyOptions,
   context: { ticketId: string; db?: PrismaClient; clientId?: string },
 ): Promise<string | undefined> {
+  if (!mailer) {
+    logger.warn({ ticketId: context.ticketId }, 'Skipping email send — SMTP not configured');
+    return undefined;
+  }
   // Loop guard: block sends to IMAP inbox addresses
   if (context.db && context.clientId && opts.to) {
     const blocked = await isImapInbox(context.db, context.clientId, opts.to);
@@ -279,7 +283,7 @@ interface AnalysisContext {
 export interface AnalyzerDeps {
   db: PrismaClient;
   ai: AIRouter;
-  mailer: Mailer;
+  mailer: Mailer | null;
   mcpDatabaseUrl?: string;
   /** Display name for signing outbound emails (e.g. "John Smith") */
   senderSignature: string;
@@ -1259,13 +1263,15 @@ async function deepAnalysis(
     const receiptMsgId = (receiptEvent?.metadata as Record<string, unknown> | null)?.messageId as string | undefined;
     const references = await buildReferenceChain(db, ticketId, emailMessageId, receiptMsgId ? [receiptMsgId] : []);
 
-    const outboundMsgId = await mailer.sendReply({
-      to: ctx.emailFrom,
-      subject: emailSubject,
-      body: findingsBody,
-      inReplyTo: receiptMsgId ?? emailMessageId,
-      references,
-    });
+    const outboundMsgId = mailer
+      ? await mailer.sendReply({
+          to: ctx.emailFrom,
+          subject: emailSubject,
+          body: findingsBody,
+          inReplyTo: receiptMsgId ?? emailMessageId,
+          references,
+        })
+      : undefined;
 
     // Record the outbound findings email, even if the provider did not return a messageId
     await db.ticketEvent.create({
@@ -3270,7 +3276,7 @@ async function executeRoutePipeline(
 
         // If an explicit emailTo is configured, use it (legacy single-recipient mode).
         // Otherwise, notify all active operators via the Operator table.
-        if (isValidEmail) {
+        if (isValidEmail && mailer) {
           try {
             await mailer.send({ to: notifyTo, subject: notifySubject, body: notifyBody });
             await db.ticketEvent.create({
@@ -3290,7 +3296,7 @@ async function executeRoutePipeline(
         } else if (notifyTo !== '') {
           // Non-empty emailTo configured but invalid — warn and skip to avoid broad operator broadcast
           appLog.warn('NOTIFY_OPERATOR skipped — invalid emailTo configured', { ticketId, stepId: step.id, emailTo: notifyTo }, ticketId);
-        } else {
+        } else if (mailer) {
           try {
             // No emailTo configured — look up assigned operator for targeted notification
             const ticket = ticketId ? await db.ticket.findUnique({ where: { id: ticketId }, select: { assignedOperatorId: true } }) : null;
