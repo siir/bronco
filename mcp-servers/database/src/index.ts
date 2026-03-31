@@ -1,5 +1,5 @@
 import express from 'express';
-import { PrismaClient } from '@bronco/db';
+import { getDb, disconnectDb } from '@bronco/db';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createLogger, createGracefulShutdown } from '@bronco/shared-utils';
 import { getConfig } from './config.js';
@@ -19,7 +19,7 @@ const bridgeCaller = 'api:copilot';
 
 async function main(): Promise<void> {
   const config = getConfig();
-  const db = new PrismaClient();
+  const db = getDb();
 
   const systems = await loadSystemsFromDb(db, config.ENCRYPTION_KEY);
 
@@ -184,7 +184,7 @@ async function main(): Promise<void> {
   createGracefulShutdown(logger, [
     { fn: () => new Promise<void>((resolve) => httpServer.close(() => resolve())) },
     { fn: () => poolManager.closeAll() },
-    { fn: () => db.$disconnect() },
+    { fn: () => disconnectDb() },
   ]);
 }
 

@@ -19,6 +19,7 @@ export class PoolManager {
   private cleanupInterval: ReturnType<typeof setInterval>;
 
   private onMissLoader: (() => Promise<SystemConfigEntry[]>) | undefined;
+  private reloadPromise: Promise<void> | null = null;
 
   constructor(systems: SystemConfigEntry[]) {
     for (const system of systems) {
@@ -38,15 +39,22 @@ export class PoolManager {
 
   /**
    * Replace the current system configs with a fresh set.
-   * Existing pools for systems that are no longer in the new set are closed.
+   * Existing pools for systems that are removed or whose config has changed
+   * are closed and will be recreated on next use.
    */
   async reloadSystems(systems: SystemConfigEntry[]): Promise<void> {
-    const newIds = new Set(systems.map((s) => s.id));
+    const previousConfigs = new Map(this.configs);
+    const newConfigMap = new Map(systems.map((s) => [s.id, s]));
 
-    // Close pools for removed systems
+    // Close pools for removed or changed systems
     for (const [id, entry] of this.pools) {
-      if (!newIds.has(id)) {
-        logger.info({ systemId: id }, 'Closing pool for removed system');
+      const oldConfig = previousConfigs.get(id);
+      const newConfig = newConfigMap.get(id);
+      const isRemoved = !newConfig;
+      const isChanged = !isRemoved && JSON.stringify(oldConfig) !== JSON.stringify(newConfig);
+
+      if (isRemoved || isChanged) {
+        logger.info({ systemId: id, removed: isRemoved, changed: isChanged }, 'Closing pool for updated system');
         entry.pool.close().catch(() => {});
         this.pools.delete(id);
       }
@@ -60,6 +68,25 @@ export class PoolManager {
     logger.info({ count: systems.length }, 'Systems config reloaded');
   }
 
+  /**
+   * Reload systems from the onMissLoader, deduplicating concurrent calls.
+   * Concurrent on-miss triggers coalesce onto the same in-flight promise
+   * so we only issue one DB read per reload cycle.
+   */
+  private triggerReload(): Promise<void> {
+    if (this.reloadPromise) return this.reloadPromise;
+    this.reloadPromise = this.doReload().finally(() => {
+      this.reloadPromise = null;
+    });
+    return this.reloadPromise;
+  }
+
+  private async doReload(): Promise<void> {
+    if (!this.onMissLoader) return;
+    const fresh = await this.onMissLoader();
+    await this.reloadSystems(fresh);
+  }
+
   async getPool(systemId: string): Promise<mssql.ConnectionPool> {
     const existing = this.pools.get(systemId);
     if (existing) {
@@ -71,11 +98,11 @@ export class PoolManager {
       this.pools.delete(systemId);
     }
 
-    // If system not in config cache, try reloading from DB
+    // If system not in config cache, try reloading from DB.
+    // triggerReload() deduplicates concurrent misses onto one in-flight reload.
     if (!this.configs.has(systemId) && this.onMissLoader) {
       logger.info({ systemId }, 'System not in cache, reloading from DB');
-      const fresh = await this.onMissLoader();
-      await this.reloadSystems(fresh);
+      await this.triggerReload();
     }
 
     return this.createPool(systemId);
