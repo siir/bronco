@@ -260,6 +260,35 @@ async function main() {
   await prisma.ticketRouteStep.createMany({ data: reanalysisRouteSteps.map(s => ({ ...s, routeId: reanalysisRouteId })) });
   console.log('Seeded re-analysis route:', reanalysisRoute.name);
 
+  // Seed default notification preferences (email enabled, Slack disabled)
+  const notificationEvents = [
+    'TICKET_CREATED',
+    'ANALYSIS_COMPLETE',
+    'SUFFICIENCY_CHANGED',
+    'USER_REPLIED',
+    'PLAN_READY',
+    'PLAN_APPROVED',
+    'PLAN_REJECTED',
+    'RESOLUTION_COMPLETE',
+    'SERVICE_HEALTH_ALERT',
+    'PROBE_ALERT',
+  ];
+  for (const event of notificationEvents) {
+    await prisma.notificationPreference.upsert({
+      where: { event },
+      update: {},
+      create: {
+        event,
+        emailEnabled: true,
+        slackEnabled: false,
+        slackTarget: null,
+        emailTarget: 'all_operators',
+        isActive: true,
+      },
+    });
+  }
+  console.log('Seeded notification preferences:', notificationEvents.length, 'events');
+
   // Seed prompt keywords ({{token}} placeholders used in AI prompts)
   await seedPromptKeywords(prisma);
 }

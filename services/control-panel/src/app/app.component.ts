@@ -121,6 +121,10 @@ const MOBILE_BREAKPOINT = '(max-width: 767px)';
               <mat-icon matListItemIcon>person</mat-icon>
               <span matListItemTitle>Profile</span>
             </a>
+            <a mat-list-item routerLink="/notification-preferences" routerLinkActive="active" (click)="onNavClick()">
+              <mat-icon matListItemIcon>notifications</mat-icon>
+              <span matListItemTitle>Notifications</span>
+            </a>
             <a mat-list-item routerLink="/system-settings" routerLinkActive="active" (click)="onNavClick()">
               <mat-icon matListItemIcon>tune</mat-icon>
               <span matListItemTitle>System Settings</span>
