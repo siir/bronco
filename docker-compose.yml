@@ -86,12 +86,6 @@ services:
       REDIS_URL: redis://redis:6379
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       POLL_INTERVAL_SECONDS: "60"
-      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_USER: ${SMTP_USER}
-      SMTP_PASSWORD: ${SMTP_PASSWORD}
-      SMTP_FROM: ${SMTP_FROM}
-      EMAIL_SENDER_NAME: ${EMAIL_SENDER_NAME:-Support Team}
       HEALTH_PORT: "3101"
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3101/health || exit 1"]
@@ -110,6 +104,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      mcp-database:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://bronco:${POSTGRES_PASSWORD_URLENCODED}@postgres:5432/bronco

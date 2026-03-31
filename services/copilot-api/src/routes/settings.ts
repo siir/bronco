@@ -709,20 +709,27 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
       : config.password as string;
 
     const { ImapFlow } = await import('imapflow');
+    const port = Number(config.port) || 993;
     const client = new ImapFlow({
       host: config.host as string,
-      port: config.port as number,
-      secure: true,
+      port,
+      secure: port === 993,
       auth: { user: config.user as string, pass: password },
       logger: false,
     });
 
+    let connected = false;
     try {
       await client.connect();
+      connected = true;
       const mailboxes = await client.list();
       await client.logout();
+      connected = false;
       return { success: true, message: `IMAP connected — ${mailboxes.length} folder(s) found` };
     } catch (err) {
+      if (connected) {
+        client.logout().catch(() => {});
+      }
       logger.error({ err }, 'IMAP test failed');
       return { success: false, error: err instanceof Error ? err.message : 'IMAP test failed' };
     }

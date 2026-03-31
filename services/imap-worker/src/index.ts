@@ -1,24 +1,14 @@
 import { getDb, disconnectDb } from '@bronco/db';
 import { createAIRouter } from '@bronco/ai-provider';
-import { createLogger, createQueue, createWorker, decrypt, looksEncrypted, AppLogger, createPrismaLogWriter, setGlobalLogWriter, createHealthServer, createGracefulShutdown } from '@bronco/shared-utils';
+import { createLogger, createQueue, createWorker, decrypt, looksEncrypted, AppLogger, createPrismaLogWriter, setGlobalLogWriter, createHealthServer, createGracefulShutdown, loadImapFromDb } from '@bronco/shared-utils';
 import type { IngestionJob } from '@bronco/shared-types';
 import { getConfig } from './config.js';
 import { pollEmails } from './poller.js';
 import { createEmailProcessor, initEmailProcessorLogger } from './processor.js';
 import type { EmailJob } from './processor.js';
 
-const SETTINGS_KEY_IMAP = 'system-config-imap';
-
 const logger = createLogger('imap-worker');
 const appLog = new AppLogger('imap-worker');
-
-interface ImapDbConfig {
-  host: string;
-  port: number;
-  user: string;
-  password: string;
-  pollIntervalSeconds?: number;
-}
 
 async function main(): Promise<void> {
   const config = getConfig();
@@ -52,28 +42,8 @@ async function main(): Promise<void> {
     appLog.error(`Email job failed: ${err.message}`, { err, jobId: job?.id, messageId: job?.data.messageId });
   });
 
-  // Read global IMAP config from DB (AppSetting table)
-  const loadGlobalImapConfig = async (): Promise<ImapDbConfig | null> => {
-    try {
-      const row = await db.appSetting.findUnique({ where: { key: SETTINGS_KEY_IMAP } });
-      if (!row) return null;
-      const cfg = row.value as Record<string, unknown>;
-      if (!cfg.host || !cfg.user || !cfg.password) return null;
-      const password = typeof cfg.password === 'string' && looksEncrypted(cfg.password)
-        ? decrypt(cfg.password, config.ENCRYPTION_KEY)
-        : cfg.password as string;
-      return {
-        host: cfg.host as string,
-        port: (cfg.port as number) ?? 993,
-        user: cfg.user as string,
-        password,
-        pollIntervalSeconds: cfg.pollIntervalSeconds as number | undefined,
-      };
-    } catch (err) {
-      appLog.error('Failed to load global IMAP config from DB', { err });
-      return null;
-    }
-  };
+  // Read global IMAP config from DB via shared loader (Zod-validated, decrypts password)
+  const loadGlobalImapConfig = () => loadImapFromDb(db, config.ENCRYPTION_KEY);
 
   // Health tracking state
   let lastPollAt: Date | undefined;
@@ -89,14 +59,14 @@ async function main(): Promise<void> {
   });
 
   // Poll a single IMAP mailbox and enqueue emails for processing.
-  const pollMailbox = async (imapConfig: { host: string; port: number; user: string; password: string }, label: string) => {
+  const pollMailbox = async (imapConfig: { host: string; port: number; user: string; password: string; secure?: boolean }, label: string) => {
     try {
       const emails = await pollEmails({
         host: imapConfig.host,
         port: imapConfig.port,
         user: imapConfig.user,
         password: imapConfig.password,
-        tls: true,
+        tls: imapConfig.secure ?? imapConfig.port === 993,
       });
 
       for (const email of emails) {
@@ -116,17 +86,14 @@ async function main(): Promise<void> {
   };
 
   // Polling loop: polls the global IMAP mailbox (from DB) + all active per-client IMAP integrations.
-  const poll = async () => {
+  // Accepts the pre-loaded global config to avoid a redundant DB read (schedulePoll loads it once).
+  const poll = async (globalImap: Awaited<ReturnType<typeof loadGlobalImapConfig>>) => {
     lastPollAt = new Date();
     pollCount++;
 
     // 1. Poll the global/default mailbox (from DB system settings)
-    const globalImap = await loadGlobalImapConfig();
     if (globalImap) {
-      await pollMailbox(
-        { host: globalImap.host, port: globalImap.port, user: globalImap.user, password: globalImap.password },
-        'global',
-      );
+      await pollMailbox(globalImap, 'global');
     }
 
     // 2. Poll per-client IMAP integrations from the database
@@ -152,8 +119,9 @@ async function main(): Promise<void> {
           }
         }
         if (rawCfg.host && rawCfg.user && password) {
+          const port = rawCfg.port ?? 993;
           await pollMailbox(
-            { host: rawCfg.host, port: rawCfg.port ?? 993, user: rawCfg.user, password },
+            { host: rawCfg.host, port, user: rawCfg.user, password, secure: port === 993 },
             `${integ.client.shortCode}/${integ.label}`,
           );
         }
@@ -176,10 +144,10 @@ async function main(): Promise<void> {
 
   const schedulePoll = async () => {
     if (stopped) return;
-    await poll();
-    if (stopped) return;
-    // Reload config to pick up any interval change saved since the last cycle.
+    // Load config once per cycle — used for both polling and interval scheduling.
     const currentDbConfig = await loadGlobalImapConfig();
+    await poll(currentDbConfig);
+    if (stopped) return;
     effectivePollInterval = currentDbConfig?.pollIntervalSeconds ?? config.POLL_INTERVAL_SECONDS;
     pollTimeout = setTimeout(schedulePoll, effectivePollInterval * 1000);
   };
