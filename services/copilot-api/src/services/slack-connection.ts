@@ -1,5 +1,8 @@
 import type { PrismaClient } from '@bronco/db';
+import type { Queue } from 'bullmq';
 import { SlackClient, createLogger, decrypt, looksEncrypted } from '@bronco/shared-utils';
+import { createBlockActionHandler, createThreadMessageHandler } from './slack-action-handler.js';
+import { evictStaleThreads } from './slack-thread-store.js';
 
 const logger = createLogger('slack-connection');
 
@@ -7,12 +10,19 @@ const SETTINGS_KEY_SLACK = 'system-config-slack';
 
 let activeClient: SlackClient | null = null;
 let defaultChannelId: string | null = null;
+let evictionInterval: ReturnType<typeof setInterval> | null = null;
 
 export interface SlackConfig {
   botToken: string;
   appToken: string;
   defaultChannelId: string;
   enabled: boolean;
+}
+
+/** Dependencies needed to register Slack interaction handlers. */
+export interface SlackInteractionDeps {
+  db: PrismaClient;
+  issueResolveQueue: Queue;
 }
 
 function decryptToken(value: string, encryptionKey: string): string | null {
@@ -43,9 +53,14 @@ async function loadSlackConfig(db: PrismaClient, encryptionKey: string): Promise
 
 /**
  * Initialize the Slack Socket Mode connection on copilot-api startup.
+ * When interactionDeps is provided, registers handlers for button clicks and threaded replies.
  * Returns the connected SlackClient (or null if Slack is not configured/enabled).
  */
-export async function initSlackConnection(db: PrismaClient, encryptionKey: string): Promise<SlackClient | null> {
+export async function initSlackConnection(
+  db: PrismaClient,
+  encryptionKey: string,
+  interactionDeps?: SlackInteractionDeps,
+): Promise<SlackClient | null> {
   const config = await loadSlackConfig(db, encryptionKey);
   if (!config) {
     logger.info('Slack not configured or disabled — skipping Socket Mode connection');
@@ -54,9 +69,24 @@ export async function initSlackConnection(db: PrismaClient, encryptionKey: strin
 
   try {
     const client = new SlackClient({ botToken: config.botToken, appToken: config.appToken });
+
+    // Register interaction handlers before connecting so no events are missed
+    if (interactionDeps) {
+      const deps = { db: interactionDeps.db, slack: client, issueResolveQueue: interactionDeps.issueResolveQueue };
+      client.onBlockAction(createBlockActionHandler(deps));
+      client.onThreadMessage(createThreadMessageHandler(deps));
+      logger.info('Slack interaction handlers registered');
+    }
+
     await client.connect();
     activeClient = client;
     defaultChannelId = config.defaultChannelId;
+
+    // Start periodic eviction of stale thread entries (every 6 hours)
+    if (!evictionInterval) {
+      evictionInterval = setInterval(() => evictStaleThreads(), 6 * 60 * 60 * 1000);
+    }
+
     logger.info('Slack Socket Mode connection established');
     return client;
   } catch (err) {
@@ -68,19 +98,33 @@ export async function initSlackConnection(db: PrismaClient, encryptionKey: strin
 /**
  * Reconnect Slack with updated config (called after PUT /api/settings/slack).
  */
-export async function reconnectSlack(db: PrismaClient, encryptionKey: string): Promise<SlackClient | null> {
+export async function reconnectSlack(
+  db: PrismaClient,
+  encryptionKey: string,
+  interactionDeps?: SlackInteractionDeps,
+): Promise<SlackClient | null> {
   if (activeClient) {
     await activeClient.disconnect();
     activeClient = null;
     defaultChannelId = null;
   }
-  return initSlackConnection(db, encryptionKey);
+  const client = await initSlackConnection(db, encryptionKey, interactionDeps);
+  // If Slack was reconfigured to disabled, clear the eviction interval
+  if (!client && evictionInterval) {
+    clearInterval(evictionInterval);
+    evictionInterval = null;
+  }
+  return client;
 }
 
 /**
  * Gracefully disconnect the Slack client (called on app shutdown).
  */
 export async function disconnectSlack(): Promise<void> {
+  if (evictionInterval) {
+    clearInterval(evictionInterval);
+    evictionInterval = null;
+  }
   if (activeClient) {
     await activeClient.disconnect();
     activeClient = null;

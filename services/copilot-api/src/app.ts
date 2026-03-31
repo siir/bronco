@@ -369,8 +369,11 @@ export async function buildApp(config: Config) {
     encryptionKey: config.ENCRYPTION_KEY,
   });
 
-  // Initialize Slack Socket Mode connection (non-blocking — logs warning on failure)
-  void initSlackConnection(app.db, config.ENCRYPTION_KEY);
+  // Initialize Slack Socket Mode connection with interaction handlers (non-blocking — logs warning on failure)
+  void initSlackConnection(app.db, config.ENCRYPTION_KEY, {
+    db: app.db,
+    issueResolveQueue,
+  });
 
   app.setErrorHandler((error: Error & { statusCode?: number }, request, reply) => {
     // Return clean 422 for non-routable AI provider errors instead of 500
