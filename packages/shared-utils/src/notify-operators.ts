@@ -162,19 +162,23 @@ async function dispatchWithPreference(
 
   // Slack dispatch
   if (pref.slackEnabled && opts.slack?.isConnected()) {
-    const slackTarget = pref.slackTarget ?? 'all_operators';
+    // null slackTarget means "Default Channel" in the UI — route to defaultSlackChannelId when
+    // available, and only fall back to 'all_operators' if no default channel is configured.
+    const slackTarget = pref.slackTarget ?? (opts.defaultSlackChannelId ? opts.defaultSlackChannelId : 'all_operators');
 
     try {
       if (slackTarget === 'assigned_operator') {
+        // Respect notifySlack opt-out: assigned operator must have both a slackUserId and notifySlack=true
         const assigned = opts.operatorId
-          ? operators.find(o => o.id === opts.operatorId && o.slackUserId)
+          ? operators.find(o => o.id === opts.operatorId && o.notifySlack && o.slackUserId)
           : null;
         if (assigned?.slackUserId) {
           await opts.slack.sendDM(assigned.slackUserId, slackText);
           logger.info({ slackUserId: assigned.slackUserId, event: opts.event }, 'Event-driven Slack DM sent to assigned operator');
         } else if (opts.defaultSlackChannelId) {
+          // Assigned operator is not Slack-eligible — fall back to default channel
           await opts.slack.sendMessage(opts.defaultSlackChannelId, slackText);
-          logger.info({ event: opts.event }, 'Assigned operator has no Slack ID — sent to default channel');
+          logger.info({ event: opts.event }, 'Assigned operator not eligible for Slack — sent to default channel');
         }
       } else if (slackTarget === 'all_operators') {
         for (const op of operators.filter(o => o.notifySlack)) {

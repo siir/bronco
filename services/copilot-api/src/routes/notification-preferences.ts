@@ -41,6 +41,7 @@ async function ensureDefaults(db: PrismaClient) {
         emailTarget: 'all_operators',
         isActive: true,
       })),
+      skipDuplicates: true,
     });
     return db.notificationPreference.findMany({ orderBy: { event: 'asc' } });
   }
