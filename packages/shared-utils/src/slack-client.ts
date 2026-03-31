@@ -205,11 +205,18 @@ export class SlackClient {
     if (event.bot_id || event.subtype) return;
 
     if (type === 'app_mention' && this.mentionHandler) {
+      const userId = event.user as string | undefined;
+      const channelId = event.channel as string | undefined;
+      const ts = event.ts as string | undefined;
+      if (!userId || !channelId || !ts) {
+        logger.warn({ type, userId, channelId, ts }, 'app_mention event missing required fields — skipping handler');
+        return;
+      }
       await this.mentionHandler({
-        userId: (event.user as string) ?? '',
-        channelId: (event.channel as string) ?? '',
+        userId,
+        channelId,
         text: (event.text as string) ?? '',
-        ts: (event.ts as string) ?? '',
+        ts,
       });
       return;
     }
@@ -232,11 +239,18 @@ export class SlackClient {
 
       // Top-level DM (no thread)
       if (channelType === 'im' && !threadTs && this.directMessageHandler) {
+        const userId = event.user as string | undefined;
+        const channelId = event.channel as string | undefined;
+        const ts = event.ts as string | undefined;
+        if (!userId || !channelId || !ts) {
+          logger.warn({ type, userId, channelId, ts }, 'DM event missing required fields — skipping handler');
+          return;
+        }
         await this.directMessageHandler({
-          userId: (event.user as string) ?? '',
-          channelId: (event.channel as string) ?? '',
+          userId,
+          channelId,
           text: (event.text as string) ?? '',
-          ts: (event.ts as string) ?? '',
+          ts,
         });
         return;
       }
