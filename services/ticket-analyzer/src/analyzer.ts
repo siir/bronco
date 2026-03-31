@@ -1597,7 +1597,7 @@ interface ResolvedRoute {
  * 2. Global route matching the ticket category
  * 3. AI-based selection using route summaries
  * 4. Default route (isDefault=true)
- * 5. null (fall back to hardcoded pipeline)
+ * 5. null (fall back to a synthetic default route matching the architecture flowchart)
  */
 async function resolveTicketRoute(
   deps: AnalyzerDeps,

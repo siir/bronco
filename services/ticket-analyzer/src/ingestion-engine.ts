@@ -1034,7 +1034,7 @@ export function createIngestionProcessor(deps: IngestionDeps) {
       const isEmail = source === TicketSource.EMAIL;
       const defaultSteps = [
         ...(isEmail ? [{ id: 'default-resolve-thread', stepOrder: 1, name: 'Resolve Thread', stepType: RouteStepType.RESOLVE_THREAD, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true }] : []),
-        { id: 'default-summarize', stepOrder: isEmail ? 2 : 1, name: 'Summarize', stepType: isEmail ? RouteStepType.SUMMARIZE_EMAIL : RouteStepType.SUMMARIZE_EMAIL, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
+        { id: 'default-summarize', stepOrder: isEmail ? 2 : 1, name: 'Summarize', stepType: RouteStepType.SUMMARIZE_EMAIL, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
         { id: 'default-categorize', stepOrder: isEmail ? 3 : 2, name: 'Categorize', stepType: RouteStepType.CATEGORIZE, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
         { id: 'default-triage', stepOrder: isEmail ? 4 : 3, name: 'Triage Priority', stepType: RouteStepType.TRIAGE_PRIORITY, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
         { id: 'default-title', stepOrder: isEmail ? 5 : 4, name: 'Generate Title', stepType: RouteStepType.GENERATE_TITLE, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
@@ -1042,7 +1042,7 @@ export function createIngestionProcessor(deps: IngestionDeps) {
         ...(isEmail ? [{ id: 'default-receipt', stepOrder: 7, name: 'Draft Receipt', stepType: RouteStepType.DRAFT_RECEIPT, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true }] : []),
       ];
       route = {
-        id: 'default-ingestion-fallback',
+        id: null,
         name: `Default ${isEmail ? 'Email' : source} Ingestion (fallback)`,
         description: 'Built-in default ingestion pipeline — configure a route in the control panel to customize.',
         routeType: 'INGESTION',
