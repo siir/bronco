@@ -65,6 +65,8 @@ export async function notifyOperators(
   }
 
   const notified: string[] = [];
+  const slackPromises: Promise<void>[] = [];
+
   for (const op of recipients) {
     // Email notification
     if (op.notifyEmail) {
@@ -77,24 +79,31 @@ export async function notifyOperators(
       }
     }
 
-    // Slack notification (non-blocking — never fail the overall notification)
+    // Slack notification — fire in parallel, never block overall delivery
     if (op.notifySlack && opts.slack?.isConnected()) {
       const slackText = `*${opts.subject}*\n${opts.body}`;
-      try {
-        if (op.slackUserId) {
-          await opts.slack.sendDM(op.slackUserId, slackText);
-          logger.info({ slackUserId: op.slackUserId }, 'Operator Slack DM sent');
-        } else if (opts.defaultSlackChannelId) {
-          await opts.slack.sendMessage(opts.defaultSlackChannelId, slackText);
-          logger.info({ channelId: opts.defaultSlackChannelId }, 'Operator Slack channel notification sent');
-        } else {
-          logger.warn({ operatorId: op.id }, 'Operator has notifySlack=true but no slackUserId and no default channel');
-        }
-      } catch (err) {
-        logger.warn({ err, operatorId: op.id }, 'Failed to send Slack notification (non-blocking)');
+      if (op.slackUserId) {
+        slackPromises.push(
+          opts.slack.sendDM(op.slackUserId, slackText).then(
+            () => { logger.info({ slackUserId: op.slackUserId }, 'Operator Slack DM sent'); },
+            (err) => { logger.warn({ err, operatorId: op.id }, 'Failed to send Slack DM (non-blocking)'); },
+          ),
+        );
+      } else if (opts.defaultSlackChannelId) {
+        slackPromises.push(
+          opts.slack.sendMessage(opts.defaultSlackChannelId, slackText).then(
+            () => { logger.info({ channelId: opts.defaultSlackChannelId }, 'Operator Slack channel notification sent'); },
+            (err) => { logger.warn({ err, operatorId: op.id }, 'Failed to send Slack channel message (non-blocking)'); },
+          ),
+        );
+      } else {
+        logger.warn({ operatorId: op.id }, 'Operator has notifySlack=true but no slackUserId and no default channel');
       }
     }
   }
+
+  // Wait for all Slack sends concurrently — allSettled ensures failures don't throw
+  await Promise.allSettled(slackPromises);
 
   return notified;
 }

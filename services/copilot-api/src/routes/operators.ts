@@ -57,13 +57,15 @@ export async function operatorRoutes(fastify: FastifyInstance): Promise<void> {
       return reply.code(409).send({ error: 'An operator with this email already exists' });
     }
 
+    const trimmedSlackUserId = slackUserId !== undefined ? (slackUserId.trim() || null) : undefined;
+
     const operator = await fastify.db.operator.create({
       data: {
         email,
         name: name.trim(),
         ...(notifyEmail !== undefined && { notifyEmail }),
         ...(notifySlack !== undefined && { notifySlack }),
-        ...(slackUserId !== undefined && { slackUserId: slackUserId || null }),
+        ...(trimmedSlackUserId !== undefined && { slackUserId: trimmedSlackUserId }),
       },
     });
 
@@ -101,6 +103,8 @@ export async function operatorRoutes(fastify: FastifyInstance): Promise<void> {
       }
     }
 
+    const trimmedSlackUserId = slackUserId !== undefined ? (typeof slackUserId === 'string' ? (slackUserId.trim() || null) : null) : undefined;
+
     const updated = await fastify.db.operator.update({
       where: { id },
       data: {
@@ -109,7 +113,7 @@ export async function operatorRoutes(fastify: FastifyInstance): Promise<void> {
         ...(isActive !== undefined && { isActive }),
         ...(notifyEmail !== undefined && { notifyEmail }),
         ...(notifySlack !== undefined && { notifySlack }),
-        ...(slackUserId !== undefined && { slackUserId: slackUserId || null }),
+        ...(trimmedSlackUserId !== undefined && { slackUserId: trimmedSlackUserId }),
       },
     });
 
