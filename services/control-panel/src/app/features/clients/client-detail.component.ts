@@ -970,6 +970,7 @@ export class ClientDetailComponent implements OnInit {
       case 'IMAP': return 'email';
       case 'AZURE_DEVOPS': return 'developer_board';
       case 'MCP_DATABASE': return 'dns';
+      case 'SLACK': return 'chat';
       default: return 'extension';
     }
   }

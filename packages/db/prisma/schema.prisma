@@ -200,15 +200,16 @@ model ClientAiCredential {
 }
 
 model Contact {
-  id        String   @id @default(uuid()) @db.Uuid
-  clientId  String   @map("client_id") @db.Uuid
-  name      String
-  email     String
-  phone     String?
-  role      String?
-  isPrimary Boolean  @default(false) @map("is_primary")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id          String   @id @default(uuid()) @db.Uuid
+  clientId    String   @map("client_id") @db.Uuid
+  name        String
+  email       String
+  phone       String?
+  role        String?
+  slackUserId String?  @map("slack_user_id")
+  isPrimary   Boolean  @default(false) @map("is_primary")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
   client           Client           @relation(fields: [clientId], references: [id])
   ticketFollowers  TicketFollower[]
@@ -943,6 +944,7 @@ enum TicketSource {
   AZURE_DEVOPS
   AI_DETECTED
   SCHEDULED
+  SLACK
 
   @@map("ticket_source")
 }
@@ -959,6 +961,8 @@ enum TicketEventType {
   EMAIL_OUTBOUND
   DEVOPS_INBOUND
   DEVOPS_OUTBOUND
+  SLACK_INBOUND
+  SLACK_OUTBOUND
   PLAN_PROPOSED
   PLAN_APPROVED
   PLAN_REJECTED
@@ -1020,6 +1024,7 @@ enum IntegrationType {
   IMAP
   AZURE_DEVOPS
   MCP_DATABASE
+  SLACK
 
   @@map("integration_type")
 }

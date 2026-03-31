@@ -39,8 +39,8 @@ export type BlockActionHandler = (action: SlackBlockAction) => Promise<void>;
 export type ThreadMessageHandler = (message: SlackThreadMessage) => Promise<void>;
 
 export class SlackClient {
-  private web: WebClient;
-  private socket: SocketModeClient;
+  readonly web: WebClient;
+  readonly socket: SocketModeClient;
   private connected = false;
   private blockActionHandler: BlockActionHandler | null = null;
   private threadMessageHandler: ThreadMessageHandler | null = null;

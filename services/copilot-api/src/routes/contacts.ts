@@ -42,6 +42,7 @@ export async function contactRoutes(fastify: FastifyInstance): Promise<void> {
       email: string;
       phone?: string;
       role?: string;
+      slackUserId?: string;
       isPrimary?: boolean;
     };
   }>('/api/contacts', async (request, reply) => {
@@ -63,6 +64,7 @@ export async function contactRoutes(fastify: FastifyInstance): Promise<void> {
       email?: string;
       phone?: string;
       role?: string;
+      slackUserId?: string | null;
       isPrimary?: boolean;
     };
   }>('/api/contacts/:id', async (request) => {

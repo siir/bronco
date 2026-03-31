@@ -29,6 +29,7 @@ interface DialogData {
           <mat-option value="IMAP">IMAP (Email)</mat-option>
           <mat-option value="AZURE_DEVOPS">Azure DevOps</mat-option>
           <mat-option value="MCP_DATABASE">MCP Database</mat-option>
+          <mat-option value="SLACK">Slack</mat-option>
         </mat-select>
       </mat-form-field>
 
@@ -158,6 +159,29 @@ interface DialogData {
         }
       }
 
+      @if (type === 'SLACK') {
+        <mat-form-field class="full-width">
+          <mat-label>Bot Token</mat-label>
+          <input matInput type="password" [(ngModel)]="slack.encryptedBotToken" [placeholder]="editing ? '(unchanged)' : 'xoxb-...'">
+          @if (editing) {
+            <mat-hint>Leave blank to keep existing token</mat-hint>
+          }
+        </mat-form-field>
+        <mat-form-field class="full-width">
+          <mat-label>App-Level Token</mat-label>
+          <input matInput type="password" [(ngModel)]="slack.encryptedAppToken" [placeholder]="editing ? '(unchanged)' : 'xapp-...'">
+          @if (editing) {
+            <mat-hint>Leave blank to keep existing token</mat-hint>
+          }
+        </mat-form-field>
+        <mat-form-field class="full-width">
+          <mat-label>Default Channel ID</mat-label>
+          <input matInput [(ngModel)]="slack.defaultChannelId" placeholder="C0123456789">
+          <mat-hint>Channel where ticket updates are posted</mat-hint>
+        </mat-form-field>
+        <mat-slide-toggle [(ngModel)]="slack.enabled">{{ slack.enabled ? 'Enabled' : 'Disabled' }}</mat-slide-toggle>
+      }
+
       <mat-form-field class="full-width">
         <mat-label>Notes</mat-label>
         <textarea matInput [(ngModel)]="notes" rows="2"></textarea>
@@ -200,6 +224,7 @@ export class IntegrationDialogComponent implements OnInit {
   imap = { host: 'imap.gmail.com', port: 993, user: '', encryptedPassword: '', pollIntervalSeconds: 60 };
   azdo = { orgUrl: '', project: '', encryptedPat: '', assignedUser: '', pollIntervalSeconds: 120 };
   mcp: { url: string; healthPath: string | null; mcpPath: string; apiKey: string; authHeader: string } = { url: '', healthPath: '', mcpPath: '', apiKey: '', authHeader: 'bearer' };
+  slack = { encryptedBotToken: '', encryptedAppToken: '', defaultChannelId: '', enabled: true };
   showAdvanced = false;
   discoveredTools: Array<{ name: string; description: string }> = [];
   disabledTools = new Set<string>();
@@ -211,6 +236,7 @@ export class IntegrationDialogComponent implements OnInit {
     IMAP: ['encryptedPassword'],
     AZURE_DEVOPS: ['encryptedPat'],
     MCP_DATABASE: ['apiKey'],
+    SLACK: ['encryptedBotToken', 'encryptedAppToken'],
   };
 
   ngOnInit(): void {
@@ -253,6 +279,9 @@ export class IntegrationDialogComponent implements OnInit {
             this.disabledTools = new Set(integ.config['disabledTools'] as string[]);
           }
           break;
+        case 'SLACK':
+          Object.assign(this.slack, config);
+          break;
       }
     }
   }
@@ -262,6 +291,7 @@ export class IntegrationDialogComponent implements OnInit {
     this.imap = { host: 'imap.gmail.com', port: 993, user: '', encryptedPassword: '', pollIntervalSeconds: 60 };
     this.azdo = { orgUrl: '', project: '', encryptedPat: '', assignedUser: '', pollIntervalSeconds: 120 };
     this.mcp = { url: '', healthPath: '', mcpPath: '', apiKey: '', authHeader: 'bearer' };
+    this.slack = { encryptedBotToken: '', encryptedAppToken: '', defaultChannelId: '', enabled: true };
     this.showAdvanced = false;
     this.discoveredTools = [];
     this.disabledTools = new Set();
@@ -295,6 +325,9 @@ export class IntegrationDialogComponent implements OnInit {
         break;
       case 'MCP_DATABASE':
         config = { ...this.mcp };
+        break;
+      case 'SLACK':
+        config = { ...this.slack };
         break;
     }
 

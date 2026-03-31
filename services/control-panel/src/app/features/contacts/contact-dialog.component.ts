@@ -36,6 +36,11 @@ export interface ContactDialogData {
         <mat-label>Role</mat-label>
         <input matInput [(ngModel)]="form.role" placeholder="e.g. DBA, Developer, Manager">
       </mat-form-field>
+      <mat-form-field class="full-width">
+        <mat-label>Slack User ID</mat-label>
+        <input matInput [(ngModel)]="form.slackUserId" placeholder="U0123456789">
+        <mat-hint>Used to link Slack messages to this contact</mat-hint>
+      </mat-form-field>
       <mat-checkbox [(ngModel)]="form.isPrimary">Primary contact</mat-checkbox>
     </mat-dialog-content>
     <mat-dialog-actions align="end">
@@ -52,7 +57,7 @@ export class ContactDialogComponent implements OnInit {
   private snackBar = inject(MatSnackBar);
 
   isEdit = false;
-  form = { name: '', email: '', phone: '', role: '', isPrimary: false };
+  form = { name: '', email: '', phone: '', role: '', slackUserId: '', isPrimary: false };
 
   ngOnInit(): void {
     if (this.data.contact) {
@@ -62,6 +67,7 @@ export class ContactDialogComponent implements OnInit {
         email: this.data.contact.email,
         phone: this.data.contact.phone ?? '',
         role: this.data.contact.role ?? '',
+        slackUserId: this.data.contact.slackUserId ?? '',
         isPrimary: this.data.contact.isPrimary,
       };
     }
@@ -74,6 +80,7 @@ export class ContactDialogComponent implements OnInit {
         email: this.form.email,
         phone: this.form.phone === '' ? null : this.form.phone,
         role: this.form.role === '' ? null : this.form.role,
+        slackUserId: this.form.slackUserId === '' ? null : this.form.slackUserId,
         isPrimary: this.form.isPrimary,
       }).subscribe({
         next: () => {
@@ -89,6 +96,7 @@ export class ContactDialogComponent implements OnInit {
         email: this.form.email,
         phone: this.form.phone || undefined,
         role: this.form.role || undefined,
+        slackUserId: this.form.slackUserId || undefined,
         isPrimary: this.form.isPrimary,
       }).subscribe({
         next: () => {

@@ -233,6 +233,36 @@ async function main() {
   await prisma.ticketRouteStep.createMany({ data: manualRouteSteps.map(s => ({ ...s, routeId: manualRouteId })) });
   console.log('Seeded Manual ingestion route:', manualRoute.name);
 
+  // Seed default SLACK ingestion route
+  const slackRouteId = '00000000-0000-0000-0000-000000000014';
+  const slackRouteSteps = [
+    { stepOrder: 1, name: 'Categorize', stepType: 'CATEGORIZE', isActive: true },
+    { stepOrder: 2, name: 'Triage Priority', stepType: 'TRIAGE_PRIORITY', isActive: true },
+    { stepOrder: 3, name: 'Generate Title', stepType: 'GENERATE_TITLE', isActive: true },
+    { stepOrder: 4, name: 'Create Ticket', stepType: 'CREATE_TICKET', isActive: true },
+  ];
+  const slackRoute = await prisma.ticketRoute.upsert({
+    where: { id: slackRouteId },
+    update: {
+      name: 'Default Slack Ingestion',
+      description: 'Categorizes, triages, generates title, and creates ticket from Slack messages.',
+    },
+    create: {
+      id: slackRouteId,
+      name: 'Default Slack Ingestion',
+      description: 'Categorizes, triages, generates title, and creates ticket from Slack messages.',
+      routeType: 'INGESTION',
+      source: 'SLACK',
+      isActive: true,
+      isDefault: true,
+      sortOrder: 103,
+      steps: { createMany: { data: slackRouteSteps } },
+    },
+  });
+  await prisma.ticketRouteStep.deleteMany({ where: { routeId: slackRouteId } });
+  await prisma.ticketRouteStep.createMany({ data: slackRouteSteps.map(s => ({ ...s, routeId: slackRouteId })) });
+  console.log('Seeded Slack ingestion route:', slackRoute.name);
+
   // Seed default re-analysis route (used for incremental update after user reply)
   const reanalysisRouteId = '00000000-0000-0000-0000-000000000013';
   const reanalysisRouteSteps = [
