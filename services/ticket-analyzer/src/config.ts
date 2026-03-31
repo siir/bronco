@@ -12,8 +12,8 @@ const configSchema = z.object({
   SMTP_PASSWORD: z.string().optional().default(''),
   SMTP_FROM: z.string().optional().default(''),
   EMAIL_SENDER_NAME: z.string().optional().default('Support Team'),
-  // MCP database server (optional — for DB issue analysis)
-  MCP_DATABASE_URL: z.string().url().optional(),
+  // MCP database server (defaults to internal mcp-database service for DB issue analysis)
+  MCP_DATABASE_URL: z.string().url().optional().default('http://mcp-database:3100'),
   // Artifact storage is opt-in — only activated when explicitly set
   ARTIFACT_STORAGE_PATH: z.string().optional(),
   REPO_WORKSPACE_PATH: z.string().default('/tmp/bronco-repos'),

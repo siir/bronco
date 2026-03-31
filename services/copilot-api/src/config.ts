@@ -18,6 +18,7 @@ const configSchema = z.object({
   STATUS_MONITOR_HEALTH_URL: z.string().url().optional().default('http://status-monitor:3105'),
   TICKET_ANALYZER_HEALTH_URL: z.string().url().optional().default('http://ticket-analyzer:3106'),
   PROBE_WORKER_HEALTH_URL: z.string().url().optional().default('http://probe-worker:3107'),
+  MCP_DATABASE_HEALTH_URL: z.string().url().optional().default('http://mcp-database:3100'),
   // Invoice storage
   INVOICE_STORAGE_PATH: z.string().default('/var/lib/copilot-api/invoices'),
   // GitHub (optional — required for manual release notes backfill)

@@ -49,9 +49,10 @@ jobs:
             [issue-resolver]="services/issue-resolver/Dockerfile"
             [status-monitor]="services/status-monitor/Dockerfile"
             [control-panel]="services/control-panel/Dockerfile"
+            [mcp-database]="mcp-servers/database/Dockerfile"
           )
 
-          ALL_SERVICES=(copilot-api imap-worker ticket-analyzer probe-worker devops-worker issue-resolver status-monitor control-panel)
+          ALL_SERVICES=(copilot-api imap-worker ticket-analyzer probe-worker devops-worker issue-resolver status-monitor control-panel mcp-database)
 
           # ai-provider dependents (not all services)
           AI_PROVIDER_DEPENDENTS=(copilot-api imap-worker ticket-analyzer probe-worker issue-resolver devops-worker)
@@ -168,6 +169,12 @@ jobs:
               services/ticket-portal/*)
                 # ticket-portal is built as a stage in control-panel Dockerfile
                 AFFECTED[control-panel]=1
+                ;;
+              mcp-servers/*)
+                svc_name="mcp-database"
+                if [ -n "${DOCKERFILES[$svc_name]+x}" ]; then
+                  AFFECTED[$svc_name]=1
+                fi
                 ;;
               services/*/*)
                 # Extract service name from path: services/<name>/...
