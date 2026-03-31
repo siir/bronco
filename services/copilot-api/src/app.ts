@@ -22,6 +22,7 @@ import { discoverMcpServer } from './services/mcp-discovery.js';
 import { refreshModelCatalog } from './services/model-catalog-refresher.js';
 import { startOperationalAlertChecker, stopOperationalAlertChecker } from './services/operational-alerts.js';
 import { initSlackConnection, disconnectSlack } from './services/slack-connection.js';
+import { ClientSlackManager } from './services/client-slack-manager.js';
 
 const logger = createLogger('copilot-api');
 export const appLog = new AppLogger('copilot-api');
@@ -70,7 +71,11 @@ export async function buildApp(config: Config) {
   });
 
   await app.register(authPlugin, { apiKey: config.API_KEY, jwtSecret: config.JWT_SECRET, portalJwtSecret: config.PORTAL_JWT_SECRET });
-  await registerRoutes(app, { config, issueResolveQueue, logSummarizeQueue, systemAnalysisQueue, mcpDiscoveryQueue, probeQueue, ticketCreatedQueue, ingestQueue, queueMap, ai, clientMemoryResolver, modelConfigResolver, providerConfigResolver });
+
+  // Client Slack manager — manages per-client Slack workspace connections
+  const clientSlackManager = new ClientSlackManager(app.db, config.ENCRYPTION_KEY, ingestQueue);
+
+  await registerRoutes(app, { config, issueResolveQueue, logSummarizeQueue, systemAnalysisQueue, mcpDiscoveryQueue, probeQueue, ticketCreatedQueue, ingestQueue, queueMap, ai, clientMemoryResolver, modelConfigResolver, providerConfigResolver, onSlackIntegrationChange: () => void clientSlackManager.refreshConnections() });
 
   // Wire up database log writer after Prisma is ready
   const logWriter = createPrismaLogWriter(app.db);
@@ -372,6 +377,9 @@ export async function buildApp(config: Config) {
   // Initialize Slack Socket Mode connection (non-blocking — logs warning on failure)
   void initSlackConnection(app.db, config.ENCRYPTION_KEY);
 
+  // Initialize per-client Slack connections (non-blocking)
+  void clientSlackManager.refreshConnections();
+
   app.setErrorHandler((error: Error & { statusCode?: number }, request, reply) => {
     // Return clean 422 for non-routable AI provider errors instead of 500
     if (error instanceof NoProviderImplementationError) {
@@ -408,6 +416,7 @@ export async function buildApp(config: Config) {
   app.addHook('onClose', async () => {
     clearInterval(autoInvoiceInterval);
     stopOperationalAlertChecker();
+    await clientSlackManager.disconnectAll();
     await disconnectSlack();
     await logSummarizeWorker.close();
     await logSummarizeQueue.close();

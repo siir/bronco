@@ -2,6 +2,7 @@ export const IntegrationType = {
   IMAP: 'IMAP',
   AZURE_DEVOPS: 'AZURE_DEVOPS',
   MCP_DATABASE: 'MCP_DATABASE',
+  SLACK: 'SLACK',
 } as const;
 export type IntegrationType = (typeof IntegrationType)[keyof typeof IntegrationType];
 
@@ -26,10 +27,18 @@ export interface McpDatabaseIntegrationConfig {
   disabledTools?: string[];
 }
 
+export interface SlackIntegrationConfig {
+  encryptedBotToken: string;
+  encryptedAppToken: string;
+  defaultChannelId: string;
+  enabled: boolean;
+}
+
 export type IntegrationConfig =
   | ImapIntegrationConfig
   | AzureDevOpsIntegrationConfig
-  | McpDatabaseIntegrationConfig;
+  | McpDatabaseIntegrationConfig
+  | SlackIntegrationConfig;
 
 export interface ClientIntegration {
   id: string;

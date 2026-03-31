@@ -29,6 +29,7 @@ export interface Contact {
   email: string;
   phone: string | null;
   role: string | null;
+  slackUserId: string | null;
   isPrimary: boolean;
   createdAt: string;
   updatedAt: string;

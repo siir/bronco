@@ -47,10 +47,18 @@ const mcpDatabaseConfigSchema = z.object({
   disabledTools: z.array(z.string()).optional(),
 }).passthrough();
 
+const slackConfigSchema = z.object({
+  encryptedBotToken: z.string().min(1),
+  encryptedAppToken: z.string().min(1),
+  defaultChannelId: z.string().min(1),
+  enabled: z.boolean(),
+}).passthrough();
+
 const configSchemaByType: Record<string, z.ZodType> = {
   [IntegrationType.IMAP]: imapConfigSchema,
   [IntegrationType.AZURE_DEVOPS]: azureDevOpsConfigSchema,
   [IntegrationType.MCP_DATABASE]: mcpDatabaseConfigSchema,
+  [IntegrationType.SLACK]: slackConfigSchema,
 };
 
 function validateIntegrationConfig(type: string, config: unknown): string | null {
@@ -72,6 +80,7 @@ const SECRET_FIELDS: Record<string, string[]> = {
   [IntegrationType.IMAP]: ['encryptedPassword'],
   [IntegrationType.AZURE_DEVOPS]: ['encryptedPat'],
   [IntegrationType.MCP_DATABASE]: ['apiKey'],
+  [IntegrationType.SLACK]: ['encryptedBotToken', 'encryptedAppToken'],
 };
 
 function encryptConfigSecrets(
@@ -95,10 +104,11 @@ function encryptConfigSecrets(
 interface IntegrationRouteOpts {
   encryptionKey: string;
   mcpDiscoveryQueue: Queue;
+  onSlackIntegrationChange?: () => void;
 }
 
 export async function integrationRoutes(fastify: FastifyInstance, opts: IntegrationRouteOpts): Promise<void> {
-  const { encryptionKey, mcpDiscoveryQueue } = opts;
+  const { encryptionKey, mcpDiscoveryQueue, onSlackIntegrationChange } = opts;
   fastify.get<{ Querystring: { clientId?: string; type?: string } }>(
     '/api/integrations',
     async (request) => {
@@ -170,6 +180,10 @@ export async function integrationRoutes(fastify: FastifyInstance, opts: Integrat
       if (request.body.type === IntegrationType.MCP_DATABASE) {
         await mcpDiscoveryQueue.add('discover', { integrationId: integration.id });
       }
+      // Refresh client Slack connections when a SLACK integration is created
+      if (request.body.type === IntegrationType.SLACK) {
+        onSlackIntegrationChange?.();
+      }
       reply.code(201);
       return integration;
     } catch (err) {
@@ -236,6 +250,10 @@ export async function integrationRoutes(fastify: FastifyInstance, opts: Integrat
       if (existingType === IntegrationType.MCP_DATABASE && request.body.config !== undefined) {
         await mcpDiscoveryQueue.add('discover', { integrationId: updated.id });
       }
+      // Refresh client Slack connections when a SLACK integration is updated
+      if (existingType === IntegrationType.SLACK) {
+        onSlackIntegrationChange?.();
+      }
       return updated;
     } catch (err) {
       if (isPrismaError(err, 'P2025')) {
@@ -266,9 +284,14 @@ export async function integrationRoutes(fastify: FastifyInstance, opts: Integrat
 
   fastify.delete<{ Params: { id: string } }>('/api/integrations/:id', async (request, reply) => {
     try {
-      await fastify.db.clientIntegration.delete({
+      const deleted = await fastify.db.clientIntegration.delete({
         where: { id: request.params.id },
+        select: { type: true },
       });
+      // Refresh client Slack connections when a SLACK integration is deleted
+      if (deleted.type === IntegrationType.SLACK) {
+        onSlackIntegrationChange?.();
+      }
       reply.code(204);
     } catch (err) {
       if (isPrismaError(err, 'P2025')) {

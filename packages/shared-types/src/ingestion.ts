@@ -87,3 +87,14 @@ export interface PortalIngestionPayload {
   /** Contact ID resolved from the portal user's email. */
   contactId?: string;
 }
+
+/** Slack message payload submitted by client-slack-manager. */
+export interface SlackIngestionPayload {
+  slackUserId: string;
+  slackUsername: string;
+  slackChannelId: string;
+  slackThreadTs?: string;
+  text: string;
+  contactId?: string;
+  integrationId: string;
+}

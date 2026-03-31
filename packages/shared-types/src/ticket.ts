@@ -21,6 +21,7 @@ export const TicketSource = {
   AZURE_DEVOPS: 'AZURE_DEVOPS',
   AI_DETECTED: 'AI_DETECTED',
   SCHEDULED: 'SCHEDULED',
+  SLACK: 'SLACK',
 } as const;
 export type TicketSource = (typeof TicketSource)[keyof typeof TicketSource];
 
@@ -47,6 +48,8 @@ export const TicketEventType = {
   EMAIL_OUTBOUND: 'EMAIL_OUTBOUND',
   DEVOPS_INBOUND: 'DEVOPS_INBOUND',
   DEVOPS_OUTBOUND: 'DEVOPS_OUTBOUND',
+  SLACK_INBOUND: 'SLACK_INBOUND',
+  SLACK_OUTBOUND: 'SLACK_OUTBOUND',
   PLAN_PROPOSED: 'PLAN_PROPOSED',
   PLAN_APPROVED: 'PLAN_APPROVED',
   PLAN_REJECTED: 'PLAN_REJECTED',

@@ -62,6 +62,7 @@ interface RouteOpts {
   clientMemoryResolver: ClientMemoryResolver;
   modelConfigResolver: ModelConfigResolver;
   providerConfigResolver: ProviderConfigResolver;
+  onSlackIntegrationChange?: () => void;
 }
 
 export async function registerRoutes(fastify: FastifyInstance, opts: RouteOpts): Promise<void> {
@@ -89,7 +90,7 @@ export async function registerRoutes(fastify: FastifyInstance, opts: RouteOpts):
     await scoped.register(artifactRoutes, { config: opts.config });
     await scoped.register(repoRoutes);
     await scoped.register(issueJobRoutes, { issueResolveQueue: opts.issueResolveQueue });
-    await scoped.register(integrationRoutes, { encryptionKey: opts.config.ENCRYPTION_KEY, mcpDiscoveryQueue: opts.mcpDiscoveryQueue });
+    await scoped.register(integrationRoutes, { encryptionKey: opts.config.ENCRYPTION_KEY, mcpDiscoveryQueue: opts.mcpDiscoveryQueue, onSlackIntegrationChange: opts.onSlackIntegrationChange });
     await scoped.register(externalServiceRoutes);
     await scoped.register(logRoutes);
     await scoped.register(logSummaryRoutes, { ai: opts.ai });

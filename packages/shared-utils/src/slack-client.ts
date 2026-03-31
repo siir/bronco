@@ -10,8 +10,8 @@ export interface SlackClientOpts {
 }
 
 export class SlackClient {
-  private web: WebClient;
-  private socket: SocketModeClient;
+  readonly web: WebClient;
+  readonly socket: SocketModeClient;
   private connected = false;
 
   constructor(opts: SlackClientOpts) {
@@ -55,16 +55,33 @@ export class SlackClient {
     return this.connected;
   }
 
-  async sendMessage(channelId: string, text: string, blocks?: unknown[]): Promise<void> {
+  async sendMessage(channelId: string, text: string, blocks?: unknown[]): Promise<string | undefined> {
     try {
-      await this.web.chat.postMessage({
+      const result = await this.web.chat.postMessage({
         channel: channelId,
         text,
         ...(blocks && { blocks }),
       });
       logger.info({ channelId }, 'Slack message sent to channel');
+      return result.ts;
     } catch (err) {
       logger.error({ err, channelId }, 'Failed to send Slack message');
+      throw err;
+    }
+  }
+
+  async sendMessageInThread(channelId: string, threadTs: string, text: string, blocks?: unknown[]): Promise<string | undefined> {
+    try {
+      const result = await this.web.chat.postMessage({
+        channel: channelId,
+        thread_ts: threadTs,
+        text,
+        ...(blocks && { blocks }),
+      });
+      logger.info({ channelId, threadTs }, 'Slack threaded message sent');
+      return result.ts;
+    } catch (err) {
+      logger.error({ err, channelId, threadTs }, 'Failed to send threaded Slack message');
       throw err;
     }
   }
