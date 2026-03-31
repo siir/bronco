@@ -1,5 +1,6 @@
 import { createLogger } from './logger.js';
 import type { Mailer } from './mailer.js';
+import type { SlackMessageResult } from './slack-client.js';
 
 const logger = createLogger('notify-operators');
 
@@ -13,8 +14,10 @@ export interface OperatorRecord {
 }
 
 export interface SlackSender {
-  sendDM(slackUserId: string, text: string): Promise<void>;
-  sendMessage(channelId: string, text: string): Promise<void>;
+  sendDM(slackUserId: string, text: string, blocks?: unknown[]): Promise<void>;
+  sendDMWithTs?(slackUserId: string, text: string, blocks?: unknown[]): Promise<SlackMessageResult>;
+  sendMessage(channelId: string, text: string, blocks?: unknown[]): Promise<void>;
+  sendMessageWithTs?(channelId: string, text: string, blocks?: unknown[]): Promise<SlackMessageResult>;
   isConnected(): boolean;
 }
 
@@ -38,10 +41,22 @@ export interface NotifyOperatorsOpts {
   slack?: SlackSender;
   /** Default Slack channel ID (from System Settings) for operators without a slackUserId. */
   defaultSlackChannelId?: string;
+  /** Optional Block Kit blocks for rich Slack messages. */
+  slackBlocks?: unknown[];
   /** Notification event type — when provided, looks up preferences to control dispatch. */
   event?: string;
   /** Function to load the notification preference for the given event. */
   getPreference?: (event: string) => Promise<NotificationPreference | null>;
+  /** When true, return a NotifyOperatorsResult instead of string[]. */
+  returnResult?: boolean;
+}
+
+/** Result of a notification run, including Slack message metadata for thread tracking. */
+export interface NotifyOperatorsResult {
+  /** Email addresses that received notifications. */
+  emailRecipients: string[];
+  /** Slack message metadata for each successfully sent Slack message. */
+  slackMessages: Array<SlackMessageResult & { operatorId?: string }>;
 }
 
 /**
@@ -56,7 +71,17 @@ export async function notifyOperators(
   mailer: Mailer,
   getActiveOperators: () => Promise<OperatorRecord[]>,
   opts: NotifyOperatorsOpts,
-): Promise<string[]> {
+): Promise<string[]>;
+export async function notifyOperators(
+  mailer: Mailer,
+  getActiveOperators: () => Promise<OperatorRecord[]>,
+  opts: NotifyOperatorsOpts & { returnResult: true },
+): Promise<NotifyOperatorsResult>;
+export async function notifyOperators(
+  mailer: Mailer,
+  getActiveOperators: () => Promise<OperatorRecord[]>,
+  opts: NotifyOperatorsOpts & { returnResult?: boolean },
+): Promise<string[] | NotifyOperatorsResult> {
   const operators = await getActiveOperators();
 
   // Try event-driven dispatch
@@ -76,7 +101,7 @@ async function legacyDispatch(
   mailer: Mailer,
   operators: OperatorRecord[],
   opts: NotifyOperatorsOpts,
-): Promise<string[]> {
+): Promise<string[] | NotifyOperatorsResult> {
   let recipients: OperatorRecord[];
 
   if (opts.operatorId) {
@@ -88,17 +113,17 @@ async function legacyDispatch(
 
   if (recipients.length === 0) {
     logger.warn('No operators to notify — either none are active or none have notifications enabled');
-    return [];
+    return opts.returnResult ? { emailRecipients: [], slackMessages: [] } : [];
   }
 
-  const notified: string[] = [];
-  const slackPromises: Promise<void>[] = [];
+  const emailRecipients: string[] = [];
+  const slackMessages: Array<SlackMessageResult & { operatorId?: string }> = [];
 
   for (const op of recipients) {
     if (op.notifyEmail) {
       try {
         await mailer.send({ to: op.email, subject: opts.subject, body: opts.body });
-        notified.push(op.email);
+        emailRecipients.push(op.email);
         logger.info({ to: op.email, subject: opts.subject }, 'Operator email notification sent');
       } catch (err) {
         logger.error({ err, to: op.email }, 'Failed to send operator email notification');
@@ -108,30 +133,37 @@ async function legacyDispatch(
     // Slack notification — fire in parallel, never block overall delivery
     if (op.notifySlack && opts.slack?.isConnected()) {
       const slackText = `*${opts.subject}*\n${opts.body}`;
-      if (op.slackUserId) {
-        slackPromises.push(
-          opts.slack.sendDM(op.slackUserId, slackText).then(
-            () => { logger.info({ slackUserId: op.slackUserId }, 'Operator Slack DM sent'); },
-            (err) => { logger.warn({ err, operatorId: op.id }, 'Failed to send Slack DM (non-blocking)'); },
-          ),
-        );
-      } else if (opts.defaultSlackChannelId) {
-        slackPromises.push(
-          opts.slack.sendMessage(opts.defaultSlackChannelId, slackText).then(
-            () => { logger.info({ channelId: opts.defaultSlackChannelId }, 'Operator Slack channel notification sent'); },
-            (err) => { logger.warn({ err, operatorId: op.id }, 'Failed to send Slack channel message (non-blocking)'); },
-          ),
-        );
-      } else {
-        logger.warn({ operatorId: op.id }, 'Operator has notifySlack=true but no slackUserId and no default channel');
+      const blocks = opts.slackBlocks;
+      try {
+        if (op.slackUserId) {
+          if (opts.slack.sendDMWithTs) {
+            const result = await opts.slack.sendDMWithTs(op.slackUserId, slackText, blocks);
+            slackMessages.push({ ...result, operatorId: op.id });
+          } else {
+            await opts.slack.sendDM(op.slackUserId, slackText, blocks);
+          }
+          logger.info({ slackUserId: op.slackUserId }, 'Operator Slack DM sent');
+        } else if (opts.defaultSlackChannelId) {
+          if (opts.slack.sendMessageWithTs) {
+            const result = await opts.slack.sendMessageWithTs(opts.defaultSlackChannelId, slackText, blocks);
+            slackMessages.push({ ...result, operatorId: op.id });
+          } else {
+            await opts.slack.sendMessage(opts.defaultSlackChannelId, slackText, blocks);
+          }
+          logger.info({ channelId: opts.defaultSlackChannelId }, 'Operator Slack channel notification sent');
+        } else {
+          logger.warn({ operatorId: op.id }, 'Operator has notifySlack=true but no slackUserId and no default channel');
+        }
+      } catch (err) {
+        logger.warn({ err, operatorId: op.id }, 'Failed to send Slack notification (non-blocking)');
       }
     }
   }
 
-  // Wait for all Slack sends concurrently — allSettled ensures failures don't throw
-  await Promise.allSettled(slackPromises);
-
-  return notified;
+  if (opts.returnResult) {
+    return { emailRecipients, slackMessages };
+  }
+  return emailRecipients;
 }
 
 /** Event-driven dispatch: use preference to control which channels and targets. */
@@ -140,19 +172,21 @@ async function dispatchWithPreference(
   operators: OperatorRecord[],
   opts: NotifyOperatorsOpts,
   pref: NotificationPreference,
-): Promise<string[]> {
-  const notified: string[] = [];
+): Promise<string[] | NotifyOperatorsResult> {
+  const emailRecipients: string[] = [];
+  const slackMessages: Array<SlackMessageResult & { operatorId?: string }> = [];
   const slackText = `*${opts.subject}*\n${opts.body}`;
+  const blocks = opts.slackBlocks;
 
   // Email dispatch
   if (pref.emailEnabled) {
     const emailTarget = pref.emailTarget ?? 'all_operators';
-    const emailRecipients = resolveEmailRecipients(operators, emailTarget, opts.operatorId);
+    const targets = resolveEmailRecipients(operators, emailTarget, opts.operatorId);
 
-    for (const email of emailRecipients) {
+    for (const email of targets) {
       try {
         await mailer.send({ to: email, subject: opts.subject, body: opts.body });
-        notified.push(email);
+        emailRecipients.push(email);
         logger.info({ to: email, event: opts.event }, 'Event-driven email notification sent');
       } catch (err) {
         logger.error({ err, to: email, event: opts.event }, 'Failed to send event-driven email notification');
@@ -173,25 +207,49 @@ async function dispatchWithPreference(
           ? operators.find(o => o.id === opts.operatorId && o.notifySlack && o.slackUserId)
           : null;
         if (assigned?.slackUserId) {
-          await opts.slack.sendDM(assigned.slackUserId, slackText);
+          if (opts.slack.sendDMWithTs) {
+            const result = await opts.slack.sendDMWithTs(assigned.slackUserId, slackText, blocks);
+            slackMessages.push({ ...result, operatorId: assigned.id });
+          } else {
+            await opts.slack.sendDM(assigned.slackUserId, slackText, blocks);
+          }
           logger.info({ slackUserId: assigned.slackUserId, event: opts.event }, 'Event-driven Slack DM sent to assigned operator');
         } else if (opts.defaultSlackChannelId) {
-          // Assigned operator is not Slack-eligible — fall back to default channel
-          await opts.slack.sendMessage(opts.defaultSlackChannelId, slackText);
+          if (opts.slack.sendMessageWithTs) {
+            const result = await opts.slack.sendMessageWithTs(opts.defaultSlackChannelId, slackText, blocks);
+            slackMessages.push({ ...result });
+          } else {
+            await opts.slack.sendMessage(opts.defaultSlackChannelId, slackText, blocks);
+          }
           logger.info({ event: opts.event }, 'Assigned operator not eligible for Slack — sent to default channel');
         }
       } else if (slackTarget === 'all_operators') {
         for (const op of operators.filter(o => o.notifySlack)) {
           if (op.slackUserId) {
-            await opts.slack.sendDM(op.slackUserId, slackText);
+            if (opts.slack.sendDMWithTs) {
+              const result = await opts.slack.sendDMWithTs(op.slackUserId, slackText, blocks);
+              slackMessages.push({ ...result, operatorId: op.id });
+            } else {
+              await opts.slack.sendDM(op.slackUserId, slackText, blocks);
+            }
             logger.info({ slackUserId: op.slackUserId, event: opts.event }, 'Event-driven Slack DM sent');
           } else if (opts.defaultSlackChannelId) {
-            await opts.slack.sendMessage(opts.defaultSlackChannelId, slackText);
+            if (opts.slack.sendMessageWithTs) {
+              const result = await opts.slack.sendMessageWithTs(opts.defaultSlackChannelId, slackText, blocks);
+              slackMessages.push({ ...result });
+            } else {
+              await opts.slack.sendMessage(opts.defaultSlackChannelId, slackText, blocks);
+            }
           }
         }
       } else {
         // Treat as a channel ID
-        await opts.slack.sendMessage(slackTarget, slackText);
+        if (opts.slack.sendMessageWithTs) {
+          const result = await opts.slack.sendMessageWithTs(slackTarget, slackText, blocks);
+          slackMessages.push({ ...result });
+        } else {
+          await opts.slack.sendMessage(slackTarget, slackText, blocks);
+        }
         logger.info({ channelId: slackTarget, event: opts.event }, 'Event-driven Slack channel message sent');
       }
     } catch (err) {
@@ -199,7 +257,10 @@ async function dispatchWithPreference(
     }
   }
 
-  return notified;
+  if (opts.returnResult) {
+    return { emailRecipients, slackMessages };
+  }
+  return emailRecipients;
 }
 
 function resolveEmailRecipients(

@@ -374,8 +374,11 @@ export async function buildApp(config: Config) {
     encryptionKey: config.ENCRYPTION_KEY,
   });
 
-  // Initialize Slack Socket Mode connection (non-blocking — logs warning on failure)
-  void initSlackConnection(app.db, config.ENCRYPTION_KEY);
+  // Initialize Slack Socket Mode connection with interaction handlers (non-blocking — logs warning on failure)
+  void initSlackConnection(app.db, config.ENCRYPTION_KEY, {
+    db: app.db,
+    issueResolveQueue,
+  });
 
   // Initialize per-client Slack connections (non-blocking)
   void clientSlackManager.refreshConnections();
