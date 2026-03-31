@@ -78,12 +78,13 @@ async function main(): Promise<void> {
   // Health tracking state
   let lastPollAt: Date | undefined;
   let pollCount = 0;
+  let effectivePollInterval = config.POLL_INTERVAL_SECONDS;
 
   const health = createHealthServer('imap-worker', config.HEALTH_PORT, {
     getDetails: () => ({
       lastPollAt: lastPollAt?.toISOString() ?? null,
       pollCount,
-      pollIntervalSeconds: config.POLL_INTERVAL_SECONDS,
+      pollIntervalSeconds: effectivePollInterval,
     }),
   });
 
@@ -168,17 +169,36 @@ async function main(): Promise<void> {
     appLog.info('No global IMAP config in DB — will poll per-client IMAP integrations only');
   }
 
-  // Initial poll
-  await poll();
+  // Self-scheduling poll loop: after each cycle, re-read the interval from DB so
+  // changes to pollIntervalSeconds take effect without a worker restart.
+  let pollTimeout: NodeJS.Timeout | undefined;
+  let stopped = false;
 
-  // Schedule recurring polls (use DB poll interval if set, else env/default)
-  const pollIntervalSeconds = initialConfig?.pollIntervalSeconds ?? config.POLL_INTERVAL_SECONDS;
-  const interval = setInterval(poll, pollIntervalSeconds * 1000);
+  const schedulePoll = async () => {
+    if (stopped) return;
+    await poll();
+    if (stopped) return;
+    // Reload config to pick up any interval change saved since the last cycle.
+    const currentDbConfig = await loadGlobalImapConfig();
+    effectivePollInterval = currentDbConfig?.pollIntervalSeconds ?? config.POLL_INTERVAL_SECONDS;
+    pollTimeout = setTimeout(schedulePoll, effectivePollInterval * 1000);
+  };
 
-  appLog.info('IMAP worker started', { intervalSeconds: pollIntervalSeconds });
+  // Set initial effective interval (from DB or env fallback) before first log line.
+  effectivePollInterval = initialConfig?.pollIntervalSeconds ?? config.POLL_INTERVAL_SECONDS;
+
+  // Kick off the first poll immediately, then self-schedule.
+  pollTimeout = setTimeout(schedulePoll, 0);
+
+  appLog.info('IMAP worker started', { intervalSeconds: effectivePollInterval });
 
   createGracefulShutdown(logger, [
-    { interval },
+    {
+      fn: () => {
+        stopped = true;
+        if (pollTimeout !== undefined) clearTimeout(pollTimeout);
+      },
+    },
     health,
     emailWorker,
     emailQueue,
