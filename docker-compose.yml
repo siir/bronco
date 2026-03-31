@@ -85,10 +85,6 @@ services:
       DATABASE_URL: postgresql://bronco:${POSTGRES_PASSWORD_URLENCODED}@postgres:5432/bronco
       REDIS_URL: redis://redis:6379
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
-      IMAP_HOST: ${IMAP_HOST:-imap.gmail.com}
-      IMAP_PORT: ${IMAP_PORT:-993}
-      IMAP_USER: ${IMAP_USER}
-      IMAP_PASSWORD: ${IMAP_PASSWORD}
       POLL_INTERVAL_SECONDS: "60"
       SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
       SMTP_PORT: ${SMTP_PORT:-587}

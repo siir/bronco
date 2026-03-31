@@ -101,6 +101,14 @@ export interface GithubSystemConfig {
   repo: string;
 }
 
+export interface ImapSystemConfig {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  pollIntervalSeconds?: number;
+}
+
 export interface TestResult {
   success: boolean;
   message?: string;
@@ -187,5 +195,16 @@ export class SettingsService {
   }
   testGithubConfig(): Observable<TestResult> {
     return this.api.post<TestResult>('/settings/github/test', {});
+  }
+
+  // --- System Config: IMAP ---
+  getImapConfig(): Observable<ImapSystemConfig | null> {
+    return this.api.get<ImapSystemConfig | null>('/settings/imap');
+  }
+  saveImapConfig(config: ImapSystemConfig): Observable<ImapSystemConfig> {
+    return this.api.put<ImapSystemConfig>('/settings/imap', config);
+  }
+  testImapConnection(): Observable<TestResult> {
+    return this.api.post<TestResult>('/settings/imap/test', {});
   }
 }
