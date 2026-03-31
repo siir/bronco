@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { createLogger } from './logger.js';
 import { decrypt, looksEncrypted } from './crypto.js';
 import type { SmtpConfig } from './mailer.js';
@@ -5,6 +6,16 @@ import type { SmtpConfig } from './mailer.js';
 const logger = createLogger('smtp-loader');
 
 const SETTINGS_KEY_SMTP = 'system-config-smtp';
+
+/** Zod schema for validating the SMTP config JSON stored in AppSetting. */
+const smtpConfigSchema = z.object({
+  host: z.string(),
+  port: z.coerce.number(),
+  user: z.string(),
+  password: z.string(),
+  from: z.string(),
+  fromName: z.string().optional(),
+});
 
 /** Minimal DB interface so shared-utils doesn't depend on @bronco/db. */
 interface SmtpSettingsDb {
@@ -16,7 +27,7 @@ interface SmtpSettingsDb {
 /**
  * Load SMTP configuration from the AppSetting table (key `system-config-smtp`).
  * Decrypts the password if it was stored encrypted.
- * Returns `null` if no config is found.
+ * Returns `null` if no config is found or if validation/decryption fails.
  */
 export async function loadSmtpFromDb(
   db: SmtpSettingsDb,
@@ -28,23 +39,23 @@ export async function loadSmtpFromDb(
     return null;
   }
 
-  const raw = row.value as Record<string, unknown>;
-
-  const host = raw.host as string | undefined;
-  const port = raw.port as number | undefined;
-  const user = raw.user as string | undefined;
-  const passwordRaw = raw.password as string | undefined;
-  const from = raw.from as string | undefined;
-  const fromName = raw.fromName as string | undefined;
-
-  if (!host || !port || !user || !passwordRaw || !from) {
-    logger.warn('SMTP config in DB is incomplete — missing required fields');
+  const parsed = smtpConfigSchema.safeParse(row.value);
+  if (!parsed.success) {
+    logger.warn({ issues: parsed.error.issues }, 'SMTP config in DB failed validation — ignoring');
     return null;
   }
 
-  const password = looksEncrypted(passwordRaw)
-    ? decrypt(passwordRaw, encryptionKey)
-    : passwordRaw;
+  const { host, port, user, password: passwordRaw, from, fromName } = parsed.data;
+
+  let password: string;
+  try {
+    password = looksEncrypted(passwordRaw)
+      ? decrypt(passwordRaw, encryptionKey)
+      : passwordRaw;
+  } catch (err) {
+    logger.error({ err }, 'Failed to decrypt SMTP password from DB — ignoring config');
+    return null;
+  }
 
   logger.info('Loaded SMTP config from DB (host=%s, port=%d)', host, port);
   return { host, port, user, password, from, fromName };

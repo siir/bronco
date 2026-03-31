@@ -77,7 +77,7 @@ function isValidCategory(val: unknown): val is TicketCategory {
 interface IngestionDeps {
   db: PrismaClient;
   ai: AIRouter;
-  mailer: Mailer;
+  mailer: Mailer | null;
   ticketCreatedQueue: Queue<TicketCreatedJob>;
   analysisQueue?: Queue<AnalysisJob>;
   senderSignature: string;
@@ -786,33 +786,38 @@ async function executeIngestionPipeline(
             'DRAFT_RECEIPT',
           );
 
-          try {
-            const replySubject = /^re:\s*/i.test(subject) ? subject : `Re: ${subject}`;
-            const origMessageId = payloadStr(payload, 'messageId');
-            const origReferences = payload['references'];
-            const replyOpts: ReplyOptions = {
-              to: emailFrom,
-              subject: replySubject,
-              body: draftRes.content,
-              ...(origMessageId && { inReplyTo: origMessageId }),
-              ...(Array.isArray(origReferences) && { references: origReferences as string[] }),
-            };
-            const messageId = await mailer.sendReply(replyOpts);
-            await db.ticketEvent.create({
-              data: {
-                ticketId: ctx.ticketId,
-                eventType: 'EMAIL_OUTBOUND',
-                content: draftRes.content,
-                metadata: { type: 'receipt', to: emailFrom, outboundMessageId: messageId },
-                actor: 'system:ingestion',
-              },
-            });
-            logger.info({ ticketId: ctx.ticketId, to: emailFrom }, 'Receipt email sent via ingestion');
-            await safeTracker.completeStep(stepId, `Receipt sent to ${emailFrom}`);
-          } catch (sendErr) {
-            logger.warn({ err: sendErr, ticketId: ctx.ticketId }, 'Failed to send receipt email');
-            stepErrors.push({ step: RouteStepType.DRAFT_RECEIPT, error: sendErr instanceof Error ? sendErr.message : String(sendErr), fallback: 'email send failed' });
-            await safeTracker.failStep(stepId, sendErr instanceof Error ? sendErr.message : String(sendErr));
+          if (!mailer) {
+            logger.warn({ ticketId: ctx.ticketId }, 'Skipping receipt email — SMTP not configured');
+            await safeTracker.completeStep(stepId, 'Skipped — SMTP not configured');
+          } else {
+            try {
+              const replySubject = /^re:\s*/i.test(subject) ? subject : `Re: ${subject}`;
+              const origMessageId = payloadStr(payload, 'messageId');
+              const origReferences = payload['references'];
+              const replyOpts: ReplyOptions = {
+                to: emailFrom,
+                subject: replySubject,
+                body: draftRes.content,
+                ...(origMessageId && { inReplyTo: origMessageId }),
+                ...(Array.isArray(origReferences) && { references: origReferences as string[] }),
+              };
+              const messageId = await mailer.sendReply(replyOpts);
+              await db.ticketEvent.create({
+                data: {
+                  ticketId: ctx.ticketId,
+                  eventType: 'EMAIL_OUTBOUND',
+                  content: draftRes.content,
+                  metadata: { type: 'receipt', to: emailFrom, outboundMessageId: messageId },
+                  actor: 'system:ingestion',
+                },
+              });
+              logger.info({ ticketId: ctx.ticketId, to: emailFrom }, 'Receipt email sent via ingestion');
+              await safeTracker.completeStep(stepId, `Receipt sent to ${emailFrom}`);
+            } catch (sendErr) {
+              logger.warn({ err: sendErr, ticketId: ctx.ticketId }, 'Failed to send receipt email');
+              stepErrors.push({ step: RouteStepType.DRAFT_RECEIPT, error: sendErr instanceof Error ? sendErr.message : String(sendErr), fallback: 'email send failed' });
+              await safeTracker.failStep(stepId, sendErr instanceof Error ? sendErr.message : String(sendErr));
+            }
           }
         } catch (err) {
           logger.warn({ err, clientId, stepType: step.stepType, ticketId: ctx.ticketId }, 'Ingestion step failed — skipping receipt draft');

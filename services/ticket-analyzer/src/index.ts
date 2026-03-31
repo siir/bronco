@@ -23,11 +23,11 @@ async function main(): Promise<void> {
   appLog.info('Ticket analyzer starting');
 
   // --- SMTP mailer (DB config takes priority, env vars as fallback) ---
-  let mailer: Mailer;
+  let mailer: Mailer | null = null;
   const dbSmtp = await loadSmtpFromDb(db, config.ENCRYPTION_KEY);
   if (dbSmtp) {
     mailer = new Mailer(dbSmtp);
-  } else if (config.SMTP_HOST && config.SMTP_USER && config.SMTP_FROM) {
+  } else if (config.SMTP_HOST && config.SMTP_USER && config.SMTP_FROM && config.SMTP_PASSWORD) {
     logger.warn('No SMTP config in DB — falling back to env vars');
     mailer = new Mailer({
       host: config.SMTP_HOST,
@@ -39,7 +39,6 @@ async function main(): Promise<void> {
     });
   } else {
     logger.warn('No SMTP config available (DB or env vars) — email sending disabled');
-    mailer = new Mailer({ host: '', port: 0, user: '', password: '', from: '' });
   }
 
   // Derive sender identity from DB config (preferred) or env vars (fallback)
@@ -156,7 +155,7 @@ async function main(): Promise<void> {
     ticketCreatedQueue,
     analysisWorker,
     analysisQueue,
-    mailer,
+    ...(mailer ? [mailer] : []),
     { fn: disconnectDb },
   ]);
 }
