@@ -1027,15 +1027,35 @@ export function createIngestionProcessor(deps: IngestionDeps) {
       return;
     }
 
-    // Resolve ingestion route
-    const route = await resolveIngestionRoute(deps.db, source as TicketSource, clientId);
+    // Resolve ingestion route — fall back to a synthetic default matching the architecture flowchart
+    let route = await resolveIngestionRoute(deps.db, source as TicketSource, clientId);
     if (!route) {
-      logger.warn({ source, clientId }, 'No ingestion route found — dropping payload');
-      // Record a no_route run so the operator can see it was attempted (best-effort — don't throw).
-      await createIngestionRunTracker(deps.db, jobId, source as TicketSource, clientId)
-        .then((tracker) => tracker.completeRun('no_route', undefined, 'No matching ingestion route found'))
-        .catch((err) => { logger.warn({ err }, 'Failed to record no_route ingestion run — non-fatal'); });
-      return;
+      logger.info({ source, clientId }, 'No ingestion route found — using default flowchart pipeline');
+      const isEmail = source === TicketSource.EMAIL;
+      const defaultSteps = [
+        ...(isEmail ? [{ id: 'default-resolve-thread', stepOrder: 1, name: 'Resolve Thread', stepType: RouteStepType.RESOLVE_THREAD, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true }] : []),
+        { id: 'default-summarize', stepOrder: isEmail ? 2 : 1, name: 'Summarize', stepType: isEmail ? RouteStepType.SUMMARIZE_EMAIL : RouteStepType.SUMMARIZE_EMAIL, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
+        { id: 'default-categorize', stepOrder: isEmail ? 3 : 2, name: 'Categorize', stepType: RouteStepType.CATEGORIZE, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
+        { id: 'default-triage', stepOrder: isEmail ? 4 : 3, name: 'Triage Priority', stepType: RouteStepType.TRIAGE_PRIORITY, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
+        { id: 'default-title', stepOrder: isEmail ? 5 : 4, name: 'Generate Title', stepType: RouteStepType.GENERATE_TITLE, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
+        { id: 'default-create', stepOrder: isEmail ? 6 : 5, name: 'Create Ticket', stepType: RouteStepType.CREATE_TICKET, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
+        ...(isEmail ? [{ id: 'default-receipt', stepOrder: 7, name: 'Draft Receipt', stepType: RouteStepType.DRAFT_RECEIPT, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true }] : []),
+      ];
+      route = {
+        id: 'default-ingestion-fallback',
+        name: `Default ${isEmail ? 'Email' : source} Ingestion (fallback)`,
+        description: 'Built-in default ingestion pipeline — configure a route in the control panel to customize.',
+        routeType: 'INGESTION',
+        source: source as string,
+        clientId: null,
+        category: null,
+        isActive: true,
+        isDefault: true,
+        sortOrder: 9999,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        steps: defaultSteps,
+      } as unknown as NonNullable<typeof route>;
     }
 
     // Create the run tracker — fall back to a no-op tracker if the ingestion_runs
