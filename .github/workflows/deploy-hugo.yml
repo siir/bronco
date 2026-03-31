@@ -278,8 +278,10 @@ jobs:
               docker pull "$IMAGE_PREFIX/$svc:latest"
             done
 
-            # Clean up old images and build cache to prevent disk exhaustion
-            docker image prune -a --filter "until=24h" --force
+            # Clean up unused images and build cache to prevent disk exhaustion.
+            # Prune ALL images not used by running containers (not just >24h old)
+            # to handle multiple deploys in a single day.
+            docker image prune -a --force
             docker builder prune --force
 
             # Restart services
