@@ -1485,6 +1485,22 @@ model IngestionRunStep {
   @@map("ingestion_run_steps")
 }
 
+// --- Notification Preferences (event → channel routing) ---
+
+model NotificationPreference {
+  id           String   @id @default(uuid()) @db.Uuid
+  event        String   @unique // e.g. TICKET_CREATED, PLAN_READY
+  emailEnabled Boolean  @default(true) @map("email_enabled")
+  slackEnabled Boolean  @default(false) @map("slack_enabled")
+  slackTarget  String?  @map("slack_target") // channel ID, "assigned_operator", "all_operators"
+  emailTarget  String?  @map("email_target") // "assigned_operator", "all_operators", or specific email
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("notification_preferences")
+}
+
 // --- App Settings (key-value JSON store for app-wide configuration) ---
 
 model AppSetting {

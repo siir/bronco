@@ -25,8 +25,14 @@ export interface SlackInteractionDeps {
   issueResolveQueue: Queue;
 }
 
-function decryptToken(value: string, encryptionKey: string): string {
-  return looksEncrypted(value) ? decrypt(value, encryptionKey) : value;
+function decryptToken(value: string, encryptionKey: string): string | null {
+  if (!looksEncrypted(value)) return value;
+  try {
+    return decrypt(value, encryptionKey);
+  } catch (err) {
+    logger.warn({ err }, 'Failed to decrypt Slack token — skipping Slack connection');
+    return null;
+  }
 }
 
 async function loadSlackConfig(db: PrismaClient, encryptionKey: string): Promise<SlackConfig | null> {
@@ -36,8 +42,8 @@ async function loadSlackConfig(db: PrismaClient, encryptionKey: string): Promise
   const config = row.value as Record<string, unknown>;
   if (!config.enabled) return null;
 
-  const botToken = typeof config.botToken === 'string' ? decryptToken(config.botToken, encryptionKey) : '';
-  const appToken = typeof config.appToken === 'string' ? decryptToken(config.appToken, encryptionKey) : '';
+  const botToken = typeof config.botToken === 'string' ? decryptToken(config.botToken, encryptionKey) : null;
+  const appToken = typeof config.appToken === 'string' ? decryptToken(config.appToken, encryptionKey) : null;
   const channel = typeof config.defaultChannelId === 'string' ? config.defaultChannelId : '';
 
   if (!botToken || !appToken || !channel) return null;

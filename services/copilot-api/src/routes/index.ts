@@ -46,6 +46,7 @@ import { invoiceRoutes } from './invoices.js';
 import { failedJobRoutes } from './failed-jobs.js';
 import { emailLogRoutes } from './email-logs.js';
 import { operatorRoutes } from './operators.js';
+import { notificationPreferenceRoutes } from './notification-preferences.js';
 
 interface RouteOpts {
   config: Config;
@@ -117,5 +118,6 @@ export async function registerRoutes(fastify: FastifyInstance, opts: RouteOpts):
     await scoped.register(failedJobRoutes, { queueMap: opts.queueMap });
     await scoped.register(emailLogRoutes);
     await scoped.register(operatorRoutes);
+    await scoped.register(notificationPreferenceRoutes);
   });
 }

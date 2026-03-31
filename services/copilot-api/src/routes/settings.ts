@@ -74,12 +74,25 @@ const imapConfigSchema = z.object({
   pollIntervalSeconds: z.coerce.number().int().min(10).optional().default(60),
 });
 
-const slackConfigSchema = z.object({
-  botToken: z.string().min(1),
-  appToken: z.string().min(1),
-  defaultChannelId: z.string().min(1),
-  enabled: z.boolean().default(false),
-});
+const slackConfigSchema = z
+  .object({
+    botToken: z.string().default(''),
+    appToken: z.string().default(''),
+    defaultChannelId: z.string().default(''),
+    enabled: z.boolean().default(false),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.enabled) return;
+    if (!value.botToken) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'botToken is required when Slack is enabled', path: ['botToken'] });
+    }
+    if (!value.appToken) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'appToken is required when Slack is enabled', path: ['appToken'] });
+    }
+    if (!value.defaultChannelId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'defaultChannelId is required when Slack is enabled', path: ['defaultChannelId'] });
+    }
+  });
 
 const operationalAlertConfigSchema = z
   .object({
@@ -811,12 +824,23 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     if (!row) return fastify.httpErrors.badRequest('Slack not configured');
 
     const config = row.value as Record<string, unknown>;
-    const botToken = typeof config.botToken === 'string' && looksEncrypted(config.botToken)
-      ? decrypt(config.botToken, opts.encryptionKey)
-      : config.botToken as string;
-    const appToken = typeof config.appToken === 'string' && looksEncrypted(config.appToken)
-      ? decrypt(config.appToken, opts.encryptionKey)
-      : config.appToken as string;
+
+    if (typeof config.botToken !== 'string' || !config.botToken) {
+      return fastify.httpErrors.badRequest('Bot token is missing from Slack configuration');
+    }
+    if (typeof config.appToken !== 'string' || !config.appToken) {
+      return fastify.httpErrors.badRequest('App token is missing from Slack configuration');
+    }
+
+    let botToken: string;
+    let appToken: string;
+    try {
+      botToken = looksEncrypted(config.botToken) ? decrypt(config.botToken, opts.encryptionKey) : config.botToken;
+      appToken = looksEncrypted(config.appToken) ? decrypt(config.appToken, opts.encryptionKey) : config.appToken;
+    } catch (err) {
+      logger.warn({ err }, 'Failed to decrypt Slack tokens for test');
+      return fastify.httpErrors.badRequest('Failed to decrypt Slack tokens — reconfigure and try again');
+    }
 
     const { SlackClient } = await import('@bronco/shared-utils');
     const client = new SlackClient({ botToken, appToken });
