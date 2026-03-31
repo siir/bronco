@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@bronco/db';
 import type { ResolutionPlan } from '@bronco/shared-types';
-import { Mailer, createLogger, decrypt, looksEncrypted } from '@bronco/shared-utils';
+import { Mailer, createLogger, decrypt, looksEncrypted, notifyOperators } from '@bronco/shared-utils';
+import type { SlackSender } from '@bronco/shared-utils';
 
 const logger = createLogger('issue-resolver:notify');
 
@@ -26,20 +27,6 @@ async function createMailerFromChannel(
     password,
     from: cfg.from as string,
   });
-}
-
-async function getOperatorEmail(db: PrismaClient): Promise<string | null> {
-  // Use operational alerts recipient as the operator email
-  const setting = await db.appSetting.findUnique({
-    where: { key: 'operational-alerts' },
-  });
-  if (setting?.value && typeof setting.value === 'object') {
-    const config = setting.value as Record<string, unknown>;
-    if (typeof config.recipientEmail === 'string' && config.recipientEmail) {
-      return config.recipientEmail;
-    }
-  }
-  return null;
 }
 
 function formatPlanEmail(plan: ResolutionPlan, issueTitle: string, branchName: string, planRevision: number): { subject: string; body: string } {
@@ -121,16 +108,12 @@ export async function notifyPlanGenerated(opts: {
   branchName: string;
   planRevision: number;
   issueJobId: string;
+  slack?: SlackSender;
+  defaultSlackChannelId?: string;
 }): Promise<void> {
   const { db, encryptionKey, plan, issueTitle, branchName, planRevision, issueJobId } = opts;
 
   try {
-    const recipientEmail = await getOperatorEmail(db);
-    if (!recipientEmail) {
-      logger.debug({ issueJobId }, 'No operator email configured — skipping plan notification');
-      return;
-    }
-
     const mailer = await createMailerFromChannel(db, encryptionKey);
     if (!mailer) {
       logger.debug({ issueJobId }, 'No active EMAIL notification channel — skipping plan notification');
@@ -139,13 +122,26 @@ export async function notifyPlanGenerated(opts: {
 
     try {
       const { subject, body } = formatPlanEmail(plan, issueTitle, branchName, planRevision);
-      await mailer.send({ to: recipientEmail, subject, body });
-      logger.info({ issueJobId, to: recipientEmail }, 'Plan notification email sent');
+
+      await notifyOperators(
+        mailer,
+        () => db.operator.findMany({ where: { isActive: true } }),
+        {
+          subject,
+          body,
+          event: 'PLAN_READY',
+          getPreference: (evt) => db.notificationPreference.findUnique({ where: { event: evt } }),
+          slack: opts.slack,
+          defaultSlackChannelId: opts.defaultSlackChannelId,
+        },
+      );
+
+      logger.info({ issueJobId }, 'Plan notification dispatched via notifyOperators');
     } finally {
       await mailer.close();
     }
   } catch (err) {
     // Non-blocking — log but don't fail the job
-    logger.warn({ issueJobId, err }, 'Failed to send plan notification email');
+    logger.warn({ issueJobId, err }, 'Failed to send plan notification');
   }
 }
