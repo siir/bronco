@@ -19,6 +19,8 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
+    "@slack/socket-mode": "^2.0.6",
+    "@slack/web-api": "^7.15.0",
     "bullmq": "^5.0.0",
     "dotenv": "^16.4.0",
     "nodemailer": "^6.9.0",

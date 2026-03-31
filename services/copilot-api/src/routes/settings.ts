@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { TicketStatus, TicketCategory, DEFAULT_OPERATIONAL_ALERT_CONFIG } from '@bronco/shared-types';
 import type { OperationalAlertConfig } from '@bronco/shared-types';
 import { Mailer, createLogger, decrypt, encrypt, looksEncrypted } from '@bronco/shared-utils';
+import { reconnectSlack } from '../services/slack-connection.js';
 import { z } from 'zod';
 
 /** Default configs seeded lazily if the DB tables are empty. */
@@ -38,6 +39,7 @@ const SETTINGS_KEY_SMTP = 'system-config-smtp';
 const SETTINGS_KEY_DEVOPS = 'system-config-devops';
 const SETTINGS_KEY_GITHUB = 'system-config-github';
 const SETTINGS_KEY_IMAP = 'system-config-imap';
+const SETTINGS_KEY_SLACK = 'system-config-slack';
 
 const REDACTED = '••••••••';
 
@@ -70,6 +72,13 @@ const imapConfigSchema = z.object({
   user: z.string().min(1),
   password: z.string().min(1),
   pollIntervalSeconds: z.coerce.number().int().min(10).optional().default(60),
+});
+
+const slackConfigSchema = z.object({
+  botToken: z.string().min(1),
+  appToken: z.string().min(1),
+  defaultChannelId: z.string().min(1),
+  enabled: z.boolean().default(false),
 });
 
 const operationalAlertConfigSchema = z
@@ -732,6 +741,90 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
       }
       logger.error({ err }, 'IMAP test failed');
       return { success: false, error: err instanceof Error ? err.message : 'IMAP test failed' };
+    }
+  });
+
+  // ─── System Config: Slack ───
+
+  // GET /api/settings/slack — get Slack config (redacted)
+  fastify.get('/api/settings/slack', async () => {
+    const row = await fastify.db.appSetting.findUnique({ where: { key: SETTINGS_KEY_SLACK } });
+    if (!row) return null;
+    const config = row.value as Record<string, unknown>;
+    return { ...config, botToken: REDACTED, appToken: REDACTED };
+  });
+
+  // PUT /api/settings/slack — save Slack config
+  fastify.put<{ Body: Record<string, unknown> }>('/api/settings/slack', async (request) => {
+    const parsed = slackConfigSchema.safeParse(request.body);
+    if (!parsed.success) {
+      const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+      return fastify.httpErrors.badRequest(`Invalid Slack config: ${issues}`);
+    }
+
+    const incoming = parsed.data as Record<string, unknown>;
+
+    const existing = await fastify.db.appSetting.findUnique({ where: { key: SETTINGS_KEY_SLACK } });
+
+    // Handle botToken redaction
+    if (incoming.botToken === REDACTED && existing) {
+      const prev = existing.value as Record<string, unknown>;
+      incoming.botToken = prev.botToken;
+    } else if (incoming.botToken === REDACTED) {
+      return fastify.httpErrors.badRequest('Bot token is required when creating a new configuration');
+    } else if (typeof incoming.botToken === 'string' && !looksEncrypted(incoming.botToken)) {
+      incoming.botToken = encrypt(incoming.botToken, opts.encryptionKey);
+    }
+
+    // Handle appToken redaction
+    if (incoming.appToken === REDACTED && existing) {
+      const prev = existing.value as Record<string, unknown>;
+      incoming.appToken = prev.appToken;
+    } else if (incoming.appToken === REDACTED) {
+      return fastify.httpErrors.badRequest('App token is required when creating a new configuration');
+    } else if (typeof incoming.appToken === 'string' && !looksEncrypted(incoming.appToken)) {
+      incoming.appToken = encrypt(incoming.appToken, opts.encryptionKey);
+    }
+
+    const row = await fastify.db.appSetting.upsert({
+      where: { key: SETTINGS_KEY_SLACK },
+      update: { value: incoming as object },
+      create: { key: SETTINGS_KEY_SLACK, value: incoming as object },
+    });
+
+    const saved = row.value as Record<string, unknown>;
+
+    // Reconnect Slack with new config (non-blocking)
+    void reconnectSlack(fastify.db, opts.encryptionKey);
+
+    return { ...saved, botToken: REDACTED, appToken: REDACTED };
+  });
+
+  // POST /api/settings/slack/test — test Slack connectivity
+  fastify.post('/api/settings/slack/test', async () => {
+    const row = await fastify.db.appSetting.findUnique({ where: { key: SETTINGS_KEY_SLACK } });
+    if (!row) return fastify.httpErrors.badRequest('Slack not configured');
+
+    const config = row.value as Record<string, unknown>;
+    const botToken = typeof config.botToken === 'string' && looksEncrypted(config.botToken)
+      ? decrypt(config.botToken, opts.encryptionKey)
+      : config.botToken as string;
+    const appToken = typeof config.appToken === 'string' && looksEncrypted(config.appToken)
+      ? decrypt(config.appToken, opts.encryptionKey)
+      : config.appToken as string;
+
+    const { SlackClient } = await import('@bronco/shared-utils');
+    const client = new SlackClient({ botToken, appToken });
+
+    try {
+      const result = await client.testConnection();
+      return {
+        success: true,
+        message: `Connected as ${result.botName ?? 'unknown'} — ${result.channelCount ?? 0} channel(s) visible`,
+      };
+    } catch (err) {
+      logger.error({ err }, 'Slack test failed');
+      return { success: false, error: err instanceof Error ? err.message : 'Slack test failed' };
     }
   });
 

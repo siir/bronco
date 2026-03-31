@@ -5,6 +5,7 @@ export interface Operator {
   isActive: boolean;
   notifyEmail: boolean;
   notifySlack: boolean;
+  slackUserId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }

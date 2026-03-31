@@ -105,6 +105,7 @@ model Operator {
   isActive     Boolean  @default(true) @map("is_active")
   notifyEmail  Boolean  @default(true) @map("notify_email")
   notifySlack  Boolean  @default(false) @map("notify_slack")
+  slackUserId  String?  @map("slack_user_id")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 

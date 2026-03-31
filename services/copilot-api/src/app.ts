@@ -21,6 +21,7 @@ import { analyzeTicketClosure } from './services/system-analyzer.js';
 import { discoverMcpServer } from './services/mcp-discovery.js';
 import { refreshModelCatalog } from './services/model-catalog-refresher.js';
 import { startOperationalAlertChecker, stopOperationalAlertChecker } from './services/operational-alerts.js';
+import { initSlackConnection, disconnectSlack } from './services/slack-connection.js';
 
 const logger = createLogger('copilot-api');
 export const appLog = new AppLogger('copilot-api');
@@ -368,6 +369,9 @@ export async function buildApp(config: Config) {
     encryptionKey: config.ENCRYPTION_KEY,
   });
 
+  // Initialize Slack Socket Mode connection (non-blocking — logs warning on failure)
+  void initSlackConnection(app.db, config.ENCRYPTION_KEY);
+
   app.setErrorHandler((error: Error & { statusCode?: number }, request, reply) => {
     // Return clean 422 for non-routable AI provider errors instead of 500
     if (error instanceof NoProviderImplementationError) {
@@ -404,6 +408,7 @@ export async function buildApp(config: Config) {
   app.addHook('onClose', async () => {
     clearInterval(autoInvoiceInterval);
     stopOperationalAlertChecker();
+    await disconnectSlack();
     await logSummarizeWorker.close();
     await logSummarizeQueue.close();
     await systemAnalysisWorker.close();
