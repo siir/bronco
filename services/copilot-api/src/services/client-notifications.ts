@@ -50,23 +50,21 @@ export async function notifyClientSlack(
   }
 
   try {
-    const ts = await entry.client.sendMessage(entry.defaultChannelId, message);
+    const result = await entry.client.sendMessageWithTs(entry.defaultChannelId, message);
     // Store thread TS in ticket event metadata for future thread replies
-    if (ts) {
-      await opts.db.ticketEvent.create({
-        data: {
-          ticketId,
-          eventType: 'SLACK_OUTBOUND',
-          content: message,
-          actor: 'system',
-          metadata: {
-            slackChannelId: entry.defaultChannelId,
-            slackThreadTs: ts,
-            clientNotification: true,
-          },
+    await opts.db.ticketEvent.create({
+      data: {
+        ticketId,
+        eventType: 'SLACK_OUTBOUND',
+        content: message,
+        actor: 'system',
+        metadata: {
+          slackChannelId: result.channelId,
+          slackThreadTs: result.ts,
+          clientNotification: true,
         },
-      });
-    }
+      },
+    });
     logger.info({ ticketId, event, clientId }, 'Client Slack notification sent');
   } catch (err) {
     logger.warn({ err, ticketId, event, clientId }, 'Failed to send client Slack notification');

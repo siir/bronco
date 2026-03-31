@@ -11,6 +11,8 @@ interface ClientSlackEntry {
   clientId: string;
   client: SlackClient;
   defaultChannelId: string;
+  /** Serialized snapshot of the config at connection time, used to detect changes. */
+  configSnapshot: string;
 }
 
 /**
@@ -31,18 +33,21 @@ export class ClientSlackManager {
 
   /** Get the SlackClient for a specific client (by clientId). */
   getClientSlack(clientId: string): SlackClient | null {
-    for (const entry of this.connections.values()) {
-      if (entry.clientId === clientId) return entry.client;
-    }
-    return null;
+    const entry = this.getClientEntry(clientId);
+    return entry?.client ?? null;
   }
 
   /** Get the connection entry for a client (includes channel info). */
   getClientEntry(clientId: string): ClientSlackEntry | null {
+    const matches: ClientSlackEntry[] = [];
     for (const entry of this.connections.values()) {
-      if (entry.clientId === clientId) return entry;
+      if (entry.clientId === clientId) matches.push(entry);
     }
-    return null;
+    if (matches.length > 1) {
+      logger.error({ clientId, count: matches.length }, 'Multiple active Slack integrations found for client — expected at most one');
+      throw new Error(`Multiple active Slack integrations found for client ${clientId}`);
+    }
+    return matches[0] ?? null;
   }
 
   /**
@@ -66,12 +71,29 @@ export class ClientSlackManager {
       }
     }
 
-    // Connect new/updated integrations
+    // Connect new integrations; reconnect if config has changed; disconnect if disabled
     for (const integ of integrations) {
-      if (this.connections.has(integ.id)) continue; // already connected
-
       const cfg = integ.config as Record<string, unknown>;
       const enabled = cfg['enabled'] !== false;
+      const currentSnapshot = JSON.stringify(cfg);
+
+      const existing = this.connections.get(integ.id);
+
+      if (existing) {
+        // Already connected — check if config has changed or integration was disabled
+        if (!enabled) {
+          logger.info({ integrationId: integ.id, clientId: integ.clientId }, 'Client Slack integration disabled — disconnecting');
+          await this.safeDisconnect(existing.client, integ.id);
+          this.connections.delete(integ.id);
+          continue;
+        }
+        if (existing.configSnapshot === currentSnapshot) continue; // no change
+        // Config changed — tear down and reconnect below
+        logger.info({ integrationId: integ.id, clientId: integ.clientId }, 'Client Slack config changed — reconnecting');
+        await this.safeDisconnect(existing.client, integ.id);
+        this.connections.delete(integ.id);
+      }
+
       if (!enabled) continue;
 
       const botToken = this.decryptToken(cfg['encryptedBotToken']);
@@ -92,6 +114,7 @@ export class ClientSlackManager {
           clientId: integ.clientId,
           client,
           defaultChannelId,
+          configSnapshot: currentSnapshot,
         };
         this.connections.set(integ.id, entry);
 
@@ -121,12 +144,14 @@ export class ClientSlackManager {
    * When a message arrives, resolve the sender to a Contact and enqueue for ingestion.
    */
   private registerMessageHandler(entry: ClientSlackEntry): void {
-    // Listen for message events via the SocketModeClient
-    entry.client.socket.on('message', async (args: { event?: Record<string, unknown>; ack?: () => Promise<void> }) => {
+    // SocketModeClient emits envelopes: { envelope_id, payload, ack, body, ... }
+    // The `payload` field contains the actual event data; ack must be called to acknowledge.
+    entry.client.socket.on('message', async (args: { payload?: Record<string, unknown>; envelope_id?: string; ack?: () => Promise<void> }) => {
       try {
-        if (args.ack) await args.ack();
-        if (args.event) {
-          await this.handleInboundMessage(entry, args.event);
+        if (typeof args.ack === 'function') await args.ack();
+        const event = args.payload;
+        if (event) {
+          await this.handleInboundMessage(entry, event);
         }
       } catch (err) {
         logger.error({ err, integrationId: entry.integrationId }, 'Error handling inbound Slack message');
@@ -207,11 +232,12 @@ export class ClientSlackManager {
     threadTs: string,
     text: string,
   ): Promise<void> {
-    // Look up ticket by thread metadata
+    // Look up ticket by thread metadata, scoped to this client to prevent cross-workspace collisions
     const ticketEvent = await this.db.ticketEvent.findFirst({
       where: {
         eventType: 'SLACK_OUTBOUND',
         metadata: { path: ['slackThreadTs'], equals: threadTs },
+        ticket: { clientId: entry.clientId },
       },
       select: { ticketId: true },
     });

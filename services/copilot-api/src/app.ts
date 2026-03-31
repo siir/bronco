@@ -75,7 +75,7 @@ export async function buildApp(config: Config) {
   // Client Slack manager — manages per-client Slack workspace connections
   const clientSlackManager = new ClientSlackManager(app.db, config.ENCRYPTION_KEY, ingestQueue);
 
-  await registerRoutes(app, { config, issueResolveQueue, logSummarizeQueue, systemAnalysisQueue, mcpDiscoveryQueue, probeQueue, ticketCreatedQueue, ingestQueue, queueMap, ai, clientMemoryResolver, modelConfigResolver, providerConfigResolver, onSlackIntegrationChange: () => void clientSlackManager.refreshConnections() });
+  await registerRoutes(app, { config, issueResolveQueue, logSummarizeQueue, systemAnalysisQueue, mcpDiscoveryQueue, probeQueue, ticketCreatedQueue, ingestQueue, queueMap, ai, clientMemoryResolver, modelConfigResolver, providerConfigResolver, onSlackIntegrationChange: () => { clientSlackManager.refreshConnections().catch((err) => logger.error({ err }, 'Error refreshing client Slack connections on integration change')); } });
 
   // Wire up database log writer after Prisma is ready
   const logWriter = createPrismaLogWriter(app.db);
@@ -381,7 +381,7 @@ export async function buildApp(config: Config) {
   });
 
   // Initialize per-client Slack connections (non-blocking)
-  void clientSlackManager.refreshConnections();
+  clientSlackManager.refreshConnections().catch((err) => logger.error({ err }, 'Failed to initialize client Slack connections'));
 
   app.setErrorHandler((error: Error & { statusCode?: number }, request, reply) => {
     // Return clean 422 for non-routable AI provider errors instead of 500
