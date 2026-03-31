@@ -221,6 +221,8 @@ async function sendSlackPlanNotification(opts: {
     select: { id: true, slackUserId: true },
   });
 
+  const opsWithoutSlackUserId: string[] = [];
+
   for (const op of operators) {
     try {
       if (op.slackUserId) {
@@ -228,16 +230,25 @@ async function sendSlackPlanNotification(opts: {
         results.push(result);
         logger.info({ slackUserId: op.slackUserId, issueJobId }, 'Plan approval Slack DM sent');
       } else {
-        const result = await client.sendMessageWithTs(slackConfig.defaultChannelId, fallbackText, blocks);
-        results.push(result);
-        logger.info({ channelId: slackConfig.defaultChannelId, issueJobId }, 'Plan approval Slack channel message sent');
+        opsWithoutSlackUserId.push(op.id);
       }
     } catch (err) {
       logger.warn({ err, operatorId: op.id, issueJobId }, 'Failed to send plan approval Slack notification');
     }
   }
 
-  // If no operators with Slack enabled, send to the default channel
+  // Send a single channel message for operators without slackUserId (instead of one per operator)
+  if (opsWithoutSlackUserId.length > 0) {
+    try {
+      const result = await client.sendMessageWithTs(slackConfig.defaultChannelId, fallbackText, blocks);
+      results.push(result);
+      logger.info({ channelId: slackConfig.defaultChannelId, issueJobId, operatorCount: opsWithoutSlackUserId.length }, 'Plan approval Slack channel message sent for operators without slackUserId');
+    } catch (err) {
+      logger.warn({ err, issueJobId }, 'Failed to send plan approval Slack channel notification');
+    }
+  }
+
+  // If no operators with Slack enabled at all, send to the default channel
   if (operators.length === 0) {
     try {
       const result = await client.sendMessageWithTs(slackConfig.defaultChannelId, fallbackText, blocks);

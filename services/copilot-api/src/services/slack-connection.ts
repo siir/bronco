@@ -108,7 +108,13 @@ export async function reconnectSlack(
     activeClient = null;
     defaultChannelId = null;
   }
-  return initSlackConnection(db, encryptionKey, interactionDeps);
+  const client = await initSlackConnection(db, encryptionKey, interactionDeps);
+  // If Slack was reconfigured to disabled, clear the eviction interval
+  if (!client && evictionInterval) {
+    clearInterval(evictionInterval);
+    evictionInterval = null;
+  }
+  return client;
 }
 
 /**

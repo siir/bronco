@@ -102,6 +102,12 @@ export class SlackClient {
 
       if (!actions?.length || !user?.id || !channel?.id) return;
 
+      const messageTs = message?.ts as string | undefined;
+      if (!messageTs) {
+        logger.warn({ actionCount: actions.length, userId: user.id }, 'block_actions event missing message.ts — skipping handler');
+        return;
+      }
+
       for (const action of actions) {
         const blockAction: SlackBlockAction = {
           actionId: (action.action_id as string) ?? '',
@@ -109,7 +115,7 @@ export class SlackClient {
           blockId: (action.block_id as string) ?? '',
           userId: user.id as string,
           channelId: channel.id as string,
-          messageTs: (message?.ts as string) ?? '',
+          messageTs,
           triggerId,
         };
         await this.blockActionHandler(blockAction);
@@ -129,6 +135,20 @@ export class SlackClient {
         const feedback = feedbackBlock?.value as string | undefined;
         const user = body.user as Record<string, unknown> | undefined;
 
+        // Parse private_metadata to recover channelId/messageTs from the original action
+        let channelId = '';
+        let messageTs = '';
+        const privateMetadata = view.private_metadata as string | undefined;
+        if (privateMetadata) {
+          try {
+            const meta = JSON.parse(privateMetadata) as { channelId?: string; messageTs?: string };
+            channelId = meta.channelId ?? '';
+            messageTs = meta.messageTs ?? '';
+          } catch {
+            logger.warn({ privateMetadata }, 'Failed to parse view private_metadata');
+          }
+        }
+
         if (feedback && this.blockActionHandler) {
           // Route through block action handler as a synthetic "plan_reject_confirmed" action
           await this.blockActionHandler({
@@ -136,8 +156,8 @@ export class SlackClient {
             value: JSON.stringify({ jobId, feedback }),
             blockId: '',
             userId: (user?.id as string) ?? '',
-            channelId: '',
-            messageTs: '',
+            channelId,
+            messageTs,
             triggerId: '',
           });
         }

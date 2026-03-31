@@ -2,7 +2,8 @@ import type { PrismaClient } from '@bronco/db';
 import type { Queue } from 'bullmq';
 import type { SlackClient, SlackBlockAction, SlackThreadMessage } from '@bronco/shared-utils';
 import { createLogger } from '@bronco/shared-utils';
-import { lookupThread, storeThreadWithTTL } from './slack-thread-store.js';
+import { lookupThread, storeThread } from './slack-thread-store.js';
+import type { SlackThreadEntry } from './slack-thread-store.js';
 
 const logger = createLogger('slack-action-handler');
 
@@ -100,11 +101,11 @@ async function handlePlanApprove(
     return;
   }
 
-  // Atomic transition (same logic as POST /api/issue-jobs/:id/approve)
+  // Record approval but leave status as AWAITING_APPROVAL — the worker handles
+  // the state transition to CLONING when it picks up the resume job.
   const updated = await db.issueJob.updateMany({
     where: { id: issueJobId, status: 'AWAITING_APPROVAL' },
     data: {
-      status: 'CLONING',
       approvedAt: new Date(),
       approvedBy: operator.name,
       approvedByOperatorId: operator.id,
@@ -232,6 +233,7 @@ async function handlePlanRejectConfirmed(
       status: 'PLANNING',
       approvedAt: null,
       approvedBy: null,
+      approvedByOperatorId: null,
     },
   });
 
@@ -410,6 +412,49 @@ async function handleTicketAssign(
 }
 
 /**
+ * Fallback: look up a Slack thread from DB metadata when the in-memory store has no entry.
+ * Checks issueJob.metadata.slackNotifications for a matching channelId + ts,
+ * then caches the result in the in-memory store for future lookups.
+ */
+async function lookupThreadFromDb(
+  db: PrismaClient,
+  channelId: string,
+  threadTs: string,
+): Promise<SlackThreadEntry | undefined> {
+  try {
+    // Search for issue jobs that have slackNotifications matching this thread
+    const jobs = await db.issueJob.findMany({
+      where: { metadata: { path: ['slackNotifications'], not: 'null' } },
+      select: { id: true, ticketId: true, metadata: true },
+      orderBy: { updatedAt: 'desc' },
+      take: 50,
+    });
+
+    for (const job of jobs) {
+      const meta = job.metadata as Record<string, unknown> | null;
+      const notifications = meta?.slackNotifications as Array<{ channelId: string; ts: string }> | undefined;
+      if (!notifications) continue;
+
+      const match = notifications.find(n => n.channelId === channelId && n.ts === threadTs);
+      if (match) {
+        const entry: SlackThreadEntry = {
+          ticketId: job.ticketId,
+          channelId,
+          context: 'plan_approval',
+          issueJobId: job.id,
+        };
+        // Cache in in-memory store for future lookups
+        storeThread(channelId, threadTs, entry);
+        return entry;
+      }
+    }
+  } catch (err) {
+    logger.debug({ err, channelId, threadTs }, 'Failed to look up thread from DB metadata');
+  }
+  return undefined;
+}
+
+/**
  * Handle a threaded reply that maps back to a known ticket notification.
  * Creates a COMMENT ticket event.
  */
@@ -419,7 +464,11 @@ async function handleThreadedReply(
 ): Promise<void> {
   const { db, slack } = deps;
 
-  const entry = lookupThread(message.channelId, message.threadTs);
+  let entry = lookupThread(message.channelId, message.threadTs);
+  if (!entry) {
+    // Fallback: check DB metadata for issue job Slack notifications
+    entry = await lookupThreadFromDb(db, message.channelId, message.threadTs);
+  }
   if (!entry) return; // Not a tracked thread — ignore silently
 
   const operator = await resolveOperator(db, message.userId);

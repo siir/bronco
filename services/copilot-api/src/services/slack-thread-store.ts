@@ -11,6 +11,11 @@ export interface SlackThreadEntry {
   issueJobId?: string;
 }
 
+/** Internal entry that includes the storage timestamp for TTL eviction. */
+interface StoredEntry extends SlackThreadEntry {
+  storedAt: number;
+}
+
 /**
  * In-memory store mapping Slack thread timestamps to ticket metadata.
  *
@@ -19,7 +24,7 @@ export interface SlackThreadEntry {
  * This is sufficient for a single-operator tool where copilot-api is a single instance.
  * If multi-instance is needed in the future, this could be backed by Redis or the DB.
  */
-const threadMap = new Map<string, SlackThreadEntry>();
+const threadMap = new Map<string, StoredEntry>();
 
 function makeKey(channelId: string, threadTs: string): string {
   return `${channelId}:${threadTs}`;
@@ -27,12 +32,16 @@ function makeKey(channelId: string, threadTs: string): string {
 
 export function storeThread(channelId: string, threadTs: string, entry: SlackThreadEntry): void {
   const key = makeKey(channelId, threadTs);
-  threadMap.set(key, entry);
+  threadMap.set(key, { ...entry, storedAt: Date.now() });
   logger.debug({ key, ticketId: entry.ticketId, context: entry.context }, 'Slack thread stored');
 }
 
 export function lookupThread(channelId: string, threadTs: string): SlackThreadEntry | undefined {
-  return threadMap.get(makeKey(channelId, threadTs));
+  const stored = threadMap.get(makeKey(channelId, threadTs));
+  if (!stored) return undefined;
+  // Return without storedAt to match the public interface
+  const { storedAt: _storedAt, ...entry } = stored;
+  return entry;
 }
 
 export function removeThread(channelId: string, threadTs: string): boolean {
@@ -48,22 +57,12 @@ export function getThreadCount(): number {
  * Evict entries older than the given max age.
  * Call periodically to prevent unbounded memory growth.
  */
-const ENTRY_TIMESTAMPS = new Map<string, number>();
-
-export function storeThreadWithTTL(channelId: string, threadTs: string, entry: SlackThreadEntry): void {
-  const key = makeKey(channelId, threadTs);
-  threadMap.set(key, entry);
-  ENTRY_TIMESTAMPS.set(key, Date.now());
-  logger.debug({ key, ticketId: entry.ticketId, context: entry.context }, 'Slack thread stored');
-}
-
 export function evictStaleThreads(maxAgeMs: number = 7 * 24 * 60 * 60 * 1000): number {
   const cutoff = Date.now() - maxAgeMs;
   let evicted = 0;
-  for (const [key, timestamp] of ENTRY_TIMESTAMPS) {
-    if (timestamp < cutoff) {
+  for (const [key, entry] of threadMap) {
+    if (entry.storedAt < cutoff) {
       threadMap.delete(key);
-      ENTRY_TIMESTAMPS.delete(key);
       evicted++;
     }
   }
