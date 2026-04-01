@@ -1680,7 +1680,7 @@ async function resolveTicketRoute(
 
   // Exclude re-analysis routes (those containing UPDATE_ANALYSIS steps) from AI selection —
   // they are only valid for reply-triggered re-analysis, not first-time analysis.
-  const excludeReanalysis = { steps: { none: { stepType: 'UPDATE_ANALYSIS' } } };
+  const excludeReanalysis = { steps: { none: { stepType: 'UPDATE_ANALYSIS', isActive: true } } };
 
   if (ticketSource) {
     const sourceRoutes = await db.ticketRoute.findMany({

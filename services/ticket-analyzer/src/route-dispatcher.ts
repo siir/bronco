@@ -26,7 +26,7 @@ export function createRouteDispatcher(deps: {
       where: {
         isActive: true,
         routeType: 'ANALYSIS',
-        steps: { none: { stepType: 'UPDATE_ANALYSIS' } },
+        steps: { none: { stepType: 'UPDATE_ANALYSIS', isActive: true } },
         OR: category != null
           ? [
               // Ticket has a known category — match routes for this exact category
