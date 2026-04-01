@@ -35,8 +35,26 @@ export interface SlackThreadMessage {
   threadTs: string;
 }
 
+/** Parsed @mention event payload from Slack Socket Mode. */
+export interface SlackMentionEvent {
+  userId: string;
+  channelId: string;
+  text: string;
+  ts: string;
+}
+
+/** Parsed top-level DM event payload from Slack Socket Mode. */
+export interface SlackDirectMessageEvent {
+  userId: string;
+  channelId: string;
+  text: string;
+  ts: string;
+}
+
 export type BlockActionHandler = (action: SlackBlockAction) => Promise<void>;
 export type ThreadMessageHandler = (message: SlackThreadMessage) => Promise<void>;
+export type MentionHandler = (event: SlackMentionEvent) => Promise<void>;
+export type DirectMessageHandler = (event: SlackDirectMessageEvent) => Promise<void>;
 
 export class SlackClient {
   readonly web: WebClient;
@@ -44,6 +62,8 @@ export class SlackClient {
   private connected = false;
   private blockActionHandler: BlockActionHandler | null = null;
   private threadMessageHandler: ThreadMessageHandler | null = null;
+  private mentionHandler: MentionHandler | null = null;
+  private directMessageHandler: DirectMessageHandler | null = null;
 
   constructor(opts: SlackClientOpts) {
     this.web = new WebClient(opts.botToken);
@@ -88,6 +108,16 @@ export class SlackClient {
   /** Register a handler for threaded message events. */
   onThreadMessage(handler: ThreadMessageHandler): void {
     this.threadMessageHandler = handler;
+  }
+
+  /** Register a handler for @mention events in channels. */
+  onMention(handler: MentionHandler): void {
+    this.mentionHandler = handler;
+  }
+
+  /** Register a handler for top-level DM events (no thread). */
+  onDirectMessage(handler: DirectMessageHandler): void {
+    this.directMessageHandler = handler;
   }
 
   private async handleInteractive(body: Record<string, unknown>): Promise<void> {
@@ -170,22 +200,61 @@ export class SlackClient {
     if (!event) return;
 
     const type = event.type as string;
-    if (type !== 'message') return;
 
     // Ignore bot messages to prevent loops
     if (event.bot_id || event.subtype) return;
 
-    const threadTs = event.thread_ts as string | undefined;
-    if (!threadTs || !this.threadMessageHandler) return;
+    if (type === 'app_mention' && this.mentionHandler) {
+      const userId = event.user as string | undefined;
+      const channelId = event.channel as string | undefined;
+      const ts = event.ts as string | undefined;
+      if (!userId || !channelId || !ts) {
+        logger.warn({ type, userId, channelId, ts }, 'app_mention event missing required fields — skipping handler');
+        return;
+      }
+      await this.mentionHandler({
+        userId,
+        channelId,
+        text: (event.text as string) ?? '',
+        ts,
+      });
+      return;
+    }
 
-    const msg: SlackThreadMessage = {
-      userId: (event.user as string) ?? '',
-      channelId: (event.channel as string) ?? '',
-      text: (event.text as string) ?? '',
-      ts: (event.ts as string) ?? '',
-      threadTs,
-    };
-    await this.threadMessageHandler(msg);
+    if (type === 'message') {
+      const threadTs = event.thread_ts as string | undefined;
+      const channelType = event.channel_type as string | undefined;
+
+      // Threaded reply (existing handler)
+      if (threadTs && this.threadMessageHandler) {
+        await this.threadMessageHandler({
+          userId: (event.user as string) ?? '',
+          channelId: (event.channel as string) ?? '',
+          text: (event.text as string) ?? '',
+          ts: (event.ts as string) ?? '',
+          threadTs,
+        });
+        return;
+      }
+
+      // Top-level DM (no thread)
+      if (channelType === 'im' && !threadTs && this.directMessageHandler) {
+        const userId = event.user as string | undefined;
+        const channelId = event.channel as string | undefined;
+        const ts = event.ts as string | undefined;
+        if (!userId || !channelId || !ts) {
+          logger.warn({ type, userId, channelId, ts }, 'DM event missing required fields — skipping handler');
+          return;
+        }
+        await this.directMessageHandler({
+          userId,
+          channelId,
+          text: (event.text as string) ?? '',
+          ts,
+        });
+        return;
+      }
+    }
   }
 
   async connect(): Promise<void> {

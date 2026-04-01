@@ -1,6 +1,6 @@
 import type { PrismaClient } from '@bronco/db';
 import type { Queue } from 'bullmq';
-import type { SlackClient, SlackBlockAction, SlackThreadMessage } from '@bronco/shared-utils';
+import type { SlackClient, SlackBlockAction, SlackThreadMessage, SlackMentionEvent, SlackDirectMessageEvent } from '@bronco/shared-utils';
 import { createLogger } from '@bronco/shared-utils';
 import { lookupThread, storeThread } from './slack-thread-store.js';
 import type { SlackThreadEntry } from './slack-thread-store.js';
@@ -547,6 +547,29 @@ export function createBlockActionHandler(deps: SlackActionHandlerDeps) {
 export function createThreadMessageHandler(deps: SlackActionHandlerDeps) {
   return async (message: SlackThreadMessage): Promise<void> => {
     await handleThreadedReply(deps, message);
+  };
+}
+
+/**
+ * Create the mention handler for @mentions in channels.
+ */
+export function createMentionHandler(deps: SlackActionHandlerDeps) {
+  return async (event: SlackMentionEvent): Promise<void> => {
+    logger.info({ userId: event.userId, channelId: event.channelId }, 'Slack @mention received');
+    await deps.slack.addReaction(event.channelId, event.ts, 'eyes');
+  };
+}
+
+/**
+ * Create the direct message handler for top-level DMs.
+ */
+export function createDirectMessageHandler(deps: SlackActionHandlerDeps) {
+  return async (event: SlackDirectMessageEvent): Promise<void> => {
+    logger.info({ userId: event.userId, channelId: event.channelId }, 'Slack DM received');
+    await deps.slack.sendMessage(
+      event.channelId,
+      "Hi! I'm Hugo, the Bronco support bot. I can help with ticket notifications and plan approvals. You'll receive notifications here when tickets need your attention.",
+    );
   };
 }
 
