@@ -33,7 +33,8 @@ function extractLastUserMessage(messages: AIMessage[]): string | null {
           .map((b) => b.text);
         if (textParts.length > 0) return textParts.join('\n');
       }
-      return null;
+      // No text content in this user message (e.g. tool_result-only) — keep scanning
+      continue;
     }
   }
   return null;
