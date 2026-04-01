@@ -171,11 +171,15 @@ import { ClientService, Client } from '../../core/services/client.service';
                   <div class="run-error">{{ expandedRun()!.error }}</div>
                 }
                 @for (step of expandedRun()!.steps; track step.id) {
-                  <div class="detail-step" [class]="'detail-step-' + step.status">
+                  <div class="detail-step" [class]="'detail-step-' + step.status"
+                    [class.step-highlight]="recentlyChanged().has(step.id)">
                     <div class="detail-step-header">
                       <span class="detail-step-order">{{ step.stepOrder }}.</span>
                       <span class="detail-step-name">{{ step.stepName }}</span>
                       <span class="badge small" [class]="'badge-status-' + step.status">{{ step.status }}</span>
+                      @if (step.status === 'processing') {
+                        <span class="pulse-dot"></span>
+                      }
                       <span class="badge small badge-step-type">{{ step.stepType }}</span>
                       @if (step.durationMs != null) {
                         <span class="detail-step-duration">{{ formatDuration(step.durationMs) }}</span>
@@ -276,6 +280,12 @@ import { ClientService, Client } from '../../core/services/client.service';
     .detail-step-duration { font-size: 12px; color: #777; }
     .detail-step-error { margin-top: 4px; padding: 6px 8px; background: #ffebee; color: #c62828; border-radius: 4px; font-size: 13px; }
     .detail-step-output { margin-top: 4px; }
+    .pulse-dot { width: 8px; height: 8px; border-radius: 50%; background: #1565c0; animation: pulse 1.5s ease-in-out infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(1.3); } }
+
+    .step-highlight { animation: highlight-fade 1.5s ease-out; }
+    @keyframes highlight-fade { from { background: #c8e6c9; } to { background: transparent; } }
+
     .detail-step-output summary { cursor: pointer; color: #1565c0; font-size: 12px; }
     .detail-pre { background: #263238; color: #eeffff; padding: 8px 12px; border-radius: 4px; font-size: 12px; overflow-x: auto; max-height: 300px; white-space: pre-wrap; word-break: break-word; }
 
@@ -304,6 +314,9 @@ export class IngestionJobListComponent implements OnInit, OnDestroy {
   columns = ['status', 'source', 'client', 'route', 'ticket', 'startedAt', 'duration', 'steps', 'expand'];
 
   private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private detailPollTimer: ReturnType<typeof setInterval> | null = null;
+  /** Track step statuses to detect transitions for highlight animation. */
+  recentlyChanged = signal<Set<string>>(new Set());
 
   ngOnInit(): void {
     this.clientService.getClients().subscribe((c) => this.clients.set(c));
@@ -312,6 +325,7 @@ export class IngestionJobListComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.stopPolling();
+    this.stopDetailPolling();
   }
 
   loadRuns(): void {
@@ -353,12 +367,19 @@ export class IngestionJobListComponent implements OnInit, OnDestroy {
     if (this.expandedRunId === run.id) {
       this.expandedRunId = null;
       this.expandedRun.set(null);
+      this.stopDetailPolling();
       return;
     }
     this.expandedRunId = run.id;
     this.expandedRun.set(null);
+    this.stopDetailPolling();
     this.ingestionService.getRun(run.id).subscribe({
-      next: (fullRun) => this.expandedRun.set(fullRun),
+      next: (fullRun) => {
+        this.expandedRun.set(fullRun);
+        if (fullRun.status === 'processing') {
+          this.startDetailPolling(fullRun.id);
+        }
+      },
       error: (err) => console.error('Failed to load run detail', err),
     });
   }
@@ -380,6 +401,50 @@ export class IngestionJobListComponent implements OnInit, OnDestroy {
   getElapsed(run: IngestionRun): string {
     const elapsed = Date.now() - new Date(run.startedAt).getTime();
     return this.formatDuration(elapsed) + ' elapsed';
+  }
+
+  private startDetailPolling(runId: string): void {
+    this.detailPollTimer = setInterval(() => {
+      this.ingestionService.getRun(runId).subscribe({
+        next: (fullRun) => {
+          // Detect step status transitions for highlight animation
+          const prev = this.expandedRun();
+          if (prev) {
+            const changed = new Set<string>();
+            for (const step of fullRun.steps) {
+              const prevStep = prev.steps.find((s) => s.id === step.id);
+              if (prevStep && prevStep.status !== step.status && step.status !== 'processing') {
+                changed.add(step.id);
+              }
+            }
+            if (changed.size > 0) {
+              this.recentlyChanged.set(changed);
+              setTimeout(() => this.recentlyChanged.set(new Set()), 1500);
+            }
+          }
+
+          this.expandedRun.set(fullRun);
+
+          // Stop polling if run is no longer processing
+          if (fullRun.status !== 'processing') {
+            this.stopDetailPolling();
+            // Refresh the list to update the row status
+            this.loadRuns();
+          }
+        },
+        error: (err) => {
+          console.error('Failed to poll run detail', err);
+          this.stopDetailPolling();
+        },
+      });
+    }, 4000);
+  }
+
+  private stopDetailPolling(): void {
+    if (this.detailPollTimer) {
+      clearInterval(this.detailPollTimer);
+      this.detailPollTimer = null;
+    }
   }
 
   private stopPolling(): void {
