@@ -47,6 +47,7 @@ import { failedJobRoutes } from './failed-jobs.js';
 import { emailLogRoutes } from './email-logs.js';
 import { operatorRoutes } from './operators.js';
 import { notificationPreferenceRoutes } from './notification-preferences.js';
+import { pendingActionRoutes } from './pending-actions.js';
 
 interface RouteOpts {
   config: Config;
@@ -120,5 +121,6 @@ export async function registerRoutes(fastify: FastifyInstance, opts: RouteOpts):
     await scoped.register(emailLogRoutes);
     await scoped.register(operatorRoutes);
     await scoped.register(notificationPreferenceRoutes);
+    await scoped.register(pendingActionRoutes);
   });
 }

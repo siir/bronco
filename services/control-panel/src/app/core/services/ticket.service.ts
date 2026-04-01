@@ -94,6 +94,73 @@ export interface TicketAiUsageResponse {
   total: number;
 }
 
+export interface PendingAction {
+  id: string;
+  ticketId: string;
+  actionType: string;
+  value: Record<string, unknown>;
+  status: 'pending' | 'approved' | 'dismissed';
+  source: string;
+  resolvedAt: string | null;
+  resolvedBy: string | null;
+  createdAt: string;
+}
+
+export interface UnifiedLogArchive {
+  fullPrompt: string;
+  fullResponse: string;
+  systemPrompt: string | null;
+  conversationMessages: unknown;
+  totalContextTokens: number | null;
+  messageCount: number | null;
+}
+
+export interface UnifiedLogEntry {
+  id: string;
+  type: 'log' | 'ai' | 'tool' | 'step' | 'error';
+  timestamp: string;
+  // log fields
+  level?: string;
+  service?: string;
+  message?: string;
+  context?: Record<string, unknown> | null;
+  error?: string | null;
+  // ai fields
+  taskType?: string;
+  provider?: string;
+  model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  costUsd?: number | null;
+  durationMs?: number | null;
+  promptKey?: string | null;
+  promptText?: string | null;
+  systemPrompt?: string | null;
+  responseText?: string | null;
+  conversationMetadata?: Record<string, unknown> | null;
+  archive?: UnifiedLogArchive | null;
+}
+
+export interface UnifiedLogsResponse {
+  entries: UnifiedLogEntry[];
+  total: number;
+}
+
+export interface TicketCostSummary {
+  entityId: string;
+  totalCostUsd: number;
+  callCount: number;
+  toolCallCount: number;
+  totalDurationMs: number;
+  breakdown: Array<{
+    provider: string;
+    model: string;
+    callCount: number;
+    totalCostUsd: number;
+    totalDurationMs: number;
+  }>;
+}
+
 @Injectable({ providedIn: 'root' })
 export class TicketService {
   private api = inject(ApiService);
@@ -130,12 +197,32 @@ export class TicketService {
     return this.api.get<TicketAiUsageResponse>(`/tickets/${ticketId}/ai-usage`, filters as Record<string, string | number>);
   }
 
+  getUnifiedLogs(ticketId: string, filters?: { limit?: number; offset?: number; type?: string; level?: string; search?: string }): Observable<UnifiedLogsResponse> {
+    return this.api.get<UnifiedLogsResponse>(`/tickets/${ticketId}/unified-logs`, filters as Record<string, string | number>);
+  }
+
+  getCostSummary(ticketId: string): Observable<TicketCostSummary> {
+    return this.api.get<TicketCostSummary>(`/tickets/${ticketId}/cost-summary`);
+  }
+
   reanalyze(ticketId: string): Observable<{ queued: boolean; ticketId: string; jobId: string }> {
     return this.api.post<{ queued: boolean; ticketId: string; jobId: string }>(`/tickets/${ticketId}/reanalyze`, {});
   }
 
   askAi(ticketId: string, params?: { question?: string; provider?: string; model?: string; taskType?: string }): Observable<AiHelpResponse> {
     return this.api.post<AiHelpResponse>(`/tickets/${ticketId}/ai-help`, params ?? {});
+  }
+
+  getPendingActions(ticketId: string): Observable<PendingAction[]> {
+    return this.api.get<PendingAction[]>(`/tickets/${ticketId}/pending-actions`);
+  }
+
+  approvePendingAction(ticketId: string, actionId: string): Observable<PendingAction> {
+    return this.api.post<PendingAction>(`/tickets/${ticketId}/pending-actions/${actionId}/approve`, {});
+  }
+
+  dismissPendingAction(ticketId: string, actionId: string): Observable<PendingAction> {
+    return this.api.post<PendingAction>(`/tickets/${ticketId}/pending-actions/${actionId}/dismiss`, {});
   }
 }
 

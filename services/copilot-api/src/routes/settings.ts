@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
-import { TicketStatus, TicketCategory, DEFAULT_OPERATIONAL_ALERT_CONFIG } from '@bronco/shared-types';
-import type { OperationalAlertConfig } from '@bronco/shared-types';
+import { TicketStatus, TicketCategory, DEFAULT_OPERATIONAL_ALERT_CONFIG, DEFAULT_ACTION_SAFETY_CONFIG } from '@bronco/shared-types';
+import type { OperationalAlertConfig, ActionSafetyConfig, ActionSafetyLevel } from '@bronco/shared-types';
 import { Mailer, createLogger, decrypt, encrypt, loadSmtpFromDb, looksEncrypted } from '@bronco/shared-utils';
 import { reconnectSlack } from '../services/slack-connection.js';
 import { z } from 'zod';
@@ -40,6 +40,8 @@ const SETTINGS_KEY_DEVOPS = 'system-config-devops';
 const SETTINGS_KEY_GITHUB = 'system-config-github';
 const SETTINGS_KEY_IMAP = 'system-config-imap';
 const SETTINGS_KEY_SLACK = 'system-config-slack';
+const SETTINGS_KEY_PROMPT_RETENTION = 'system-config-prompt-retention';
+const SETTINGS_KEY_ACTION_SAFETY = 'system-config-action-safety';
 
 const REDACTED = '••••••••';
 
@@ -843,6 +845,45 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     }
   });
 
+  // ─── Prompt Retention ───
+
+  const promptRetentionSchema = z.object({
+    fullRetentionDays: z.number().int().min(1).default(30),
+    summaryRetentionDays: z.number().int().min(1).default(90),
+  });
+
+  const DEFAULT_PROMPT_RETENTION = { fullRetentionDays: 30, summaryRetentionDays: 90 };
+
+  // GET /api/settings/prompt-retention — get prompt retention config
+  fastify.get('/api/settings/prompt-retention', async () => {
+    const row = await fastify.db.appSetting.findUnique({ where: { key: SETTINGS_KEY_PROMPT_RETENTION } });
+    if (!row) return DEFAULT_PROMPT_RETENTION;
+    const parsed = promptRetentionSchema.safeParse(row.value);
+    return parsed.success ? parsed.data : DEFAULT_PROMPT_RETENTION;
+  });
+
+  // PUT /api/settings/prompt-retention — save prompt retention config
+  fastify.put<{ Body: { fullRetentionDays?: number; summaryRetentionDays?: number } }>(
+    '/api/settings/prompt-retention',
+    async (request) => {
+      const parsed = promptRetentionSchema.safeParse(request.body);
+      if (!parsed.success) {
+        const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+        return fastify.httpErrors.badRequest(`Invalid prompt retention config: ${issues}`);
+      }
+
+      const config = parsed.data;
+
+      const row = await fastify.db.appSetting.upsert({
+        where: { key: SETTINGS_KEY_PROMPT_RETENTION },
+        update: { value: config as unknown as object },
+        create: { key: SETTINGS_KEY_PROMPT_RETENTION, value: config as unknown as object },
+      });
+
+      return row.value as unknown as { fullRetentionDays: number; summaryRetentionDays: number };
+    },
+  );
+
   // ─── Super Admin ───
 
   // GET /api/settings/super-admin — get the designated super admin user ID
@@ -889,5 +930,59 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     });
 
     return { userId };
+  });
+
+  // ─── Action Safety Configuration ───
+
+  /** Zod schema for validating a stored ActionSafetyConfig object. */
+  const actionSafetyConfigSchema = z.object({
+    actions: z.record(z.string().min(1), z.enum(['auto', 'approval'])),
+  });
+
+  // GET /api/settings/action-safety — get action safety config (upsert defaults on first access)
+  fastify.get('/api/settings/action-safety', async () => {
+    const row = await fastify.db.appSetting.findUnique({ where: { key: SETTINGS_KEY_ACTION_SAFETY } });
+
+    if (!row) {
+      // Seed defaults on first access so subsequent GETs and the executor always find a row.
+      await fastify.db.appSetting.upsert({
+        where: { key: SETTINGS_KEY_ACTION_SAFETY },
+        create: { key: SETTINGS_KEY_ACTION_SAFETY, value: DEFAULT_ACTION_SAFETY_CONFIG as unknown as object },
+        update: { value: DEFAULT_ACTION_SAFETY_CONFIG as unknown as object },
+      });
+      return DEFAULT_ACTION_SAFETY_CONFIG;
+    }
+
+    // Validate the stored value; reset to defaults if malformed (e.g. from manual DB edits).
+    const parsed = actionSafetyConfigSchema.safeParse(row.value);
+    if (!parsed.success) {
+      logger.warn({ key: SETTINGS_KEY_ACTION_SAFETY, errors: parsed.error.issues }, 'Stored action safety config is malformed — resetting to defaults');
+      await fastify.db.appSetting.update({
+        where: { key: SETTINGS_KEY_ACTION_SAFETY },
+        data: { value: DEFAULT_ACTION_SAFETY_CONFIG as unknown as object },
+      });
+      return DEFAULT_ACTION_SAFETY_CONFIG;
+    }
+
+    return parsed.data as ActionSafetyConfig;
+  });
+
+  // PUT /api/settings/action-safety — update action safety config
+  fastify.put<{ Body: ActionSafetyConfig }>('/api/settings/action-safety', async (request) => {
+    const parsed = actionSafetyConfigSchema.safeParse(request.body);
+    if (!parsed.success) {
+      const msg = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+      return fastify.httpErrors.badRequest(`Invalid action safety config: ${msg}`);
+    }
+
+    const config: ActionSafetyConfig = parsed.data as ActionSafetyConfig;
+
+    const row = await fastify.db.appSetting.upsert({
+      where: { key: SETTINGS_KEY_ACTION_SAFETY },
+      update: { value: config as unknown as object },
+      create: { key: SETTINGS_KEY_ACTION_SAFETY, value: config as unknown as object },
+    });
+
+    return row.value as unknown as ActionSafetyConfig;
   });
 }

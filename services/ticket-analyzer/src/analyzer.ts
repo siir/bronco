@@ -14,6 +14,8 @@ import { TaskType, RouteStepType, isClosedStatus, AnalysisStatus, SufficiencySta
 import { createLogger, AppLogger, createPrismaLogWriter, decrypt, looksEncrypted, MCP_TOOL_TIMEOUT_MS, mcpUrl, callMcpToolViaSdk, notifyOperators as notifyOperatorsFn } from '@bronco/shared-utils';
 import type { AIToolDefinition, AIMessage, AIToolUseBlock, AITextBlock, AIToolResponse, AIToolResultBlock } from '@bronco/shared-types';
 import type { Mailer, ReplyOptions } from '@bronco/shared-utils';
+import { executeRecommendations } from './recommendation-executor.js';
+import type { ParsedAction } from './recommendation-executor.js';
 
 const execFileAsync = promisify(execFile);
 const logger = createLogger('ticket-analyzer');
@@ -46,6 +48,51 @@ const KNOWN_ACTIONS = [
 /** Strip embedded credentials from URLs in error messages (e.g., https://user:token@host/repo). */
 function redactUrls(msg: string): string {
   return msg.replace(/https?:\/\/[^@]+@/g, 'https://***@');
+}
+
+/**
+ * Parse and validate the JSON action array from SUGGEST_NEXT_STEPS AI output.
+ * Returns both the raw parsed array and the validated action objects.
+ * Unknown action types are now passed through (the executor handles them).
+ */
+function parseNextStepsActions(ticketId: string, content: string): { actions: ParsedAction[]; rawActions: unknown[] } {
+  let rawActions: unknown[] = [];
+  try {
+    const cleaned = content.replace(/```json\n?|\n?```/g, '').trim();
+    const parsed: unknown = JSON.parse(cleaned);
+    rawActions = Array.isArray(parsed) ? parsed : [];
+  } catch {
+    logger.warn({ ticketId, raw: content.slice(0, 200) }, 'Failed to parse next steps JSON — storing as text recommendation');
+    return { actions: [], rawActions: [] };
+  }
+
+  const actions: ParsedAction[] = [];
+  for (const raw of rawActions) {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+      logger.warn({ ticketId, entry: String(raw).slice(0, 100) }, 'Skipping non-object action entry');
+      continue;
+    }
+    const obj = raw as Record<string, unknown>;
+    if (typeof obj.action !== 'string' || !obj.action.trim()) {
+      logger.warn({ ticketId, entry: JSON.stringify(raw).slice(0, 100) }, 'Skipping action entry with missing or non-string action field');
+      continue;
+    }
+    if (obj.value !== undefined && typeof obj.value !== 'string') {
+      logger.warn({ ticketId, action: obj.action, valueType: typeof obj.value }, 'Skipping action with non-string value');
+      continue;
+    }
+    if (typeof obj.reason !== 'string' || !obj.reason.trim()) {
+      logger.warn({ ticketId, action: obj.action }, 'Skipping action with missing or empty reason');
+      continue;
+    }
+    actions.push({
+      action: obj.action,
+      value: typeof obj.value === 'string' ? obj.value : undefined,
+      reason: obj.reason as string,
+    });
+  }
+
+  return { actions, rawActions };
 }
 
 // ---------------------------------------------------------------------------
@@ -1340,17 +1387,11 @@ async function deepAnalysis(
     promptKey: 'imap.suggest-next-steps.system',
   });
 
-  // Parse and execute the structured actions
-  const executed: Array<{ action: string; value?: string; reason: string; applied: boolean }> = [];
-  let rawActions: unknown[] = [];
+  // Parse, validate, and execute the structured actions via the recommendation executor
+  const { actions, rawActions } = parseNextStepsActions(ticketId, nextStepsRes.content);
 
-  try {
-    const cleaned = nextStepsRes.content.replace(/```json\n?|\n?```/g, '').trim();
-    const parsed: unknown = JSON.parse(cleaned);
-    rawActions = Array.isArray(parsed) ? parsed : [];
-  } catch {
-    logger.warn({ ticketId, raw: nextStepsRes.content.slice(0, 200) }, 'Failed to parse next steps JSON — storing as text recommendation');
-    // Fall back to storing the raw text
+  if (rawActions.length === 0 && actions.length === 0) {
+    // Unparseable — stored as text recommendation by parseNextStepsActions
     await db.ticketEvent.create({
       data: {
         ticketId,
@@ -1360,182 +1401,33 @@ async function deepAnalysis(
         actor: 'system:analyzer',
       },
     });
-    rawActions = [];
   }
 
-  // Validate individual action objects — reject malformed entries from AI output
-  const actions: Array<{ action: string; value?: string; reason: string }> = [];
-  for (const raw of rawActions) {
-    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-      logger.warn({ ticketId, entry: String(raw).slice(0, 100) }, 'Skipping non-object action entry');
-      continue;
-    }
-    const obj = raw as Record<string, unknown>;
-    if (typeof obj.action !== 'string' || !obj.action.trim()) {
-      logger.warn({ ticketId, entry: JSON.stringify(raw).slice(0, 100) }, 'Skipping action entry with missing or non-string action field');
-      continue;
-    }
-    if (!KNOWN_ACTIONS.includes(obj.action as typeof KNOWN_ACTIONS[number])) {
-      logger.warn({ ticketId, action: obj.action }, 'Skipping unrecognized action type');
-      continue;
-    }
-    if (obj.value !== undefined && typeof obj.value !== 'string') {
-      logger.warn({ ticketId, action: obj.action, valueType: typeof obj.value }, 'Skipping action with non-string value');
-      continue;
-    }
-    if (typeof obj.reason !== 'string' || !obj.reason.trim()) {
-      logger.warn({ ticketId, action: obj.action }, 'Skipping action with missing or empty reason');
-      continue;
-    }
-    actions.push({
-      action: obj.action,
-      value: typeof obj.value === 'string' ? obj.value : undefined,
-      reason: obj.reason as string,
-    });
-  }
+  // Execute actions via the configurable safety executor
+  const execResults = actions.length > 0
+    ? await executeRecommendations({ db, mailer }, ticketId, actions)
+    : [];
 
-  const VALID_STATUSES = ['OPEN', 'IN_PROGRESS', 'WAITING', 'RESOLVED', 'CLOSED'];
-  const VALID_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
-  const VALID_CATEGORIES = ['DATABASE_PERF', 'BUG_FIX', 'FEATURE_REQUEST', 'SCHEMA_CHANGE', 'CODE_REVIEW', 'ARCHITECTURE', 'GENERAL'];
-
-  // Track current field values locally so audit events capture accurate "previous" values
-  let currentStatus: string = 'WAITING';
-  let currentPriority: string = ticket.priority;
-  let currentCategory: string | null = ticket.category;
-
-  for (const step of actions.slice(0, 3)) {
-    const reason = step.reason;
-    const rawValue = typeof step.value === 'string' ? step.value.trim() : undefined;
-    const value = rawValue?.toUpperCase();
-
-    try {
-      switch (step.action) {
-        case 'set_status': {
-          if (value && VALID_STATUSES.includes(value)) {
-            const data: { status: TicketStatus; resolvedAt: Date | null } = {
-              status: value as TicketStatus,
-              resolvedAt: isClosedStatus(value) ? new Date() : null,
-            };
-            await db.ticket.update({ where: { id: ticketId }, data });
-            await db.ticketEvent.create({
-              data: {
-                ticketId,
-                eventType: 'STATUS_CHANGE',
-                content: `Status changed to ${value} — ${reason}`,
-                metadata: { previousStatus: currentStatus, newStatus: value, triggeredBy: 'ai' },
-                actor: 'system:analyzer',
-              },
-            });
-            executed.push({ action: 'set_status', value, reason, applied: true });
-            logger.info({ ticketId, from: currentStatus, to: value }, 'AI auto-applied status change');
-            currentStatus = value;
-          } else {
-            executed.push({ action: 'set_status', value, reason, applied: false });
-          }
-          break;
-        }
-        case 'set_priority': {
-          if (value && VALID_PRIORITIES.includes(value)) {
-            if (value === currentPriority) {
-              executed.push({ action: 'set_priority', value, reason, applied: false });
-              break;
-            }
-            await db.ticket.update({ where: { id: ticketId }, data: { priority: value as Priority } });
-            await db.ticketEvent.create({
-              data: {
-                ticketId,
-                eventType: 'PRIORITY_CHANGE',
-                content: `Priority changed from ${currentPriority} to ${value} — ${reason}`,
-                metadata: { previousPriority: currentPriority, newPriority: value, triggeredBy: 'ai' },
-                actor: 'system:analyzer',
-              },
-            });
-            executed.push({ action: 'set_priority', value, reason, applied: true });
-            logger.info({ ticketId, from: currentPriority, to: value }, 'AI auto-applied priority change');
-            currentPriority = value;
-          } else {
-            executed.push({ action: 'set_priority', value, reason, applied: false });
-          }
-          break;
-        }
-        case 'set_category': {
-          if (value && VALID_CATEGORIES.includes(value)) {
-            if (value === currentCategory) {
-              executed.push({ action: 'set_category', value, reason, applied: false });
-              break;
-            }
-            await db.ticket.update({ where: { id: ticketId }, data: { category: value as TicketCategory } });
-            await db.ticketEvent.create({
-              data: {
-                ticketId,
-                eventType: 'CATEGORY_CHANGE',
-                content: `Category changed from ${currentCategory ?? '(unset)'} to ${value} — ${reason}`,
-                metadata: { previousCategory: currentCategory ?? null, newCategory: value, triggeredBy: 'ai' },
-                actor: 'system:analyzer',
-              },
-            });
-            executed.push({ action: 'set_category', value, reason, applied: true });
-            logger.info({ ticketId, from: currentCategory, to: value }, 'AI auto-applied category change');
-            currentCategory = value;
-          } else {
-            executed.push({ action: 'set_category', value, reason, applied: false });
-          }
-          break;
-        }
-        case 'add_comment': {
-          const commentText = step.value ?? reason;
-          if (commentText) {
-            await db.ticketEvent.create({
-              data: {
-                ticketId,
-                eventType: 'COMMENT',
-                content: commentText,
-                metadata: { triggeredBy: 'ai' },
-                actor: 'system:analyzer',
-              },
-            });
-            executed.push({ action: 'add_comment', value: commentText.slice(0, 100), reason, applied: true });
-          }
-          break;
-        }
-        // Actions that require human review — log as recommendations only
-        case 'trigger_code_fix':
-        case 'send_followup_email':
-        case 'escalate_deep_analysis':
-        case 'check_database_health': {
-          executed.push({ action: step.action, reason, applied: false });
-          break;
-        }
-        default: {
-          executed.push({ action: step.action, reason, applied: false });
-          break;
-        }
-      }
-    } catch (err) {
-      logger.error({ err, ticketId, action: step.action }, 'Failed to execute AI-suggested action');
-      executed.push({ action: step.action, value, reason, applied: false });
-    }
-  }
-
-  // Record the actions and what was applied vs recommended
-  const appliedActions = executed.filter((a) => a.applied);
-  const recommendedActions = executed.filter((a) => !a.applied);
+  // Build summary and record the AI_RECOMMENDATION event
+  const autoExec = execResults.filter((r) => r.outcome === 'auto_executed');
+  const pending = execResults.filter((r) => r.outcome === 'pending_approval');
+  const skipped = execResults.filter((r) => r.outcome === 'skipped');
 
   const summaryParts: string[] = [];
-  if (appliedActions.length > 0) {
-    summaryParts.push('**Executed:**');
-    for (const a of appliedActions) {
-      summaryParts.push(`- ${a.action}${a.value ? ` → ${a.value}` : ''}: ${a.reason}`);
-    }
+  if (autoExec.length > 0) {
+    summaryParts.push('**Auto-executed:**');
+    for (const a of autoExec) summaryParts.push(`- ${a.action}${a.value ? ` → ${a.value}` : ''}: ${a.reason}`);
   }
-  if (recommendedActions.length > 0) {
-    summaryParts.push('**Recommended (needs operator review):**');
-    for (const a of recommendedActions) {
-      summaryParts.push(`- ${a.action}: ${a.reason}`);
-    }
+  if (pending.length > 0) {
+    summaryParts.push('**Pending approval:**');
+    for (const a of pending) summaryParts.push(`- ${a.action}: ${a.reason}`);
+  }
+  if (skipped.length > 0) {
+    summaryParts.push('**Skipped:**');
+    for (const a of skipped) summaryParts.push(`- ${a.action}: ${a.reason}`);
   }
 
-  if (executed.length > 0) {
+  if (execResults.length > 0) {
     await db.ticketEvent.create({
       data: {
         ticketId,
@@ -1545,19 +1437,20 @@ async function deepAnalysis(
           phase: 'next_steps',
           aiProvider: nextStepsRes.provider,
           aiModel: nextStepsRes.model,
-          actions: executed,
-          appliedCount: appliedActions.length,
-          recommendedCount: recommendedActions.length,
+          actions: execResults as unknown as Prisma.InputJsonValue,
+          autoExecutedCount: autoExec.length,
+          pendingCount: pending.length,
+          skippedCount: skipped.length,
         },
         actor: 'system:analyzer',
       },
     });
   }
 
-  appLog.info(`Next steps processed: ${appliedActions.length} applied, ${recommendedActions.length} recommended`, {
+  appLog.info(`Next steps processed: ${autoExec.length} auto-executed, ${pending.length} pending, ${skipped.length} skipped`, {
     ticketId,
-    applied: appliedActions.map((a) => `${a.action}${a.value ? `=${a.value}` : ''}`),
-    recommended: recommendedActions.map((a) => a.action),
+    autoExecuted: autoExec.map((a) => `${a.action}${a.value ? `=${a.value}` : ''}`),
+    pending: pending.map((a) => a.action),
   }, ticketId, 'ticket');
 
   // Ensure the triage summary finishes before we overwrite it with the deep-analysis summary
@@ -2644,7 +2537,7 @@ async function executeRoutePipeline(
         const messages: AIMessage[] = [
           { role: 'user', content: initialUserMessage },
         ];
-        const toolCallLog: Array<{ tool: string; input: Record<string, unknown>; output: string; durationMs: number }> = [];
+        const toolCallLog: Array<{ tool: string; system?: string; input: Record<string, unknown>; output: string; durationMs: number }> = [];
         let totalInputTokens = 0;
         let totalOutputTokens = 0;
 
@@ -2705,6 +2598,7 @@ async function executeRoutePipeline(
             const elapsed = Date.now() - start;
             toolCallLog.push({
               tool: toolUse.name,
+              system: (toolUse.input as Record<string, unknown>)?.system_name as string | undefined,
               input: toolUse.input,
               output: result.result.slice(0, 500), // truncate for metadata
               durationMs: elapsed,
@@ -2733,6 +2627,17 @@ async function executeRoutePipeline(
         // Store sufficiency questions in pipeline context so DRAFT_FINDINGS_EMAIL can include them
         ctx.sufficiencyEval = sufficiency;
 
+        // Compute total cost from AI usage logs for this specific analysis run
+        const costAgg = await db.aiUsageLog.aggregate({
+          where: {
+            entityId: ticketId,
+            entityType: 'ticket',
+            createdAt: { gte: new Date(stepStart) },
+          },
+          _sum: { costUsd: true },
+        });
+        const totalCostUsd = costAgg._sum.costUsd ?? 0;
+
         // Store as AI_ANALYSIS event with tool call log and sufficiency in metadata
         await db.ticketEvent.create({
           data: {
@@ -2747,6 +2652,7 @@ async function executeRoutePipeline(
               maxIterations,
               toolCalls: toolCallLog,
               totalUsage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
+              totalCostUsd,
               routeId: route.id,
               routeName: route.name,
               sufficiencyStatus: sufficiency.status,
@@ -3300,44 +3206,47 @@ async function executeRoutePipeline(
           promptKey,
         });
 
-        // Parse and record (re-use existing action execution logic inline)
-        try {
-          const cleaned = nextStepsRes.content.replace(/```json\n?|\n?```/g, '').trim();
-          const parsed: unknown = JSON.parse(cleaned);
-          if (Array.isArray(parsed)) {
-            await db.ticketEvent.create({
-              data: {
-                ticketId,
-                eventType: 'AI_RECOMMENDATION',
-                content: nextStepsRes.content,
-                metadata: { phase: 'next_steps', aiProvider: nextStepsRes.provider, aiModel: nextStepsRes.model, routeId: route.id },
-                actor: 'system:analyzer',
-              },
-            });
-            const stepDuration = Date.now() - stepStart;
-            appLog.info(
-              `Next steps suggested: ${parsed.length} suggestions via ${nextStepsRes.provider}/${nextStepsRes.model} (${(stepDuration / 1000).toFixed(1)}s)`,
-              { ticketId, suggestionCount: parsed.length, provider: nextStepsRes.provider, model: nextStepsRes.model, durationMs: stepDuration },
-              ticketId, 'ticket',
-            );
-          }
-        } catch {
-          await db.ticketEvent.create({
-            data: {
-              ticketId,
-              eventType: 'AI_RECOMMENDATION',
-              content: nextStepsRes.content,
-              metadata: { phase: 'next_steps', aiProvider: nextStepsRes.provider, aiModel: nextStepsRes.model, parsed: false, routeId: route.id },
-              actor: 'system:analyzer',
-            },
-          });
-          const stepDuration = Date.now() - stepStart;
-          appLog.info(
-            `Next steps suggested (unparsed) via ${nextStepsRes.provider}/${nextStepsRes.model} (${(stepDuration / 1000).toFixed(1)}s)`,
-            { ticketId, parsed: false, provider: nextStepsRes.provider, model: nextStepsRes.model, durationMs: stepDuration },
-            ticketId, 'ticket',
-          );
+        // Parse and execute via the recommendation executor
+        const { actions: nextActions } = parseNextStepsActions(ticketId, nextStepsRes.content);
+        const execResults = nextActions.length > 0
+          ? await executeRecommendations({ db, mailer }, ticketId, nextActions)
+          : [];
+
+        const autoExecCount = execResults.filter((r) => r.outcome === 'auto_executed').length;
+        const pendingCount = execResults.filter((r) => r.outcome === 'pending_approval').length;
+
+        // Build summary for the AI_RECOMMENDATION event
+        const recParts: string[] = [];
+        for (const r of execResults) {
+          const prefix = r.outcome === 'auto_executed' ? 'Auto-executed' : r.outcome === 'pending_approval' ? 'Pending approval' : 'Skipped';
+          recParts.push(`- ${prefix}: ${r.action}${r.value ? ` → ${r.value}` : ''}: ${r.reason}`);
         }
+
+        await db.ticketEvent.create({
+          data: {
+            ticketId,
+            eventType: 'AI_RECOMMENDATION',
+            content: recParts.length > 0 ? recParts.join('\n') : nextStepsRes.content,
+            metadata: {
+              phase: 'next_steps',
+              aiProvider: nextStepsRes.provider,
+              aiModel: nextStepsRes.model,
+              routeId: route.id,
+              actions: execResults as unknown as Prisma.InputJsonValue,
+              autoExecutedCount: autoExecCount,
+              pendingCount,
+              parsed: nextActions.length > 0,
+            },
+            actor: 'system:analyzer',
+          },
+        });
+
+        const stepDuration = Date.now() - stepStart;
+        appLog.info(
+          `Next steps: ${autoExecCount} auto-executed, ${pendingCount} pending via ${nextStepsRes.provider}/${nextStepsRes.model} (${(stepDuration / 1000).toFixed(1)}s)`,
+          { ticketId, autoExecutedCount: autoExecCount, pendingCount, provider: nextStepsRes.provider, model: nextStepsRes.model, durationMs: stepDuration },
+          ticketId, 'ticket',
+        );
         stepsSucceeded++;
         break;
       }

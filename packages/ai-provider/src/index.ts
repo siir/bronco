@@ -12,7 +12,7 @@ export type { ClientMemoryRow, ResolvedClientMemory, ClientMemoryFetcher } from 
 export { ProviderConfigResolver } from './provider-config-resolver.js';
 export type { ProviderConfigRow, ProviderConfigFetcher, ResolvedProviderConfig } from './provider-config-resolver.js';
 export { TASK_CAPABILITY_REQUIREMENTS, CAPABILITY_LEVEL_ORDER, meetsCapability } from './task-capabilities.js';
-export type { AIProviderClient, AIRouterConfig, AiUsageWriter, AiUsageEntry, AiCostLookup } from './types.js';
+export type { AIProviderClient, AIRouterConfig, AiUsageWriter, AiArchiveWriter, AiUsageEntry, AiArchiveEntry, AiCostLookup, ConversationMetadata } from './types.js';
 export { createAIRouter } from './factory.js';
 export type { AIRouterDb, CreateAIRouterConfig, CreateAIRouterOptions, CreateAIRouterResult } from './factory.js';
 export { ALL_PROMPTS, getPromptByKey } from './prompts/index.js';

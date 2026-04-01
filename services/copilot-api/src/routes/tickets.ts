@@ -534,6 +534,219 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     return { logs, total };
   });
 
+  // GET /api/tickets/:id/unified-logs — merged chronological stream of app_logs + ai_usage_logs
+  const VALID_UNIFIED_TYPES = new Set(['log', 'ai', 'tool', 'step', 'error']);
+
+  fastify.get<{
+    Params: { id: string };
+    Querystring: { limit?: string; offset?: string; type?: string; level?: string; search?: string; includeArchive?: string };
+  }>('/api/tickets/:id/unified-logs', async (request) => {
+    const { limit: rawLimit = '100', offset: rawOffset = '0', type, level, search, includeArchive } = request.query;
+
+    const take = Math.trunc(Number(rawLimit));
+    const skip = Math.trunc(Number(rawOffset));
+    if (!Number.isFinite(take) || take < 0 || !Number.isFinite(skip) || skip < 0) {
+      return fastify.httpErrors.badRequest('limit and offset must be non-negative integers');
+    }
+    if (level && !VALID_LOG_LEVELS.has(level)) {
+      return fastify.httpErrors.badRequest(`Invalid level. Must be one of: ${Object.values(LogLevel).join(', ')}`);
+    }
+    if (type && !VALID_UNIFIED_TYPES.has(type)) {
+      return fastify.httpErrors.badRequest(`Invalid type. Must be one of: ${[...VALID_UNIFIED_TYPES].join(', ')}`);
+    }
+
+    const ticketId = request.params.id;
+    const wantArchive = includeArchive === 'true';
+    const wantLogs = !type || type === 'log' || type === 'tool' || type === 'step' || type === 'error';
+    const wantAi = !type || type === 'ai';
+
+    // Build app_logs where clause
+    const logWhere: Record<string, unknown> = { entityId: ticketId, entityType: 'ticket' };
+    if (level) logWhere.level = level;
+    if (search) logWhere.message = { contains: search, mode: 'insensitive' };
+
+    // Build ai_usage_logs where clause
+    const aiWhere: Record<string, unknown> = { entityId: ticketId, entityType: 'ticket' };
+    if (search) {
+      aiWhere.OR = [
+        { taskType: { contains: search, mode: 'insensitive' } },
+        { promptText: { contains: search, mode: 'insensitive' } },
+        { responseText: { contains: search, mode: 'insensitive' } },
+        { model: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    // For merged pagination, we fetch both sources sorted by createdAt and merge.
+    // We over-fetch (skip + take) from each source to ensure we have enough entries
+    // for the requested window after merging and sorting.
+    const fetchLimit = Math.min(skip + take, 5000);
+
+    const [appLogs, aiLogs, appLogCount, aiLogCount] = await Promise.all([
+      wantLogs
+        ? fastify.db.appLog.findMany({
+            where: logWhere,
+            orderBy: { createdAt: 'asc' },
+            take: fetchLimit,
+          })
+        : Promise.resolve([]),
+      wantAi
+        ? fastify.db.aiUsageLog.findMany({
+            where: aiWhere,
+            ...(wantArchive
+              ? { include: { archive: { select: { fullPrompt: true, fullResponse: true, systemPrompt: true, conversationMessages: true, totalContextTokens: true, messageCount: true } } } }
+              : {}),
+            orderBy: { createdAt: 'asc' },
+            take: fetchLimit,
+          })
+        : Promise.resolve([]),
+      wantLogs ? fastify.db.appLog.count({ where: logWhere }) : Promise.resolve(0),
+      wantAi ? fastify.db.aiUsageLog.count({ where: aiWhere }) : Promise.resolve(0),
+    ]);
+
+    // Classify and merge
+    type UnifiedEntry = {
+      id: string;
+      type: 'log' | 'ai' | 'tool' | 'step' | 'error';
+      timestamp: string;
+      level?: string;
+      service?: string;
+      message?: string;
+      context?: unknown;
+      error?: string | null;
+      taskType?: string;
+      provider?: string;
+      model?: string;
+      inputTokens?: number;
+      outputTokens?: number;
+      costUsd?: number | null;
+      durationMs?: number | null;
+      promptKey?: string | null;
+      promptText?: string | null;
+      systemPrompt?: string | null;
+      responseText?: string | null;
+      conversationMetadata?: unknown;
+      archive?: {
+        fullPrompt: string;
+        fullResponse: string;
+        systemPrompt: string | null;
+        conversationMessages: unknown;
+        totalContextTokens: number | null;
+        messageCount: number | null;
+      } | null;
+    };
+
+    const entries: UnifiedEntry[] = [];
+
+    for (const log of appLogs) {
+      const msg = log.message.toLowerCase();
+      let entryType: 'log' | 'tool' | 'step' | 'error' = 'log';
+      if (log.level === 'ERROR') entryType = 'error';
+      else if (msg.includes('tool call') || msg.includes('tool_call') || msg.includes('executing tool')) entryType = 'tool';
+      else if (msg.includes('executing step') || msg.includes('step completed') || msg.includes('step failed')) entryType = 'step';
+
+      // Apply type filter for sub-types
+      if (type && type !== entryType) {
+        // type='log' shows only plain logs; type='tool'/'step'/'error' show only that sub-type
+        continue;
+      }
+
+      entries.push({
+        id: log.id,
+        type: entryType,
+        timestamp: log.createdAt.toISOString(),
+        level: log.level,
+        service: log.service,
+        message: log.message,
+        context: log.context,
+        error: log.error,
+      });
+    }
+
+    for (const ai of aiLogs) {
+      entries.push({
+        id: ai.id,
+        type: 'ai',
+        timestamp: ai.createdAt.toISOString(),
+        taskType: ai.taskType,
+        provider: ai.provider,
+        model: ai.model,
+        inputTokens: ai.inputTokens,
+        outputTokens: ai.outputTokens,
+        costUsd: ai.costUsd,
+        durationMs: ai.durationMs,
+        promptKey: ai.promptKey,
+        promptText: ai.promptText,
+        systemPrompt: ai.systemPrompt,
+        responseText: ai.responseText,
+        conversationMetadata: ai.conversationMetadata,
+        archive: (ai as unknown as { archive?: UnifiedEntry['archive'] }).archive ?? null,
+      });
+    }
+
+    // Sort by timestamp
+    entries.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
+    const total = appLogCount + aiLogCount;
+    const page = entries.slice(skip, skip + take);
+
+    return { entries: page, total };
+  });
+
+  // GET /api/tickets/:id/cost-summary — AI cost summary for this ticket
+  fastify.get<{
+    Params: { id: string };
+  }>('/api/tickets/:id/cost-summary', async (request) => {
+    const ticketId = request.params.id;
+
+    const [rows, toolCallCount, totalDurationResult] = await Promise.all([
+      fastify.db.aiUsageLog.groupBy({
+        by: ['provider', 'model'],
+        where: { entityId: ticketId, entityType: 'ticket' },
+        _sum: { inputTokens: true, outputTokens: true, costUsd: true, durationMs: true },
+        _count: true,
+      }),
+      fastify.db.appLog.count({
+        where: {
+          entityId: ticketId,
+          entityType: 'ticket',
+          OR: [
+            { message: { contains: 'tool call', mode: 'insensitive' } },
+            { message: { contains: 'tool_call', mode: 'insensitive' } },
+            { message: { contains: 'executing tool', mode: 'insensitive' } },
+          ],
+        },
+      }),
+      fastify.db.aiUsageLog.aggregate({
+        where: { entityId: ticketId, entityType: 'ticket' },
+        _sum: { durationMs: true },
+      }),
+    ]);
+
+    const totals = rows.reduce(
+      (acc, r) => {
+        acc.totalCostUsd += r._sum.costUsd ?? 0;
+        acc.callCount += r._count;
+        return acc;
+      },
+      { totalCostUsd: 0, callCount: 0 },
+    );
+
+    return {
+      entityId: ticketId,
+      totalCostUsd: totals.totalCostUsd,
+      callCount: totals.callCount,
+      toolCallCount,
+      totalDurationMs: totalDurationResult._sum.durationMs ?? 0,
+      breakdown: rows.map(r => ({
+        provider: r.provider,
+        model: r.model,
+        callCount: r._count,
+        totalCostUsd: r._sum.costUsd ?? 0,
+        totalDurationMs: r._sum.durationMs ?? 0,
+      })),
+    };
+  });
+
   // POST /api/tickets/:id/ai-help — ask AI for help on a ticket
   const MAX_QUESTION_LENGTH = 2000;
 

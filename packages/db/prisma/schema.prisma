@@ -316,6 +316,7 @@ model Ticket {
   systemAnalyses      SystemAnalysis[]
   ingestionRuns       IngestionRun[]
   emailProcessingLogs EmailProcessingLog[]
+  pendingActions      PendingAction[]
 
   @@unique([clientId, ticketNumber])
   @@index([clientId, status])
@@ -687,10 +688,13 @@ model AiUsageLog {
   clientId     String?  @map("client_id") @db.Uuid
   billingMode  String   @default("platform") @map("billing_mode")
   promptKey    String?  @map("prompt_key")
-  promptText    String?  @map("prompt_text") @db.Text
-  systemPrompt  String?  @map("system_prompt") @db.Text
-  responseText  String?  @map("response_text") @db.Text
+  promptText            String?  @map("prompt_text") @db.Text
+  systemPrompt          String?  @map("system_prompt") @db.Text
+  responseText          String?  @map("response_text") @db.Text
+  conversationMetadata  Json?    @map("conversation_metadata")
   createdAt    DateTime @default(now()) @map("created_at")
+
+  archive AiPromptArchive?
 
   @@index([provider, model, createdAt])
   @@index([entityId, entityType])
@@ -698,6 +702,28 @@ model AiUsageLog {
   @@index([createdAt])
   @@index([taskType])
   @@map("ai_usage_logs")
+}
+
+// --- AI Prompt Archives (full prompt/response text with retention) ---
+
+model AiPromptArchive {
+  id                    String    @id @default(uuid()) @db.Uuid
+  usageLogId            String    @unique @map("usage_log_id") @db.Uuid
+  fullPrompt            String    @map("full_prompt") @db.Text
+  fullResponse          String    @map("full_response") @db.Text
+  systemPrompt          String?   @map("system_prompt") @db.Text
+  conversationMessages  Json?     @map("conversation_messages")
+  totalContextTokens    Int?      @map("total_context_tokens")
+  messageCount          Int?      @map("message_count")
+  summarizedAt          DateTime? @map("summarized_at")
+  summary               String?   @db.Text
+  createdAt             DateTime  @default(now()) @map("created_at")
+
+  usageLog AiUsageLog @relation(fields: [usageLogId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([summarizedAt])
+  @@map("ai_prompt_archives")
 }
 
 // --- Invoices (per-client AI usage billing) ---
@@ -1505,6 +1531,26 @@ model NotificationPreference {
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   @@map("notification_preferences")
+}
+
+// --- Pending Actions (AI recommendations awaiting operator approval) ---
+
+model PendingAction {
+  id          String    @id @default(uuid()) @db.Uuid
+  ticketId    String    @map("ticket_id") @db.Uuid
+  actionType  String    @map("action_type")
+  value       Json
+  status      String    @default("pending") // pending, approved, dismissed
+  source      String    @default("ai_recommendation")
+  resolvedAt  DateTime? @map("resolved_at")
+  resolvedBy  String?   @map("resolved_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+  @@index([status])
+  @@map("pending_actions")
 }
 
 // --- App Settings (key-value JSON store for app-wide configuration) ---
