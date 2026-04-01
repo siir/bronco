@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Queue } from 'bullmq';
 import type { AIRouter } from '@bronco/ai-provider';
 import { ensureClientUser, Prisma } from '@bronco/db';
-import { TicketStatus, TicketCategory, TicketEventType, Priority, TicketSource, TaskType, isClosedStatus, AnalysisStatus, SufficiencyStatus } from '@bronco/shared-types';
+import { TicketStatus, TicketCategory, TicketEventType, Priority, TicketSource, TaskType, isClosedStatus, AnalysisStatus, SufficiencyStatus, LogLevel } from '@bronco/shared-types';
 import type { TicketCreatedJob, IngestionJob } from '@bronco/shared-types';
 
 interface TicketRouteOpts {
@@ -19,6 +19,7 @@ const VALID_CATEGORIES: Set<string> = new Set(Object.values(TicketCategory));
 const VALID_STATUSES: Set<string> = new Set(Object.values(TicketStatus));
 const VALID_EVENT_TYPES: Set<string> = new Set(Object.values(TicketEventType));
 const VALID_SUFFICIENCY_STATUSES: Set<string> = new Set(Object.values(SufficiencyStatus));
+const VALID_LOG_LEVELS: Set<string> = new Set(Object.values(LogLevel));
 
 export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteOpts): Promise<void> {
   fastify.get<{ Querystring: { clientId?: string; status?: string; category?: string; environmentId?: string; assignedOperatorId?: string; limit?: string; offset?: string } }>(
@@ -468,6 +469,10 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
       return fastify.httpErrors.badRequest('limit and offset must be non-negative integers');
     }
 
+    if (level && !VALID_LOG_LEVELS.has(level)) {
+      return fastify.httpErrors.badRequest(`Invalid level. Must be one of: ${Object.values(LogLevel).join(', ')}`);
+    }
+
     const where: Record<string, unknown> = {
       entityId: request.params.id,
       entityType: 'ticket',
@@ -505,6 +510,18 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     const [logs, total] = await Promise.all([
       fastify.db.aiUsageLog.findMany({
         where: { entityId: request.params.id, entityType: 'ticket' },
+        select: {
+          id: true,
+          provider: true,
+          model: true,
+          taskType: true,
+          inputTokens: true,
+          outputTokens: true,
+          durationMs: true,
+          costUsd: true,
+          promptText: true,
+          createdAt: true,
+        },
         orderBy: { createdAt: 'asc' },
         take: Math.min(take, 200),
         skip,

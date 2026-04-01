@@ -840,20 +840,24 @@ export class TicketDetailComponent implements OnInit {
     this.ticketService
       .getTicketAiUsage(this.id(), { limit: 100 })
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(res => this.ticketAiUsageLogs.set(res.logs));
+      .subscribe({
+        next: (res) => this.ticketAiUsageLogs.set(res.logs),
+        error: () => {},
+      });
   }
 
   loadMoreLogs(): void {
+    if (this.ticketLogsLoading()) return;
     const current = this.ticketLogs();
     this.ticketLogsLoading.set(true);
-    const filters: Record<string, string | number> = { limit: 200, offset: current.length };
+    const filters: { limit: number; offset: number; level?: string; search?: string } = { limit: 200, offset: current.length };
     const level = this.logsLevelFilter();
     const search = this.logsSearchFilter();
-    if (level) filters['level'] = level;
-    if (search) filters['search'] = search;
+    if (level) filters.level = level;
+    if (search) filters.search = search;
 
     this.ticketService
-      .getTicketLogs(this.id(), filters as never)
+      .getTicketLogs(this.id(), filters)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
