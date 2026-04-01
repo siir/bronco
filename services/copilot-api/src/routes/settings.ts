@@ -857,7 +857,8 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
   fastify.get('/api/settings/prompt-retention', async () => {
     const row = await fastify.db.appSetting.findUnique({ where: { key: SETTINGS_KEY_PROMPT_RETENTION } });
     if (!row) return DEFAULT_PROMPT_RETENTION;
-    return row.value as unknown as { fullRetentionDays: number; summaryRetentionDays: number };
+    const parsed = promptRetentionSchema.safeParse(row.value);
+    return parsed.success ? parsed.data : DEFAULT_PROMPT_RETENTION;
   });
 
   // PUT /api/settings/prompt-retention — save prompt retention config

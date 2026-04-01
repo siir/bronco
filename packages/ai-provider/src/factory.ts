@@ -227,8 +227,8 @@ export function createAIRouter(
     }));
   });
 
-  const usageWriter = async (entry: AiUsageEntry): Promise<string> => {
-    if (!dbReady) return '';
+  const usageWriter = async (entry: AiUsageEntry): Promise<string | undefined> => {
+    if (!dbReady) return undefined;
     // Prisma JSON fields need undefined (not null) for "no value" — strip null conversationMetadata
     const { conversationMetadata, ...rest } = entry;
     const data = conversationMetadata != null

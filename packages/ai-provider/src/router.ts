@@ -240,7 +240,7 @@ export class AIRouter {
         billingMode,
         conversationMetadata: convMeta,
       }).then((usageLogId) => {
-        if (archiveWriter && typeof usageLogId === 'string') {
+        if (archiveWriter && typeof usageLogId === 'string' && usageLogId) {
           archiveWriter({
             usageLogId,
             fullPrompt: finalRequest.prompt ?? '',
@@ -333,18 +333,18 @@ export class AIRouter {
       stopReason: response.stopReason,
     }, `AI tool-use token usage: ${response.provider}/${response.model} ${request.taskType}`);
 
-    // Build conversation metadata from tool-use messages
+    // Build conversation metadata from tool-use messages.
+    // Per-message token counts are not available from the Anthropic API (only aggregate
+    // usage.input_tokens/output_tokens); omit tokenCount to avoid misleading estimates.
     const convMessages: ConversationMetadata['messages'] = [];
     if (finalRequest.messages) {
       for (const msg of finalRequest.messages) {
         const entry: ConversationMetadata['messages'][number] = { role: msg.role };
         if (msg.role === 'assistant' && typeof msg.content === 'string') {
           // Tool calls are in the assistant turn
-          const toolContent = msg.content;
           if (Array.isArray((msg as unknown as Record<string, unknown>).tool_calls)) {
             entry.toolName = 'tool_call';
           }
-          entry.tokenCount = toolContent.length > 0 ? Math.ceil(toolContent.length / 4) : undefined;
         }
         convMessages.push(entry);
       }
@@ -379,7 +379,7 @@ export class AIRouter {
         billingMode,
         conversationMetadata: convMeta,
       }).then((usageLogId) => {
-        if (archiveWriter && typeof usageLogId === 'string') {
+        if (archiveWriter && typeof usageLogId === 'string' && usageLogId) {
           archiveWriter({
             usageLogId,
             fullPrompt: toolPromptText ?? '',

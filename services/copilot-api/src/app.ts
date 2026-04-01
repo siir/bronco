@@ -3,6 +3,7 @@ import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import sensible from '@fastify/sensible';
 import multipart from '@fastify/multipart';
+import { z } from 'zod';
 import { createLogger, createQueue, createWorker, AppLogger, createPrismaLogWriter, setGlobalLogWriter, decrypt } from '@bronco/shared-utils';
 import { IntegrationType } from '@bronco/shared-types';
 import type { Queue } from 'bullmq';
@@ -260,6 +261,11 @@ export async function buildApp(config: Config) {
   const DEFAULT_SUMMARY_RETENTION_DAYS = 90;
   const RETENTION_BATCH_SIZE = 10;
 
+  const promptRetentionConfigSchema = z.object({
+    fullRetentionDays: z.number().int().min(1).default(DEFAULT_FULL_RETENTION_DAYS),
+    summaryRetentionDays: z.number().int().min(1).default(DEFAULT_SUMMARY_RETENTION_DAYS),
+  });
+
   const promptRetentionWorker = createWorker<Record<string, never>>(
     'prompt-retention',
     config.REDIS_URL,
@@ -268,9 +274,12 @@ export async function buildApp(config: Config) {
       const settingRow = await app.db.appSetting.findUnique({
         where: { key: PROMPT_RETENTION_SETTINGS_KEY },
       });
-      const retentionConfig = settingRow?.value as { fullRetentionDays?: number; summaryRetentionDays?: number } | null;
-      const fullRetentionDays = retentionConfig?.fullRetentionDays ?? DEFAULT_FULL_RETENTION_DAYS;
-      const summaryRetentionDays = retentionConfig?.summaryRetentionDays ?? DEFAULT_SUMMARY_RETENTION_DAYS;
+      const retentionParseResult = promptRetentionConfigSchema.safeParse(settingRow?.value ?? {});
+      const retentionCfg = retentionParseResult.success
+        ? retentionParseResult.data
+        : { fullRetentionDays: DEFAULT_FULL_RETENTION_DAYS, summaryRetentionDays: DEFAULT_SUMMARY_RETENTION_DAYS };
+      const fullRetentionDays = retentionCfg.fullRetentionDays;
+      const summaryRetentionDays = retentionCfg.summaryRetentionDays;
 
       const now = new Date();
 
