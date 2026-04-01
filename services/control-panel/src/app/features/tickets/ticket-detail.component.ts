@@ -1410,19 +1410,6 @@ export class TicketDetailComponent implements OnInit {
 
   // ─── AI Recommendation / Probe Data helpers ───
 
-  isJsonContent(content: string): boolean {
-    const trimmed = content.trim();
-    return (trimmed.startsWith('[') || trimmed.startsWith('{')) && (trimmed.endsWith(']') || trimmed.endsWith('}'));
-  }
-
-  formatJson(content: string): string {
-    try {
-      return JSON.stringify(JSON.parse(content.trim()), null, 2);
-    } catch {
-      return content;
-    }
-  }
-
   hasActionsMeta(event: TicketEvent): boolean {
     const meta = event.metadata as Record<string, unknown> | null;
     return Array.isArray(meta?.['actions']);
