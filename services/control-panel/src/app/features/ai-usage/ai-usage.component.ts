@@ -494,6 +494,12 @@ const DATE_PRESETS: DatePreset[] = [
                           <mat-spinner diameter="20"></mat-spinner>
                         } @else {
                           @if (expandedLogDetails().get(row.id); as detail) {
+                            @if (detail.systemPrompt) {
+                              <div class="log-detail-section">
+                                <div class="log-detail-label">System Prompt</div>
+                                <pre class="log-detail-text">{{ detail.systemPrompt }}</pre>
+                              </div>
+                            }
                             <div class="log-detail-section">
                               <div class="log-detail-label">Prompt</div>
                               <pre class="log-detail-text">{{ detail.promptText ?? '(not stored)' }}</pre>

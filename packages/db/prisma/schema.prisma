@@ -687,8 +687,9 @@ model AiUsageLog {
   clientId     String?  @map("client_id") @db.Uuid
   billingMode  String   @default("platform") @map("billing_mode")
   promptKey    String?  @map("prompt_key")
-  promptText   String?  @map("prompt_text") @db.Text
-  responseText String?  @map("response_text") @db.Text
+  promptText    String?  @map("prompt_text") @db.Text
+  systemPrompt  String?  @map("system_prompt") @db.Text
+  responseText  String?  @map("response_text") @db.Text
   createdAt    DateTime @default(now()) @map("created_at")
 
   @@index([provider, model, createdAt])
