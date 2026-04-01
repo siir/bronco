@@ -1,6 +1,7 @@
 import { Component, inject, OnInit, OnDestroy, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
+import { Clipboard, ClipboardModule } from '@angular/cdk/clipboard';
 import { MatCardModule } from '@angular/material/card';
 import { MatTableModule } from '@angular/material/table';
 import { MatButtonModule } from '@angular/material/button';
@@ -11,7 +12,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar } from '@angular/material/snack-bar';
-import { DatePipe, SlicePipe } from '@angular/common';
+import { DatePipe, DecimalPipe, SlicePipe } from '@angular/common';
 import {
   ScheduledProbeService,
   ScheduledProbe,
@@ -24,6 +25,7 @@ import {
   imports: [
     FormsModule,
     RouterLink,
+    ClipboardModule,
     MatCardModule,
     MatTableModule,
     MatButtonModule,
@@ -34,6 +36,7 @@ import {
     MatTooltipModule,
     MatProgressSpinnerModule,
     DatePipe,
+    DecimalPipe,
     SlicePipe,
   ],
   template: `
@@ -209,10 +212,112 @@ import {
                       <div class="detail-step-error">{{ step.error }}</div>
                     }
                     @if (step.detail) {
-                      <details class="detail-step-output">
-                        <summary>Output</summary>
-                        <pre class="detail-pre">{{ step.detail }}</pre>
-                      </details>
+                      <!-- Step-specific rich output -->
+                      @if (isIntegrationStep(step)) {
+                        <div class="step-output-section">
+                          <div class="step-meta-row">
+                            <span class="meta-label">MCP Server URL</span>
+                            <code class="meta-value">{{ step.detail }}</code>
+                          </div>
+                        </div>
+                      } @else if (isToolResultStep(step)) {
+                        <div class="step-output-section">
+                          <div class="step-meta-row">
+                            <span class="meta-label">Tool</span>
+                            <span class="badge badge-tool">{{ probe()?.toolName }}</span>
+                          </div>
+                          @if (getSystemParam()) {
+                            <div class="step-meta-row">
+                              <span class="meta-label">System</span>
+                              <span class="badge badge-system">{{ getSystemParam() }}</span>
+                            </div>
+                          }
+                          <div class="step-result-block">
+                            <div class="result-toolbar">
+                              <span class="result-label">Result</span>
+                              <button mat-icon-button class="copy-btn" matTooltip="Copy to clipboard"
+                                (click)="copyToClipboard(step.detail); $event.stopPropagation()">
+                                <mat-icon class="copy-icon">content_copy</mat-icon>
+                              </button>
+                            </div>
+                            @if (step.detail.length > 500 && !isStepExpanded(step.id)) {
+                              <pre class="detail-pre">{{ step.detail.slice(0, 500) }}…</pre>
+                              <button mat-button class="expand-btn" (click)="toggleStepExpand(step.id); $event.stopPropagation()">
+                                Show full result ({{ step.detail.length | number }} chars)
+                              </button>
+                            } @else {
+                              @if (isJsonContent(step.detail)) {
+                                <pre class="detail-pre detail-pre-json">{{ formatJson(step.detail) }}</pre>
+                              } @else {
+                                <pre class="detail-pre">{{ step.detail }}</pre>
+                              }
+                              @if (step.detail.length > 500) {
+                                <button mat-button class="expand-btn" (click)="toggleStepExpand(step.id); $event.stopPropagation()">
+                                  Collapse
+                                </button>
+                              }
+                            }
+                          </div>
+                        </div>
+                      } @else if (isEvaluateStep(step)) {
+                        <div class="step-output-section">
+                          <div class="step-meta-row">
+                            <span class="meta-label">Evaluation</span>
+                            <span class="eval-result" [class.eval-nonempty]="step.detail.includes('non-empty')"
+                              [class.eval-empty]="step.status === 'skipped'">
+                              {{ step.detail }}
+                            </span>
+                          </div>
+                        </div>
+                      } @else if (isIngestStep(step)) {
+                        <div class="step-output-section">
+                          <div class="step-meta-row">
+                            <span class="meta-label">Status</span>
+                            <span class="badge badge-status-success">{{ step.detail }}</span>
+                          </div>
+                          @if (probe()?.toolName) {
+                            <div class="step-meta-row">
+                              <span class="meta-label">Tool</span>
+                              <span class="badge badge-tool">{{ probe()?.toolName }}</span>
+                            </div>
+                          }
+                          @if (probe()?.category) {
+                            <div class="step-meta-row">
+                              <span class="meta-label">Category</span>
+                              <span class="badge badge-category">{{ probe()?.category }}</span>
+                            </div>
+                          }
+                          <div class="step-meta-row">
+                            <span class="meta-label">Source</span>
+                            <span class="badge badge-trigger-schedule">SCHEDULED</span>
+                          </div>
+                        </div>
+                      } @else {
+                        <!-- Generic fallback for other steps -->
+                        <details class="detail-step-output">
+                          <summary>Output</summary>
+                          <div class="result-toolbar">
+                            <span></span>
+                            <button mat-icon-button class="copy-btn" matTooltip="Copy to clipboard"
+                              (click)="copyToClipboard(step.detail); $event.stopPropagation()">
+                              <mat-icon class="copy-icon">content_copy</mat-icon>
+                            </button>
+                          </div>
+                          @if (step.detail.length > 500 && !isStepExpanded(step.id)) {
+                            <pre class="detail-pre">{{ step.detail.slice(0, 500) }}…</pre>
+                            <button mat-button class="expand-btn" (click)="toggleStepExpand(step.id); $event.stopPropagation()">
+                              Show full output ({{ step.detail.length | number }} chars)
+                            </button>
+                          } @else {
+                            <pre class="detail-pre">{{ step.detail }}</pre>
+                            @if (step.detail.length > 500) {
+                              <button mat-button class="expand-btn" (click)="toggleStepExpand(step.id); $event.stopPropagation()">
+                                Collapse
+                              </button>
+                            }
+                          }
+                        </details>
+                      }
                     }
                   </div>
                 }
@@ -304,7 +409,27 @@ import {
     .detail-step-error { margin-top: 4px; padding: 6px 8px; background: #ffebee; color: #c62828; border-radius: 4px; font-size: 13px; }
     .detail-step-output { margin-top: 4px; }
     .detail-step-output summary { cursor: pointer; color: #1565c0; font-size: 12px; }
-    .detail-pre { background: #263238; color: #eeffff; padding: 8px 12px; border-radius: 4px; font-size: 12px; overflow-x: auto; max-height: 300px; white-space: pre-wrap; word-break: break-word; }
+    .detail-pre { background: #263238; color: #eeffff; padding: 8px 12px; border-radius: 4px; font-size: 12px; overflow-x: auto; max-height: 400px; white-space: pre-wrap; word-break: break-word; margin: 0; }
+    .detail-pre-json { color: #c3e88d; }
+
+    .step-output-section { margin-top: 6px; padding: 6px 8px; background: #fafafa; border-radius: 4px; border: 1px solid #e8e8e8; }
+    .step-meta-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px; }
+    .meta-label { font-weight: 500; color: #666; min-width: 90px; flex-shrink: 0; }
+    .meta-value { font-size: 12px; color: #333; background: #f0f0f0; padding: 2px 6px; border-radius: 3px; }
+    .badge-tool { background: #e8eaf6; color: #3f51b5; font-family: monospace; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
+    .badge-system { background: #fff3e0; color: #e65100; font-family: monospace; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
+    .badge-category { background: #f3e5f5; color: #7b1fa2; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
+
+    .step-result-block { margin-top: 6px; }
+    .result-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px; }
+    .result-label { font-size: 12px; font-weight: 500; color: #666; }
+    .copy-btn { width: 28px; height: 28px; line-height: 28px; }
+    .copy-icon { font-size: 16px; width: 16px; height: 16px; }
+    .expand-btn { font-size: 11px; color: #1565c0; padding: 0 8px; min-height: 28px; line-height: 28px; }
+
+    .eval-result { font-size: 13px; font-weight: 500; }
+    .eval-nonempty { color: #2e7d32; }
+    .eval-empty { color: #e65100; }
 
     .pagination { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 16px 0; }
     .empty { color: #999; text-align: center; padding: 24px 16px; margin: 0; }
@@ -316,6 +441,7 @@ export class ProbeRunsComponent implements OnInit, OnDestroy {
   private route = inject(ActivatedRoute);
   private probeService = inject(ScheduledProbeService);
   private snackBar = inject(MatSnackBar);
+  private clipboard = inject(Clipboard);
 
   probe = signal<ScheduledProbe | null>(null);
   runs = signal<ProbeRun[]>([]);
@@ -323,6 +449,7 @@ export class ProbeRunsComponent implements OnInit, OnDestroy {
   currentRun = signal<ProbeRun | null>(null);
   expandedRunId: string | null = null;
   expandedRun = signal<ProbeRun | null>(null);
+  expandedStepIds = new Set<string>();
 
   filterStatus = '';
   page = 0;
@@ -372,10 +499,12 @@ export class ProbeRunsComponent implements OnInit, OnDestroy {
     if (this.expandedRunId === run.id) {
       this.expandedRunId = null;
       this.expandedRun.set(null);
+      this.expandedStepIds.clear();
       return;
     }
     this.expandedRunId = run.id;
     this.expandedRun.set(null);
+    this.expandedStepIds.clear();
     this.probeService.getRun(this.probeId, run.id).subscribe((r) => {
       this.expandedRun.set(r);
     });
@@ -398,6 +527,69 @@ export class ProbeRunsComponent implements OnInit, OnDestroy {
   getElapsed(run: ProbeRun): string {
     const elapsed = Date.now() - new Date(run.startedAt).getTime();
     return this.formatDuration(elapsed) + ' elapsed';
+  }
+
+  // -- Step type detection --
+
+  isIntegrationStep(step: ProbeRunStep): boolean {
+    return step.stepName === 'Load integration config';
+  }
+
+  isToolResultStep(step: ProbeRunStep): boolean {
+    return step.stepName === 'Call MCP tool' || step.stepName === 'Execute built-in tool';
+  }
+
+  isEvaluateStep(step: ProbeRunStep): boolean {
+    return step.stepName === 'Evaluate result';
+  }
+
+  isIngestStep(step: ProbeRunStep): boolean {
+    return step.stepName === 'Enqueue to ingestion engine';
+  }
+
+  getSystemParam(): string | null {
+    const params = this.probe()?.toolParams;
+    if (!params) return null;
+    const systemId = params['systemId'] ?? params['system_id'] ?? params['systemName'] ?? params['system_name'];
+    return typeof systemId === 'string' ? systemId : null;
+  }
+
+  // -- Output formatting --
+
+  isJsonContent(text: string): boolean {
+    const trimmed = text.trim();
+    return (trimmed.startsWith('{') || trimmed.startsWith('[')) && this.tryParseJson(trimmed) !== null;
+  }
+
+  formatJson(text: string): string {
+    const parsed = this.tryParseJson(text.trim());
+    if (parsed === null) return text;
+    return JSON.stringify(parsed, null, 2);
+  }
+
+  isStepExpanded(stepId: string): boolean {
+    return this.expandedStepIds.has(stepId);
+  }
+
+  toggleStepExpand(stepId: string): void {
+    if (this.expandedStepIds.has(stepId)) {
+      this.expandedStepIds.delete(stepId);
+    } else {
+      this.expandedStepIds.add(stepId);
+    }
+  }
+
+  copyToClipboard(text: string): void {
+    this.clipboard.copy(text);
+    this.snackBar.open('Copied to clipboard', 'OK', { duration: 2000 });
+  }
+
+  private tryParseJson(text: string): unknown {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return null;
+    }
   }
 
   purgeHistory(): void {
