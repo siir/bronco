@@ -37,7 +37,7 @@ const noopTracker: IngestionRunTracker = {
 // AI call timeout — prevents hung Ollama calls from blocking the pipeline
 // ---------------------------------------------------------------------------
 
-const AI_STEP_TIMEOUT_MS = 60_000;
+const AI_STEP_TIMEOUT_MS = 120_000;
 
 async function withTimeout<T>(
   fn: (signal: AbortSignal) => Promise<T>,

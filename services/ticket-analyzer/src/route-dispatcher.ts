@@ -54,19 +54,10 @@ export function createRouteDispatcher(deps: {
     });
 
     if (!route) {
-      logger.info({ ticketId, source }, 'No matching route found — skipping analysis');
-      await deps.db.ticket.update({
-        where: { id: ticketId },
-        data: {
-          analysisStatus: AnalysisStatus.SKIPPED,
-          analysisError: null,
-          lastAnalyzedAt: null,
-        },
-      });
-      return;
+      logger.info({ ticketId, source }, 'No DB route matched — enqueuing for default fallback analysis');
+    } else {
+      logger.info({ ticketId, routeId: route.id, routeName: route.name }, 'Route matched — enqueuing analysis');
     }
-
-    logger.info({ ticketId, routeId: route.id, routeName: route.name }, 'Route matched — enqueuing analysis');
 
     await deps.db.ticket.update({
       where: { id: ticketId },
