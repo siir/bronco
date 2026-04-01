@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { type TaskType, AIProvider, TASK_APP_SCOPE } from '@bronco/shared-types';
-import type { AIRequest, AIToolRequest, AIToolResponse } from '@bronco/shared-types';
+import type { AIRequest, AIToolRequest, AIToolResponse, AIMessage } from '@bronco/shared-types';
 import { createLogger } from '@bronco/shared-utils';
 import type { ClientMemoryResolver } from './client-memory-resolver.js';
 import type { AIProviderClient, AIRouterConfig, AIResponse, AiUsageWriter, AiCostLookup } from './types.js';
@@ -13,6 +13,32 @@ import type { PromptResolver } from './prompt-resolver.js';
 import { TASK_CAPABILITY_REQUIREMENTS } from './task-capabilities.js';
 
 const logger = createLogger('ai-usage');
+
+/** Truncate a string to `maxLen` characters, returning null if the input is nullish or empty. */
+function truncate(value: string | undefined | null, maxLen: number): string | null {
+  if (!value) return null;
+  return value.length <= maxLen ? value : value.slice(0, maxLen);
+}
+
+/** Extract the text content of the last user message from a messages array. */
+function extractLastUserMessage(messages: AIMessage[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'user') {
+      const content = messages[i].content;
+      if (typeof content === 'string') return content;
+      // For structured content blocks, concatenate text blocks
+      if (Array.isArray(content)) {
+        const textParts = content
+          .filter((b): b is { type: 'text'; text: string } => 'type' in b && b.type === 'text')
+          .map((b) => b.text);
+        if (textParts.length > 0) return textParts.join('\n');
+      }
+      // No text content in this user message (e.g. tool_result-only) — keep scanning
+      continue;
+    }
+  }
+  return null;
+}
 
 /** Providers that have a concrete client implementation in getOrCreateProvider(). */
 const ROUTABLE_PROVIDERS: Set<string> = new Set([AIProvider.LOCAL, AIProvider.CLAUDE, AIProvider.OPENAI, AIProvider.GROK]);
@@ -198,7 +224,8 @@ export class AIRouter {
         entityType: (request.context?.entityType as string) ?? null,
         clientId: clientId ?? null,
         promptKey: request.promptKey ?? null,
-        promptText: finalRequest.prompt,
+        promptText: truncate(finalRequest.prompt, 2000),
+        systemPrompt: truncate(finalRequest.systemPrompt, 500),
         responseText: response.content,
         billingMode,
       }).catch((err) => {
@@ -283,6 +310,9 @@ export class AIRouter {
 
     if (this.usageWriter) {
       const billingMode = !usedExplicitOverride && cachedAiMode === 'byok' ? 'byok' : 'platform';
+      // Extract prompt text from tool-use messages: use explicit prompt if set,
+      // otherwise extract the last user message from the messages array.
+      const toolPromptText = finalRequest.prompt ?? extractLastUserMessage(finalRequest.messages);
       this.usageWriter({
         provider: response.provider,
         model: response.model,
@@ -295,7 +325,8 @@ export class AIRouter {
         entityType: (request.context?.entityType as string) ?? null,
         clientId: clientId ?? null,
         promptKey: request.promptKey ?? null,
-        promptText: null,
+        promptText: truncate(toolPromptText, 2000),
+        systemPrompt: truncate(finalRequest.systemPrompt, 500),
         responseText: response.content,
         billingMode,
       }).catch((err) => {

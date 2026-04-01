@@ -25,6 +25,7 @@ export interface AiUsageEntry {
   clientId: string | null;
   promptKey: string | null;
   promptText: string | null;
+  systemPrompt: string | null;
   responseText: string | null;
   billingMode?: string;
 }
