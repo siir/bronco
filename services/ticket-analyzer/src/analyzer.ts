@@ -1741,7 +1741,7 @@ async function resolveTicketRoute(
       try {
         const res = await ai.generate({
           taskType: TaskType.SELECT_ROUTE,
-          context: { ticketId, clientId },
+          context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket' },
           prompt: selectPrompt,
           promptKey: 'routing.select-route.system',
         });
@@ -2111,7 +2111,7 @@ async function executeRoutePipeline(
         const taskType = (step.taskTypeOverride ?? TaskType.SUMMARIZE) as TaskType;
         const summaryRes = await ai.generate({
           taskType,
-          context: { ticketId, clientId },
+          context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket' },
           prompt: `Summarize the following support email in 2-3 concise bullet points:\n\nSubject: ${emailSubject}\n\n${emailBody}`,
           promptKey,
         });
@@ -2131,7 +2131,7 @@ async function executeRoutePipeline(
         const taskType = (step.taskTypeOverride ?? TaskType.CATEGORIZE) as TaskType;
         const categorizeRes = await ai.generate({
           taskType,
-          context: { ticketId, clientId },
+          context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket' },
           prompt: `Categorize this support request into exactly one of: DATABASE_PERF, BUG_FIX, FEATURE_REQUEST, SCHEMA_CHANGE, CODE_REVIEW, ARCHITECTURE, GENERAL.\n\nSubject: ${emailSubject}\n\n${emailBody}\n\nRespond with only the category name.`,
           promptKey,
         });
@@ -2156,7 +2156,7 @@ async function executeRoutePipeline(
         const taskType = (step.taskTypeOverride ?? TaskType.TRIAGE) as TaskType;
         const triageRes = await ai.generate({
           taskType,
-          context: { ticketId, clientId },
+          context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket' },
           prompt: `Assess the priority of this support request. Choose one of: LOW, MEDIUM, HIGH, CRITICAL.\n\nSubject: ${emailSubject}\n\n${emailBody}\n\nRespond with only the priority level.`,
           promptKey,
         });
@@ -2195,7 +2195,7 @@ async function executeRoutePipeline(
           : `${emailSubject}\n\n${emailBody.slice(0, 1000)}`;
         const titleRes = await ai.generate({
           taskType,
-          context: { ticketId, clientId },
+          context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket' },
           prompt: `Output ONLY a concise ticket title, max 80 characters. No quotes, no preamble, no explanation — just the title text.\n\n${contentForTitle}`,
           ...(promptKey && { promptKey }),
         });
@@ -2233,7 +2233,7 @@ async function executeRoutePipeline(
         const taskType = (step.taskTypeOverride ?? TaskType.DRAFT_EMAIL) as TaskType;
         const draftRes = await ai.generate({
           taskType,
-          context: { ticketId, clientId },
+          context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket' },
           prompt: [
             'Draft a short, professional email confirming receipt of a support request.',
             `Recipient name: ${recipientName}`,
@@ -2335,7 +2335,7 @@ async function executeRoutePipeline(
         const taskType = (step.taskTypeOverride ?? TaskType.EXTRACT_FACTS) as TaskType;
         const extractRes = await ai.generate({
           taskType,
-          context: { ticketId, clientId },
+          context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket' },
           prompt: [
             'Extract structured facts from this support email. Return a JSON object with:',
             '- "errorMessages": array of error messages or stack traces mentioned',
@@ -2502,7 +2502,7 @@ async function executeRoutePipeline(
           // Set skipClientMemory to prevent AIRouter from also injecting it into the system prompt.
           // Pass ticketCategory so that if skipClientMemory is not set (e.g. no prior LOAD_CLIENT_CONTEXT
           // step in this route), the router still applies the correct category scoping.
-          context: { ticketId, clientId, ticketCategory: category, skipClientMemory: !!clientContext },
+          context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!clientContext },
           prompt: analysisPrompt,
           promptKey,
         });
@@ -2661,7 +2661,7 @@ async function executeRoutePipeline(
               systemPrompt: agenticSystemPrompt,
               tools: agenticTools,
               messages,
-              context: { ticketId, clientId, ticketCategory: category, skipClientMemory: !!clientContext },
+              context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!clientContext },
               maxTokens: 4096,
             });
           } catch (error) {
@@ -2835,6 +2835,8 @@ async function executeRoutePipeline(
           context: {
             ticketId,
             clientId,
+            entityId: ticketId,
+            entityType: 'ticket',
             ticketCategory: category,
             skipClientMemory: !!clientContext,
           },
@@ -3087,7 +3089,7 @@ async function executeRoutePipeline(
           taskType: queryTaskType,
           // Skip AIRouter's automatic client-memory injection only when client context
           // was actually included in the prompt — not just when it happens to exist.
-          context: { ticketId, clientId, ticketCategory: category, skipClientMemory: !!(inc?.clientContext && clientContext) },
+          context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!(inc?.clientContext && clientContext) },
           prompt: promptParts.join('\n'),
           ...(queryPromptKey && { promptKey: queryPromptKey }),
         });
@@ -3200,7 +3202,7 @@ async function executeRoutePipeline(
 
         const findingsEmailRes = await ai.generate({
           taskType,
-          context: { ticketId, clientId },
+          context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket' },
           prompt: findingsPromptParts.join('\n'),
           promptKey,
         });
@@ -3276,7 +3278,7 @@ async function executeRoutePipeline(
 
         const nextStepsRes = await ai.generate({
           taskType,
-          context: { ticketId, clientId },
+          context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket' },
           prompt: [
             'Based on the analysis below, suggest 1-3 concrete next steps for resolving this ticket.',
             'You MUST respond with valid JSON only — an array of action objects.',
