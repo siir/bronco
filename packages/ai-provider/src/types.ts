@@ -28,10 +28,32 @@ export interface AiUsageEntry {
   systemPrompt: string | null;
   responseText: string | null;
   billingMode?: string;
+  conversationMetadata?: ConversationMetadata | null;
+}
+
+/** Lightweight conversation metadata persisted permanently on the usage log. */
+export interface ConversationMetadata {
+  messageCount: number;
+  totalContextTokens: number;
+  messages: Array<{ role: string; tokenCount?: number; toolName?: string }>;
+}
+
+/** Data written to the prompt archive table alongside a usage log entry. */
+export interface AiArchiveEntry {
+  usageLogId: string;
+  fullPrompt: string;
+  fullResponse: string;
+  systemPrompt: string | null;
+  conversationMessages: Array<{ role: string; tokenCount?: number; toolName?: string }> | null;
+  totalContextTokens: number | null;
+  messageCount: number | null;
 }
 
 /** Callback that persists an AI usage entry — injected by the host service. */
-export type AiUsageWriter = (entry: AiUsageEntry) => Promise<void>;
+export type AiUsageWriter = (entry: AiUsageEntry) => Promise<string | void>;
+
+/** Callback that persists an AI prompt archive entry — injected by the host service. */
+export type AiArchiveWriter = (entry: AiArchiveEntry) => Promise<void>;
 
 /** Callback that looks up cost per 1M tokens for a provider+model pair. Returns null if unknown. */
 export type AiCostLookup = (provider: string, model: string) => Promise<{ inputCostPer1m: number; outputCostPer1m: number } | null>;
@@ -47,6 +69,8 @@ export interface AIRouterConfig {
   promptResolver?: PromptResolver;
   /** Optional writer to persist AI usage logs to the database. */
   usageWriter?: AiUsageWriter;
+  /** Optional writer to persist full AI prompt/response archives to the database. */
+  archiveWriter?: AiArchiveWriter;
   /** Optional lookup to resolve per-model cost rates. */
   costLookup?: AiCostLookup;
   /** Optional resolver that returns a decrypted BYOK API key for a client+provider. */

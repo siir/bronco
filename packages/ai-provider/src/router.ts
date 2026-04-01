@@ -3,7 +3,7 @@ import { type TaskType, AIProvider, TASK_APP_SCOPE } from '@bronco/shared-types'
 import type { AIRequest, AIToolRequest, AIToolResponse, AIMessage } from '@bronco/shared-types';
 import { createLogger } from '@bronco/shared-utils';
 import type { ClientMemoryResolver } from './client-memory-resolver.js';
-import type { AIProviderClient, AIRouterConfig, AIResponse, AiUsageWriter, AiCostLookup } from './types.js';
+import type { AIProviderClient, AIRouterConfig, AIResponse, AiUsageWriter, AiArchiveWriter, AiCostLookup, ConversationMetadata } from './types.js';
 import { OllamaClient } from './ollama.js';
 import { ClaudeClient } from './claude.js';
 import { OpenAIClient } from './openai.js';
@@ -101,6 +101,7 @@ export class AIRouter {
   private providerConfigResolver: ProviderConfigResolver | undefined;
   private promptResolver: PromptResolver | undefined;
   private usageWriter: AiUsageWriter | undefined;
+  private archiveWriter: AiArchiveWriter | undefined;
   private costLookup: AiCostLookup | undefined;
   private byokCredentialResolver: ((clientId: string, provider: string) => Promise<string | null>) | undefined;
   private clientAiModeResolver: ((clientId: string) => Promise<string | null>) | undefined;
@@ -114,6 +115,7 @@ export class AIRouter {
     this.providerConfigResolver = config.providerConfigResolver;
     this.promptResolver = config.promptResolver;
     this.usageWriter = config.usageWriter;
+    this.archiveWriter = config.archiveWriter;
     this.costLookup = config.costLookup;
     this.byokCredentialResolver = config.byokCredentialResolver;
     this.clientAiModeResolver = config.clientAiModeResolver;
@@ -207,11 +209,19 @@ export class AIRouter {
       promptKey: request.promptKey ?? null,
     }, `AI token usage: ${response.provider}/${response.model} ${request.taskType}`);
 
+    // Build lightweight conversation metadata (single-shot: just one user message)
+    const convMeta: ConversationMetadata = {
+      messageCount: 1,
+      totalContextTokens: inputTokens,
+      messages: [{ role: 'user', tokenCount: inputTokens }],
+    };
+
     // Persist usage to database (fire-and-forget)
     if (this.usageWriter) {
       // Use 'platform' billing when an explicit provider/model override was used — those always
       // route through getExplicitProvider() which uses platform credentials, not BYOK keys.
       const billingMode = !usedExplicitOverride && cachedAiMode === 'byok' ? 'byok' : 'platform';
+      const archiveWriter = this.archiveWriter;
       this.usageWriter({
         provider: response.provider,
         model: response.model,
@@ -224,10 +234,25 @@ export class AIRouter {
         entityType: (request.context?.entityType as string) ?? null,
         clientId: clientId ?? null,
         promptKey: request.promptKey ?? null,
-        promptText: truncate(finalRequest.prompt, 2000),
-        systemPrompt: truncate(finalRequest.systemPrompt, 500),
+        promptText: truncate(finalRequest.prompt, 8000),
+        systemPrompt: truncate(finalRequest.systemPrompt, 4000),
         responseText: response.content,
         billingMode,
+        conversationMetadata: convMeta,
+      }).then((usageLogId) => {
+        if (archiveWriter && typeof usageLogId === 'string') {
+          archiveWriter({
+            usageLogId,
+            fullPrompt: finalRequest.prompt ?? '',
+            fullResponse: response.content ?? '',
+            systemPrompt: finalRequest.systemPrompt ?? null,
+            conversationMessages: convMeta.messages,
+            totalContextTokens: convMeta.totalContextTokens,
+            messageCount: convMeta.messageCount,
+          }).catch((err) => {
+            logger.warn({ err }, 'Failed to persist AI prompt archive entry');
+          });
+        }
       }).catch((err) => {
         logger.warn({ err }, 'Failed to persist AI usage log entry');
       });
@@ -308,11 +333,34 @@ export class AIRouter {
       stopReason: response.stopReason,
     }, `AI tool-use token usage: ${response.provider}/${response.model} ${request.taskType}`);
 
+    // Build conversation metadata from tool-use messages
+    const convMessages: ConversationMetadata['messages'] = [];
+    if (finalRequest.messages) {
+      for (const msg of finalRequest.messages) {
+        const entry: ConversationMetadata['messages'][number] = { role: msg.role };
+        if (msg.role === 'assistant' && typeof msg.content === 'string') {
+          // Tool calls are in the assistant turn
+          const toolContent = msg.content;
+          if (Array.isArray((msg as unknown as Record<string, unknown>).tool_calls)) {
+            entry.toolName = 'tool_call';
+          }
+          entry.tokenCount = toolContent.length > 0 ? Math.ceil(toolContent.length / 4) : undefined;
+        }
+        convMessages.push(entry);
+      }
+    }
+    const convMeta: ConversationMetadata = {
+      messageCount: convMessages.length || 1,
+      totalContextTokens: inputTokens,
+      messages: convMessages.length > 0 ? convMessages : [{ role: 'user', tokenCount: inputTokens }],
+    };
+
     if (this.usageWriter) {
       const billingMode = !usedExplicitOverride && cachedAiMode === 'byok' ? 'byok' : 'platform';
       // Extract prompt text from tool-use messages: use explicit prompt if set,
       // otherwise extract the last user message from the messages array.
       const toolPromptText = finalRequest.prompt ?? extractLastUserMessage(finalRequest.messages);
+      const archiveWriter = this.archiveWriter;
       this.usageWriter({
         provider: response.provider,
         model: response.model,
@@ -325,10 +373,25 @@ export class AIRouter {
         entityType: (request.context?.entityType as string) ?? null,
         clientId: clientId ?? null,
         promptKey: request.promptKey ?? null,
-        promptText: truncate(toolPromptText, 2000),
-        systemPrompt: truncate(finalRequest.systemPrompt, 500),
+        promptText: truncate(toolPromptText, 8000),
+        systemPrompt: truncate(finalRequest.systemPrompt, 4000),
         responseText: response.content,
         billingMode,
+        conversationMetadata: convMeta,
+      }).then((usageLogId) => {
+        if (archiveWriter && typeof usageLogId === 'string') {
+          archiveWriter({
+            usageLogId,
+            fullPrompt: toolPromptText ?? '',
+            fullResponse: response.content ?? '',
+            systemPrompt: finalRequest.systemPrompt ?? null,
+            conversationMessages: convMeta.messages,
+            totalContextTokens: convMeta.totalContextTokens,
+            messageCount: convMeta.messageCount,
+          }).catch((err) => {
+            logger.warn({ err }, 'Failed to persist AI prompt archive entry');
+          });
+        }
       }).catch((err) => {
         logger.warn({ err }, 'Failed to persist AI usage log entry');
       });

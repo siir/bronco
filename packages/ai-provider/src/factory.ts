@@ -8,7 +8,7 @@ import { ProviderConfigResolver } from './provider-config-resolver.js';
 import type { ProviderConfigRow } from './provider-config-resolver.js';
 import { PromptResolver } from './prompt-resolver.js';
 import type { PromptOverrideRow } from './prompt-resolver.js';
-import type { AiUsageEntry, AiCostLookup } from './types.js';
+import type { AiUsageEntry, AiArchiveEntry, AiCostLookup } from './types.js';
 
 const log = createLogger('ai-router');
 
@@ -70,7 +70,10 @@ export interface AIRouterDb {
     >;
   };
   aiUsageLog: {
-    create(args: { data: AiUsageEntry }): Promise<unknown>;
+    create(args: { data: Record<string, unknown> }): Promise<{ id: string }>;
+  };
+  aiPromptArchive: {
+    create(args: { data: Record<string, unknown> }): Promise<unknown>;
   };
   clientAiCredential: {
     findFirst(args: {
@@ -224,9 +227,26 @@ export function createAIRouter(
     }));
   });
 
-  const usageWriter = async (entry: AiUsageEntry) => {
+  const usageWriter = async (entry: AiUsageEntry): Promise<string> => {
+    if (!dbReady) return '';
+    // Prisma JSON fields need undefined (not null) for "no value" — strip null conversationMetadata
+    const { conversationMetadata, ...rest } = entry;
+    const data = conversationMetadata != null
+      ? { ...rest, conversationMetadata: conversationMetadata as unknown as Record<string, unknown> }
+      : rest;
+    const row = await db.aiUsageLog.create({ data: data as Record<string, unknown> });
+    return row.id;
+  };
+
+  const archiveWriter = async (entry: AiArchiveEntry): Promise<void> => {
     if (!dbReady) return;
-    await db.aiUsageLog.create({ data: entry });
+    // Cast conversationMessages to satisfy Prisma's JSON type
+    const { conversationMessages, ...rest } = entry;
+    const data: Record<string, unknown> = { ...rest };
+    if (conversationMessages != null) {
+      data.conversationMessages = conversationMessages;
+    }
+    await db.aiPromptArchive.create({ data });
   };
 
   let costCache: Map<string, { inputCostPer1m: number; outputCostPer1m: number }> | null = null;
@@ -295,6 +315,7 @@ export function createAIRouter(
     providerConfigResolver,
     promptResolver,
     usageWriter,
+    archiveWriter,
     costLookup,
     byokCredentialResolver,
     clientAiModeResolver,
