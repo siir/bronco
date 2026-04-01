@@ -606,7 +606,7 @@ export class WorkflowEngine {
       }
       // Fetch entity ID for logging after the atomic update
       const row = await this.db.devOpsSyncState.findFirst({ where: this.syncWhere(workItemId), select: { ticketId: true, operationalTaskId: true } });
-      appLog.info(`Workflow transition: ${from} → ${to}`, { workItemId, from, to }, row?.ticketId ?? row?.operationalTaskId ?? undefined);
+      appLog.info(`Workflow transition: ${from} → ${to}`, { workItemId, from, to }, row?.ticketId ?? row?.operationalTaskId ?? undefined, row?.ticketId ? 'ticket' : row?.operationalTaskId ? 'operational_task' : undefined);
     } else {
       const current = await this.db.devOpsSyncState.findFirst({ where: this.syncWhere(workItemId), select: { id: true, workflowState: true, ticketId: true, operationalTaskId: true } });
       if (current) {
@@ -615,7 +615,7 @@ export class WorkflowEngine {
           data: { workflowState: to },
         });
       }
-      appLog.info(`Workflow transition: ${current?.workflowState ?? '?'} → ${to}`, { workItemId, from: current?.workflowState, to }, current?.ticketId ?? current?.operationalTaskId ?? undefined);
+      appLog.info(`Workflow transition: ${current?.workflowState ?? '?'} → ${to}`, { workItemId, from: current?.workflowState, to }, current?.ticketId ?? current?.operationalTaskId ?? undefined, current?.ticketId ? 'ticket' : current?.operationalTaskId ? 'operational_task' : undefined);
     }
     logger.info({ workItemId, state: to }, 'Workflow state transition');
     return true;
