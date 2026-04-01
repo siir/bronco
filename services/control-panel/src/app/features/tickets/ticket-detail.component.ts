@@ -1,7 +1,7 @@
 import { Component, DestroyRef, inject, OnInit, signal, input, computed } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
-import { CommonModule, DatePipe } from '@angular/common';
+import { CommonModule, DatePipe, JsonPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatCardModule } from '@angular/material/card';
 import { MatButtonModule } from '@angular/material/button';
@@ -16,10 +16,12 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatTabsModule } from '@angular/material/tabs';
 import { MatDialog } from '@angular/material/dialog';
 import { firstValueFrom } from 'rxjs';
-import { TicketService, Ticket, TicketEvent } from '../../core/services/ticket.service';
+import { TicketService, Ticket, TicketEvent, type TicketAppLog, type TicketAiUsageLog } from '../../core/services/ticket.service';
 import { LogSummaryService, type LogSummary } from '../../core/services/log-summary.service';
 import { AiUsageService, type TicketCostResponse } from '../../core/services/ai-usage.service';
 import { AiHelpDialogComponent, type AiHelpDialogData } from '../../shared/components/ai-help-dialog.component';
+import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
+import { RelativeTimePipe } from '../../shared/pipes/relative-time.pipe';
 
 interface FlowNode {
   label: string;
@@ -30,7 +32,7 @@ interface FlowNode {
 
 @Component({
   standalone: true,
-  imports: [CommonModule, RouterLink, DatePipe, FormsModule, MatCardModule, MatButtonModule, MatIconModule, MatChipsModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatProgressBarModule, MatTooltipModule, MatTabsModule],
+  imports: [CommonModule, RouterLink, DatePipe, JsonPipe, FormsModule, MatCardModule, MatButtonModule, MatIconModule, MatChipsModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatProgressBarModule, MatTooltipModule, MatTabsModule, MarkdownPipe, RelativeTimePipe],
   template: `
     @if (ticket(); as t) {
       <div class="page-header">
@@ -117,6 +119,105 @@ interface FlowNode {
             }
             @if (t.system) { <p><strong>System:</strong> {{ t.system.name }}</p> }
             @if (t.client) { <p><strong>Client:</strong> {{ t.client.name }}</p> }
+          </div>
+        </mat-tab>
+        <mat-tab>
+          <ng-template mat-tab-label>
+            Logs
+            @if (ticketLogsTotal() > 0) {
+              <span class="tab-badge">{{ ticketLogsTotal() }}</span>
+            }
+          </ng-template>
+          <div class="tab-content">
+            <!-- Logs filter bar -->
+            <div class="logs-filter-bar">
+              <mat-form-field class="logs-filter-field">
+                <mat-label>Level</mat-label>
+                <mat-select [ngModel]="logsLevelFilter()" (ngModelChange)="logsLevelFilter.set($event); loadTicketLogs()">
+                  <mat-option value="">All</mat-option>
+                  <mat-option value="ERROR">Error</mat-option>
+                  <mat-option value="WARN">Warn</mat-option>
+                  <mat-option value="INFO">Info</mat-option>
+                  <mat-option value="DEBUG">Debug</mat-option>
+                </mat-select>
+              </mat-form-field>
+              <mat-form-field class="logs-filter-field">
+                <mat-label>Search</mat-label>
+                <input matInput [ngModel]="logsSearchFilter()" (ngModelChange)="logsSearchFilter.set($event)" (keyup.enter)="loadTicketLogs()">
+              </mat-form-field>
+              <button mat-icon-button matTooltip="Search" (click)="loadTicketLogs()">
+                <mat-icon>search</mat-icon>
+              </button>
+              <button mat-icon-button matTooltip="Refresh" (click)="loadTicketLogs()">
+                <mat-icon>refresh</mat-icon>
+              </button>
+            </div>
+
+            @if (ticketLogsLoading()) {
+              <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+            }
+
+            <!-- AI Usage summary (if any) -->
+            @if (ticketAiUsageLogs().length > 0) {
+              <div class="logs-ai-section">
+                <h4 class="logs-section-title"><mat-icon class="section-icon">psychology</mat-icon> AI Calls ({{ ticketAiUsageLogs().length }})</h4>
+                <div class="ai-usage-list">
+                  @for (usage of ticketAiUsageLogs(); track usage.id) {
+                    <div class="ai-usage-row">
+                      <span class="ai-usage-time" [matTooltip]="usage.createdAt">{{ formatTime(usage.createdAt) }}</span>
+                      <span class="meta-chip provider-chip provider-{{ usage.provider.toLowerCase() }}">{{ usage.provider }}</span>
+                      <code class="meta-chip model-chip">{{ usage.model }}</code>
+                      <span class="meta-chip task-chip">{{ usage.taskType }}</span>
+                      <span class="meta-chip token-chip">{{ usage.inputTokens | number }}in / {{ usage.outputTokens | number }}out</span>
+                      @if (usage.durationMs != null) {
+                        <span class="meta-chip duration-chip">{{ usage.durationMs | number }}ms</span>
+                      }
+                      @if (usage.costUsd != null) {
+                        <span class="ai-usage-cost">\${{ usage.costUsd | number:'1.4-4' }}</span>
+                      }
+                    </div>
+                  }
+                </div>
+              </div>
+            }
+
+            <!-- App logs list -->
+            <div class="logs-list">
+              @for (log of ticketLogs(); track log.id) {
+                <div class="log-entry log-level-{{ log.level.toLowerCase() }}">
+                  <div class="log-entry-header">
+                    <span class="log-time" [matTooltip]="log.createdAt">{{ formatTime(log.createdAt) }}</span>
+                    <span class="log-level-badge log-badge-{{ log.level.toLowerCase() }}">{{ log.level }}</span>
+                    <span class="log-service">{{ log.service }}</span>
+                    <span class="log-message">{{ log.message }}</span>
+                  </div>
+                  @if (log.context && hasKeys(log.context)) {
+                    <button mat-button class="log-expand-btn" (click)="expandedLogs[log.id] = !expandedLogs[log.id]">
+                      {{ expandedLogs[log.id] ? 'Hide metadata' : 'Show metadata' }}
+                      <mat-icon>{{ expandedLogs[log.id] ? 'expand_less' : 'expand_more' }}</mat-icon>
+                    </button>
+                    @if (expandedLogs[log.id]) {
+                      <pre class="log-metadata">{{ log.context | json }}</pre>
+                    }
+                  }
+                  @if (log.error) {
+                    <div class="log-error-detail">{{ log.error }}</div>
+                  }
+                </div>
+              } @empty {
+                @if (!ticketLogsLoading()) {
+                  <p class="empty">No logs found for this ticket.</p>
+                }
+              }
+            </div>
+
+            <!-- Pagination -->
+            @if (ticketLogsTotal() > ticketLogs().length) {
+              <div class="logs-pagination">
+                <span class="logs-showing">Showing {{ ticketLogs().length }} of {{ ticketLogsTotal() }}</span>
+                <button mat-stroked-button (click)="loadMoreLogs()">Load more</button>
+              </div>
+            }
           </div>
         </mat-tab>
         <mat-tab>
@@ -298,13 +399,15 @@ interface FlowNode {
       </div>
       <div class="timeline">
         @for (event of filteredEvents(); track event.id) {
-          <mat-card class="event-card">
+          <mat-card class="event-card" [ngClass]="'event-type-' + event.eventType.toLowerCase()">
             <mat-card-content>
               <div class="event-header">
-                <mat-icon>{{ eventIcon(event.eventType) }}</mat-icon>
-                <strong>{{ event.eventType }}</strong>
-                <span class="event-actor">by {{ event.actor }}</span>
-                <span class="event-date">{{ event.createdAt | date:'short' }}</span>
+                <span class="event-type-badge" [ngClass]="'badge-' + event.eventType.toLowerCase()">
+                  <mat-icon>{{ eventIcon(event.eventType) }}</mat-icon>
+                  <span>{{ formatEventType(event.eventType) }}</span>
+                </span>
+                <span class="event-actor">{{ event.actor }}</span>
+                <span class="event-date" [matTooltip]="event.createdAt | date:'medium'">{{ event.createdAt | relativeTime }}</span>
               </div>
               <!-- AI help question (if present in metadata) -->
               @if (eventQuestion(event); as q) {
@@ -339,13 +442,19 @@ interface FlowNode {
                 }
               }
               @if (event.content) {
-                <p class="event-content" [class.collapsed]="!expandedEvents[event.id] && event.content.length > 500">
-                  {{ expandedEvents[event.id] ? event.content : event.content.slice(0, 500) }}
-                  @if (event.content.length > 500 && !expandedEvents[event.id]) {
-                    <span class="ellipsis">...</span>
-                  }
-                </p>
-                @if (event.content.length > 500) {
+                @if (isMarkdownEvent(event.eventType)) {
+                  <div class="event-content markdown-content" [class.collapsed]="!expandedEvents[event.id] && event.content.length > 300">
+                    <div [innerHTML]="event.content | markdown"></div>
+                  </div>
+                } @else {
+                  <p class="event-content" [class.collapsed]="!expandedEvents[event.id] && event.content.length > 300">
+                    {{ expandedEvents[event.id] ? event.content : event.content.slice(0, 300) }}
+                    @if (event.content.length > 300 && !expandedEvents[event.id]) {
+                      <span class="ellipsis">...</span>
+                    }
+                  </p>
+                }
+                @if (event.content.length > 300) {
                   <button mat-button class="show-more-btn" (click)="expandedEvents[event.id] = !expandedEvents[event.id]">
                     {{ expandedEvents[event.id] ? 'Show less' : 'Show more' }}
                   </button>
@@ -436,6 +545,39 @@ interface FlowNode {
     .log-summary-services { display: flex; gap: 4px; flex-wrap: wrap; }
     .service-chip { font-size: 11px; padding: 2px 8px; border-radius: 12px; background: #e8eaf6; color: #3f51b5; }
 
+    /* Logs tab */
+    .tab-badge { font-size: 10px; background: #e0e0e0; color: #333; padding: 1px 6px; border-radius: 10px; margin-left: 6px; font-weight: 500; }
+    .logs-filter-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+    .logs-filter-field { width: 140px; font-size: 13px; }
+    .logs-ai-section { margin-bottom: 16px; }
+    .logs-section-title { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 500; margin: 0 0 8px; color: #333; }
+    .section-icon { font-size: 18px; width: 18px; height: 18px; color: #666; }
+    .ai-usage-list { display: flex; flex-direction: column; gap: 4px; }
+    .ai-usage-row { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 4px 8px; background: #fafafa; border-radius: 4px; flex-wrap: wrap; }
+    .ai-usage-time { color: #999; font-size: 11px; min-width: 100px; font-family: monospace; }
+    .ai-usage-cost { color: #2e7d32; font-weight: 500; font-family: monospace; font-size: 11px; margin-left: auto; }
+    .logs-list { display: flex; flex-direction: column; gap: 2px; }
+    .log-entry { padding: 6px 10px; border-radius: 4px; border-left: 3px solid transparent; }
+    .log-level-error { border-left-color: #c62828; background: #fff8f8; }
+    .log-level-warn { border-left-color: #e65100; background: #fffaf5; }
+    .log-level-info { border-left-color: #1565c0; background: #f8fbff; }
+    .log-level-debug { border-left-color: #999; background: #fafafa; }
+    .log-entry-header { display: flex; align-items: center; gap: 8px; font-size: 12px; flex-wrap: wrap; }
+    .log-time { color: #999; font-family: monospace; font-size: 11px; min-width: 100px; flex-shrink: 0; }
+    .log-level-badge { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 3px; text-transform: uppercase; }
+    .log-badge-error { background: #ffebee; color: #c62828; }
+    .log-badge-warn { background: #fff3e0; color: #e65100; }
+    .log-badge-info { background: #e3f2fd; color: #1565c0; }
+    .log-badge-debug { background: #f5f5f5; color: #999; }
+    .log-service { color: #6a1b9a; font-weight: 500; font-size: 11px; }
+    .log-message { color: #333; flex: 1; word-break: break-word; }
+    .log-expand-btn { font-size: 11px; color: #666; padding: 0; min-width: auto; margin-top: 2px; }
+    .log-expand-btn mat-icon { font-size: 14px; width: 14px; height: 14px; }
+    .log-metadata { font-size: 11px; background: #f5f5f5; padding: 8px; border-radius: 4px; margin: 4px 0 0; overflow-x: auto; max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; }
+    .log-error-detail { font-size: 11px; color: #c62828; margin-top: 4px; white-space: pre-wrap; }
+    .logs-pagination { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #eee; }
+    .logs-showing { font-size: 12px; color: #666; }
+
     /* Process flow */
     .flow-card { margin-bottom: 16px; }
     .flow-container { display: flex; align-items: flex-start; gap: 4px; flex-wrap: wrap; padding: 8px 0; overflow-x: auto; }
@@ -481,13 +623,36 @@ interface FlowNode {
     /* Timeline */
     .timeline { display: flex; flex-direction: column; gap: 8px; margin-bottom: 24px; }
     .event-header { display: flex; align-items: center; gap: 8px; }
+    .event-type-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 4px; background: #f5f5f5; color: #555; }
+    .event-type-badge mat-icon { font-size: 15px; width: 15px; height: 15px; }
+    .badge-ai_analysis { background: #ede7f6; color: #5e35b1; }
+    .badge-ai_recommendation { background: #fff8e1; color: #f57f17; }
+    .badge-email_inbound { background: #e8f5e9; color: #2e7d32; }
+    .badge-email_outbound { background: #e3f2fd; color: #1565c0; }
+    .badge-status_change { background: #fff3e0; color: #e65100; }
+    .badge-code_change { background: #fce4ec; color: #c62828; }
     .event-actor { color: #666; font-size: 13px; }
-    .event-date { color: #999; font-size: 13px; margin-left: auto; }
+    .event-date { color: #999; font-size: 13px; margin-left: auto; cursor: default; }
     .event-question { display: flex; align-items: flex-start; gap: 4px; margin-top: 6px; padding: 6px 10px; background: #e3f2fd; border-radius: 6px; font-size: 13px; color: #1565c0; }
     .question-icon { font-size: 16px; width: 16px; height: 16px; flex-shrink: 0; margin-top: 1px; }
     .event-content { margin-top: 8px; white-space: pre-wrap; line-height: 1.5; }
     .event-content.collapsed { max-height: 100px; overflow: hidden; }
     .ellipsis { color: #999; }
+    .event-type-ai_analysis { border-left: 3px solid #7c4dff; }
+    .event-type-ai_recommendation { border-left: 3px solid #ffab00; }
+    .event-type-system_note { border-left: 3px solid #bdbdbd; }
+    .event-type-email_inbound, .event-type-email_outbound { border-left: 3px solid #4caf50; }
+    .event-type-code_change { border-left: 3px solid #e91e63; }
+    .markdown-content { white-space: normal; }
+    .markdown-content h1, .markdown-content h2, .markdown-content h3 { margin: 10px 0 4px; }
+    .markdown-content h1 { font-size: 1.25em; }
+    .markdown-content h2 { font-size: 1.1em; }
+    .markdown-content p { margin: 4px 0; }
+    .markdown-content ul, .markdown-content ol { margin: 4px 0; padding-left: 24px; }
+    .markdown-content code { background: #f5f5f5; padding: 1px 4px; border-radius: 3px; font-size: 0.9em; }
+    .markdown-content pre { background: #263238; color: #eeffff; padding: 10px; border-radius: 6px; overflow-x: auto; margin: 6px 0; }
+    .markdown-content pre code { background: transparent; color: inherit; padding: 0; }
+    .markdown-content blockquote { border-left: 3px solid #ddd; margin: 6px 0; padding: 2px 12px; color: #666; }
     .event-ai-meta { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
     .meta-chip { font-size: 10px; padding: 1px 6px; border-radius: 4px; display: inline-block; }
     .provider-chip { font-weight: 600; font-family: monospace; background: #f5f5f5; color: #333; }
@@ -534,6 +699,15 @@ export class TicketDetailComponent implements OnInit {
   descExpanded = false;
   costDetailsExpanded = false;
   expandedEvents: Record<string, boolean> = {};
+
+  // Logs tab state
+  ticketLogs = signal<TicketAppLog[]>([]);
+  ticketLogsTotal = signal(0);
+  ticketLogsLoading = signal(false);
+  ticketAiUsageLogs = signal<TicketAiUsageLog[]>([]);
+  logsLevelFilter = signal('');
+  logsSearchFilter = signal('');
+  expandedLogs: Record<string, boolean> = {};
 
   // Timeline filter/sort
   timelineFilter = signal('');
@@ -647,6 +821,8 @@ export class TicketDetailComponent implements OnInit {
     this.load();
     this.loadLogSummaries();
     this.loadTicketCost();
+    this.loadTicketLogs();
+    this.loadTicketAiUsage();
   }
 
   load(): void {
@@ -670,6 +846,64 @@ export class TicketDetailComponent implements OnInit {
       .subscribe(res => {
         this.logSummaries.set(res.summaries);
       });
+  }
+
+  loadTicketLogs(): void {
+    this.ticketLogsLoading.set(true);
+    const filters: Record<string, string | number> = { limit: 200 };
+    const level = this.logsLevelFilter();
+    const search = this.logsSearchFilter();
+    if (level) filters['level'] = level;
+    if (search) filters['search'] = search;
+
+    this.ticketService
+      .getTicketLogs(this.id(), filters as never)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.ticketLogs.set(res.logs);
+          this.ticketLogsTotal.set(res.total);
+          this.ticketLogsLoading.set(false);
+        },
+        error: () => this.ticketLogsLoading.set(false),
+      });
+  }
+
+  loadTicketAiUsage(): void {
+    this.ticketService
+      .getTicketAiUsage(this.id(), { limit: 100 })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => this.ticketAiUsageLogs.set(res.logs),
+        error: () => {},
+      });
+  }
+
+  loadMoreLogs(): void {
+    if (this.ticketLogsLoading()) return;
+    const current = this.ticketLogs();
+    this.ticketLogsLoading.set(true);
+    const filters: { limit: number; offset: number; level?: string; search?: string } = { limit: 200, offset: current.length };
+    const level = this.logsLevelFilter();
+    const search = this.logsSearchFilter();
+    if (level) filters.level = level;
+    if (search) filters.search = search;
+
+    this.ticketService
+      .getTicketLogs(this.id(), filters)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.ticketLogs.set([...current, ...res.logs]);
+          this.ticketLogsTotal.set(res.total);
+          this.ticketLogsLoading.set(false);
+        },
+        error: () => this.ticketLogsLoading.set(false),
+      });
+  }
+
+  hasKeys(obj: Record<string, unknown>): boolean {
+    return Object.keys(obj).length > 0;
   }
 
   generateLogSummary(): void {
@@ -763,6 +997,26 @@ export class TicketDetailComponent implements OnInit {
 
   toggleTimelineSort(): void {
     this.timelineSortAsc.update(v => !v);
+  }
+
+  isMarkdownEvent(eventType: string): boolean {
+    return eventType === 'AI_ANALYSIS' || eventType === 'AI_RECOMMENDATION';
+  }
+
+  formatEventType(type: string): string {
+    const labels: Record<string, string> = {
+      COMMENT: 'Comment',
+      STATUS_CHANGE: 'Status Change',
+      PRIORITY_CHANGE: 'Priority Change',
+      CATEGORY_CHANGE: 'Category Change',
+      AI_ANALYSIS: 'AI Analysis',
+      AI_RECOMMENDATION: 'AI Recommendation',
+      EMAIL_INBOUND: 'Email Received',
+      EMAIL_OUTBOUND: 'Email Sent',
+      CODE_CHANGE: 'Code Change',
+      SYSTEM_NOTE: 'System Note',
+    };
+    return labels[type] ?? type;
   }
 
   eventIcon(type: string): string {

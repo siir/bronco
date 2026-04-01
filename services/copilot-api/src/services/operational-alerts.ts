@@ -1,7 +1,7 @@
 import type { PrismaClient } from '@bronco/db';
 import { DEFAULT_OPERATIONAL_ALERT_CONFIG } from '@bronco/shared-types';
 import type { OperationalAlertConfig } from '@bronco/shared-types';
-import { Mailer, createLogger, decrypt, looksEncrypted } from '@bronco/shared-utils';
+import { Mailer, createLogger, loadSmtpFromDb } from '@bronco/shared-utils';
 import cronParser from 'cron-parser';
 import { sendRedisCommand } from './redis.js';
 
@@ -367,28 +367,13 @@ interface OperationalAlertOpts {
   encryptionKey: string;
 }
 
-async function createMailerFromChannel(
+async function createMailerFromSmtpSettings(
   db: PrismaClient,
   encryptionKey: string,
 ): Promise<Mailer | null> {
-  const channel = await db.notificationChannel.findFirst({
-    where: { type: 'EMAIL', isActive: true },
-  });
-
-  if (!channel) return null;
-
-  const cfg = channel.config as Record<string, unknown>;
-  const password = typeof cfg.password === 'string' && looksEncrypted(cfg.password)
-    ? decrypt(cfg.password, encryptionKey)
-    : (cfg.password as string);
-
-  return new Mailer({
-    host: cfg.host as string,
-    port: cfg.port as number,
-    user: cfg.user as string,
-    password,
-    from: cfg.from as string,
-  });
+  const smtpConfig = await loadSmtpFromDb(db, encryptionKey);
+  if (!smtpConfig) return null;
+  return new Mailer(smtpConfig);
 }
 
 async function runAlertCheck(opts: OperationalAlertOpts): Promise<void> {
@@ -443,10 +428,10 @@ async function runAlertCheck(opts: OperationalAlertOpts): Promise<void> {
 
   if (alertsToSend.length === 0) return;
 
-  // Create mailer from notification channel
-  const mailer = await createMailerFromChannel(db, encryptionKey);
+  // Create mailer from System Settings SMTP config
+  const mailer = await createMailerFromSmtpSettings(db, encryptionKey);
   if (!mailer) {
-    logger.warn('No active EMAIL notification channel — cannot send operational alerts');
+    logger.warn('SMTP not configured in System Settings — cannot send operational alerts');
     return;
   }
 

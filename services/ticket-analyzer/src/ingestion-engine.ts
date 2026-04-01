@@ -238,12 +238,17 @@ async function executeIngestionPipeline(
   };
 
   const stepErrors: StepError[] = [];
+  const pipelineStart = Date.now();
+  let stepsSucceeded = 0;
+  let stepsFailed = 0;
+  let stepsSkipped = 0;
 
   logger.info({ source, clientId, routeId: route!.id, routeName: route!.name, steps: route!.steps.length }, 'Executing ingestion pipeline');
 
   for (const step of route!.steps) {
     logger.info({ stepType: step.stepType, stepName: step.name, clientId }, `Executing ingestion step: ${step.name}`);
     const stepId = await safeTracker.startStep(step.stepOrder, step.stepType, step.name);
+    const stepStart = Date.now();
 
     switch (step.stepType) {
       // ── RESOLVE_THREAD ──────────────────────────────────────────────
@@ -252,6 +257,7 @@ async function executeIngestionPipeline(
         if (source !== TicketSource.EMAIL) {
           logger.info({ clientId, source }, 'Skipping RESOLVE_THREAD — not an email source');
           await safeTracker.skipStep(stepId, 'Not an email source');
+          stepsSkipped++;
           break;
         }
 
@@ -348,9 +354,10 @@ async function executeIngestionPipeline(
           });
 
           logger.info({ ticketId: existingTicketId, threadMethod, clientId }, 'Reply appended to existing ticket');
+          const stepDuration = Date.now() - stepStart;
           deps.appLog?.info(
-            `Email reply threaded to existing ticket (${threadMethod})`,
-            { ticketId: existingTicketId, threadMethod, from: emailFrom, subject: emailSubject, clientId },
+            `Thread resolved: reply to existing ticket via ${threadMethod} (${(stepDuration / 1000).toFixed(1)}s)`,
+            { ticketId: existingTicketId, threadMethod, from: emailFrom, subject: emailSubject, clientId, durationMs: stepDuration },
             existingTicketId!,
             'ticket',
           );
@@ -364,10 +371,17 @@ async function executeIngestionPipeline(
           ctx.ticketId = existingTicketId;
 
           await safeTracker.completeStep(stepId, `Reply threaded to ticket ${existingTicketId} (${threadMethod})`);
+          stepsSucceeded++;
         } else {
           // --- New email — continue pipeline ---
+          const stepDuration = Date.now() - stepStart;
           logger.info({ clientId, subject: emailSubject }, 'No thread match — proceeding as new ticket');
+          deps.appLog?.info(
+            `Thread resolved: new email, no matching thread (${(stepDuration / 1000).toFixed(1)}s)`,
+            { clientId, method: 'none', durationMs: stepDuration },
+          );
           await safeTracker.completeStep(stepId, 'New email — no matching thread');
+          stepsSucceeded++;
         }
 
         break;
@@ -377,6 +391,7 @@ async function executeIngestionPipeline(
       case RouteStepType.SUMMARIZE_EMAIL: {
         if (ctx.threadResolution?.isReply) {
           await safeTracker.skipStep(stepId, 'Skipped for reply — ticket already exists');
+          stepsSkipped++;
           break;
         }
         const body = payloadStr(payload, 'body');
@@ -384,6 +399,7 @@ async function executeIngestionPipeline(
         if (!body && !subject) {
           logger.info({ clientId }, 'Skipping SUMMARIZE_EMAIL — no email content in payload');
           await safeTracker.skipStep(stepId, 'No email content in payload');
+          stepsSkipped++;
           break;
         }
         try {
@@ -402,11 +418,20 @@ async function executeIngestionPipeline(
           );
           ctx.summary = summaryRes.content;
           if (!ctx.description) ctx.description = ctx.summary;
+          const stepDuration = Date.now() - stepStart;
+          deps.appLog?.info(
+            `Email summarized: ${ctx.summary.length} chars via ${summaryRes.provider}/${summaryRes.model} (${(stepDuration / 1000).toFixed(1)}s)`,
+            { clientId, summaryLength: ctx.summary.length, provider: summaryRes.provider, model: summaryRes.model, durationMs: stepDuration },
+            ctx.ticketId ?? clientId,
+            'ticket',
+          );
           await safeTracker.completeStep(stepId, ctx.summary);
+          stepsSucceeded++;
         } catch (err) {
           logger.error({ err, clientId, stepType: step.stepType }, 'Ingestion step failed — skipping summary');
           stepErrors.push({ step: RouteStepType.SUMMARIZE_EMAIL, error: err instanceof Error ? err.message : String(err), fallback: 'empty (use raw description)' });
           await safeTracker.failStep(stepId, err instanceof Error ? err.message : String(err));
+          stepsFailed++;
         }
         break;
       }
@@ -415,6 +440,7 @@ async function executeIngestionPipeline(
       case RouteStepType.CATEGORIZE: {
         if (ctx.threadResolution?.isReply) {
           await safeTracker.skipStep(stepId, 'Skipped for reply — ticket already exists');
+          stepsSkipped++;
           break;
         }
         try {
@@ -436,12 +462,21 @@ async function executeIngestionPipeline(
           );
           const rawCategory = categorizeRes.content.trim().toUpperCase();
           ctx.category = isValidCategory(rawCategory) ? rawCategory : TicketCategory.GENERAL;
+          const stepDuration = Date.now() - stepStart;
+          deps.appLog?.info(
+            `Categorized as ${ctx.category} via ${categorizeRes.provider}/${categorizeRes.model} (${(stepDuration / 1000).toFixed(1)}s)`,
+            { clientId, category: ctx.category, provider: categorizeRes.provider, model: categorizeRes.model, durationMs: stepDuration },
+            ctx.ticketId ?? clientId,
+            'ticket',
+          );
           await safeTracker.completeStep(stepId, ctx.category);
+          stepsSucceeded++;
         } catch (err) {
           logger.error({ err, clientId, stepType: step.stepType }, 'Ingestion step failed — using fallback');
           ctx.category = TicketCategory.GENERAL;
           stepErrors.push({ step: RouteStepType.CATEGORIZE, error: err instanceof Error ? err.message : String(err), fallback: 'GENERAL' });
           await safeTracker.failStep(stepId, err instanceof Error ? err.message : String(err));
+          stepsFailed++;
         }
         break;
       }
@@ -450,6 +485,7 @@ async function executeIngestionPipeline(
       case RouteStepType.TRIAGE_PRIORITY: {
         if (ctx.threadResolution?.isReply) {
           await safeTracker.skipStep(stepId, 'Skipped for reply — ticket already exists');
+          stepsSkipped++;
           break;
         }
         try {
@@ -471,12 +507,21 @@ async function executeIngestionPipeline(
           const rawPriority = triageRes.content.trim().toUpperCase();
           const validPriorities = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
           ctx.priority = validPriorities.includes(rawPriority) ? rawPriority : 'MEDIUM';
+          const stepDuration = Date.now() - stepStart;
+          deps.appLog?.info(
+            `Triaged as ${ctx.priority} via ${triageRes.provider}/${triageRes.model} (${(stepDuration / 1000).toFixed(1)}s)`,
+            { clientId, priority: ctx.priority, provider: triageRes.provider, model: triageRes.model, durationMs: stepDuration },
+            ctx.ticketId ?? clientId,
+            'ticket',
+          );
           await safeTracker.completeStep(stepId, ctx.priority);
+          stepsSucceeded++;
         } catch (err) {
           logger.error({ err, clientId, stepType: step.stepType }, 'Ingestion step failed — using fallback');
           ctx.priority = 'MEDIUM';
           stepErrors.push({ step: RouteStepType.TRIAGE_PRIORITY, error: err instanceof Error ? err.message : String(err), fallback: 'MEDIUM' });
           await safeTracker.failStep(stepId, err instanceof Error ? err.message : String(err));
+          stepsFailed++;
         }
         break;
       }
@@ -485,6 +530,7 @@ async function executeIngestionPipeline(
       case RouteStepType.GENERATE_TITLE: {
         if (ctx.threadResolution?.isReply) {
           await safeTracker.skipStep(stepId, 'Skipped for reply — ticket already exists');
+          stepsSkipped++;
           break;
         }
         try {
@@ -508,11 +554,20 @@ async function executeIngestionPipeline(
           newTitle = newTitle.replace(/^title:\s*/i, '');
           newTitle = newTitle.slice(0, 80);
           if (newTitle) ctx.title = newTitle;
+          const stepDuration = Date.now() - stepStart;
+          deps.appLog?.info(
+            `Title generated: "${ctx.title.slice(0, 60)}" via ${titleRes.provider}/${titleRes.model} (${(stepDuration / 1000).toFixed(1)}s)`,
+            { clientId, title: ctx.title, provider: titleRes.provider, model: titleRes.model, durationMs: stepDuration },
+            ctx.ticketId ?? clientId,
+            'ticket',
+          );
           await safeTracker.completeStep(stepId, ctx.title);
+          stepsSucceeded++;
         } catch (err) {
           logger.error({ err, clientId, stepType: step.stepType }, 'Ingestion step failed — keeping original title');
           stepErrors.push({ step: RouteStepType.GENERATE_TITLE, error: err instanceof Error ? err.message : String(err), fallback: 'original subject/probeName' });
           await safeTracker.failStep(stepId, err instanceof Error ? err.message : String(err));
+          stepsFailed++;
         }
         break;
       }
@@ -522,6 +577,7 @@ async function executeIngestionPipeline(
         if (ctx.ticketId) {
           logger.warn({ clientId }, 'CREATE_TICKET skipped — ticket already created in this pipeline');
           await safeTracker.skipStep(stepId, 'Ticket already created in this pipeline');
+          stepsSkipped++;
           break;
         }
 
@@ -600,12 +656,6 @@ async function executeIngestionPipeline(
             });
             ctx.ticketId = ticket.id;
             logger.info({ clientId, ticketId: ticket.id, source, category: ctx.category, priority: ctx.priority }, 'Ticket created via ingestion pipeline');
-            deps.appLog?.info(
-              `Ticket created via ingestion (${source})`,
-              { ticketId: ctx.ticketId, source, clientId, category: ctx.category, priority: ctx.priority },
-              ctx.ticketId,
-              'ticket',
-            );
             break;
           } catch (err) {
             if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002' && attempt < MAX_TICKET_RETRIES) {
@@ -676,7 +726,15 @@ async function executeIngestionPipeline(
           await saveProbeArtifact(db, ctx.ticketId, probeName, toolName, toolResult, deps.artifactStoragePath);
         }
 
+        const stepDuration = Date.now() - stepStart;
+        deps.appLog?.info(
+          `Ticket created: ${ctx.ticketId} (${source}, ${ctx.category}/${ctx.priority}) (${(stepDuration / 1000).toFixed(1)}s)`,
+          { ticketId: ctx.ticketId, source, clientId, category: ctx.category, priority: ctx.priority, durationMs: stepDuration },
+          ctx.ticketId,
+          'ticket',
+        );
         await safeTracker.completeStep(stepId, `Ticket created: ${ctx.ticketId}`);
+        stepsSucceeded++;
         break;
       }
 
@@ -685,6 +743,7 @@ async function executeIngestionPipeline(
         if (!ctx.ticketId) {
           logger.warn({ clientId }, 'ADD_FOLLOWER skipped — no ticket created yet');
           await safeTracker.skipStep(stepId, 'No ticket created yet');
+          stepsSkipped++;
           break;
         }
         try {
@@ -721,11 +780,20 @@ async function executeIngestionPipeline(
               addedCount = contacts.length;
             }
           }
+          const stepDuration = Date.now() - stepStart;
+          deps.appLog?.info(
+            `Added ${addedCount} follower(s) (${(stepDuration / 1000).toFixed(1)}s)`,
+            { ticketId: ctx.ticketId, addedCount, durationMs: stepDuration, clientId },
+            ctx.ticketId ?? clientId,
+            'ticket',
+          );
           await safeTracker.completeStep(stepId, `Added ${addedCount} follower(s)`);
+          stepsSucceeded++;
         } catch (err) {
           logger.warn({ err, clientId, stepType: step.stepType, ticketId: ctx.ticketId }, 'Ingestion step failed — skipping follower');
           stepErrors.push({ step: RouteStepType.ADD_FOLLOWER, error: err instanceof Error ? err.message : String(err), fallback: 'skipped' });
           await safeTracker.failStep(stepId, err instanceof Error ? err.message : String(err));
+          stepsFailed++;
         }
         break;
       }
@@ -734,17 +802,20 @@ async function executeIngestionPipeline(
       case RouteStepType.DRAFT_RECEIPT: {
         if (ctx.threadResolution?.isReply) {
           await safeTracker.skipStep(stepId, 'Skipped for reply — no receipt needed');
+          stepsSkipped++;
           break;
         }
         if (!ctx.ticketId) {
           logger.warn({ clientId }, 'DRAFT_RECEIPT skipped — no ticket created yet');
           await safeTracker.skipStep(stepId, 'No ticket created yet');
+          stepsSkipped++;
           break;
         }
         const emailFrom = payloadStr(payload, 'from');
         if (!emailFrom) {
           logger.info({ clientId }, 'Skipping DRAFT_RECEIPT — no email sender in payload');
           await safeTracker.skipStep(stepId, 'No email sender in payload');
+          stepsSkipped++;
           break;
         }
         try {
@@ -789,6 +860,7 @@ async function executeIngestionPipeline(
           if (!mailer) {
             logger.warn({ ticketId: ctx.ticketId }, 'Skipping receipt email — SMTP not configured');
             await safeTracker.completeStep(stepId, 'Skipped — SMTP not configured');
+            stepsSkipped++;
           } else {
             try {
               const replySubject = /^re:\s*/i.test(subject) ? subject : `Re: ${subject}`;
@@ -811,18 +883,27 @@ async function executeIngestionPipeline(
                   actor: 'system:ingestion',
                 },
               });
-              logger.info({ ticketId: ctx.ticketId, to: emailFrom }, 'Receipt email sent via ingestion');
+              const stepDuration = Date.now() - stepStart;
+              deps.appLog?.info(
+                `Receipt email sent to ${emailFrom} via ${draftRes.provider}/${draftRes.model} (${(stepDuration / 1000).toFixed(1)}s)`,
+                { ticketId: ctx.ticketId, to: emailFrom, provider: draftRes.provider, model: draftRes.model, durationMs: stepDuration },
+                ctx.ticketId!,
+                'ticket',
+              );
               await safeTracker.completeStep(stepId, `Receipt sent to ${emailFrom}`);
+              stepsSucceeded++;
             } catch (sendErr) {
               logger.warn({ err: sendErr, ticketId: ctx.ticketId }, 'Failed to send receipt email');
               stepErrors.push({ step: RouteStepType.DRAFT_RECEIPT, error: sendErr instanceof Error ? sendErr.message : String(sendErr), fallback: 'email send failed' });
               await safeTracker.failStep(stepId, sendErr instanceof Error ? sendErr.message : String(sendErr));
+              stepsFailed++;
             }
           }
         } catch (err) {
           logger.warn({ err, clientId, stepType: step.stepType, ticketId: ctx.ticketId }, 'Ingestion step failed — skipping receipt draft');
           stepErrors.push({ step: RouteStepType.DRAFT_RECEIPT, error: err instanceof Error ? err.message : String(err), fallback: 'skipped' });
           await safeTracker.failStep(stepId, err instanceof Error ? err.message : String(err));
+          stepsFailed++;
         }
         break;
       }
@@ -830,8 +911,26 @@ async function executeIngestionPipeline(
       default:
         logger.warn({ stepType: step.stepType, clientId }, `Unknown ingestion step type: ${step.stepType} — skipping`);
         await safeTracker.skipStep(stepId, `Unknown step type: ${step.stepType}`);
+        stepsSkipped++;
         break;
     }
+  }
+
+  // Pipeline summary log
+  const pipelineDuration = Date.now() - pipelineStart;
+  const totalSteps = stepsSucceeded + stepsFailed + stepsSkipped;
+  if (ctx.ticketId) {
+    deps.appLog?.info(
+      `Ingestion pipeline completed: ${totalSteps} steps, ${stepsSucceeded} succeeded, ${stepsFailed} failed${stepsFailed > 0 ? ' (fallback used)' : ''}, ${stepsSkipped} skipped, total ${(pipelineDuration / 1000).toFixed(1)}s`,
+      { ticketId: ctx.ticketId, clientId, stepsSucceeded, stepsFailed, stepsSkipped, totalSteps, durationMs: pipelineDuration, routeId: route!.id },
+      ctx.ticketId,
+      'ticket',
+    );
+  } else {
+    deps.appLog?.info(
+      `Ingestion pipeline completed: ${totalSteps} steps, ${stepsSucceeded} succeeded, ${stepsFailed} failed${stepsFailed > 0 ? ' (fallback used)' : ''}, ${stepsSkipped} skipped, total ${(pipelineDuration / 1000).toFixed(1)}s`,
+      { clientId, stepsSucceeded, stepsFailed, stepsSkipped, totalSteps, durationMs: pipelineDuration, routeId: route!.id },
+    );
   }
 
   // Record any step errors as a ticket event so the operator can see them

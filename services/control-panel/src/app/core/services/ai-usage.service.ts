@@ -96,6 +96,7 @@ export interface AiUsageLogEntry {
 
 export interface AiUsageLogDetail extends AiUsageLogEntry {
   promptText: string | null;
+  systemPrompt: string | null;
   responseText: string | null;
 }
 
