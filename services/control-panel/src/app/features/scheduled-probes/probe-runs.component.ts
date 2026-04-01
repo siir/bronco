@@ -223,12 +223,12 @@ import {
                       } @else if (isToolResultStep(step)) {
                         <div class="step-output-section">
                           <div class="step-meta-row">
-                            <span class="meta-label">Tool</span>
+                            <span class="meta-label">Tool (current config)</span>
                             <span class="badge badge-tool">{{ probe()?.toolName }}</span>
                           </div>
                           @if (getSystemParam()) {
                             <div class="step-meta-row">
-                              <span class="meta-label">System</span>
+                              <span class="meta-label">System (current config)</span>
                               <span class="badge badge-system">{{ getSystemParam() }}</span>
                             </div>
                           }
@@ -236,6 +236,7 @@ import {
                             <div class="result-toolbar">
                               <span class="result-label">Result</span>
                               <button mat-icon-button class="copy-btn" matTooltip="Copy to clipboard"
+                                aria-label="Copy result to clipboard"
                                 (click)="copyToClipboard(step.detail); $event.stopPropagation()">
                                 <mat-icon class="copy-icon">content_copy</mat-icon>
                               </button>
@@ -246,8 +247,8 @@ import {
                                 Show full result ({{ step.detail.length | number }} chars)
                               </button>
                             } @else {
-                              @if (isJsonContent(step.detail)) {
-                                <pre class="detail-pre detail-pre-json">{{ formatJson(step.detail) }}</pre>
+                              @if (getFormattedJson(step.id) !== null) {
+                                <pre class="detail-pre detail-pre-json">{{ getFormattedJson(step.id) }}</pre>
                               } @else {
                                 <pre class="detail-pre">{{ step.detail }}</pre>
                               }
@@ -299,6 +300,7 @@ import {
                           <div class="result-toolbar">
                             <span></span>
                             <button mat-icon-button class="copy-btn" matTooltip="Copy to clipboard"
+                              aria-label="Copy step output to clipboard"
                               (click)="copyToClipboard(step.detail); $event.stopPropagation()">
                               <mat-icon class="copy-icon">content_copy</mat-icon>
                             </button>
@@ -450,6 +452,8 @@ export class ProbeRunsComponent implements OnInit, OnDestroy {
   expandedRunId: string | null = null;
   expandedRun = signal<ProbeRun | null>(null);
   expandedStepIds = new Set<string>();
+  /** Precomputed formatted JSON per step id; null means content is not JSON. */
+  private formattedJsonCache = new Map<string, string | null>();
 
   filterStatus = '';
   page = 0;
@@ -500,12 +504,23 @@ export class ProbeRunsComponent implements OnInit, OnDestroy {
       this.expandedRunId = null;
       this.expandedRun.set(null);
       this.expandedStepIds.clear();
+      this.formattedJsonCache.clear();
       return;
     }
     this.expandedRunId = run.id;
     this.expandedRun.set(null);
     this.expandedStepIds.clear();
+    this.formattedJsonCache.clear();
     this.probeService.getRun(this.probeId, run.id).subscribe((r) => {
+      this.formattedJsonCache.clear();
+      for (const step of r.steps ?? []) {
+        if (step.detail) {
+          const parsed = this.tryParseJson(step.detail.trim());
+          this.formattedJsonCache.set(step.id, parsed !== null ? JSON.stringify(parsed, null, 2) : null);
+        } else {
+          this.formattedJsonCache.set(step.id, null);
+        }
+      }
       this.expandedRun.set(r);
     });
   }
@@ -556,6 +571,14 @@ export class ProbeRunsComponent implements OnInit, OnDestroy {
 
   // -- Output formatting --
 
+  /**
+   * Returns the precomputed pretty-printed JSON for a step, or null if the
+   * step detail is not valid JSON. Avoids re-parsing on every change detection cycle.
+   */
+  getFormattedJson(stepId: string): string | null {
+    return this.formattedJsonCache.get(stepId) ?? null;
+  }
+
   isJsonContent(text: string): boolean {
     const trimmed = text.trim();
     return (trimmed.startsWith('{') || trimmed.startsWith('[')) && this.tryParseJson(trimmed) !== null;
@@ -580,8 +603,12 @@ export class ProbeRunsComponent implements OnInit, OnDestroy {
   }
 
   copyToClipboard(text: string): void {
-    this.clipboard.copy(text);
-    this.snackBar.open('Copied to clipboard', 'OK', { duration: 2000 });
+    const ok = this.clipboard.copy(text);
+    if (ok) {
+      this.snackBar.open('Copied to clipboard', 'OK', { duration: 2000 });
+    } else {
+      this.snackBar.open('Failed to copy to clipboard', 'OK', { duration: 4000, panelClass: 'error-snackbar' });
+    }
   }
 
   private tryParseJson(text: string): unknown {
