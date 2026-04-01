@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Queue } from 'bullmq';
 import type { AIRouter } from '@bronco/ai-provider';
 import { ensureClientUser, Prisma } from '@bronco/db';
-import { TicketStatus, TicketCategory, TicketEventType, Priority, TicketSource, TaskType, isClosedStatus, AnalysisStatus, SufficiencyStatus } from '@bronco/shared-types';
+import { TicketStatus, TicketCategory, TicketEventType, Priority, TicketSource, TaskType, isClosedStatus, AnalysisStatus, SufficiencyStatus, LogLevel } from '@bronco/shared-types';
 import type { TicketCreatedJob, IngestionJob } from '@bronco/shared-types';
 
 interface TicketRouteOpts {
@@ -19,6 +19,7 @@ const VALID_CATEGORIES: Set<string> = new Set(Object.values(TicketCategory));
 const VALID_STATUSES: Set<string> = new Set(Object.values(TicketStatus));
 const VALID_EVENT_TYPES: Set<string> = new Set(Object.values(TicketEventType));
 const VALID_SUFFICIENCY_STATUSES: Set<string> = new Set(Object.values(SufficiencyStatus));
+const VALID_LOG_LEVELS: Set<string> = new Set(Object.values(LogLevel));
 
 export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteOpts): Promise<void> {
   fastify.get<{ Querystring: { clientId?: string; status?: string; category?: string; environmentId?: string; assignedOperatorId?: string; limit?: string; offset?: string } }>(
@@ -453,6 +454,84 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
 
     reply.code(202);
     return { queued, ticketId: ticket.id, jobId, ticket: updated };
+  });
+
+  // GET /api/tickets/:id/logs — app logs filtered by this ticket's entityId
+  fastify.get<{
+    Params: { id: string };
+    Querystring: { level?: string; service?: string; search?: string; limit?: string; offset?: string };
+  }>('/api/tickets/:id/logs', async (request) => {
+    const { level, service, search, limit: rawLimit = '100', offset: rawOffset = '0' } = request.query;
+
+    const take = Math.trunc(Number(rawLimit));
+    const skip = Math.trunc(Number(rawOffset));
+    if (!Number.isFinite(take) || take < 0 || !Number.isFinite(skip) || skip < 0) {
+      return fastify.httpErrors.badRequest('limit and offset must be non-negative integers');
+    }
+
+    if (level && !VALID_LOG_LEVELS.has(level)) {
+      return fastify.httpErrors.badRequest(`Invalid level. Must be one of: ${Object.values(LogLevel).join(', ')}`);
+    }
+
+    const where: Record<string, unknown> = {
+      entityId: request.params.id,
+      entityType: 'ticket',
+    };
+    if (level) where.level = level;
+    if (service) where.service = service;
+    if (search) where.message = { contains: search, mode: 'insensitive' };
+
+    const [logs, total] = await Promise.all([
+      fastify.db.appLog.findMany({
+        where,
+        orderBy: { createdAt: 'asc' },
+        take: Math.min(take, 500),
+        skip,
+      }),
+      fastify.db.appLog.count({ where }),
+    ]);
+
+    return { logs, total };
+  });
+
+  // GET /api/tickets/:id/ai-usage — AI usage logs for this ticket
+  fastify.get<{
+    Params: { id: string };
+    Querystring: { limit?: string; offset?: string };
+  }>('/api/tickets/:id/ai-usage', async (request) => {
+    const { limit: rawLimit = '50', offset: rawOffset = '0' } = request.query;
+
+    const take = Math.trunc(Number(rawLimit));
+    const skip = Math.trunc(Number(rawOffset));
+    if (!Number.isFinite(take) || take < 0 || !Number.isFinite(skip) || skip < 0) {
+      return fastify.httpErrors.badRequest('limit and offset must be non-negative integers');
+    }
+
+    const [logs, total] = await Promise.all([
+      fastify.db.aiUsageLog.findMany({
+        where: { entityId: request.params.id, entityType: 'ticket' },
+        select: {
+          id: true,
+          provider: true,
+          model: true,
+          taskType: true,
+          inputTokens: true,
+          outputTokens: true,
+          durationMs: true,
+          costUsd: true,
+          promptText: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'asc' },
+        take: Math.min(take, 200),
+        skip,
+      }),
+      fastify.db.aiUsageLog.count({
+        where: { entityId: request.params.id, entityType: 'ticket' },
+      }),
+    ]);
+
+    return { logs, total };
   });
 
   // POST /api/tickets/:id/ai-help — ask AI for help on a ticket

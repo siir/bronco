@@ -57,6 +57,43 @@ export interface TicketEvent {
   createdAt: string;
 }
 
+export interface TicketAppLog {
+  id: string;
+  level: string;
+  service: string;
+  message: string;
+  context: Record<string, unknown> | null;
+  entityId: string | null;
+  entityType: string | null;
+  error: string | null;
+  createdAt: string;
+}
+
+export interface TicketLogsResponse {
+  logs: TicketAppLog[];
+  total: number;
+}
+
+export interface TicketAiUsageLog {
+  id: string;
+  provider: string;
+  model: string;
+  taskType: string;
+  inputTokens: number;
+  outputTokens: number;
+  durationMs: number | null;
+  costUsd: number | null;
+  entityId: string | null;
+  entityType: string | null;
+  promptKey: string | null;
+  createdAt: string;
+}
+
+export interface TicketAiUsageResponse {
+  logs: TicketAiUsageLog[];
+  total: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class TicketService {
   private api = inject(ApiService);
@@ -83,6 +120,14 @@ export class TicketService {
 
   addEvent(ticketId: string, data: { eventType: string; content?: string; actor?: string }): Observable<TicketEvent> {
     return this.api.post<TicketEvent>(`/tickets/${ticketId}/events`, data);
+  }
+
+  getTicketLogs(ticketId: string, filters?: { level?: string; service?: string; search?: string; limit?: number; offset?: number }): Observable<TicketLogsResponse> {
+    return this.api.get<TicketLogsResponse>(`/tickets/${ticketId}/logs`, filters as Record<string, string | number>);
+  }
+
+  getTicketAiUsage(ticketId: string, filters?: { limit?: number; offset?: number }): Observable<TicketAiUsageResponse> {
+    return this.api.get<TicketAiUsageResponse>(`/tickets/${ticketId}/ai-usage`, filters as Record<string, string | number>);
   }
 
   reanalyze(ticketId: string): Observable<{ queued: boolean; ticketId: string; jobId: string }> {
