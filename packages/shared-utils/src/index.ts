@@ -19,4 +19,4 @@ export { loadSmtpFromDb } from './smtp-loader.js';
 export { loadImapFromDb } from './imap-loader.js';
 export type { ImapDbConfig } from './imap-loader.js';
 export { SlackClient } from './slack-client.js';
-export type { SlackClientOpts, SlackMessageResult, SlackBlockAction, SlackThreadMessage, BlockActionHandler, ThreadMessageHandler } from './slack-client.js';
+export type { SlackClientOpts, SlackMessageResult, SlackBlockAction, SlackThreadMessage, SlackMentionEvent, SlackDirectMessageEvent, BlockActionHandler, ThreadMessageHandler, MentionHandler, DirectMessageHandler } from './slack-client.js';
