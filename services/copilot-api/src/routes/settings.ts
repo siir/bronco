@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
-import { TicketStatus, TicketCategory, DEFAULT_OPERATIONAL_ALERT_CONFIG } from '@bronco/shared-types';
-import type { OperationalAlertConfig } from '@bronco/shared-types';
+import { TicketStatus, TicketCategory, DEFAULT_OPERATIONAL_ALERT_CONFIG, DEFAULT_ACTION_SAFETY_CONFIG } from '@bronco/shared-types';
+import type { OperationalAlertConfig, ActionSafetyConfig, ActionSafetyLevel } from '@bronco/shared-types';
 import { Mailer, createLogger, decrypt, encrypt, loadSmtpFromDb, looksEncrypted } from '@bronco/shared-utils';
 import { reconnectSlack } from '../services/slack-connection.js';
 import { z } from 'zod';
@@ -41,6 +41,7 @@ const SETTINGS_KEY_GITHUB = 'system-config-github';
 const SETTINGS_KEY_IMAP = 'system-config-imap';
 const SETTINGS_KEY_SLACK = 'system-config-slack';
 const SETTINGS_KEY_PROMPT_RETENTION = 'system-config-prompt-retention';
+const SETTINGS_KEY_ACTION_SAFETY = 'system-config-action-safety';
 
 const REDACTED = '••••••••';
 
@@ -929,5 +930,42 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     });
 
     return { userId };
+  });
+
+  // ─── Action Safety Configuration ───
+
+  // GET /api/settings/action-safety — get action safety config (seed defaults if not set)
+  fastify.get('/api/settings/action-safety', async () => {
+    const row = await fastify.db.appSetting.findUnique({ where: { key: SETTINGS_KEY_ACTION_SAFETY } });
+    if (!row) return DEFAULT_ACTION_SAFETY_CONFIG;
+    return row.value as unknown as ActionSafetyConfig;
+  });
+
+  // PUT /api/settings/action-safety — update action safety config
+  fastify.put<{ Body: ActionSafetyConfig }>('/api/settings/action-safety', async (request) => {
+    const body = request.body;
+    if (!body || typeof body.actions !== 'object' || body.actions === null || Array.isArray(body.actions)) {
+      return fastify.httpErrors.badRequest('Body must contain an "actions" object');
+    }
+
+    const VALID_LEVELS: ReadonlySet<string> = new Set(['auto', 'approval']);
+    for (const [key, level] of Object.entries(body.actions)) {
+      if (typeof key !== 'string' || !key.trim()) {
+        return fastify.httpErrors.badRequest(`Invalid action key: ${key}`);
+      }
+      if (!VALID_LEVELS.has(level as string)) {
+        return fastify.httpErrors.badRequest(`Invalid safety level for "${key}": ${level}. Must be "auto" or "approval".`);
+      }
+    }
+
+    const config: ActionSafetyConfig = { actions: body.actions as Record<string, ActionSafetyLevel> };
+
+    const row = await fastify.db.appSetting.upsert({
+      where: { key: SETTINGS_KEY_ACTION_SAFETY },
+      update: { value: config as unknown as object },
+      create: { key: SETTINGS_KEY_ACTION_SAFETY, value: config as unknown as object },
+    });
+
+    return row.value as unknown as ActionSafetyConfig;
   });
 }

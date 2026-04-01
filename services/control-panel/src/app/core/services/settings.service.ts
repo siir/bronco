@@ -121,6 +121,10 @@ export interface PromptRetentionConfig {
   summaryRetentionDays: number;
 }
 
+export interface ActionSafetyConfig {
+  actions: Record<string, 'auto' | 'approval'>;
+}
+
 export interface TestResult {
   success: boolean;
   message?: string;
@@ -237,5 +241,13 @@ export class SettingsService {
   }
   savePromptRetention(config: PromptRetentionConfig): Observable<PromptRetentionConfig> {
     return this.api.put<PromptRetentionConfig>('/settings/prompt-retention', config);
+  }
+
+  // --- Action Safety ---
+  getActionSafety(): Observable<ActionSafetyConfig> {
+    return this.api.get<ActionSafetyConfig>('/settings/action-safety');
+  }
+  saveActionSafety(config: ActionSafetyConfig): Observable<ActionSafetyConfig> {
+    return this.api.put<ActionSafetyConfig>('/settings/action-safety', config);
   }
 }

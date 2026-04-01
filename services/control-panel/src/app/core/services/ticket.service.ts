@@ -94,6 +94,18 @@ export interface TicketAiUsageResponse {
   total: number;
 }
 
+export interface PendingAction {
+  id: string;
+  ticketId: string;
+  actionType: string;
+  value: Record<string, unknown>;
+  status: 'pending' | 'approved' | 'dismissed';
+  source: string;
+  resolvedAt: string | null;
+  resolvedBy: string | null;
+  createdAt: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class TicketService {
   private api = inject(ApiService);
@@ -136,6 +148,18 @@ export class TicketService {
 
   askAi(ticketId: string, params?: { question?: string; provider?: string; model?: string; taskType?: string }): Observable<AiHelpResponse> {
     return this.api.post<AiHelpResponse>(`/tickets/${ticketId}/ai-help`, params ?? {});
+  }
+
+  getPendingActions(ticketId: string): Observable<PendingAction[]> {
+    return this.api.get<PendingAction[]>(`/tickets/${ticketId}/pending-actions`);
+  }
+
+  approvePendingAction(ticketId: string, actionId: string): Observable<PendingAction> {
+    return this.api.post<PendingAction>(`/tickets/${ticketId}/pending-actions/${actionId}/approve`, {});
+  }
+
+  dismissPendingAction(ticketId: string, actionId: string): Observable<PendingAction> {
+    return this.api.post<PendingAction>(`/tickets/${ticketId}/pending-actions/${actionId}/dismiss`, {});
   }
 }
 
