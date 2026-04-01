@@ -559,7 +559,7 @@ export function createMentionHandler(deps: SlackActionHandlerDeps) {
     await deps.slack.addReaction(event.channelId, event.ts, 'eyes');
 
     // Strip the bot mention from the text (Slack includes "<@BOT_ID> " prefix)
-    const cleanText = event.text.replace(/<@[A-Z0-9]+>\s*/g, '').trim();
+    const cleanText = event.text.replace(/^<@[A-Z0-9]+>\s*/, '').trim();
 
     await deps.slack.replyInThread(
       event.channelId,
