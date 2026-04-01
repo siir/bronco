@@ -20,10 +20,13 @@ export function createRouteDispatcher(deps: {
     // This is a lightweight check — full route resolution (including AI selection)
     // happens inside the analysis worker. Ingestion routes are handled separately
     // by the ingestion engine (ticket-ingest queue).
+    // Exclude re-analysis routes (those containing UPDATE_ANALYSIS steps) — they are
+    // only valid for reply-triggered re-analysis, not new ticket-created events.
     const route = await deps.db.ticketRoute.findFirst({
       where: {
         isActive: true,
         routeType: 'ANALYSIS',
+        steps: { none: { stepType: 'UPDATE_ANALYSIS' } },
         OR: category != null
           ? [
               // Ticket has a known category — match routes for this exact category
