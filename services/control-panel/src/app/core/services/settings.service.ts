@@ -116,6 +116,11 @@ export interface SlackSystemConfig {
   enabled: boolean;
 }
 
+export interface PromptRetentionConfig {
+  fullRetentionDays: number;
+  summaryRetentionDays: number;
+}
+
 export interface TestResult {
   success: boolean;
   message?: string;
@@ -224,5 +229,13 @@ export class SettingsService {
   }
   testSlackConnection(): Observable<TestResult> {
     return this.api.post<TestResult>('/settings/slack/test', {});
+  }
+
+  // --- Prompt Retention ---
+  getPromptRetention(): Observable<PromptRetentionConfig> {
+    return this.api.get<PromptRetentionConfig>('/settings/prompt-retention');
+  }
+  savePromptRetention(config: PromptRetentionConfig): Observable<PromptRetentionConfig> {
+    return this.api.put<PromptRetentionConfig>('/settings/prompt-retention', config);
   }
 }

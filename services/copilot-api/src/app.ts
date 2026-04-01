@@ -3,6 +3,7 @@ import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import sensible from '@fastify/sensible';
 import multipart from '@fastify/multipart';
+import { z } from 'zod';
 import { createLogger, createQueue, createWorker, AppLogger, createPrismaLogWriter, setGlobalLogWriter, decrypt } from '@bronco/shared-utils';
 import { IntegrationType } from '@bronco/shared-types';
 import type { Queue } from 'bullmq';
@@ -250,6 +251,112 @@ export async function buildApp(config: Config) {
     { data: {} },
   );
 
+  // BullMQ worker + scheduler for nightly prompt archive retention
+  const promptRetentionQueue = createQueue('prompt-retention', config.REDIS_URL);
+
+  queueMap.set('prompt-retention', promptRetentionQueue);
+
+  const PROMPT_RETENTION_SETTINGS_KEY = 'system-config-prompt-retention';
+  const DEFAULT_FULL_RETENTION_DAYS = 30;
+  const DEFAULT_SUMMARY_RETENTION_DAYS = 90;
+  const RETENTION_BATCH_SIZE = 10;
+
+  const promptRetentionConfigSchema = z.object({
+    fullRetentionDays: z.number().int().min(1).default(DEFAULT_FULL_RETENTION_DAYS),
+    summaryRetentionDays: z.number().int().min(1).default(DEFAULT_SUMMARY_RETENTION_DAYS),
+  });
+
+  const promptRetentionWorker = createWorker<Record<string, never>>(
+    'prompt-retention',
+    config.REDIS_URL,
+    async () => {
+      // Load retention settings
+      const settingRow = await app.db.appSetting.findUnique({
+        where: { key: PROMPT_RETENTION_SETTINGS_KEY },
+      });
+      const retentionParseResult = promptRetentionConfigSchema.safeParse(settingRow?.value ?? {});
+      const retentionCfg = retentionParseResult.success
+        ? retentionParseResult.data
+        : { fullRetentionDays: DEFAULT_FULL_RETENTION_DAYS, summaryRetentionDays: DEFAULT_SUMMARY_RETENTION_DAYS };
+      const fullRetentionDays = retentionCfg.fullRetentionDays;
+      const summaryRetentionDays = retentionCfg.summaryRetentionDays;
+
+      const now = new Date();
+
+      // --- Summarize pass ---
+      const summarizeCutoff = new Date(now.getTime() - fullRetentionDays * 24 * 60 * 60 * 1000);
+      let summarized = 0;
+
+      // Process in batches
+      while (true) {
+        const archives = await app.db.aiPromptArchive.findMany({
+          where: {
+            createdAt: { lt: summarizeCutoff },
+            summarizedAt: null,
+            fullPrompt: { not: '' },
+          },
+          take: RETENTION_BATCH_SIZE,
+          orderBy: { createdAt: 'asc' },
+        });
+
+        if (archives.length === 0) break;
+
+        for (const archive of archives) {
+          try {
+            const summaryContent = [
+              archive.systemPrompt ? `System prompt: ${archive.systemPrompt.slice(0, 500)}` : '',
+              `User prompt: ${archive.fullPrompt.slice(0, 2000)}`,
+              `Response: ${archive.fullResponse.slice(0, 2000)}`,
+            ].filter(Boolean).join('\n\n');
+
+            const summaryResponse = await ai.generate({
+              taskType: 'CUSTOM_AI_QUERY',
+              prompt: `Summarize this AI conversation into key points: what was asked, what context was provided, what tools were called, what was concluded.\n\n${summaryContent}`,
+            });
+
+            await app.db.aiPromptArchive.update({
+              where: { id: archive.id },
+              data: {
+                summary: summaryResponse.content,
+                summarizedAt: new Date(),
+                fullPrompt: '',
+                fullResponse: '',
+                systemPrompt: null,
+              },
+            });
+            summarized++;
+          } catch (err) {
+            logger.warn({ err, archiveId: archive.id }, 'Failed to summarize prompt archive');
+          }
+        }
+      }
+
+      // --- Delete pass ---
+      const deleteCutoff = new Date(now.getTime() - summaryRetentionDays * 24 * 60 * 60 * 1000);
+      const deleted = await app.db.aiPromptArchive.deleteMany({
+        where: {
+          summarizedAt: { not: null, lt: deleteCutoff },
+        },
+      });
+
+      logger.info(
+        { summarized, deleted: deleted.count, fullRetentionDays, summaryRetentionDays },
+        'Prompt archive retention job completed',
+      );
+    },
+  );
+
+  promptRetentionWorker.on('failed', (job, err) => {
+    logger.error({ err, jobId: job?.id }, 'Prompt retention job failed');
+  });
+
+  // Schedule nightly at 3am
+  await promptRetentionQueue.upsertJobScheduler(
+    'prompt-retention-nightly',
+    { pattern: '0 3 * * *' },
+    { data: {} },
+  );
+
   // Auto-invoicing: check daily for clients with billing periods that have ended
   const invoiceStoragePath = config.INVOICE_STORAGE_PATH;
   ensureInvoiceDir(invoiceStoragePath);
@@ -421,6 +528,8 @@ export async function buildApp(config: Config) {
     stopOperationalAlertChecker();
     await clientSlackManager.disconnectAll();
     await disconnectSlack();
+    await promptRetentionWorker.close();
+    await promptRetentionQueue.close();
     await logSummarizeWorker.close();
     await logSummarizeQueue.close();
     await systemAnalysisWorker.close();

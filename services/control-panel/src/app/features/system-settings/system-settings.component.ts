@@ -18,6 +18,7 @@ import {
   GithubSystemConfig,
   ImapSystemConfig,
   SlackSystemConfig,
+  PromptRetentionConfig,
 } from '../../core/services/settings.service';
 
 @Component({
@@ -291,6 +292,38 @@ import {
           }
         </div>
       </mat-tab>
+      <!-- Prompt Retention Tab -->
+      <mat-tab label="Prompt Retention">
+        <div class="tab-content">
+          @if (loading()) {
+            <div class="spinner-wrapper"><mat-spinner diameter="40" /></div>
+          } @else {
+            <mat-card>
+              <mat-card-header>
+                <mat-card-title>Prompt Retention Policy</mat-card-title>
+              </mat-card-header>
+              <mat-card-content>
+                <p class="hint">Configure how long full AI prompt/response archives are retained before being summarized and deleted.</p>
+                <div class="form-grid">
+                  <mat-form-field>
+                    <mat-label>Full prompt retention (days)</mat-label>
+                    <input matInput type="number" [(ngModel)]="promptRetention.fullRetentionDays" min="1" placeholder="30">
+                  </mat-form-field>
+                  <mat-form-field>
+                    <mat-label>Summary retention (days after summarization)</mat-label>
+                    <input matInput type="number" [(ngModel)]="promptRetention.summaryRetentionDays" min="1" placeholder="90">
+                  </mat-form-field>
+                </div>
+              </mat-card-content>
+              <mat-card-actions>
+                <button mat-raised-button color="primary" (click)="savePromptRetention()" [disabled]="saving()">
+                  <mat-icon>save</mat-icon> Save
+                </button>
+              </mat-card-actions>
+            </mat-card>
+          }
+        </div>
+      </mat-tab>
     </mat-tab-group>
   `,
   styles: [`
@@ -343,12 +376,13 @@ export class SystemSettingsComponent implements OnInit {
   github: GithubSystemConfig = { token: '', repo: '' };
   imap: ImapSystemConfig = { host: '', port: 993, user: '', password: '', pollIntervalSeconds: 60 };
   slack: SlackSystemConfig = { botToken: '', appToken: '', defaultChannelId: '', enabled: false };
+  promptRetention: PromptRetentionConfig = { fullRetentionDays: 30, summaryRetentionDays: 90 };
 
   ngOnInit(): void {
     const tab = this.route.snapshot.queryParamMap.get('tab');
     if (tab !== null) {
       const tabIndex = +tab;
-      if (Number.isInteger(tabIndex) && tabIndex >= 0 && tabIndex <= 4) {
+      if (Number.isInteger(tabIndex) && tabIndex >= 0 && tabIndex <= 5) {
         this.selectedTab.set(tabIndex);
       }
     }
@@ -362,7 +396,7 @@ export class SystemSettingsComponent implements OnInit {
 
   private loadAll(): void {
     this.loading.set(true);
-    let pending = 5;
+    let pending = 6;
     const done = () => { if (--pending === 0) this.loading.set(false); };
 
     this.settingsService.getSmtpConfig().subscribe({
@@ -383,6 +417,10 @@ export class SystemSettingsComponent implements OnInit {
     });
     this.settingsService.getSlackConfig().subscribe({
       next: (c) => { if (c) this.slack = { ...this.slack, ...c }; done(); },
+      error: () => done(),
+    });
+    this.settingsService.getPromptRetention().subscribe({
+      next: (c) => { if (c) this.promptRetention = { ...this.promptRetention, ...c }; done(); },
       error: () => done(),
     });
   }
@@ -528,6 +566,21 @@ export class SystemSettingsComponent implements OnInit {
       error: (err) => {
         this.snackBar.open(err?.error?.message || 'Slack test failed', 'OK', { duration: 5000 });
         this.testing.set(false);
+      },
+    });
+  }
+
+  savePromptRetention(): void {
+    this.saving.set(true);
+    this.settingsService.savePromptRetention(this.promptRetention).subscribe({
+      next: (c) => {
+        this.promptRetention = { ...this.promptRetention, ...c };
+        this.snackBar.open('Prompt retention config saved', 'OK', { duration: 3000 });
+        this.saving.set(false);
+      },
+      error: (err) => {
+        this.snackBar.open(err?.error?.message || 'Failed to save prompt retention config', 'OK', { duration: 5000 });
+        this.saving.set(false);
       },
     });
   }

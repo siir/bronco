@@ -40,6 +40,7 @@ const SETTINGS_KEY_DEVOPS = 'system-config-devops';
 const SETTINGS_KEY_GITHUB = 'system-config-github';
 const SETTINGS_KEY_IMAP = 'system-config-imap';
 const SETTINGS_KEY_SLACK = 'system-config-slack';
+const SETTINGS_KEY_PROMPT_RETENTION = 'system-config-prompt-retention';
 
 const REDACTED = '••••••••';
 
@@ -842,6 +843,45 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
       return { success: false, error: err instanceof Error ? err.message : 'Slack test failed' };
     }
   });
+
+  // ─── Prompt Retention ───
+
+  const promptRetentionSchema = z.object({
+    fullRetentionDays: z.number().int().min(1).default(30),
+    summaryRetentionDays: z.number().int().min(1).default(90),
+  });
+
+  const DEFAULT_PROMPT_RETENTION = { fullRetentionDays: 30, summaryRetentionDays: 90 };
+
+  // GET /api/settings/prompt-retention — get prompt retention config
+  fastify.get('/api/settings/prompt-retention', async () => {
+    const row = await fastify.db.appSetting.findUnique({ where: { key: SETTINGS_KEY_PROMPT_RETENTION } });
+    if (!row) return DEFAULT_PROMPT_RETENTION;
+    const parsed = promptRetentionSchema.safeParse(row.value);
+    return parsed.success ? parsed.data : DEFAULT_PROMPT_RETENTION;
+  });
+
+  // PUT /api/settings/prompt-retention — save prompt retention config
+  fastify.put<{ Body: { fullRetentionDays?: number; summaryRetentionDays?: number } }>(
+    '/api/settings/prompt-retention',
+    async (request) => {
+      const parsed = promptRetentionSchema.safeParse(request.body);
+      if (!parsed.success) {
+        const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+        return fastify.httpErrors.badRequest(`Invalid prompt retention config: ${issues}`);
+      }
+
+      const config = parsed.data;
+
+      const row = await fastify.db.appSetting.upsert({
+        where: { key: SETTINGS_KEY_PROMPT_RETENTION },
+        update: { value: config as unknown as object },
+        create: { key: SETTINGS_KEY_PROMPT_RETENTION, value: config as unknown as object },
+      });
+
+      return row.value as unknown as { fullRetentionDays: number; summaryRetentionDays: number };
+    },
+  );
 
   // ─── Super Admin ───
 
