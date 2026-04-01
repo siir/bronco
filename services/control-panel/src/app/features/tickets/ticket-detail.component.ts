@@ -345,10 +345,7 @@ interface FlowNode {
               @if (event.content) {
                 @if (isMarkdownEvent(event.eventType)) {
                   <div class="event-content markdown-content" [class.collapsed]="!expandedEvents[event.id] && event.content.length > 300">
-                    <div [innerHTML]="(expandedEvents[event.id] ? event.content : event.content.slice(0, 300)) | markdown"></div>
-                    @if (event.content.length > 300 && !expandedEvents[event.id]) {
-                      <span class="ellipsis">...</span>
-                    }
+                    <div [innerHTML]="event.content | markdown"></div>
                   </div>
                 } @else {
                   <p class="event-content" [class.collapsed]="!expandedEvents[event.id] && event.content.length > 300">

@@ -9,6 +9,19 @@ export class RelativeTimePipe implements PipeTransform {
 
     const now = Date.now();
     const diffMs = now - date.getTime();
+
+    // Future dates (clock skew or scheduled items)
+    if (diffMs < 0) {
+      const absSec = Math.floor(-diffMs / 1000);
+      if (absSec < 60) return 'just now';
+      const absMin = Math.floor(absSec / 60);
+      if (absMin < 60) return `in ${absMin}m`;
+      const absHr = Math.floor(absMin / 60);
+      if (absHr < 24) return `in ${absHr}h`;
+      const absDays = Math.floor(absHr / 24);
+      return `in ${absDays}d`;
+    }
+
     const diffSec = Math.floor(diffMs / 1000);
     const diffMin = Math.floor(diffSec / 60);
     const diffHr = Math.floor(diffMin / 60);
