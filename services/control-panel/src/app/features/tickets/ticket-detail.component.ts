@@ -207,9 +207,17 @@ interface FlowNode {
 
             <!-- Unified log stream -->
             <div class="logs-list">
-              @for (entry of unifiedLogs(); track entry.id) {
-                <div class="log-entry" [ngClass]="'unified-type-' + entry.type">
+              @for (entry of unifiedLogs(); track entry.id; let idx = $index) {
+                <!-- Iteration group header -->
+                @if (isIterationHeader(entry)) {
+                  <div class="iteration-group-header">
+                    <mat-icon class="iteration-icon">loop</mat-icon>
+                    <span class="iteration-label">{{ extractIterationLabel(entry) }}</span>
+                  </div>
+                }
+                <div class="log-entry" [ngClass]="'unified-type-' + entry.type" [class.iteration-grouped]="isWithinIteration(entry)">
                   <div class="log-entry-header">
+                    <span class="log-seq">#{{ idx + 1 }}</span>
                     <span class="log-time" [matTooltip]="entry.timestamp">{{ formatTime(entry.timestamp) }}</span>
                     <span class="unified-type-badge" [ngClass]="'ubadge-' + entry.type">{{ entry.type | uppercase }}</span>
 
@@ -499,6 +507,9 @@ interface FlowNode {
                   <mat-icon>{{ eventIcon(event.eventType) }}</mat-icon>
                   <span>{{ formatEventType(event.eventType) }}</span>
                 </span>
+                @if (isAiTriggered(event)) {
+                  <span class="ai-triggered-badge">AI Recommendation</span>
+                }
                 <span class="event-actor">{{ event.actor }}</span>
                 @if (isAgenticAnalysis(event)) {
                   @if (agenticMeta(event); as am) {
@@ -932,6 +943,7 @@ interface FlowNode {
     .rec-badge-dismissed { background: #fce4ec; color: #c62828; }
     .rec-badge-approved { background: #e8f5e9; color: #2e7d32; }
     .rec-approve-btn, .rec-dismiss-btn { font-size: 11px; min-height: 28px; line-height: 28px; padding: 0 10px; }
+    .ai-triggered-badge { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px; background: #fff8e1; color: #f57f17; white-space: nowrap; }
     .markdown-content { white-space: normal; }
     .markdown-content h1, .markdown-content h2, .markdown-content h3 { margin: 10px 0 4px; }
     .markdown-content h1 { font-size: 1.25em; }
@@ -990,6 +1002,12 @@ interface FlowNode {
     .ubadge-tool { background: #e8f5e9; color: #2e7d32; }
     .ubadge-step { background: #fff3e0; color: #e65100; }
     .ubadge-error { background: #ffebee; color: #c62828; }
+    .log-seq { font-size: 10px; color: #bbb; font-family: monospace; min-width: 32px; flex-shrink: 0; }
+    .iteration-group-header { display: flex; align-items: center; gap: 6px; padding: 8px 10px 4px; margin-top: 8px; border-top: 2px solid #e0e0e0; }
+    .iteration-group-header:first-child { margin-top: 0; border-top: none; }
+    .iteration-icon { font-size: 16px; width: 16px; height: 16px; color: #7c4dff; }
+    .iteration-label { font-size: 12px; font-weight: 600; color: #5e35b1; }
+    .iteration-grouped { border-left-width: 3px; margin-left: 8px; }
     .unified-type-error { border-left-color: #c62828; background: #fff8f8; }
     .unified-type-ai { border-left-color: #7c4dff; background: #faf8ff; }
     .unified-type-tool { border-left-color: #2e7d32; background: #f8fff8; }
@@ -1568,6 +1586,12 @@ export class TicketDetailComponent implements OnInit {
     return `${(ms / 60_000).toFixed(1)}m`;
   }
 
+  /** Check if a timeline event was triggered by an AI recommendation auto-execution. */
+  isAiTriggered(event: TicketEvent): boolean {
+    const meta = event.metadata as Record<string, unknown> | null;
+    return meta?.['triggeredBy'] === 'ai_recommendation';
+  }
+
   /** Check if an AI_ANALYSIS event is from the agentic analysis phase (has rich metadata). */
   isAgenticAnalysis(event: TicketEvent): boolean {
     const meta = event.metadata as Record<string, unknown> | null;
@@ -1616,6 +1640,24 @@ export class TicketDetailComponent implements OnInit {
     } catch {
       return content;
     }
+  }
+
+  /** Check if a log entry is an iteration header (matches "Agentic analysis iteration N/M"). */
+  isIterationHeader(entry: UnifiedLogEntry): boolean {
+    return !!(entry.message && /^Agentic analysis iteration \d+\/\d+/.test(entry.message));
+  }
+
+  /** Extract a display label from an iteration header log entry. */
+  extractIterationLabel(entry: UnifiedLogEntry): string {
+    const match = entry.message?.match(/^Agentic analysis iteration (\d+)\/(\d+)/);
+    if (match) return `Iteration ${match[1]} of ${match[2]}`;
+    return 'Iteration';
+  }
+
+  /** Check if a log entry falls within an agentic iteration (tool/reasoning entries). */
+  isWithinIteration(entry: UnifiedLogEntry): boolean {
+    if (!entry.message) return false;
+    return /^Agentic (tool call|reasoning)/.test(entry.message);
   }
 
   /** Extract recommendation actions from AI_RECOMMENDATION metadata. */
