@@ -268,6 +268,16 @@ pnpm install
 
 Then include the updated `pnpm-lock.yaml` in the same commit. CI uses `--frozen-lockfile` and will fail if the lockfile is out of sync. This applies to every commit that touches `package.json`, `pnpm-workspace.yaml`, or adds a new workspace directory.
 
+## PR Review Comment Handling
+
+When subscribed to PR activity and review comments arrive, **do not just fix the code silently**. For each review comment:
+
+1. **Push the code fix** addressing the feedback.
+2. **Reply to the review comment** on GitHub (via `mcp__github__add_reply_to_pull_request_comment`) explaining what was changed and why.
+3. **Resolve the review thread** (via `mcp__github__resolve_review_thread`) once the fix is pushed.
+
+This applies to both automated reviewers (Copilot) and human reviewers. The goal is to close the feedback loop on GitHub itself so the PR author doesn't have to manually respond to and resolve each thread.
+
 ## Build and Test
 
 ```bash
