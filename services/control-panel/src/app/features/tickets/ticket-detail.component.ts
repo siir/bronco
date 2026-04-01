@@ -20,6 +20,8 @@ import { TicketService, Ticket, TicketEvent } from '../../core/services/ticket.s
 import { LogSummaryService, type LogSummary } from '../../core/services/log-summary.service';
 import { AiUsageService, type TicketCostResponse } from '../../core/services/ai-usage.service';
 import { AiHelpDialogComponent, type AiHelpDialogData } from '../../shared/components/ai-help-dialog.component';
+import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
+import { RelativeTimePipe } from '../../shared/pipes/relative-time.pipe';
 
 interface FlowNode {
   label: string;
@@ -30,7 +32,7 @@ interface FlowNode {
 
 @Component({
   standalone: true,
-  imports: [CommonModule, RouterLink, DatePipe, FormsModule, MatCardModule, MatButtonModule, MatIconModule, MatChipsModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatProgressBarModule, MatTooltipModule, MatTabsModule],
+  imports: [CommonModule, RouterLink, DatePipe, FormsModule, MatCardModule, MatButtonModule, MatIconModule, MatChipsModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatProgressBarModule, MatTooltipModule, MatTabsModule, MarkdownPipe, RelativeTimePipe],
   template: `
     @if (ticket(); as t) {
       <div class="page-header">
@@ -298,13 +300,15 @@ interface FlowNode {
       </div>
       <div class="timeline">
         @for (event of filteredEvents(); track event.id) {
-          <mat-card class="event-card">
+          <mat-card class="event-card" [ngClass]="'event-type-' + event.eventType.toLowerCase()">
             <mat-card-content>
               <div class="event-header">
-                <mat-icon>{{ eventIcon(event.eventType) }}</mat-icon>
-                <strong>{{ event.eventType }}</strong>
-                <span class="event-actor">by {{ event.actor }}</span>
-                <span class="event-date">{{ event.createdAt | date:'short' }}</span>
+                <span class="event-type-badge" [ngClass]="'badge-' + event.eventType.toLowerCase()">
+                  <mat-icon>{{ eventIcon(event.eventType) }}</mat-icon>
+                  <span>{{ formatEventType(event.eventType) }}</span>
+                </span>
+                <span class="event-actor">{{ event.actor }}</span>
+                <span class="event-date" [matTooltip]="event.createdAt | date:'medium'">{{ event.createdAt | relativeTime }}</span>
               </div>
               <!-- AI help question (if present in metadata) -->
               @if (eventQuestion(event); as q) {
@@ -339,13 +343,22 @@ interface FlowNode {
                 }
               }
               @if (event.content) {
-                <p class="event-content" [class.collapsed]="!expandedEvents[event.id] && event.content.length > 500">
-                  {{ expandedEvents[event.id] ? event.content : event.content.slice(0, 500) }}
-                  @if (event.content.length > 500 && !expandedEvents[event.id]) {
-                    <span class="ellipsis">...</span>
-                  }
-                </p>
-                @if (event.content.length > 500) {
+                @if (isMarkdownEvent(event.eventType)) {
+                  <div class="event-content markdown-content" [class.collapsed]="!expandedEvents[event.id] && event.content.length > 300">
+                    <div [innerHTML]="(expandedEvents[event.id] ? event.content : event.content.slice(0, 300)) | markdown"></div>
+                    @if (event.content.length > 300 && !expandedEvents[event.id]) {
+                      <span class="ellipsis">...</span>
+                    }
+                  </div>
+                } @else {
+                  <p class="event-content" [class.collapsed]="!expandedEvents[event.id] && event.content.length > 300">
+                    {{ expandedEvents[event.id] ? event.content : event.content.slice(0, 300) }}
+                    @if (event.content.length > 300 && !expandedEvents[event.id]) {
+                      <span class="ellipsis">...</span>
+                    }
+                  </p>
+                }
+                @if (event.content.length > 300) {
                   <button mat-button class="show-more-btn" (click)="expandedEvents[event.id] = !expandedEvents[event.id]">
                     {{ expandedEvents[event.id] ? 'Show less' : 'Show more' }}
                   </button>
@@ -481,13 +494,36 @@ interface FlowNode {
     /* Timeline */
     .timeline { display: flex; flex-direction: column; gap: 8px; margin-bottom: 24px; }
     .event-header { display: flex; align-items: center; gap: 8px; }
+    .event-type-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 4px; background: #f5f5f5; color: #555; }
+    .event-type-badge mat-icon { font-size: 15px; width: 15px; height: 15px; }
+    .badge-ai_analysis { background: #ede7f6; color: #5e35b1; }
+    .badge-ai_recommendation { background: #fff8e1; color: #f57f17; }
+    .badge-email_inbound { background: #e8f5e9; color: #2e7d32; }
+    .badge-email_outbound { background: #e3f2fd; color: #1565c0; }
+    .badge-status_change { background: #fff3e0; color: #e65100; }
+    .badge-code_change { background: #fce4ec; color: #c62828; }
     .event-actor { color: #666; font-size: 13px; }
-    .event-date { color: #999; font-size: 13px; margin-left: auto; }
+    .event-date { color: #999; font-size: 13px; margin-left: auto; cursor: default; }
     .event-question { display: flex; align-items: flex-start; gap: 4px; margin-top: 6px; padding: 6px 10px; background: #e3f2fd; border-radius: 6px; font-size: 13px; color: #1565c0; }
     .question-icon { font-size: 16px; width: 16px; height: 16px; flex-shrink: 0; margin-top: 1px; }
     .event-content { margin-top: 8px; white-space: pre-wrap; line-height: 1.5; }
     .event-content.collapsed { max-height: 100px; overflow: hidden; }
     .ellipsis { color: #999; }
+    .event-type-ai_analysis { border-left: 3px solid #7c4dff; }
+    .event-type-ai_recommendation { border-left: 3px solid #ffab00; }
+    .event-type-system_note { border-left: 3px solid #bdbdbd; }
+    .event-type-email_inbound, .event-type-email_outbound { border-left: 3px solid #4caf50; }
+    .event-type-code_change { border-left: 3px solid #e91e63; }
+    .markdown-content { white-space: normal; }
+    .markdown-content h1, .markdown-content h2, .markdown-content h3 { margin: 10px 0 4px; }
+    .markdown-content h1 { font-size: 1.25em; }
+    .markdown-content h2 { font-size: 1.1em; }
+    .markdown-content p { margin: 4px 0; }
+    .markdown-content ul, .markdown-content ol { margin: 4px 0; padding-left: 24px; }
+    .markdown-content code { background: #f5f5f5; padding: 1px 4px; border-radius: 3px; font-size: 0.9em; }
+    .markdown-content pre { background: #263238; color: #eeffff; padding: 10px; border-radius: 6px; overflow-x: auto; margin: 6px 0; }
+    .markdown-content pre code { background: transparent; color: inherit; padding: 0; }
+    .markdown-content blockquote { border-left: 3px solid #ddd; margin: 6px 0; padding: 2px 12px; color: #666; }
     .event-ai-meta { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
     .meta-chip { font-size: 10px; padding: 1px 6px; border-radius: 4px; display: inline-block; }
     .provider-chip { font-weight: 600; font-family: monospace; background: #f5f5f5; color: #333; }
@@ -763,6 +799,26 @@ export class TicketDetailComponent implements OnInit {
 
   toggleTimelineSort(): void {
     this.timelineSortAsc.update(v => !v);
+  }
+
+  isMarkdownEvent(eventType: string): boolean {
+    return eventType === 'AI_ANALYSIS' || eventType === 'AI_RECOMMENDATION';
+  }
+
+  formatEventType(type: string): string {
+    const labels: Record<string, string> = {
+      COMMENT: 'Comment',
+      STATUS_CHANGE: 'Status Change',
+      PRIORITY_CHANGE: 'Priority Change',
+      CATEGORY_CHANGE: 'Category Change',
+      AI_ANALYSIS: 'AI Analysis',
+      AI_RECOMMENDATION: 'AI Recommendation',
+      EMAIL_INBOUND: 'Email Received',
+      EMAIL_OUTBOUND: 'Email Sent',
+      CODE_CHANGE: 'Code Change',
+      SYSTEM_NOTE: 'System Note',
+    };
+    return labels[type] ?? type;
   }
 
   eventIcon(type: string): string {
