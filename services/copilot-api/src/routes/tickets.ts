@@ -455,6 +455,68 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     return { queued, ticketId: ticket.id, jobId, ticket: updated };
   });
 
+  // GET /api/tickets/:id/logs — app logs filtered by this ticket's entityId
+  fastify.get<{
+    Params: { id: string };
+    Querystring: { level?: string; service?: string; search?: string; limit?: string; offset?: string };
+  }>('/api/tickets/:id/logs', async (request) => {
+    const { level, service, search, limit: rawLimit = '100', offset: rawOffset = '0' } = request.query;
+
+    const take = Math.trunc(Number(rawLimit));
+    const skip = Math.trunc(Number(rawOffset));
+    if (!Number.isFinite(take) || take < 0 || !Number.isFinite(skip) || skip < 0) {
+      return fastify.httpErrors.badRequest('limit and offset must be non-negative integers');
+    }
+
+    const where: Record<string, unknown> = {
+      entityId: request.params.id,
+      entityType: 'ticket',
+    };
+    if (level) where.level = level;
+    if (service) where.service = service;
+    if (search) where.message = { contains: search, mode: 'insensitive' };
+
+    const [logs, total] = await Promise.all([
+      fastify.db.appLog.findMany({
+        where,
+        orderBy: { createdAt: 'asc' },
+        take: Math.min(take, 500),
+        skip,
+      }),
+      fastify.db.appLog.count({ where }),
+    ]);
+
+    return { logs, total };
+  });
+
+  // GET /api/tickets/:id/ai-usage — AI usage logs for this ticket
+  fastify.get<{
+    Params: { id: string };
+    Querystring: { limit?: string; offset?: string };
+  }>('/api/tickets/:id/ai-usage', async (request) => {
+    const { limit: rawLimit = '50', offset: rawOffset = '0' } = request.query;
+
+    const take = Math.trunc(Number(rawLimit));
+    const skip = Math.trunc(Number(rawOffset));
+    if (!Number.isFinite(take) || take < 0 || !Number.isFinite(skip) || skip < 0) {
+      return fastify.httpErrors.badRequest('limit and offset must be non-negative integers');
+    }
+
+    const [logs, total] = await Promise.all([
+      fastify.db.aiUsageLog.findMany({
+        where: { entityId: request.params.id, entityType: 'ticket' },
+        orderBy: { createdAt: 'asc' },
+        take: Math.min(take, 200),
+        skip,
+      }),
+      fastify.db.aiUsageLog.count({
+        where: { entityId: request.params.id, entityType: 'ticket' },
+      }),
+    ]);
+
+    return { logs, total };
+  });
+
   // POST /api/tickets/:id/ai-help — ask AI for help on a ticket
   const MAX_QUESTION_LENGTH = 2000;
 
