@@ -2036,6 +2036,11 @@ async function executeRoutePipeline(
   const safeName = sanitizeName(route.name);
   appLog.info(`Executing route "${safeName}" (${route.steps.length} steps)`, { ticketId, routeId: route.id, routeName: safeName }, ticketId, 'ticket');
 
+  const pipelineStart = Date.now();
+  let stepsExecuted = 0;
+  let totalToolCalls = 0;
+  let lastSufficiency = '';
+
   // Shared state accumulated across steps — seed from initialState if dispatched
   let summary = initialState?.summary ?? '';
   let category = initialState?.category ?? 'GENERAL';
@@ -2098,6 +2103,7 @@ async function executeRoutePipeline(
           appLog.info('Skipping SUMMARIZE_EMAIL — no email context', { ticketId }, ticketId, 'ticket');
           break;
         }
+        const summarizeStart = Date.now();
         const promptKey = step.promptKeyOverride ?? 'imap.summarize.system';
         const taskType = (step.taskTypeOverride ?? TaskType.SUMMARIZE) as TaskType;
         const summaryRes = await ai.generate({
@@ -2107,11 +2113,14 @@ async function executeRoutePipeline(
           promptKey,
         });
         summary = summaryRes.content;
-        appLog.info('Email summarized via LLM', { ticketId, provider: summaryRes.provider, model: summaryRes.model }, ticketId, 'ticket');
+        const summarizeMs = Date.now() - summarizeStart;
+        appLog.info(`Email summarized (${summary.length} chars) via ${summaryRes.provider}/${summaryRes.model} (${(summarizeMs / 1000).toFixed(1)}s)`, { ticketId, summaryLength: summary.length, provider: summaryRes.provider, model: summaryRes.model, durationMs: summarizeMs }, ticketId, 'ticket');
+        stepsExecuted++;
         break;
       }
 
       case RouteStepType.CATEGORIZE: {
+        const categorizeStart = Date.now();
         const promptKey = step.promptKeyOverride ?? 'imap.categorize.system';
         const taskType = (step.taskTypeOverride ?? TaskType.CATEGORIZE) as TaskType;
         const categorizeRes = await ai.generate({
@@ -2124,10 +2133,14 @@ async function executeRoutePipeline(
         const validCategories = ['DATABASE_PERF', 'BUG_FIX', 'FEATURE_REQUEST', 'SCHEMA_CHANGE', 'CODE_REVIEW', 'ARCHITECTURE', 'GENERAL'];
         category = validCategories.includes(rawCategory) ? rawCategory : 'GENERAL';
         await db.ticket.update({ where: { id: ticketId }, data: { category: category as TicketCategory } });
+        const categorizeMs = Date.now() - categorizeStart;
+        appLog.info(`Categorized as ${category} via ${categorizeRes.provider}/${categorizeRes.model} (${(categorizeMs / 1000).toFixed(1)}s)`, { ticketId, category, provider: categorizeRes.provider, model: categorizeRes.model, durationMs: categorizeMs }, ticketId, 'ticket');
+        stepsExecuted++;
         break;
       }
 
       case RouteStepType.TRIAGE_PRIORITY: {
+        const triageStart = Date.now();
         const promptKey = step.promptKeyOverride ?? 'imap.triage.system';
         const taskType = (step.taskTypeOverride ?? TaskType.TRIAGE) as TaskType;
         const triageRes = await ai.generate({
@@ -2151,11 +2164,14 @@ async function executeRoutePipeline(
             actor: 'system:analyzer',
           },
         });
-        appLog.info(`Ticket triaged: category=${category}, priority=${priority}`, { ticketId, category, priority }, ticketId, 'ticket');
+        const triageMs = Date.now() - triageStart;
+        appLog.info(`Ticket triaged: category=${category}, priority=${priority} via ${triageRes.provider}/${triageRes.model} (${(triageMs / 1000).toFixed(1)}s)`, { ticketId, category, priority, provider: triageRes.provider, model: triageRes.model, durationMs: triageMs }, ticketId, 'ticket');
+        stepsExecuted++;
         break;
       }
 
       case RouteStepType.GENERATE_TITLE: {
+        const titleStart = Date.now();
         const promptKey = step.promptKeyOverride?.trim() || undefined;
         const taskType = (step.taskTypeOverride ?? TaskType.GENERATE_TITLE) as TaskType;
         const contentForTitle = ctx.emailFrom
@@ -2176,6 +2192,9 @@ async function executeRoutePipeline(
         if (newTitle) {
           await db.ticket.update({ where: { id: ticketId }, data: { subject: newTitle } });
         }
+        const titleMs = Date.now() - titleStart;
+        appLog.info(`Title generated: "${newTitle || '(unchanged)'}" via ${titleRes.provider}/${titleRes.model} (${(titleMs / 1000).toFixed(1)}s)`, { ticketId, title: newTitle, provider: titleRes.provider, model: titleRes.model, durationMs: titleMs }, ticketId, 'ticket');
+        stepsExecuted++;
         break;
       }
 
@@ -2184,6 +2203,7 @@ async function executeRoutePipeline(
           appLog.info('Skipping DRAFT_RECEIPT — no email context', { ticketId }, ticketId, 'ticket');
           break;
         }
+        const receiptStart = Date.now();
         if (!recipientName) {
           recipientName = await resolveRecipientName(db, ticketId, emailFrom!, clientId);
         }
@@ -2230,8 +2250,10 @@ async function executeRoutePipeline(
               actor: 'system:analyzer',
             },
           });
-          appLog.info(`Receipt confirmation email sent to ${emailFrom}`, { ticketId, to: emailFrom }, ticketId, 'ticket');
+          const receiptMs = Date.now() - receiptStart;
+          appLog.info(`Receipt email sent to ${emailFrom} (${(receiptMs / 1000).toFixed(1)}s)`, { ticketId, to: emailFrom, durationMs: receiptMs }, ticketId, 'ticket');
         }
+        stepsExecuted++;
         break;
       }
 
@@ -2240,6 +2262,7 @@ async function executeRoutePipeline(
           appLog.info('No client on ticket, skipping client context load', { ticketId }, ticketId, 'ticket');
           break;
         }
+        const clientCtxStart = Date.now();
         // `category` reflects the ticket's current category at the time this step runs.
         // If a CATEGORIZE step precedes this step in the route, `category` will already
         // be the AI-assigned category. If LOAD_CLIENT_CONTEXT runs before CATEGORIZE,
@@ -2260,12 +2283,15 @@ async function executeRoutePipeline(
             return `### ${m.title} (${label})\n\n${m.content}`;
           });
           clientContext = `## Client Knowledge\n\n${sections.join('\n\n---\n\n')}`;
-          appLog.info(`Loaded ${relevant.length} client memory entries`, { ticketId, entryCount: relevant.length }, ticketId, 'ticket');
+          const clientCtxMs = Date.now() - clientCtxStart;
+          appLog.info(`Loaded ${relevant.length} client memory entries (${(clientCtxMs / 1000).toFixed(1)}s)`, { ticketId, entryCount: relevant.length, durationMs: clientCtxMs }, ticketId, 'ticket');
         }
+        stepsExecuted++;
         break;
       }
 
       case RouteStepType.EXTRACT_FACTS: {
+        const factsStart = Date.now();
         const promptKey = step.promptKeyOverride ?? 'imap.extract-facts.system';
         const taskType = (step.taskTypeOverride ?? TaskType.EXTRACT_FACTS) as TaskType;
         const extractRes = await ai.generate({
@@ -2288,10 +2314,18 @@ async function executeRoutePipeline(
         } catch {
           logger.warn({ ticketId }, 'Failed to parse extracted facts, continuing with defaults');
         }
+        const factsMs = Date.now() - factsStart;
+        appLog.info(
+          `Facts extracted: databaseRelated=${facts.databaseRelated ?? false}, ${facts.keywords?.length ?? 0} keywords, ${facts.errorMessages?.length ?? 0} errors via ${extractRes.provider}/${extractRes.model} (${(factsMs / 1000).toFixed(1)}s)`,
+          { ticketId, databaseRelated: facts.databaseRelated, keywordCount: facts.keywords?.length ?? 0, errorCount: facts.errorMessages?.length ?? 0, provider: extractRes.provider, model: extractRes.model, durationMs: factsMs },
+          ticketId, 'ticket',
+        );
+        stepsExecuted++;
         break;
       }
 
       case RouteStepType.GATHER_REPO_CONTEXT: {
+        const repoCtxStart = Date.now();
         // Reload ticket to get repos
         ticket = await db.ticket.findUnique({
           where: { id: ticketId },
@@ -2341,14 +2375,24 @@ async function executeRoutePipeline(
             appLog.warn(`Repo context unavailable for ${repo.name}: ${errMsg}`, { ticketId, repo: repo.name, err }, ticketId, 'ticket');
           }
         }
+        const repoCtxMs = Date.now() - repoCtxStart;
+        appLog.info(
+          `Repo context gathered: ${ticket.client.repositories.length} repos checked, ${codeContext.length} with results (${(repoCtxMs / 1000).toFixed(1)}s)`,
+          { ticketId, reposChecked: ticket.client.repositories.length, reposWithResults: codeContext.length, durationMs: repoCtxMs },
+          ticketId, 'ticket',
+        );
+        stepsExecuted++;
         break;
       }
 
       case RouteStepType.GATHER_DB_CONTEXT: {
         if (!facts.databaseRelated || !mcpDatabaseUrl || !ticket?.system) break;
+        const dbCtxStart = Date.now();
+        const mcpToolsCalled: string[] = [];
         try {
           const healthResult = await callMcpTool(mcpUrl(mcpDatabaseUrl), 'get_database_health', { systemId: ticket.system.id });
           dbContext += `## Database Health\n\n${healthResult}\n\n`;
+          mcpToolsCalled.push('get_database_health');
 
           const sqlErrors = (facts.errorMessages ?? []).filter((e) =>
             /select|insert|update|delete|timeout|deadlock|block/i.test(e),
@@ -2356,12 +2400,21 @@ async function executeRoutePipeline(
           if (sqlErrors.length > 0) {
             const blockingResult = await callMcpTool(mcpUrl(mcpDatabaseUrl), 'get_blocking_tree', { systemId: ticket.system.id });
             dbContext += `## Blocking Tree\n\n${blockingResult}\n\n`;
+            mcpToolsCalled.push('get_blocking_tree');
             const waitResult = await callMcpTool(mcpUrl(mcpDatabaseUrl), 'get_wait_stats', { systemId: ticket.system.id, topN: 10 });
             dbContext += `## Wait Stats\n\n${waitResult}\n\n`;
+            mcpToolsCalled.push('get_wait_stats');
           }
         } catch (err) {
           appLog.warn(`MCP database context unavailable: ${err instanceof Error ? err.message : String(err)}`, { ticketId, err }, ticketId, 'ticket');
         }
+        const dbCtxMs = Date.now() - dbCtxStart;
+        appLog.info(
+          `DB context gathered: ${mcpToolsCalled.length} MCP tools called [${mcpToolsCalled.join(', ')}] (${(dbCtxMs / 1000).toFixed(1)}s)`,
+          { ticketId, mcpToolsCalled, toolCount: mcpToolsCalled.length, durationMs: dbCtxMs },
+          ticketId, 'ticket',
+        );
+        stepsExecuted++;
         break;
       }
 
@@ -2417,7 +2470,8 @@ async function executeRoutePipeline(
             actor: 'system:analyzer',
           },
         });
-        appLog.info(`Deep analysis complete (${analysisTaskType}) via ${analysisRes.provider}/${analysisRes.model}`, { ticketId, taskType: analysisTaskType }, ticketId, 'ticket');
+        appLog.info(`Deep analysis complete (${analysisTaskType}) via ${analysisRes.provider}/${analysisRes.model} (${((analysisRes.durationMs ?? 0) / 1000).toFixed(1)}s)`, { ticketId, taskType: analysisTaskType, durationMs: analysisRes.durationMs }, ticketId, 'ticket');
+        stepsExecuted++;
         break;
       }
 
@@ -2661,6 +2715,9 @@ async function executeRoutePipeline(
           ticketId,
           'ticket',
         );
+        totalToolCalls += toolCallLog.length;
+        lastSufficiency = sufficiency.status;
+        stepsExecuted++;
         break;
       }
 
@@ -2802,7 +2859,8 @@ async function executeRoutePipeline(
           await updateTicketSummary(deps, ticketId);
         }
 
-        appLog.info(`Update analysis complete via ${updateRes.provider}/${updateRes.model}`, { ticketId, taskType: updateTaskType }, ticketId, 'ticket');
+        appLog.info(`Update analysis complete via ${updateRes.provider}/${updateRes.model} (${((updateRes.durationMs ?? 0) / 1000).toFixed(1)}s)`, { ticketId, taskType: updateTaskType, durationMs: updateRes.durationMs }, ticketId, 'ticket');
+        stepsExecuted++;
         break;
       }
 
@@ -2988,7 +3046,8 @@ async function executeRoutePipeline(
             actor: 'system:analyzer',
           },
         });
-        appLog.info(`Custom AI query complete via ${queryRes.provider}/${queryRes.model}`, { ticketId, taskType: queryTaskType, stepName: step.name }, ticketId, 'ticket');
+        appLog.info(`Custom AI query complete via ${queryRes.provider}/${queryRes.model} (${((queryRes.durationMs ?? 0) / 1000).toFixed(1)}s)`, { ticketId, taskType: queryTaskType, stepName: step.name, durationMs: queryRes.durationMs }, ticketId, 'ticket');
+        stepsExecuted++;
         break;
       }
 
@@ -2997,6 +3056,7 @@ async function executeRoutePipeline(
           appLog.info('Skipping DRAFT_FINDINGS_EMAIL — no email context', { ticketId }, ticketId, 'ticket');
           break;
         }
+        const findingsStart = Date.now();
         if (!recipientName) {
           recipientName = await resolveRecipientName(db, ticketId, emailFrom!, clientId);
         }
@@ -3106,14 +3166,17 @@ async function executeRoutePipeline(
             ? { status: 'WAITING', resolvedAt: null }
             : { resolvedAt: null };
           await db.ticket.update({ where: { id: ticketId }, data: ticketUpdateData });
-          appLog.info(`${reanalysisCtx ? 'Re-analysis' : 'Analysis'} findings email sent to ${emailFrom}${needsUserInput ? ' (with questions)' : ''}`, { ticketId, to: emailFrom, reanalysis: !!reanalysisCtx, needsUserInput }, ticketId, 'ticket');
+          const findingsMs = Date.now() - findingsStart;
+          appLog.info(`${reanalysisCtx ? 'Re-analysis' : 'Analysis'} findings email sent to ${emailFrom}${needsUserInput ? ' (with questions)' : ''} (${(findingsMs / 1000).toFixed(1)}s)`, { ticketId, to: emailFrom, reanalysis: !!reanalysisCtx, needsUserInput, durationMs: findingsMs }, ticketId, 'ticket');
         } else {
           appLog.info(`${reanalysisCtx ? 'Re-analysis' : 'Analysis'} findings email skipped (send blocked by loop guard)`, { ticketId, to: emailFrom, reanalysis: !!reanalysisCtx }, ticketId, 'ticket');
         }
+        stepsExecuted++;
         break;
       }
 
       case RouteStepType.SUGGEST_NEXT_STEPS: {
+        const nextStepsStart = Date.now();
         // Re-use the existing next-steps logic from deepAnalysis
         // This calls the shared function which parses JSON actions and records
         // advisory suggestions as ticket events
@@ -3174,6 +3237,21 @@ async function executeRoutePipeline(
             },
           });
         }
+        {
+          const nextStepsMs = Date.now() - nextStepsStart;
+          // Count suggestions — try to parse as JSON array
+          let suggestionsCount = 0;
+          try {
+            const parsed = JSON.parse(nextStepsRes.content.replace(/```json\n?|\n?```/g, '').trim());
+            if (Array.isArray(parsed)) suggestionsCount = parsed.length;
+          } catch { /* count stays 0 */ }
+          appLog.info(
+            `Next steps suggested: ${suggestionsCount} suggestions via ${nextStepsRes.provider}/${nextStepsRes.model} (${(nextStepsMs / 1000).toFixed(1)}s)`,
+            { ticketId, suggestionsCount, provider: nextStepsRes.provider, model: nextStepsRes.model, durationMs: nextStepsMs },
+            ticketId, 'ticket',
+          );
+        }
+        stepsExecuted++;
         break;
       }
 
@@ -3182,6 +3260,7 @@ async function executeRoutePipeline(
           taskTypeOverride: step.taskTypeOverride,
           promptKeyOverride: step.promptKeyOverride,
         });
+        stepsExecuted++;
         break;
       }
 
@@ -3260,6 +3339,7 @@ async function executeRoutePipeline(
         }
 
         logger.info({ ticketId, routeId: route.id, category, mode }, 'No different route resolved for dispatch, continuing current route');
+        stepsExecuted++;
         break;
       }
 
@@ -3340,6 +3420,7 @@ async function executeRoutePipeline(
             appLog.error(`NOTIFY_OPERATOR multi-operator email failed: ${errMsg}`, { err, ticketId }, ticketId, 'ticket');
           }
         }
+        stepsExecuted++;
         break;
       }
 
@@ -3392,6 +3473,7 @@ async function executeRoutePipeline(
         if (addedCount > 0) {
           appLog.info(`Added ${addedCount} follower(s) as ${followerType}`, { ticketId, count: addedCount, followerType }, ticketId, 'ticket');
         }
+        stepsExecuted++;
         break;
       }
 
@@ -3409,7 +3491,14 @@ async function executeRoutePipeline(
     }
   }
 
-  appLog.info(`Route pipeline "${safeName}" completed`, { ticketId, routeId: route.id }, ticketId, 'ticket');
+  const pipelineDurationMs = Date.now() - pipelineStart;
+  const sufficiencyPart = lastSufficiency ? `, sufficiency=${lastSufficiency}` : '';
+  const toolCallPart = totalToolCalls > 0 ? `, ${totalToolCalls} tool calls` : '';
+  appLog.info(
+    `Analysis pipeline completed: ${stepsExecuted} steps${toolCallPart}${sufficiencyPart}, total ${(pipelineDurationMs / 1000).toFixed(1)}s`,
+    { ticketId, routeId: route.id, routeName: safeName, stepsExecuted, totalSteps: route.steps.length, totalToolCalls, sufficiency: lastSufficiency || undefined, durationMs: pipelineDurationMs },
+    ticketId, 'ticket',
+  );
 }
 
 // ---------------------------------------------------------------------------
