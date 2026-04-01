@@ -379,8 +379,6 @@ async function executeIngestionPipeline(
           deps.appLog?.info(
             `Thread resolved: new email, no matching thread (${(stepDuration / 1000).toFixed(1)}s)`,
             { clientId, method: 'none', durationMs: stepDuration },
-            clientId,
-            'ticket',
           );
           await safeTracker.completeStep(stepId, 'New email — no matching thread');
           stepsSucceeded++;
@@ -921,12 +919,19 @@ async function executeIngestionPipeline(
   // Pipeline summary log
   const pipelineDuration = Date.now() - pipelineStart;
   const totalSteps = stepsSucceeded + stepsFailed + stepsSkipped;
-  deps.appLog?.info(
-    `Ingestion pipeline completed: ${totalSteps} steps, ${stepsSucceeded} succeeded, ${stepsFailed} failed${stepsFailed > 0 ? ' (fallback used)' : ''}, ${stepsSkipped} skipped, total ${(pipelineDuration / 1000).toFixed(1)}s`,
-    { ticketId: ctx.ticketId, clientId, stepsSucceeded, stepsFailed, stepsSkipped, totalSteps, durationMs: pipelineDuration, routeId: route!.id },
-    ctx.ticketId ?? clientId,
-    'ticket',
-  );
+  if (ctx.ticketId) {
+    deps.appLog?.info(
+      `Ingestion pipeline completed: ${totalSteps} steps, ${stepsSucceeded} succeeded, ${stepsFailed} failed${stepsFailed > 0 ? ' (fallback used)' : ''}, ${stepsSkipped} skipped, total ${(pipelineDuration / 1000).toFixed(1)}s`,
+      { ticketId: ctx.ticketId, clientId, stepsSucceeded, stepsFailed, stepsSkipped, totalSteps, durationMs: pipelineDuration, routeId: route!.id },
+      ctx.ticketId,
+      'ticket',
+    );
+  } else {
+    deps.appLog?.info(
+      `Ingestion pipeline completed: ${totalSteps} steps, ${stepsSucceeded} succeeded, ${stepsFailed} failed${stepsFailed > 0 ? ' (fallback used)' : ''}, ${stepsSkipped} skipped, total ${(pipelineDuration / 1000).toFixed(1)}s`,
+      { clientId, stepsSucceeded, stepsFailed, stepsSkipped, totalSteps, durationMs: pipelineDuration, routeId: route!.id },
+    );
+  }
 
   // Record any step errors as a ticket event so the operator can see them
   if (ctx.ticketId && stepErrors.length > 0) {

@@ -2285,6 +2285,8 @@ async function executeRoutePipeline(
               { ticketId, to: emailFrom, durationMs: stepDuration },
               ticketId, 'ticket',
             );
+            stepsSkipped++;
+            break;
           }
         }
         stepsSucceeded++;
@@ -2433,6 +2435,7 @@ async function executeRoutePipeline(
         }
         {
           const mcpToolsCalled: string[] = [];
+          let dbContextError = false;
           try {
             const healthResult = await callMcpTool(mcpUrl(mcpDatabaseUrl), 'get_database_health', { systemId: ticket.system.id });
             dbContext += `## Database Health\n\n${healthResult}\n\n`;
@@ -2451,6 +2454,8 @@ async function executeRoutePipeline(
             }
           } catch (err) {
             appLog.warn(`MCP database context unavailable: ${err instanceof Error ? err.message : String(err)}`, { ticketId, err }, ticketId, 'ticket');
+            dbContextError = true;
+            stepsFailed++;
           }
           const stepDuration = Date.now() - stepStart;
           appLog.info(
@@ -2459,6 +2464,7 @@ async function executeRoutePipeline(
             ticketId, 'ticket',
           );
           totalToolCalls += mcpToolsCalled.length;
+          if (dbContextError) break;
         }
         stepsSucceeded++;
         break;
@@ -2982,6 +2988,7 @@ async function executeRoutePipeline(
                 systemId: ticket.system.id,
               });
               freshMcpParts.push(`### ${mq.toolName}`, '', result, '');
+              totalToolCalls++;
             } catch (err) {
               const errMsg = err instanceof Error ? err.message : String(err);
               appLog.warn(`CUSTOM_AI_QUERY MCP tool call failed: ${mq.toolName}: ${errMsg}`, { ticketId, tool: mq.toolName }, ticketId, 'ticket');
@@ -3249,6 +3256,8 @@ async function executeRoutePipeline(
             { ticketId, to: emailFrom, reanalysis: !!reanalysisCtx, durationMs: stepDuration },
             ticketId, 'ticket',
           );
+          stepsSkipped++;
+          break;
         }
         stepsSucceeded++;
         break;
@@ -3465,13 +3474,16 @@ async function executeRoutePipeline(
             });
             const stepDuration = Date.now() - stepStart;
             appLog.info(`Operator notification sent to ${notifyTo} (${(stepDuration / 1000).toFixed(1)}s)`, { ticketId, to: notifyTo, durationMs: stepDuration }, ticketId, 'ticket');
+            stepsSucceeded++;
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err);
             appLog.error(`NOTIFY_OPERATOR email failed: ${errMsg}`, { err, ticketId, to: notifyTo }, ticketId, 'ticket');
+            stepsFailed++;
           }
         } else if (notifyTo !== '') {
           // Non-empty emailTo configured but invalid — warn and skip to avoid broad operator broadcast
           appLog.warn('NOTIFY_OPERATOR skipped — invalid emailTo configured', { ticketId, stepId: step.id, emailTo: notifyTo }, ticketId, 'ticket');
+          stepsSkipped++;
         } else if (mailer) {
           try {
             // No emailTo configured — look up assigned operator for targeted notification
@@ -3498,16 +3510,22 @@ async function executeRoutePipeline(
                 },
               });
               const stepDuration = Date.now() - stepStart;
-            appLog.info(`Operator notifications sent to ${notified.join(', ')} (${(stepDuration / 1000).toFixed(1)}s)`, { ticketId, to: notified, durationMs: stepDuration }, ticketId, 'ticket');
+              appLog.info(`Operator notifications sent to ${notified.join(', ')} (${(stepDuration / 1000).toFixed(1)}s)`, { ticketId, to: notified, durationMs: stepDuration }, ticketId, 'ticket');
+              stepsSucceeded++;
             } else {
               appLog.warn('NOTIFY_OPERATOR skipped — no operators configured for email notifications', { ticketId, stepId: step.id }, ticketId, 'ticket');
+              stepsSkipped++;
             }
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err);
             appLog.error(`NOTIFY_OPERATOR multi-operator email failed: ${errMsg}`, { err, ticketId }, ticketId, 'ticket');
+            stepsFailed++;
           }
+        } else {
+          // No mailer configured — skip
+          appLog.warn('NOTIFY_OPERATOR skipped — no mailer configured', { ticketId, stepId: step.id }, ticketId, 'ticket');
+          stepsSkipped++;
         }
-        stepsSucceeded++;
         break;
       }
 
