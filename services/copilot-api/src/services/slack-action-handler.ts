@@ -557,6 +557,15 @@ export function createMentionHandler(deps: SlackActionHandlerDeps) {
   return async (event: SlackMentionEvent): Promise<void> => {
     logger.info({ userId: event.userId, channelId: event.channelId }, 'Slack @mention received');
     await deps.slack.addReaction(event.channelId, event.ts, 'eyes');
+
+    // Strip the bot mention from the text (Slack includes "<@BOT_ID> " prefix)
+    const cleanText = event.text.replace(/^<@[A-Z0-9]+>\s*/, '').trim();
+
+    await deps.slack.replyInThread(
+      event.channelId,
+      event.ts,
+      `Hi <@${event.userId}>! I received your message: "${cleanText}"\n\nI'm the Bronco support bot. I'll notify you here when tickets need attention, plans are ready for approval, or analysis is complete.`,
+    );
   };
 }
 
@@ -568,7 +577,7 @@ export function createDirectMessageHandler(deps: SlackActionHandlerDeps) {
     logger.info({ userId: event.userId, channelId: event.channelId }, 'Slack DM received');
     await deps.slack.sendMessage(
       event.channelId,
-      "Hi! I'm Hugo, the Bronco support bot. I can help with ticket notifications and plan approvals. You'll receive notifications here when tickets need your attention.",
+      `Hi! I'm Hugo, the Bronco support bot. Here's what I can do:\n\n• Send you notifications when tickets need attention\n• Alert you when resolution plans are ready for approval\n• Share analysis findings and suggested next steps\n\nYou'll receive messages here automatically based on your notification preferences. You can also reply in notification threads to add comments to tickets.`,
     );
   };
 }
