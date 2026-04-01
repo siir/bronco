@@ -178,7 +178,7 @@ import { ClientService, Client } from '../../core/services/client.service';
                       <span class="detail-step-name">{{ step.stepName }}</span>
                       <span class="badge small" [class]="'badge-status-' + step.status">{{ step.status }}</span>
                       @if (step.status === 'processing') {
-                        <span class="pulse-dot"></span>
+                        <span class="pulse-dot" aria-hidden="true"></span>
                       }
                       <span class="badge small badge-step-type">{{ step.stepType }}</span>
                       @if (step.durationMs != null) {
@@ -314,7 +314,9 @@ export class IngestionJobListComponent implements OnInit, OnDestroy {
   columns = ['status', 'source', 'client', 'route', 'ticket', 'startedAt', 'duration', 'steps', 'expand'];
 
   private pollTimer: ReturnType<typeof setInterval> | null = null;
-  private detailPollTimer: ReturnType<typeof setInterval> | null = null;
+  private detailPollTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Pending recentlyChanged clear timeouts — cleared in stopDetailPolling/ngOnDestroy. */
+  private recentlyChangedTimers = new Set<ReturnType<typeof setTimeout>>();
   /** Track step statuses to detect transitions for highlight animation. */
   recentlyChanged = signal<Set<string>>(new Set());
 
@@ -326,6 +328,8 @@ export class IngestionJobListComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.stopPolling();
     this.stopDetailPolling();
+    for (const t of this.recentlyChangedTimers) clearTimeout(t);
+    this.recentlyChangedTimers.clear();
   }
 
   loadRuns(): void {
@@ -370,14 +374,17 @@ export class IngestionJobListComponent implements OnInit, OnDestroy {
       this.stopDetailPolling();
       return;
     }
-    this.expandedRunId = run.id;
+    const runId = run.id;
+    this.expandedRunId = runId;
     this.expandedRun.set(null);
     this.stopDetailPolling();
-    this.ingestionService.getRun(run.id).subscribe({
+    this.ingestionService.getRun(runId).subscribe({
       next: (fullRun) => {
+        // Guard against stale responses — user may have collapsed while the request was in flight
+        if (this.expandedRunId !== runId) return;
         this.expandedRun.set(fullRun);
         if (fullRun.status === 'processing') {
-          this.startDetailPolling(fullRun.id);
+          this.startDetailPolling(runId);
         }
       },
       error: (err) => console.error('Failed to load run detail', err),
@@ -404,47 +411,64 @@ export class IngestionJobListComponent implements OnInit, OnDestroy {
   }
 
   private startDetailPolling(runId: string): void {
-    this.detailPollTimer = setInterval(() => {
-      this.ingestionService.getRun(runId).subscribe({
-        next: (fullRun) => {
-          // Detect step status transitions for highlight animation
-          const prev = this.expandedRun();
-          if (prev) {
-            const changed = new Set<string>();
-            for (const step of fullRun.steps) {
-              const prevStep = prev.steps.find((s) => s.id === step.id);
-              if (prevStep && prevStep.status !== step.status && step.status !== 'processing') {
-                changed.add(step.id);
+    // Clear any existing timer before scheduling a new one
+    this.stopDetailPolling();
+
+    const scheduleNext = (): void => {
+      this.detailPollTimer = setTimeout(() => {
+        this.ingestionService.getRun(runId).subscribe({
+          next: (fullRun) => {
+            // Detect step status transitions for highlight animation using O(1) Map lookup
+            const prev = this.expandedRun();
+            if (prev) {
+              const prevMap = new Map(prev.steps.map((s) => [s.id, s]));
+              const changed = new Set<string>();
+              for (const step of fullRun.steps) {
+                const prevStep = prevMap.get(step.id);
+                if (prevStep && prevStep.status !== step.status && step.status !== 'processing') {
+                  changed.add(step.id);
+                }
+              }
+              if (changed.size > 0) {
+                this.recentlyChanged.set(changed);
+                const t = setTimeout(() => {
+                  this.recentlyChanged.set(new Set());
+                  this.recentlyChangedTimers.delete(t);
+                }, 1500);
+                this.recentlyChangedTimers.add(t);
               }
             }
-            if (changed.size > 0) {
-              this.recentlyChanged.set(changed);
-              setTimeout(() => this.recentlyChanged.set(new Set()), 1500);
+
+            this.expandedRun.set(fullRun);
+
+            // Stop polling when complete; otherwise schedule the next tick
+            if (fullRun.status !== 'processing') {
+              this.stopDetailPolling();
+              // Refresh the list to update the row status
+              this.loadRuns();
+            } else {
+              scheduleNext();
             }
-          }
+          },
+          error: (err) => {
+            // Transient error — log but keep polling
+            console.warn('Failed to poll run detail (will retry)', err);
+            scheduleNext();
+          },
+        });
+      }, 4000);
+    };
 
-          this.expandedRun.set(fullRun);
-
-          // Stop polling if run is no longer processing
-          if (fullRun.status !== 'processing') {
-            this.stopDetailPolling();
-            // Refresh the list to update the row status
-            this.loadRuns();
-          }
-        },
-        error: (err) => {
-          console.error('Failed to poll run detail', err);
-          this.stopDetailPolling();
-        },
-      });
-    }, 4000);
+    scheduleNext();
   }
 
   private stopDetailPolling(): void {
     if (this.detailPollTimer) {
-      clearInterval(this.detailPollTimer);
+      clearTimeout(this.detailPollTimer);
       this.detailPollTimer = null;
     }
+    for (const t of this.recentlyChangedTimers) clearTimeout(t);
+    this.recentlyChangedTimers.clear();
   }
 
   private stopPolling(): void {
