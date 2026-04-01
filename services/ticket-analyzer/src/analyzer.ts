@@ -2734,9 +2734,13 @@ async function executeRoutePipeline(
         // Store sufficiency questions in pipeline context so DRAFT_FINDINGS_EMAIL can include them
         ctx.sufficiencyEval = sufficiency;
 
-        // Compute total cost from AI usage logs for this analysis run
+        // Compute total cost from AI usage logs for this specific analysis run
         const costAgg = await db.aiUsageLog.aggregate({
-          where: { entityId: ticketId, entityType: 'ticket' },
+          where: {
+            entityId: ticketId,
+            entityType: 'ticket',
+            createdAt: { gte: new Date(stepStart) },
+          },
           _sum: { costUsd: true },
         });
         const totalCostUsd = costAgg._sum.costUsd ?? 0;

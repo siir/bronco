@@ -535,11 +535,13 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
   });
 
   // GET /api/tickets/:id/unified-logs — merged chronological stream of app_logs + ai_usage_logs
+  const VALID_UNIFIED_TYPES = new Set(['log', 'ai', 'tool', 'step', 'error']);
+
   fastify.get<{
     Params: { id: string };
-    Querystring: { limit?: string; offset?: string; type?: string; level?: string; search?: string };
+    Querystring: { limit?: string; offset?: string; type?: string; level?: string; search?: string; includeArchive?: string };
   }>('/api/tickets/:id/unified-logs', async (request) => {
-    const { limit: rawLimit = '100', offset: rawOffset = '0', type, level, search } = request.query;
+    const { limit: rawLimit = '100', offset: rawOffset = '0', type, level, search, includeArchive } = request.query;
 
     const take = Math.trunc(Number(rawLimit));
     const skip = Math.trunc(Number(rawOffset));
@@ -549,8 +551,12 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     if (level && !VALID_LOG_LEVELS.has(level)) {
       return fastify.httpErrors.badRequest(`Invalid level. Must be one of: ${Object.values(LogLevel).join(', ')}`);
     }
+    if (type && !VALID_UNIFIED_TYPES.has(type)) {
+      return fastify.httpErrors.badRequest(`Invalid type. Must be one of: ${[...VALID_UNIFIED_TYPES].join(', ')}`);
+    }
 
     const ticketId = request.params.id;
+    const wantArchive = includeArchive === 'true';
     const wantLogs = !type || type === 'log' || type === 'tool' || type === 'step' || type === 'error';
     const wantAi = !type || type === 'ai';
 
@@ -559,27 +565,42 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     if (level) logWhere.level = level;
     if (search) logWhere.message = { contains: search, mode: 'insensitive' };
 
-    // Fetch both sources in parallel
+    // Build ai_usage_logs where clause
+    const aiWhere: Record<string, unknown> = { entityId: ticketId, entityType: 'ticket' };
+    if (search) {
+      aiWhere.OR = [
+        { taskType: { contains: search, mode: 'insensitive' } },
+        { promptText: { contains: search, mode: 'insensitive' } },
+        { responseText: { contains: search, mode: 'insensitive' } },
+        { model: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    // For merged pagination, we fetch both sources sorted by createdAt and merge.
+    // We over-fetch (skip + take) from each source to ensure we have enough entries
+    // for the requested window after merging and sorting.
+    const fetchLimit = Math.min(skip + take, 5000);
+
     const [appLogs, aiLogs, appLogCount, aiLogCount] = await Promise.all([
       wantLogs
         ? fastify.db.appLog.findMany({
             where: logWhere,
             orderBy: { createdAt: 'asc' },
-            take: Math.min(take + skip + 500, 2000), // over-fetch for merge
-            skip: 0,
+            take: fetchLimit,
           })
         : Promise.resolve([]),
       wantAi
         ? fastify.db.aiUsageLog.findMany({
-            where: { entityId: ticketId, entityType: 'ticket' },
-            include: { archive: { select: { fullPrompt: true, fullResponse: true, systemPrompt: true, conversationMessages: true, totalContextTokens: true, messageCount: true } } },
+            where: aiWhere,
+            ...(wantArchive
+              ? { include: { archive: { select: { fullPrompt: true, fullResponse: true, systemPrompt: true, conversationMessages: true, totalContextTokens: true, messageCount: true } } } }
+              : {}),
             orderBy: { createdAt: 'asc' },
-            take: Math.min(take + skip + 500, 2000),
-            skip: 0,
+            take: fetchLimit,
           })
         : Promise.resolve([]),
       wantLogs ? fastify.db.appLog.count({ where: logWhere }) : Promise.resolve(0),
-      wantAi ? fastify.db.aiUsageLog.count({ where: { entityId: ticketId, entityType: 'ticket' } }) : Promise.resolve(0),
+      wantAi ? fastify.db.aiUsageLog.count({ where: aiWhere }) : Promise.resolve(0),
     ]);
 
     // Classify and merge
@@ -587,13 +608,11 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
       id: string;
       type: 'log' | 'ai' | 'tool' | 'step' | 'error';
       timestamp: string;
-      // log fields
       level?: string;
       service?: string;
       message?: string;
       context?: unknown;
       error?: string | null;
-      // ai fields
       taskType?: string;
       provider?: string;
       model?: string;
@@ -626,9 +645,9 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
       else if (msg.includes('executing step') || msg.includes('step completed') || msg.includes('step failed')) entryType = 'step';
 
       // Apply type filter for sub-types
-      if (type && type !== entryType && type !== 'log') continue;
-      if (type === 'log' && (entryType === 'tool' || entryType === 'step')) {
-        // 'log' filter shows plain logs only, not tool/step
+      if (type && type !== entryType) {
+        // type='log' shows only plain logs; type='tool'/'step'/'error' show only that sub-type
+        continue;
       }
 
       entries.push({
@@ -667,15 +686,8 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     // Sort by timestamp
     entries.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
-    // Apply type filter after merge for exact sub-type filtering
-    let filtered = entries;
-    if (type === 'error') filtered = entries.filter(e => e.type === 'error');
-    else if (type === 'tool') filtered = entries.filter(e => e.type === 'tool');
-    else if (type === 'step') filtered = entries.filter(e => e.type === 'step');
-    else if (type === 'ai') filtered = entries.filter(e => e.type === 'ai');
-
-    const total = type ? filtered.length : appLogCount + aiLogCount;
-    const page = filtered.slice(skip, skip + take);
+    const total = appLogCount + aiLogCount;
+    const page = entries.slice(skip, skip + take);
 
     return { entries: page, total };
   });
