@@ -2036,6 +2036,12 @@ async function executeRoutePipeline(
   const safeName = sanitizeName(route.name);
   appLog.info(`Executing route "${safeName}" (${route.steps.length} steps)`, { ticketId, routeId: route.id, routeName: safeName }, ticketId, 'ticket');
 
+  const pipelineStart = Date.now();
+  let stepsSucceeded = 0;
+  let stepsFailed = 0;
+  let stepsSkipped = 0;
+  let totalToolCalls = 0;
+
   // Shared state accumulated across steps — seed from initialState if dispatched
   let summary = initialState?.summary ?? '';
   let category = initialState?.category ?? 'GENERAL';
@@ -2087,15 +2093,18 @@ async function executeRoutePipeline(
     // During re-analysis, skip triage steps — they were already done
     if (reanalysisCtx && REANALYSIS_SKIP_STEPS.has(step.stepType)) {
       appLog.info(`Skipping step during re-analysis: ${step.name} (${step.stepType})`, { ticketId, stepType: step.stepType }, ticketId, 'ticket');
+      stepsSkipped++;
       continue;
     }
 
     appLog.info(`Executing step: ${step.name} (${step.stepType})`, { ticketId, stepId: step.id, stepType: step.stepType }, ticketId, 'ticket');
+    const stepStart = Date.now();
 
     switch (step.stepType) {
       case RouteStepType.SUMMARIZE_EMAIL: {
         if (!ctx.emailFrom) {
           appLog.info('Skipping SUMMARIZE_EMAIL — no email context', { ticketId }, ticketId, 'ticket');
+          stepsSkipped++;
           break;
         }
         const promptKey = step.promptKeyOverride ?? 'imap.summarize.system';
@@ -2107,7 +2116,13 @@ async function executeRoutePipeline(
           promptKey,
         });
         summary = summaryRes.content;
-        appLog.info('Email summarized via LLM', { ticketId, provider: summaryRes.provider, model: summaryRes.model }, ticketId, 'ticket');
+        const summarizeDuration = Date.now() - stepStart;
+        appLog.info(
+          `Email summarized: ${summary.length} chars via ${summaryRes.provider}/${summaryRes.model} (${(summarizeDuration / 1000).toFixed(1)}s)`,
+          { ticketId, summaryLength: summary.length, provider: summaryRes.provider, model: summaryRes.model, durationMs: summarizeDuration },
+          ticketId, 'ticket',
+        );
+        stepsSucceeded++;
         break;
       }
 
@@ -2124,6 +2139,15 @@ async function executeRoutePipeline(
         const validCategories = ['DATABASE_PERF', 'BUG_FIX', 'FEATURE_REQUEST', 'SCHEMA_CHANGE', 'CODE_REVIEW', 'ARCHITECTURE', 'GENERAL'];
         category = validCategories.includes(rawCategory) ? rawCategory : 'GENERAL';
         await db.ticket.update({ where: { id: ticketId }, data: { category: category as TicketCategory } });
+        {
+          const stepDuration = Date.now() - stepStart;
+          appLog.info(
+            `Categorized as ${category} via ${categorizeRes.provider}/${categorizeRes.model} (${(stepDuration / 1000).toFixed(1)}s)`,
+            { ticketId, category, provider: categorizeRes.provider, model: categorizeRes.model, durationMs: stepDuration },
+            ticketId, 'ticket',
+          );
+        }
+        stepsSucceeded++;
         break;
       }
 
@@ -2151,7 +2175,15 @@ async function executeRoutePipeline(
             actor: 'system:analyzer',
           },
         });
-        appLog.info(`Ticket triaged: category=${category}, priority=${priority}`, { ticketId, category, priority }, ticketId, 'ticket');
+        {
+          const stepDuration = Date.now() - stepStart;
+          appLog.info(
+            `Triaged as ${priority} via ${triageRes.provider}/${triageRes.model} (${(stepDuration / 1000).toFixed(1)}s)`,
+            { ticketId, category, priority, provider: triageRes.provider, model: triageRes.model, durationMs: stepDuration },
+            ticketId, 'ticket',
+          );
+        }
+        stepsSucceeded++;
         break;
       }
 
@@ -2176,12 +2208,22 @@ async function executeRoutePipeline(
         if (newTitle) {
           await db.ticket.update({ where: { id: ticketId }, data: { subject: newTitle } });
         }
+        {
+          const stepDuration = Date.now() - stepStart;
+          appLog.info(
+            `Title generated: "${(newTitle || emailSubject).slice(0, 60)}" via ${titleRes.provider}/${titleRes.model} (${(stepDuration / 1000).toFixed(1)}s)`,
+            { ticketId, title: newTitle || emailSubject, provider: titleRes.provider, model: titleRes.model, durationMs: stepDuration },
+            ticketId, 'ticket',
+          );
+        }
+        stepsSucceeded++;
         break;
       }
 
       case RouteStepType.DRAFT_RECEIPT: {
         if (!ctx.emailFrom) {
           appLog.info('Skipping DRAFT_RECEIPT — no email context', { ticketId }, ticketId, 'ticket');
+          stepsSkipped++;
           break;
         }
         if (!recipientName) {
@@ -2220,24 +2262,41 @@ async function executeRoutePipeline(
           { ticketId, db, clientId },
         );
 
-        if (outboundMsgId) {
-          await db.ticketEvent.create({
-            data: {
-              ticketId,
-              eventType: 'EMAIL_OUTBOUND',
-              content: receiptBody,
-              metadata: { type: 'receipt_confirmation', to: emailFrom!, subject: `Re: ${emailSubject}`, messageId: outboundMsgId, summary, category, priority },
-              actor: 'system:analyzer',
-            },
-          });
-          appLog.info(`Receipt confirmation email sent to ${emailFrom}`, { ticketId, to: emailFrom }, ticketId, 'ticket');
+        {
+          const stepDuration = Date.now() - stepStart;
+          if (outboundMsgId) {
+            await db.ticketEvent.create({
+              data: {
+                ticketId,
+                eventType: 'EMAIL_OUTBOUND',
+                content: receiptBody,
+                metadata: { type: 'receipt_confirmation', to: emailFrom!, subject: `Re: ${emailSubject}`, messageId: outboundMsgId, summary, category, priority },
+                actor: 'system:analyzer',
+              },
+            });
+            appLog.info(
+              `Receipt email sent to ${emailFrom} via ${draftRes.provider}/${draftRes.model} (${(stepDuration / 1000).toFixed(1)}s)`,
+              { ticketId, to: emailFrom, provider: draftRes.provider, model: draftRes.model, durationMs: stepDuration },
+              ticketId, 'ticket',
+            );
+          } else {
+            appLog.info(
+              `Receipt email skipped (send blocked by loop guard) (${(stepDuration / 1000).toFixed(1)}s)`,
+              { ticketId, to: emailFrom, durationMs: stepDuration },
+              ticketId, 'ticket',
+            );
+            stepsSkipped++;
+            break;
+          }
         }
+        stepsSucceeded++;
         break;
       }
 
       case RouteStepType.LOAD_CLIENT_CONTEXT: {
         if (!clientId) {
           appLog.info('No client on ticket, skipping client context load', { ticketId }, ticketId, 'ticket');
+          stepsSkipped++;
           break;
         }
         // `category` reflects the ticket's current category at the time this step runs.
@@ -2260,8 +2319,14 @@ async function executeRoutePipeline(
             return `### ${m.title} (${label})\n\n${m.content}`;
           });
           clientContext = `## Client Knowledge\n\n${sections.join('\n\n---\n\n')}`;
-          appLog.info(`Loaded ${relevant.length} client memory entries`, { ticketId, entryCount: relevant.length }, ticketId, 'ticket');
+          const stepDuration = Date.now() - stepStart;
+          appLog.info(
+            `Loaded ${relevant.length} client memory entries (${(stepDuration / 1000).toFixed(1)}s)`,
+            { ticketId, entryCount: relevant.length, totalMemories: memories.length, durationMs: stepDuration },
+            ticketId, 'ticket',
+          );
         }
+        stepsSucceeded++;
         break;
       }
 
@@ -2288,6 +2353,15 @@ async function executeRoutePipeline(
         } catch {
           logger.warn({ ticketId }, 'Failed to parse extracted facts, continuing with defaults');
         }
+        {
+          const stepDuration = Date.now() - stepStart;
+          appLog.info(
+            `Facts extracted: databaseRelated=${facts.databaseRelated ?? false}, ${facts.keywords?.length ?? 0} keywords, ${facts.errorMessages?.length ?? 0} errors via ${extractRes.provider}/${extractRes.model} (${(stepDuration / 1000).toFixed(1)}s)`,
+            { ticketId, databaseRelated: facts.databaseRelated, keywordCount: facts.keywords?.length ?? 0, errorCount: facts.errorMessages?.length ?? 0, provider: extractRes.provider, model: extractRes.model, durationMs: stepDuration },
+            ticketId, 'ticket',
+          );
+        }
+        stepsSucceeded++;
         break;
       }
 
@@ -2341,27 +2415,58 @@ async function executeRoutePipeline(
             appLog.warn(`Repo context unavailable for ${repo.name}: ${errMsg}`, { ticketId, repo: repo.name, err }, ticketId, 'ticket');
           }
         }
+        {
+          const stepDuration = Date.now() - stepStart;
+          const repoCount = ticket?.client?.repositories.length ?? 0;
+          appLog.info(
+            `Repo context gathered: ${repoCount} repos checked, ${codeContext.length} with results (${(stepDuration / 1000).toFixed(1)}s)`,
+            { ticketId, reposChecked: repoCount, reposWithResults: codeContext.length, durationMs: stepDuration },
+            ticketId, 'ticket',
+          );
+        }
+        stepsSucceeded++;
         break;
       }
 
       case RouteStepType.GATHER_DB_CONTEXT: {
-        if (!facts.databaseRelated || !mcpDatabaseUrl || !ticket?.system) break;
-        try {
-          const healthResult = await callMcpTool(mcpUrl(mcpDatabaseUrl), 'get_database_health', { systemId: ticket.system.id });
-          dbContext += `## Database Health\n\n${healthResult}\n\n`;
-
-          const sqlErrors = (facts.errorMessages ?? []).filter((e) =>
-            /select|insert|update|delete|timeout|deadlock|block/i.test(e),
-          );
-          if (sqlErrors.length > 0) {
-            const blockingResult = await callMcpTool(mcpUrl(mcpDatabaseUrl), 'get_blocking_tree', { systemId: ticket.system.id });
-            dbContext += `## Blocking Tree\n\n${blockingResult}\n\n`;
-            const waitResult = await callMcpTool(mcpUrl(mcpDatabaseUrl), 'get_wait_stats', { systemId: ticket.system.id, topN: 10 });
-            dbContext += `## Wait Stats\n\n${waitResult}\n\n`;
-          }
-        } catch (err) {
-          appLog.warn(`MCP database context unavailable: ${err instanceof Error ? err.message : String(err)}`, { ticketId, err }, ticketId, 'ticket');
+        if (!facts.databaseRelated || !mcpDatabaseUrl || !ticket?.system) {
+          stepsSkipped++;
+          break;
         }
+        {
+          const mcpToolsCalled: string[] = [];
+          let dbContextError = false;
+          try {
+            const healthResult = await callMcpTool(mcpUrl(mcpDatabaseUrl), 'get_database_health', { systemId: ticket.system.id });
+            dbContext += `## Database Health\n\n${healthResult}\n\n`;
+            mcpToolsCalled.push('get_database_health');
+
+            const sqlErrors = (facts.errorMessages ?? []).filter((e) =>
+              /select|insert|update|delete|timeout|deadlock|block/i.test(e),
+            );
+            if (sqlErrors.length > 0) {
+              const blockingResult = await callMcpTool(mcpUrl(mcpDatabaseUrl), 'get_blocking_tree', { systemId: ticket.system.id });
+              dbContext += `## Blocking Tree\n\n${blockingResult}\n\n`;
+              mcpToolsCalled.push('get_blocking_tree');
+              const waitResult = await callMcpTool(mcpUrl(mcpDatabaseUrl), 'get_wait_stats', { systemId: ticket.system.id, topN: 10 });
+              dbContext += `## Wait Stats\n\n${waitResult}\n\n`;
+              mcpToolsCalled.push('get_wait_stats');
+            }
+          } catch (err) {
+            appLog.warn(`MCP database context unavailable: ${err instanceof Error ? err.message : String(err)}`, { ticketId, err }, ticketId, 'ticket');
+            dbContextError = true;
+            stepsFailed++;
+          }
+          const stepDuration = Date.now() - stepStart;
+          appLog.info(
+            `DB context gathered: ${mcpToolsCalled.length} MCP tools called [${mcpToolsCalled.join(', ')}] (${(stepDuration / 1000).toFixed(1)}s)`,
+            { ticketId, mcpToolsCalled, toolCount: mcpToolsCalled.length, durationMs: stepDuration },
+            ticketId, 'ticket',
+          );
+          totalToolCalls += mcpToolsCalled.length;
+          if (dbContextError) break;
+        }
+        stepsSucceeded++;
         break;
       }
 
@@ -2417,7 +2522,15 @@ async function executeRoutePipeline(
             actor: 'system:analyzer',
           },
         });
-        appLog.info(`Deep analysis complete (${analysisTaskType}) via ${analysisRes.provider}/${analysisRes.model}`, { ticketId, taskType: analysisTaskType }, ticketId, 'ticket');
+        {
+          const stepDuration = Date.now() - stepStart;
+          appLog.info(
+            `Deep analysis complete (${analysisTaskType}) via ${analysisRes.provider}/${analysisRes.model} (${(stepDuration / 1000).toFixed(1)}s)`,
+            { ticketId, taskType: analysisTaskType, provider: analysisRes.provider, model: analysisRes.model, durationMs: stepDuration },
+            ticketId, 'ticket',
+          );
+        }
+        stepsSucceeded++;
         break;
       }
 
@@ -2655,12 +2768,17 @@ async function executeRoutePipeline(
         }
         await db.ticket.update({ where: { id: ticketId }, data: suffTicketUpdate });
 
-        appLog.info(
-          `Agentic analysis complete: ${toolCallLog.length} tool calls, sufficiency=${sufficiency.status}`,
-          { ticketId, toolCalls: toolCallLog.length, sufficiencyStatus: sufficiency.status, sufficiencyConfidence: sufficiency.confidence },
-          ticketId,
-          'ticket',
-        );
+        {
+          const stepDuration = Date.now() - stepStart;
+          appLog.info(
+            `Agentic analysis complete: ${toolCallLog.length} tool calls, ${iterationsRun} iterations, sufficiency=${sufficiency.status} (${(stepDuration / 1000).toFixed(1)}s)`,
+            { ticketId, toolCalls: toolCallLog.length, iterations: iterationsRun, sufficiencyStatus: sufficiency.status, sufficiencyConfidence: sufficiency.confidence, durationMs: stepDuration },
+            ticketId,
+            'ticket',
+          );
+          totalToolCalls += toolCallLog.length;
+        }
+        stepsSucceeded++;
         break;
       }
 
@@ -2802,7 +2920,15 @@ async function executeRoutePipeline(
           await updateTicketSummary(deps, ticketId);
         }
 
-        appLog.info(`Update analysis complete via ${updateRes.provider}/${updateRes.model}`, { ticketId, taskType: updateTaskType }, ticketId, 'ticket');
+        {
+          const stepDuration = Date.now() - stepStart;
+          appLog.info(
+            `Update analysis complete via ${updateRes.provider}/${updateRes.model} (${(stepDuration / 1000).toFixed(1)}s)`,
+            { ticketId, taskType: updateTaskType, provider: updateRes.provider, model: updateRes.model, durationMs: stepDuration },
+            ticketId, 'ticket',
+          );
+        }
+        stepsSucceeded++;
         break;
       }
 
@@ -2823,6 +2949,7 @@ async function executeRoutePipeline(
 
         if (!queryCfg?.prompt) {
           appLog.warn('CUSTOM_AI_QUERY step missing prompt config, skipping', { ticketId }, ticketId, 'ticket');
+          stepsSkipped++;
           break;
         }
 
@@ -2861,6 +2988,7 @@ async function executeRoutePipeline(
                 systemId: ticket.system.id,
               });
               freshMcpParts.push(`### ${mq.toolName}`, '', result, '');
+              totalToolCalls++;
             } catch (err) {
               const errMsg = err instanceof Error ? err.message : String(err);
               appLog.warn(`CUSTOM_AI_QUERY MCP tool call failed: ${mq.toolName}: ${errMsg}`, { ticketId, tool: mq.toolName }, ticketId, 'ticket');
@@ -2988,13 +3116,22 @@ async function executeRoutePipeline(
             actor: 'system:analyzer',
           },
         });
-        appLog.info(`Custom AI query complete via ${queryRes.provider}/${queryRes.model}`, { ticketId, taskType: queryTaskType, stepName: step.name }, ticketId, 'ticket');
+        {
+          const stepDuration = Date.now() - stepStart;
+          appLog.info(
+            `Custom AI query complete via ${queryRes.provider}/${queryRes.model} (${(stepDuration / 1000).toFixed(1)}s)`,
+            { ticketId, taskType: queryTaskType, stepName: step.name, provider: queryRes.provider, model: queryRes.model, durationMs: stepDuration },
+            ticketId, 'ticket',
+          );
+        }
+        stepsSucceeded++;
         break;
       }
 
       case RouteStepType.DRAFT_FINDINGS_EMAIL: {
         if (!ctx.emailFrom) {
           appLog.info('Skipping DRAFT_FINDINGS_EMAIL — no email context', { ticketId }, ticketId, 'ticket');
+          stepsSkipped++;
           break;
         }
         if (!recipientName) {
@@ -3106,10 +3243,23 @@ async function executeRoutePipeline(
             ? { status: 'WAITING', resolvedAt: null }
             : { resolvedAt: null };
           await db.ticket.update({ where: { id: ticketId }, data: ticketUpdateData });
-          appLog.info(`${reanalysisCtx ? 'Re-analysis' : 'Analysis'} findings email sent to ${emailFrom}${needsUserInput ? ' (with questions)' : ''}`, { ticketId, to: emailFrom, reanalysis: !!reanalysisCtx, needsUserInput }, ticketId, 'ticket');
+          const stepDuration = Date.now() - stepStart;
+          appLog.info(
+            `${reanalysisCtx ? 'Re-analysis' : 'Analysis'} findings email sent to ${emailFrom}${needsUserInput ? ' (with questions)' : ''} (${(stepDuration / 1000).toFixed(1)}s)`,
+            { ticketId, to: emailFrom, reanalysis: !!reanalysisCtx, needsUserInput, durationMs: stepDuration },
+            ticketId, 'ticket',
+          );
         } else {
-          appLog.info(`${reanalysisCtx ? 'Re-analysis' : 'Analysis'} findings email skipped (send blocked by loop guard)`, { ticketId, to: emailFrom, reanalysis: !!reanalysisCtx }, ticketId, 'ticket');
+          const stepDuration = Date.now() - stepStart;
+          appLog.info(
+            `${reanalysisCtx ? 'Re-analysis' : 'Analysis'} findings email skipped (send blocked by loop guard) (${(stepDuration / 1000).toFixed(1)}s)`,
+            { ticketId, to: emailFrom, reanalysis: !!reanalysisCtx, durationMs: stepDuration },
+            ticketId, 'ticket',
+          );
+          stepsSkipped++;
+          break;
         }
+        stepsSucceeded++;
         break;
       }
 
@@ -3162,6 +3312,12 @@ async function executeRoutePipeline(
                 actor: 'system:analyzer',
               },
             });
+            const stepDuration = Date.now() - stepStart;
+            appLog.info(
+              `Next steps suggested: ${parsed.length} suggestions via ${nextStepsRes.provider}/${nextStepsRes.model} (${(stepDuration / 1000).toFixed(1)}s)`,
+              { ticketId, suggestionCount: parsed.length, provider: nextStepsRes.provider, model: nextStepsRes.model, durationMs: stepDuration },
+              ticketId, 'ticket',
+            );
           }
         } catch {
           await db.ticketEvent.create({
@@ -3173,7 +3329,14 @@ async function executeRoutePipeline(
               actor: 'system:analyzer',
             },
           });
+          const stepDuration = Date.now() - stepStart;
+          appLog.info(
+            `Next steps suggested (unparsed) via ${nextStepsRes.provider}/${nextStepsRes.model} (${(stepDuration / 1000).toFixed(1)}s)`,
+            { ticketId, parsed: false, provider: nextStepsRes.provider, model: nextStepsRes.model, durationMs: stepDuration },
+            ticketId, 'ticket',
+          );
         }
+        stepsSucceeded++;
         break;
       }
 
@@ -3182,6 +3345,15 @@ async function executeRoutePipeline(
           taskTypeOverride: step.taskTypeOverride,
           promptKeyOverride: step.promptKeyOverride,
         });
+        {
+          const stepDuration = Date.now() - stepStart;
+          appLog.info(
+            `Ticket summary updated (${(stepDuration / 1000).toFixed(1)}s)`,
+            { ticketId, durationMs: stepDuration },
+            ticketId, 'ticket',
+          );
+        }
+        stepsSucceeded++;
         break;
       }
 
@@ -3189,6 +3361,7 @@ async function executeRoutePipeline(
         // CREATE_TICKET is an ingestion-only step. In analysis routes the ticket already
         // exists, so this is a no-op.
         appLog.info('CREATE_TICKET step skipped — ticket already exists in analysis pipeline', { ticketId }, ticketId, 'ticket');
+        stepsSkipped++;
         break;
       }
 
@@ -3260,6 +3433,7 @@ async function executeRoutePipeline(
         }
 
         logger.info({ ticketId, routeId: route.id, category, mode }, 'No different route resolved for dispatch, continuing current route');
+        stepsSucceeded++;
         break;
       }
 
@@ -3298,14 +3472,18 @@ async function executeRoutePipeline(
                 actor: 'system:analyzer',
               },
             });
-            appLog.info(`Operator notification sent to ${notifyTo}`, { ticketId, to: notifyTo }, ticketId, 'ticket');
+            const stepDuration = Date.now() - stepStart;
+            appLog.info(`Operator notification sent to ${notifyTo} (${(stepDuration / 1000).toFixed(1)}s)`, { ticketId, to: notifyTo, durationMs: stepDuration }, ticketId, 'ticket');
+            stepsSucceeded++;
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err);
             appLog.error(`NOTIFY_OPERATOR email failed: ${errMsg}`, { err, ticketId, to: notifyTo }, ticketId, 'ticket');
+            stepsFailed++;
           }
         } else if (notifyTo !== '') {
           // Non-empty emailTo configured but invalid — warn and skip to avoid broad operator broadcast
           appLog.warn('NOTIFY_OPERATOR skipped — invalid emailTo configured', { ticketId, stepId: step.id, emailTo: notifyTo }, ticketId, 'ticket');
+          stepsSkipped++;
         } else if (mailer) {
           try {
             // No emailTo configured — look up assigned operator for targeted notification
@@ -3331,14 +3509,22 @@ async function executeRoutePipeline(
                   actor: 'system:analyzer',
                 },
               });
-              appLog.info(`Operator notifications sent to ${notified.join(', ')}`, { ticketId, to: notified }, ticketId, 'ticket');
+              const stepDuration = Date.now() - stepStart;
+              appLog.info(`Operator notifications sent to ${notified.join(', ')} (${(stepDuration / 1000).toFixed(1)}s)`, { ticketId, to: notified, durationMs: stepDuration }, ticketId, 'ticket');
+              stepsSucceeded++;
             } else {
               appLog.warn('NOTIFY_OPERATOR skipped — no operators configured for email notifications', { ticketId, stepId: step.id }, ticketId, 'ticket');
+              stepsSkipped++;
             }
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err);
             appLog.error(`NOTIFY_OPERATOR multi-operator email failed: ${errMsg}`, { err, ticketId }, ticketId, 'ticket');
+            stepsFailed++;
           }
+        } else {
+          // No mailer configured — skip
+          appLog.warn('NOTIFY_OPERATOR skipped — no mailer configured', { ticketId, stepId: step.id }, ticketId, 'ticket');
+          stepsSkipped++;
         }
         break;
       }
@@ -3390,8 +3576,10 @@ async function executeRoutePipeline(
           }
         }
         if (addedCount > 0) {
-          appLog.info(`Added ${addedCount} follower(s) as ${followerType}`, { ticketId, count: addedCount, followerType }, ticketId, 'ticket');
+          const stepDuration = Date.now() - stepStart;
+          appLog.info(`Added ${addedCount} follower(s) as ${followerType} (${(stepDuration / 1000).toFixed(1)}s)`, { ticketId, count: addedCount, followerType, durationMs: stepDuration }, ticketId, 'ticket');
         }
+        stepsSucceeded++;
         break;
       }
 
@@ -3409,7 +3597,13 @@ async function executeRoutePipeline(
     }
   }
 
-  appLog.info(`Route pipeline "${safeName}" completed`, { ticketId, routeId: route.id }, ticketId, 'ticket');
+  const pipelineDuration = Date.now() - pipelineStart;
+  const totalSteps = stepsSucceeded + stepsFailed + stepsSkipped;
+  appLog.info(
+    `Analysis pipeline completed: ${totalSteps} steps, ${stepsSucceeded} succeeded, ${stepsFailed} failed, ${stepsSkipped} skipped, ${totalToolCalls} tool calls, total ${(pipelineDuration / 1000).toFixed(1)}s`,
+    { ticketId, routeId: route.id, routeName: safeName, stepsSucceeded, stepsFailed, stepsSkipped, totalSteps, totalToolCalls, durationMs: pipelineDuration },
+    ticketId, 'ticket',
+  );
 }
 
 // ---------------------------------------------------------------------------

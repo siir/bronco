@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { TicketStatus, TicketCategory, DEFAULT_OPERATIONAL_ALERT_CONFIG } from '@bronco/shared-types';
 import type { OperationalAlertConfig } from '@bronco/shared-types';
-import { Mailer, createLogger, decrypt, encrypt, looksEncrypted } from '@bronco/shared-utils';
+import { Mailer, createLogger, decrypt, encrypt, loadSmtpFromDb, looksEncrypted } from '@bronco/shared-utils';
 import { reconnectSlack } from '../services/slack-connection.js';
 import { z } from 'zod';
 
@@ -432,29 +432,15 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
       return fastify.httpErrors.badRequest('No recipient email configured in operational alert settings');
     }
 
-    // Find the first active EMAIL notification channel
-    const channel = await fastify.db.notificationChannel.findFirst({
-      where: { type: 'EMAIL', isActive: true },
-    });
-
-    if (!channel) {
+    // Load SMTP config from System Settings
+    const smtpConfig = await loadSmtpFromDb(fastify.db, opts.encryptionKey);
+    if (!smtpConfig) {
       return fastify.httpErrors.badRequest(
-        'No active EMAIL notification channel configured. Add one in Settings → Notification Channels.',
+        'SMTP not configured. Configure it in System Settings → SMTP.',
       );
     }
 
-    const cfg = channel.config as Record<string, unknown>;
-    const password = typeof cfg.password === 'string' && looksEncrypted(cfg.password)
-      ? decrypt(cfg.password, opts.encryptionKey)
-      : (cfg.password as string);
-
-    const mailer = new Mailer({
-      host: cfg.host as string,
-      port: cfg.port as number,
-      user: cfg.user as string,
-      password,
-      from: cfg.from as string,
-    });
+    const mailer = new Mailer(smtpConfig);
 
     try {
       await mailer.send({
