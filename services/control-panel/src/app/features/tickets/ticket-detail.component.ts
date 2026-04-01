@@ -16,7 +16,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatTabsModule } from '@angular/material/tabs';
 import { MatDialog } from '@angular/material/dialog';
 import { firstValueFrom } from 'rxjs';
-import { TicketService, Ticket, TicketEvent, type TicketAppLog, type TicketAiUsageLog, type UnifiedLogEntry, type TicketCostSummary } from '../../core/services/ticket.service';
+import { TicketService, Ticket, TicketEvent, type TicketAppLog, type TicketAiUsageLog, type PendingAction, type UnifiedLogEntry, type TicketCostSummary } from '../../core/services/ticket.service';
 import { LogSummaryService, type LogSummary } from '../../core/services/log-summary.service';
 import { AiUsageService, type TicketCostResponse } from '../../core/services/ai-usage.service';
 import { AiHelpDialogComponent, type AiHelpDialogData } from '../../shared/components/ai-help-dialog.component';
@@ -619,7 +619,53 @@ interface FlowNode {
                     }
                   </div>
                 }
-                @if (event.content) {
+              }
+              @if (event.content) {
+                @if (event.eventType === 'SYSTEM_NOTE' && isJsonContent(event.content)) {
+                  <!-- Probe data / JSON SYSTEM_NOTE — collapsible formatted code block -->
+                  <div class="probe-data-section">
+                    <button mat-button class="show-more-btn" (click)="expandedEvents[event.id] = !expandedEvents[event.id]">
+                      <mat-icon>{{ expandedEvents[event.id] ? 'expand_less' : 'expand_more' }}</mat-icon>
+                      {{ expandedEvents[event.id] ? 'Hide Probe Data' : 'Show Probe Data' }}
+                    </button>
+                    @if (expandedEvents[event.id]) {
+                      <pre class="probe-data-code"><code>{{ formatJson(event.content) }}</code></pre>
+                    }
+                  </div>
+                } @else if (event.eventType === 'AI_RECOMMENDATION' && hasActionsMeta(event)) {
+                  <!-- AI Recommendation with actions — human-readable list -->
+                  <div class="recommendation-actions">
+                    @for (act of getEventActions(event); track $index) {
+                      <div class="rec-action-row">
+                        <mat-icon class="rec-icon">{{ recActionIcon(act.action) }}</mat-icon>
+                        <div class="rec-action-detail">
+                          <span class="rec-action-type">{{ formatRecActionType(act.action) }}</span>
+                          @if (act.value) {
+                            <span class="rec-action-value">{{ act.value }}</span>
+                          }
+                          <span class="rec-action-reason">{{ act.reason }}</span>
+                        </div>
+                        <span class="rec-status-badge" [class]="'rec-badge-' + getActionOutcome(act)">
+                          {{ getActionOutcomeLabel(act) }}
+                        </span>
+                        @if (getActionOutcome(act) === 'pending_approval') {
+                          <button mat-stroked-button color="primary" class="rec-approve-btn" (click)="approvePendingAction(act.pendingActionId)">Approve</button>
+                          <button mat-stroked-button class="rec-dismiss-btn" (click)="dismissPendingAction(act.pendingActionId)">Dismiss</button>
+                        }
+                      </div>
+                    }
+                  </div>
+                  @if (event.content && event.content.length > 0) {
+                    <div class="event-content markdown-content" [class.collapsed]="!expandedEvents[event.id + '-raw'] && event.content.length > 300">
+                      <div [innerHTML]="event.content | markdown"></div>
+                    </div>
+                    @if (event.content.length > 300) {
+                      <button mat-button class="show-more-btn" (click)="expandedEvents[event.id + '-raw'] = !expandedEvents[event.id + '-raw']">
+                        {{ expandedEvents[event.id + '-raw'] ? 'Hide details' : 'Show details' }}
+                      </button>
+                    }
+                  }
+                } @else if (isMarkdownEvent(event.eventType)) {
                   <div class="event-content markdown-content" [class.collapsed]="!expandedEvents[event.id] && event.content.length > 300">
                     <div [innerHTML]="event.content | markdown"></div>
                   </div>
@@ -868,6 +914,24 @@ interface FlowNode {
     .event-type-system_note { border-left: 3px solid #bdbdbd; }
     .event-type-email_inbound, .event-type-email_outbound { border-left: 3px solid #4caf50; }
     .event-type-code_change { border-left: 3px solid #e91e63; }
+    /* Probe data (JSON SYSTEM_NOTE) */
+    .probe-data-section { margin-top: 8px; }
+    .probe-data-code { background: #263238; color: #eeffff; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 12px; max-height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; }
+    /* AI Recommendation action list */
+    .recommendation-actions { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+    .rec-action-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: #fafafa; border-radius: 6px; border: 1px solid #eee; }
+    .rec-icon { font-size: 18px; width: 18px; height: 18px; color: #666; flex-shrink: 0; }
+    .rec-action-detail { flex: 1; display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; }
+    .rec-action-type { font-weight: 600; font-size: 13px; }
+    .rec-action-value { font-family: monospace; font-size: 12px; background: #e8eaf6; padding: 1px 6px; border-radius: 3px; color: #283593; }
+    .rec-action-reason { font-size: 12px; color: #666; }
+    .rec-status-badge { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+    .rec-badge-auto_executed { background: #e8f5e9; color: #2e7d32; }
+    .rec-badge-pending_approval { background: #fff3e0; color: #e65100; }
+    .rec-badge-skipped { background: #f5f5f5; color: #999; }
+    .rec-badge-dismissed { background: #fce4ec; color: #c62828; }
+    .rec-badge-approved { background: #e8f5e9; color: #2e7d32; }
+    .rec-approve-btn, .rec-dismiss-btn { font-size: 11px; min-height: 28px; line-height: 28px; padding: 0 10px; }
     .markdown-content { white-space: normal; }
     .markdown-content h1, .markdown-content h2, .markdown-content h3 { margin: 10px 0 4px; }
     .markdown-content h1 { font-size: 1.25em; }
@@ -1342,6 +1406,117 @@ export class TicketDetailComponent implements OnInit {
       SYSTEM_NOTE: 'info',
     };
     return icons[type] ?? 'event';
+  }
+
+  // ─── AI Recommendation / Probe Data helpers ───
+
+  isJsonContent(content: string): boolean {
+    const trimmed = content.trim();
+    return (trimmed.startsWith('[') || trimmed.startsWith('{')) && (trimmed.endsWith(']') || trimmed.endsWith('}'));
+  }
+
+  formatJson(content: string): string {
+    try {
+      return JSON.stringify(JSON.parse(content.trim()), null, 2);
+    } catch {
+      return content;
+    }
+  }
+
+  hasActionsMeta(event: TicketEvent): boolean {
+    const meta = event.metadata as Record<string, unknown> | null;
+    return Array.isArray(meta?.['actions']);
+  }
+
+  getEventActions(event: TicketEvent): Array<{ action: string; value?: string; reason: string; outcome?: string; pendingActionId?: string; recommendationType?: string }> {
+    const meta = event.metadata as Record<string, unknown> | null;
+    const actions = meta?.['actions'] as unknown[] | undefined;
+    if (!Array.isArray(actions)) return [];
+    return actions.map((a) => {
+      const obj = a as Record<string, unknown>;
+      return {
+        action: (obj['action'] as string) ?? '',
+        value: obj['value'] as string | undefined,
+        reason: (obj['reason'] as string) ?? '',
+        outcome: (obj['outcome'] as string) ?? (obj['applied'] === true ? 'auto_executed' : obj['applied'] === false ? 'skipped' : undefined),
+        pendingActionId: obj['pendingActionId'] as string | undefined,
+        recommendationType: obj['recommendationType'] as string | undefined,
+      };
+    });
+  }
+
+  getActionOutcome(act: { outcome?: string; applied?: boolean }): string {
+    if (act.outcome) return act.outcome;
+    if (act.applied === true) return 'auto_executed';
+    return 'skipped';
+  }
+
+  getActionOutcomeLabel(act: { outcome?: string; applied?: boolean }): string {
+    const outcome = this.getActionOutcome(act);
+    const labels: Record<string, string> = {
+      auto_executed: 'Auto-executed',
+      pending_approval: 'Pending Approval',
+      skipped: 'Skipped',
+      dismissed: 'Dismissed',
+      approved: 'Approved',
+    };
+    return labels[outcome] ?? outcome;
+  }
+
+  recActionIcon(action: string): string {
+    const icons: Record<string, string> = {
+      set_status: 'swap_horiz',
+      set_priority: 'priority_high',
+      set_category: 'category',
+      add_comment: 'comment',
+      trigger_code_fix: 'code',
+      send_followup_email: 'email',
+      escalate_deep_analysis: 'psychology',
+      check_database_health: 'monitor_heart',
+      assign_operator: 'person',
+    };
+    return icons[action] ?? 'lightbulb';
+  }
+
+  formatRecActionType(action: string): string {
+    const labels: Record<string, string> = {
+      set_status: 'Change Status',
+      set_priority: 'Change Priority',
+      set_category: 'Change Category',
+      add_comment: 'Add Comment',
+      trigger_code_fix: 'Create Issue Job',
+      send_followup_email: 'Send Email',
+      escalate_deep_analysis: 'Escalate',
+      check_database_health: 'Check DB Health',
+      assign_operator: 'Assign Operator',
+    };
+    return labels[action] ?? action;
+  }
+
+  approvePendingAction(actionId?: string): void {
+    if (!actionId) return;
+    const ticketId = this.ticket()?.id;
+    if (!ticketId) return;
+    this.ticketService.approvePendingAction(ticketId, actionId).subscribe({
+      next: () => {
+        this.snackBar.open('Action approved', 'OK', { duration: 3000, panelClass: 'success-snackbar' });
+        this.load();
+      },
+      error: () => this.snackBar.open('Failed to approve action', 'OK', { duration: 5000 }),
+    });
+  }
+
+  dismissPendingAction(actionId?: string): void {
+    if (!actionId) return;
+    const ticketId = this.ticket()?.id;
+    if (!ticketId) return;
+    this.ticketService.dismissPendingAction(ticketId, actionId).subscribe({
+      next: () => {
+        this.snackBar.open('Action dismissed', 'OK', { duration: 3000 });
+        this.load();
+      },
+      error: () => this.snackBar.open('Failed to dismiss action', 'OK', { duration: 5000 }),
+    });
   }
 
   /** Extract AI-relevant metadata from an event for display. */

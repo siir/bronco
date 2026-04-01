@@ -316,6 +316,7 @@ model Ticket {
   systemAnalyses      SystemAnalysis[]
   ingestionRuns       IngestionRun[]
   emailProcessingLogs EmailProcessingLog[]
+  pendingActions      PendingAction[]
 
   @@unique([clientId, ticketNumber])
   @@index([clientId, status])
@@ -1530,6 +1531,26 @@ model NotificationPreference {
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   @@map("notification_preferences")
+}
+
+// --- Pending Actions (AI recommendations awaiting operator approval) ---
+
+model PendingAction {
+  id          String    @id @default(uuid()) @db.Uuid
+  ticketId    String    @map("ticket_id") @db.Uuid
+  actionType  String    @map("action_type")
+  value       Json
+  status      String    @default("pending") // pending, approved, dismissed
+  source      String    @default("ai_recommendation")
+  resolvedAt  DateTime? @map("resolved_at")
+  resolvedBy  String?   @map("resolved_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+  @@index([status])
+  @@map("pending_actions")
 }
 
 // --- App Settings (key-value JSON store for app-wide configuration) ---

@@ -500,6 +500,65 @@ import { CategoryConfigDialogComponent } from './category-config-dialog.componen
           </mat-card>
         </div>
       </mat-tab>
+      <!-- Action Safety tab -->
+      <mat-tab label="Action Safety">
+        <div class="tab-content">
+          <mat-card>
+            <mat-card-header>
+              <mat-card-title>AI Action Safety</mat-card-title>
+            </mat-card-header>
+            <mat-card-content>
+              <p class="hint">
+                Configure which AI-recommended actions are auto-executed and which require operator approval.
+                Unknown action types always default to requiring approval.
+              </p>
+
+              @if (actionSafetyLoading()) {
+                <mat-spinner diameter="24"></mat-spinner>
+              } @else {
+                <table mat-table [dataSource]="actionSafetyRows()" class="full-table action-safety-table">
+                  <ng-container matColumnDef="actionType">
+                    <th mat-header-cell *matHeaderCellDef>Action Type</th>
+                    <td mat-cell *matCellDef="let row">
+                      <span class="action-type-label">{{ formatActionType(row.actionType) }}</span>
+                    </td>
+                  </ng-container>
+
+                  <ng-container matColumnDef="level">
+                    <th mat-header-cell *matHeaderCellDef>Safety Level</th>
+                    <td mat-cell *matCellDef="let row">
+                      <mat-slide-toggle
+                        [checked]="row.level === 'auto'"
+                        (change)="toggleActionSafety(row.actionType, $event.checked ? 'auto' : 'approval')"
+                        color="primary"
+                      >
+                        {{ row.level === 'auto' ? 'Auto-execute' : 'Require Approval' }}
+                      </mat-slide-toggle>
+                    </td>
+                  </ng-container>
+
+                  <tr mat-header-row *matHeaderRowDef="actionSafetyColumns"></tr>
+                  <tr mat-row *matRowDef="let row; columns: actionSafetyColumns;"></tr>
+                </table>
+
+                <mat-card-actions align="end">
+                  <button
+                    mat-raised-button
+                    color="primary"
+                    (click)="saveActionSafety()"
+                    [disabled]="actionSafetySaving()"
+                  >
+                    @if (actionSafetySaving()) {
+                      <mat-spinner diameter="18" class="inline-spinner"></mat-spinner>
+                    }
+                    Save
+                  </button>
+                </mat-card-actions>
+              }
+            </mat-card-content>
+          </mat-card>
+        </div>
+      </mat-tab>
     </mat-tab-group>
   `,
   styles: [`
@@ -598,6 +657,12 @@ import { CategoryConfigDialogComponent } from './category-config-dialog.componen
       margin-right: 8px;
       vertical-align: middle;
     }
+    .action-type-label {
+      font-family: monospace;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .action-safety-table { margin-bottom: 16px; }
   `],
 })
 export class SettingsComponent implements OnInit {
@@ -652,13 +717,20 @@ export class SettingsComponent implements OnInit {
   alertsSaving = signal(false);
   alertsTesting = signal(false);
 
+  // Action Safety tab
+  actionSafetyConfig = signal<Record<string, 'auto' | 'approval'>>({});
+  actionSafetyLoading = signal(true);
+  actionSafetySaving = signal(false);
+  actionSafetyColumns = ['actionType', 'level'];
+  actionSafetyRows = signal<Array<{ actionType: string; level: 'auto' | 'approval' }>>([]);
+
   selectedTab = signal(0);
 
   ngOnInit(): void {
     const tabParam = this.route.snapshot.queryParamMap.get('tab');
     if (tabParam !== null) {
       const tab = Number(tabParam);
-      if (Number.isInteger(tab) && tab >= 0 && tab <= 4) this.selectedTab.set(tab);
+      if (Number.isInteger(tab) && tab >= 0 && tab <= 5) this.selectedTab.set(tab);
     }
     this.loadUsers();
     this.loadSuperAdmin();
@@ -666,6 +738,7 @@ export class SettingsComponent implements OnInit {
     this.loadStatuses();
     this.loadCategories();
     this.loadAlertConfig();
+    this.loadActionSafety();
   }
 
   onTabChange(index: number): void {
@@ -930,5 +1003,65 @@ export class SettingsComponent implements OnInit {
 
   truncate(value: string, max: number): string {
     return value.length > max ? value.slice(0, max - 3) + '...' : value;
+  }
+
+  // ─── Action Safety ───
+
+  loadActionSafety(): void {
+    this.actionSafetyLoading.set(true);
+    this.settingsSvc.getActionSafety().subscribe({
+      next: (config) => {
+        this.actionSafetyConfig.set(config.actions);
+        this.actionSafetyRows.set(
+          Object.entries(config.actions).map(([actionType, level]) => ({ actionType, level }))
+        );
+        this.actionSafetyLoading.set(false);
+      },
+      error: () => {
+        this.actionSafetyLoading.set(false);
+        this.snackBar.open('Failed to load action safety config', 'OK', { duration: 5000 });
+      },
+    });
+  }
+
+  toggleActionSafety(actionType: string, level: 'auto' | 'approval'): void {
+    const current = { ...this.actionSafetyConfig() };
+    current[actionType] = level;
+    this.actionSafetyConfig.set(current);
+    this.actionSafetyRows.set(
+      Object.entries(current).map(([at, l]) => ({ actionType: at, level: l }))
+    );
+  }
+
+  saveActionSafety(): void {
+    this.actionSafetySaving.set(true);
+    this.settingsSvc.saveActionSafety({ actions: this.actionSafetyConfig() }).subscribe({
+      next: (saved) => {
+        this.actionSafetyConfig.set(saved.actions);
+        this.actionSafetyRows.set(
+          Object.entries(saved.actions).map(([actionType, level]) => ({ actionType, level }))
+        );
+        this.actionSafetySaving.set(false);
+        this.snackBar.open('Action safety config saved', 'OK', { duration: 3000, panelClass: 'success-snackbar' });
+      },
+      error: () => {
+        this.actionSafetySaving.set(false);
+        this.snackBar.open('Failed to save action safety config', 'OK', { duration: 5000 });
+      },
+    });
+  }
+
+  formatActionType(type: string): string {
+    const labels: Record<string, string> = {
+      add_comment: 'Add Comment',
+      change_status: 'Change Status',
+      change_priority: 'Change Priority',
+      change_category: 'Change Category',
+      assign_operator: 'Assign Operator',
+      send_email: 'Send Email',
+      create_issue_job: 'Create Issue Job',
+      escalate: 'Escalate',
+    };
+    return labels[type] ?? type;
   }
 }
