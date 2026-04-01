@@ -2537,7 +2537,7 @@ async function executeRoutePipeline(
         const messages: AIMessage[] = [
           { role: 'user', content: initialUserMessage },
         ];
-        const toolCallLog: Array<{ tool: string; input: Record<string, unknown>; output: string; durationMs: number }> = [];
+        const toolCallLog: Array<{ tool: string; system?: string; input: Record<string, unknown>; output: string; durationMs: number }> = [];
         let totalInputTokens = 0;
         let totalOutputTokens = 0;
 
@@ -2598,6 +2598,7 @@ async function executeRoutePipeline(
             const elapsed = Date.now() - start;
             toolCallLog.push({
               tool: toolUse.name,
+              system: (toolUse.input as Record<string, unknown>)?.system_name as string | undefined,
               input: toolUse.input,
               output: result.result.slice(0, 500), // truncate for metadata
               durationMs: elapsed,
@@ -2626,6 +2627,17 @@ async function executeRoutePipeline(
         // Store sufficiency questions in pipeline context so DRAFT_FINDINGS_EMAIL can include them
         ctx.sufficiencyEval = sufficiency;
 
+        // Compute total cost from AI usage logs for this specific analysis run
+        const costAgg = await db.aiUsageLog.aggregate({
+          where: {
+            entityId: ticketId,
+            entityType: 'ticket',
+            createdAt: { gte: new Date(stepStart) },
+          },
+          _sum: { costUsd: true },
+        });
+        const totalCostUsd = costAgg._sum.costUsd ?? 0;
+
         // Store as AI_ANALYSIS event with tool call log and sufficiency in metadata
         await db.ticketEvent.create({
           data: {
@@ -2640,6 +2652,7 @@ async function executeRoutePipeline(
               maxIterations,
               toolCalls: toolCallLog,
               totalUsage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
+              totalCostUsd,
               routeId: route.id,
               routeName: route.name,
               sufficiencyStatus: sufficiency.status,
