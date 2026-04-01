@@ -15,6 +15,7 @@ export const RecommendationActionType = {
   SEND_EMAIL: 'send_email',
   CREATE_ISSUE_JOB: 'create_issue_job',
   ESCALATE: 'escalate',
+  CHECK_DATABASE_HEALTH: 'check_database_health',
 } as const;
 export type RecommendationActionType = (typeof RecommendationActionType)[keyof typeof RecommendationActionType];
 
@@ -28,7 +29,7 @@ export const AI_ACTION_TO_RECOMMENDATION: Record<string, RecommendationActionTyp
   send_followup_email: RecommendationActionType.SEND_EMAIL,
   trigger_code_fix: RecommendationActionType.CREATE_ISSUE_JOB,
   escalate_deep_analysis: RecommendationActionType.ESCALATE,
-  check_database_health: RecommendationActionType.ESCALATE,
+  check_database_health: RecommendationActionType.CHECK_DATABASE_HEALTH,
 };
 
 /** Structure stored in AppSetting under key 'system-config-action-safety'. */
@@ -47,6 +48,7 @@ export const DEFAULT_ACTION_SAFETY_CONFIG: ActionSafetyConfig = {
     [RecommendationActionType.SEND_EMAIL]: ActionSafetyLevel.APPROVAL,
     [RecommendationActionType.CREATE_ISSUE_JOB]: ActionSafetyLevel.APPROVAL,
     [RecommendationActionType.ESCALATE]: ActionSafetyLevel.APPROVAL,
+    [RecommendationActionType.CHECK_DATABASE_HEALTH]: ActionSafetyLevel.APPROVAL,
   },
 };
 

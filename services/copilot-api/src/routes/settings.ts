@@ -934,31 +934,48 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
 
   // ─── Action Safety Configuration ───
 
-  // GET /api/settings/action-safety — get action safety config (seed defaults if not set)
+  /** Zod schema for validating a stored ActionSafetyConfig object. */
+  const actionSafetyConfigSchema = z.object({
+    actions: z.record(z.string().min(1), z.enum(['auto', 'approval'])),
+  });
+
+  // GET /api/settings/action-safety — get action safety config (upsert defaults on first access)
   fastify.get('/api/settings/action-safety', async () => {
     const row = await fastify.db.appSetting.findUnique({ where: { key: SETTINGS_KEY_ACTION_SAFETY } });
-    if (!row) return DEFAULT_ACTION_SAFETY_CONFIG;
-    return row.value as unknown as ActionSafetyConfig;
+
+    if (!row) {
+      // Seed defaults on first access so subsequent GETs and the executor always find a row.
+      await fastify.db.appSetting.upsert({
+        where: { key: SETTINGS_KEY_ACTION_SAFETY },
+        create: { key: SETTINGS_KEY_ACTION_SAFETY, value: DEFAULT_ACTION_SAFETY_CONFIG as unknown as object },
+        update: { value: DEFAULT_ACTION_SAFETY_CONFIG as unknown as object },
+      });
+      return DEFAULT_ACTION_SAFETY_CONFIG;
+    }
+
+    // Validate the stored value; reset to defaults if malformed (e.g. from manual DB edits).
+    const parsed = actionSafetyConfigSchema.safeParse(row.value);
+    if (!parsed.success) {
+      logger.warn({ key: SETTINGS_KEY_ACTION_SAFETY, errors: parsed.error.issues }, 'Stored action safety config is malformed — resetting to defaults');
+      await fastify.db.appSetting.update({
+        where: { key: SETTINGS_KEY_ACTION_SAFETY },
+        data: { value: DEFAULT_ACTION_SAFETY_CONFIG as unknown as object },
+      });
+      return DEFAULT_ACTION_SAFETY_CONFIG;
+    }
+
+    return parsed.data as ActionSafetyConfig;
   });
 
   // PUT /api/settings/action-safety — update action safety config
   fastify.put<{ Body: ActionSafetyConfig }>('/api/settings/action-safety', async (request) => {
-    const body = request.body;
-    if (!body || typeof body.actions !== 'object' || body.actions === null || Array.isArray(body.actions)) {
-      return fastify.httpErrors.badRequest('Body must contain an "actions" object');
+    const parsed = actionSafetyConfigSchema.safeParse(request.body);
+    if (!parsed.success) {
+      const msg = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+      return fastify.httpErrors.badRequest(`Invalid action safety config: ${msg}`);
     }
 
-    const VALID_LEVELS: ReadonlySet<string> = new Set(['auto', 'approval']);
-    for (const [key, level] of Object.entries(body.actions)) {
-      if (typeof key !== 'string' || !key.trim()) {
-        return fastify.httpErrors.badRequest(`Invalid action key: ${key}`);
-      }
-      if (!VALID_LEVELS.has(level as string)) {
-        return fastify.httpErrors.badRequest(`Invalid safety level for "${key}": ${level}. Must be "auto" or "approval".`);
-      }
-    }
-
-    const config: ActionSafetyConfig = { actions: body.actions as Record<string, ActionSafetyLevel> };
+    const config: ActionSafetyConfig = parsed.data as ActionSafetyConfig;
 
     const row = await fastify.db.appSetting.upsert({
       where: { key: SETTINGS_KEY_ACTION_SAFETY },

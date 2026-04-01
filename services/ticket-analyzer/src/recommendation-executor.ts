@@ -8,6 +8,7 @@ import {
   isClosedStatus,
 } from '@bronco/shared-types';
 import type { ActionSafetyConfig, PendingActionStatus } from '@bronco/shared-types';
+import { z } from 'zod';
 
 const logger = createLogger('recommendation-executor');
 
@@ -40,11 +41,44 @@ export interface ExecutionResult {
   pendingActionId?: string;
 }
 
-/** Load action safety config from AppSetting, falling back to defaults. */
+/** Zod schema for runtime validation of the stored ActionSafetyConfig. */
+const actionSafetyConfigSchema = z.object({
+  actions: z.record(z.string().min(1), z.enum(['auto', 'approval'])),
+});
+
+/** Load action safety config from AppSetting, merging with defaults on missing/malformed rows. */
 async function loadSafetyConfig(db: PrismaClient): Promise<ActionSafetyConfig> {
   const row = await db.appSetting.findUnique({ where: { key: SETTINGS_KEY_ACTION_SAFETY } });
   if (!row) return DEFAULT_ACTION_SAFETY_CONFIG;
-  return row.value as unknown as ActionSafetyConfig;
+
+  const parsed = actionSafetyConfigSchema.safeParse(row.value);
+  if (!parsed.success) {
+    logger.warn(
+      { key: SETTINGS_KEY_ACTION_SAFETY, errors: parsed.error.issues },
+      'Action safety config is malformed — merging with defaults',
+    );
+    // Merge stored (potentially partial) raw value with defaults so known-good keys still win.
+    const raw = (row.value as { actions?: unknown }).actions;
+    const rawActions = raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+    const VALID_LEVELS = new Set<string>(['auto', 'approval']);
+    const mergedActions: Record<string, ActionSafetyLevel> = { ...DEFAULT_ACTION_SAFETY_CONFIG.actions };
+    for (const [key, level] of Object.entries(rawActions)) {
+      if (typeof level === 'string' && VALID_LEVELS.has(level)) {
+        mergedActions[key] = level as ActionSafetyLevel;
+      }
+    }
+    return { actions: mergedActions };
+  }
+
+  // Merge stored config on top of defaults so newly added action types always have a safety level.
+  return {
+    actions: {
+      ...DEFAULT_ACTION_SAFETY_CONFIG.actions,
+      ...(parsed.data.actions as Record<string, ActionSafetyLevel>),
+    },
+  };
 }
 
 /** Get safety level for an action type, defaulting unknown types to 'approval'. */
@@ -278,6 +312,15 @@ async function notifyUnknownActionType(
 }
 
 /**
+ * Reverse-lookup map: RecommendationActionType → first matching AI action name.
+ * Used when `pendingAction.value.action` is absent (e.g. legacy or manually created rows)
+ * so that `autoExecute` receives the AI action name it switches on (e.g. "set_status").
+ */
+const RECOMMENDATION_TO_AI_ACTION: Record<string, string> = Object.fromEntries(
+  Object.entries(AI_ACTION_TO_RECOMMENDATION).map(([aiAction, recType]) => [recType, aiAction]),
+);
+
+/**
  * Execute a single pending action after operator approval.
  * Called from the copilot-api when an operator approves a pending action.
  */
@@ -285,8 +328,15 @@ export async function executePendingAction(
   db: PrismaClient,
   pendingAction: { id: string; ticketId: string; actionType: string; value: Record<string, unknown> },
 ): Promise<boolean> {
+  // Prefer the AI action name stored in the value payload (set at creation time).
+  // Fall back to reverse-mapping the actionType through AI_ACTION_TO_RECOMMENDATION so that
+  // autoExecute receives a recognised action name (e.g. "set_status") rather than the
+  // recommendation type (e.g. "change_status"), which has no case in the switch.
+  const storedAction = pendingAction.value.action as string | undefined;
+  const resolvedAction = storedAction ?? RECOMMENDATION_TO_AI_ACTION[pendingAction.actionType] ?? pendingAction.actionType;
+
   const action: ParsedAction = {
-    action: (pendingAction.value.action as string) ?? pendingAction.actionType,
+    action: resolvedAction,
     value: pendingAction.value.value as string | undefined,
     reason: (pendingAction.value.reason as string) ?? 'Operator-approved action',
   };

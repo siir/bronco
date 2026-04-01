@@ -456,7 +456,7 @@ interface FlowNode {
                 } @else if (event.eventType === 'AI_RECOMMENDATION' && hasActionsMeta(event)) {
                   <!-- AI Recommendation with actions — human-readable list -->
                   <div class="recommendation-actions">
-                    @for (act of getEventActions(event); track act.action) {
+                    @for (act of getEventActions(event); track $index) {
                       <div class="rec-action-row">
                         <mat-icon class="rec-icon">{{ recActionIcon(act.action) }}</mat-icon>
                         <div class="rec-action-detail">

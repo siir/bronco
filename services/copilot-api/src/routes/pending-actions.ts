@@ -148,12 +148,29 @@ export async function pendingActionRoutes(fastify: FastifyInstance): Promise<voi
   }>('/api/tickets/:id/pending-actions/:actionId/approve', async (request) => {
     const { id, actionId } = request.params;
 
-    const action = await fastify.db.pendingAction.findFirst({
+    const userId = (request as unknown as { user?: { id?: string } }).user?.id ?? null;
+
+    // Atomic transition: only one operator can approve a given pending action.
+    // updateMany with the 'pending' status filter acts as a compare-and-swap;
+    // if another operator already approved/dismissed it, count will be 0.
+    const resolvedAt = new Date();
+    const { count } = await fastify.db.pendingAction.updateMany({
       where: { id: actionId, ticketId: id, status: 'pending' },
+      data: {
+        status: 'approved',
+        resolvedAt,
+        resolvedBy: userId,
+      },
     });
 
+    if (count === 0) {
+      return fastify.httpErrors.conflict('Pending action not found or already resolved');
+    }
+
+    // Re-fetch the now-approved action so we have its data for execution and event logging.
+    const action = await fastify.db.pendingAction.findUnique({ where: { id: actionId } });
     if (!action) {
-      return fastify.httpErrors.notFound('Pending action not found or already resolved');
+      return fastify.httpErrors.notFound('Pending action not found after approval');
     }
 
     // Execute the action
@@ -163,17 +180,8 @@ export async function pendingActionRoutes(fastify: FastifyInstance): Promise<voi
       action.value as Record<string, unknown>,
     );
 
-    const userId = (request as unknown as { user?: { id?: string } }).user?.id ?? null;
-
-    // Mark as approved
-    const updated = await fastify.db.pendingAction.update({
-      where: { id: actionId },
-      data: {
-        status: 'approved',
-        resolvedAt: new Date(),
-        resolvedBy: userId,
-      },
-    });
+    // Return the updated record
+    const updated = await fastify.db.pendingAction.findUnique({ where: { id: actionId } });
 
     // Log the approval as a ticket event
     await fastify.db.ticketEvent.create({
