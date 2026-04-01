@@ -1,7 +1,7 @@
 import type { PrismaClient } from '@bronco/db';
 import type { Queue } from 'bullmq';
 import { SlackClient, createLogger, decrypt, looksEncrypted } from '@bronco/shared-utils';
-import { createBlockActionHandler, createThreadMessageHandler } from './slack-action-handler.js';
+import { createBlockActionHandler, createThreadMessageHandler, createMentionHandler, createDirectMessageHandler } from './slack-action-handler.js';
 import { evictStaleThreads } from './slack-thread-store.js';
 
 const logger = createLogger('slack-connection');
@@ -75,6 +75,8 @@ export async function initSlackConnection(
       const deps = { db: interactionDeps.db, slack: client, issueResolveQueue: interactionDeps.issueResolveQueue };
       client.onBlockAction(createBlockActionHandler(deps));
       client.onThreadMessage(createThreadMessageHandler(deps));
+      client.onMention(createMentionHandler(deps));
+      client.onDirectMessage(createDirectMessageHandler(deps));
       logger.info('Slack interaction handlers registered');
     }
 

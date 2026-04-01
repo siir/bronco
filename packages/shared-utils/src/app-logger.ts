@@ -70,6 +70,17 @@ export class AppLogger {
   }
 
   private write(entry: AppLogEntry): void {
+    // Defensive: if entityId is set but entityType is missing, the DB check constraint
+    // (app_logs_entity_consistency_check) will reject the row. Clear both so the log
+    // entry persists without entity linking, and warn so the caller can be fixed.
+    if (entry.entityId && !entry.entityType) {
+      this.pino.warn(
+        { entityId: entry.entityId, service: entry.service },
+        'AppLogger: entityId provided without entityType — clearing entityId to satisfy DB constraint. Fix the caller.',
+      );
+      entry.entityId = undefined;
+      entry.entityType = undefined;
+    }
     if (!this.writer) {
       this.buffer.push(entry);
       // Cap buffer at 500 to avoid unbounded memory usage

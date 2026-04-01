@@ -1298,7 +1298,7 @@ async function deepAnalysis(
       });
       appLog.info(`Analysis findings email sent to ${ctx.emailFrom}`, { ticketId, to: ctx.emailFrom }, ticketId, 'ticket');
     } else {
-      appLog.warn('Findings email send returned no messageId — status not updated', { ticketId, to: ctx.emailFrom }, ticketId);
+      appLog.warn('Findings email send returned no messageId — status not updated', { ticketId, to: ctx.emailFrom }, ticketId, 'ticket');
     }
   } else {
     appLog.info('Skipping findings email — no email context (non-email ticket)', { ticketId }, ticketId, 'ticket');
@@ -1678,6 +1678,10 @@ async function resolveTicketRoute(
 
   let candidateRoutes: ResolvedRoute[] = [];
 
+  // Exclude re-analysis routes (those containing UPDATE_ANALYSIS steps) from AI selection —
+  // they are only valid for reply-triggered re-analysis, not first-time analysis.
+  const excludeReanalysis = { steps: { none: { stepType: 'UPDATE_ANALYSIS', isActive: true } } };
+
   if (ticketSource) {
     const sourceRoutes = await db.ticketRoute.findMany({
       where: {
@@ -1686,6 +1690,7 @@ async function resolveTicketRoute(
         routeType: 'ANALYSIS',
         summary: { not: null },
         source: ticketSource,
+        ...excludeReanalysis,
         ...clientFilter,
       } as never,
       include: includeSteps,
@@ -1702,6 +1707,7 @@ async function resolveTicketRoute(
         routeType: 'ANALYSIS',
         summary: { not: null },
         source: null,
+        ...excludeReanalysis,
         ...clientFilter,
       } as never,
       include: includeSteps,
@@ -2028,7 +2034,7 @@ async function executeRoutePipeline(
   const { ticketId, clientId, emailFrom, emailSubject, emailBody, emailMessageId } = ctx;
 
   const safeName = sanitizeName(route.name);
-  appLog.info(`Executing route "${safeName}" (${route.steps.length} steps)`, { ticketId, routeId: route.id, routeName: safeName }, ticketId);
+  appLog.info(`Executing route "${safeName}" (${route.steps.length} steps)`, { ticketId, routeId: route.id, routeName: safeName }, ticketId, 'ticket');
 
   // Shared state accumulated across steps — seed from initialState if dispatched
   let summary = initialState?.summary ?? '';
@@ -2057,7 +2063,7 @@ async function executeRoutePipeline(
     },
   });
   if (!ticket) {
-    appLog.warn('Ticket not found for route execution — aborting', { ticketId }, ticketId);
+    appLog.warn('Ticket not found for route execution — aborting', { ticketId }, ticketId, 'ticket');
     return;
   }
 
@@ -2080,11 +2086,11 @@ async function executeRoutePipeline(
   for (const step of route.steps) {
     // During re-analysis, skip triage steps — they were already done
     if (reanalysisCtx && REANALYSIS_SKIP_STEPS.has(step.stepType)) {
-      appLog.info(`Skipping step during re-analysis: ${step.name} (${step.stepType})`, { ticketId, stepType: step.stepType }, ticketId);
+      appLog.info(`Skipping step during re-analysis: ${step.name} (${step.stepType})`, { ticketId, stepType: step.stepType }, ticketId, 'ticket');
       continue;
     }
 
-    appLog.info(`Executing step: ${step.name} (${step.stepType})`, { ticketId, stepId: step.id, stepType: step.stepType }, ticketId);
+    appLog.info(`Executing step: ${step.name} (${step.stepType})`, { ticketId, stepId: step.id, stepType: step.stepType }, ticketId, 'ticket');
 
     switch (step.stepType) {
       case RouteStepType.SUMMARIZE_EMAIL: {
@@ -2101,7 +2107,7 @@ async function executeRoutePipeline(
           promptKey,
         });
         summary = summaryRes.content;
-        appLog.info('Email summarized via LLM', { ticketId, provider: summaryRes.provider, model: summaryRes.model }, ticketId);
+        appLog.info('Email summarized via LLM', { ticketId, provider: summaryRes.provider, model: summaryRes.model }, ticketId, 'ticket');
         break;
       }
 
@@ -2145,7 +2151,7 @@ async function executeRoutePipeline(
             actor: 'system:analyzer',
           },
         });
-        appLog.info(`Ticket triaged: category=${category}, priority=${priority}`, { ticketId, category, priority }, ticketId);
+        appLog.info(`Ticket triaged: category=${category}, priority=${priority}`, { ticketId, category, priority }, ticketId, 'ticket');
         break;
       }
 
@@ -2224,14 +2230,14 @@ async function executeRoutePipeline(
               actor: 'system:analyzer',
             },
           });
-          appLog.info(`Receipt confirmation email sent to ${emailFrom}`, { ticketId, to: emailFrom }, ticketId);
+          appLog.info(`Receipt confirmation email sent to ${emailFrom}`, { ticketId, to: emailFrom }, ticketId, 'ticket');
         }
         break;
       }
 
       case RouteStepType.LOAD_CLIENT_CONTEXT: {
         if (!clientId) {
-          appLog.info('No client on ticket, skipping client context load', { ticketId }, ticketId);
+          appLog.info('No client on ticket, skipping client context load', { ticketId }, ticketId, 'ticket');
           break;
         }
         // `category` reflects the ticket's current category at the time this step runs.
@@ -2254,7 +2260,7 @@ async function executeRoutePipeline(
             return `### ${m.title} (${label})\n\n${m.content}`;
           });
           clientContext = `## Client Knowledge\n\n${sections.join('\n\n---\n\n')}`;
-          appLog.info(`Loaded ${relevant.length} client memory entries`, { ticketId, entryCount: relevant.length }, ticketId);
+          appLog.info(`Loaded ${relevant.length} client memory entries`, { ticketId, entryCount: relevant.length }, ticketId, 'ticket');
         }
         break;
       }
@@ -2332,7 +2338,7 @@ async function executeRoutePipeline(
             }
           } catch (err) {
             const errMsg = redactUrls(err instanceof Error ? err.message : String(err));
-            appLog.warn(`Repo context unavailable for ${repo.name}: ${errMsg}`, { ticketId, repo: repo.name, err }, ticketId);
+            appLog.warn(`Repo context unavailable for ${repo.name}: ${errMsg}`, { ticketId, repo: repo.name, err }, ticketId, 'ticket');
           }
         }
         break;
@@ -2354,7 +2360,7 @@ async function executeRoutePipeline(
             dbContext += `## Wait Stats\n\n${waitResult}\n\n`;
           }
         } catch (err) {
-          appLog.warn(`MCP database context unavailable: ${err instanceof Error ? err.message : String(err)}`, { ticketId, err }, ticketId);
+          appLog.warn(`MCP database context unavailable: ${err instanceof Error ? err.message : String(err)}`, { ticketId, err }, ticketId, 'ticket');
         }
         break;
       }
@@ -2411,7 +2417,7 @@ async function executeRoutePipeline(
             actor: 'system:analyzer',
           },
         });
-        appLog.info(`Deep analysis complete (${analysisTaskType}) via ${analysisRes.provider}/${analysisRes.model}`, { ticketId, taskType: analysisTaskType }, ticketId);
+        appLog.info(`Deep analysis complete (${analysisTaskType}) via ${analysisRes.provider}/${analysisRes.model}`, { ticketId, taskType: analysisTaskType }, ticketId, 'ticket');
         break;
       }
 
@@ -2431,7 +2437,7 @@ async function executeRoutePipeline(
           include: { client: { include: { repositories: { where: { isActive: true } } } }, system: true },
         });
         if (!ticket || !ticket.client) {
-          appLog.warn('Ticket or client not found for agentic analysis', { ticketId }, ticketId);
+          appLog.warn('Ticket or client not found for agentic analysis', { ticketId }, ticketId, 'ticket');
           break;
         }
 
@@ -2445,7 +2451,7 @@ async function executeRoutePipeline(
         );
 
         if (agenticTools.length === 0) {
-          appLog.info('No tools available for agentic analysis, skipping', { ticketId }, ticketId);
+          appLog.info('No tools available for agentic analysis, skipping', { ticketId }, ticketId, 'ticket');
           break;
         }
 
@@ -2461,7 +2467,7 @@ async function executeRoutePipeline(
             cleanups.push(cleanup);
           } catch (err) {
             const errMsg = redactUrls(err instanceof Error ? err.message : String(err));
-            appLog.warn(`Repo unavailable for agentic analysis: ${repo.name}: ${errMsg}`, { ticketId, repo: repo.name }, ticketId);
+            appLog.warn(`Repo unavailable for agentic analysis: ${repo.name}: ${errMsg}`, { ticketId, repo: repo.name }, ticketId, 'ticket');
           }
         }
 
@@ -2533,7 +2539,7 @@ async function executeRoutePipeline(
         let iterationsRun = 0;
         for (let i = 0; i < maxIterations; i++) {
           iterationsRun = i + 1;
-          appLog.info(`Agentic analysis iteration ${i + 1}/${maxIterations}`, { ticketId, iteration: i + 1 }, ticketId);
+          appLog.info(`Agentic analysis iteration ${i + 1}/${maxIterations}`, { ticketId, iteration: i + 1 }, ticketId, 'ticket');
 
           let response: AIToolResponse;
           try {
@@ -2551,6 +2557,7 @@ async function executeRoutePipeline(
                 'Agentic analysis skipped: AI provider does not support tool use',
                 { ticketId, iteration: i + 1, error: error.message },
                 ticketId,
+                'ticket',
               );
               finalAnalysis = '';
               break;
@@ -2595,7 +2602,7 @@ async function executeRoutePipeline(
               content: result.result,
               ...(result.isError ? { is_error: true } : {}),
             });
-            appLog.info(`Agentic tool call: ${toolUse.name} (${elapsed}ms)`, { ticketId, tool: toolUse.name, durationMs: elapsed }, ticketId);
+            appLog.info(`Agentic tool call: ${toolUse.name} (${elapsed}ms)`, { ticketId, tool: toolUse.name, durationMs: elapsed }, ticketId, 'ticket');
           }
 
           // Append tool results as user message
@@ -2652,6 +2659,7 @@ async function executeRoutePipeline(
           `Agentic analysis complete: ${toolCallLog.length} tool calls, sufficiency=${sufficiency.status}`,
           { ticketId, toolCalls: toolCallLog.length, sufficiencyStatus: sufficiency.status, sufficiencyConfidence: sufficiency.confidence },
           ticketId,
+          'ticket',
         );
         break;
       }
@@ -2663,6 +2671,7 @@ async function executeRoutePipeline(
             'UPDATE_ANALYSIS step requires reanalysisCtx but none was provided. This is likely a route configuration error; failing pipeline to avoid incomplete analysis.',
             { ticketId, routeId: route.id, stepType: RouteStepType.UPDATE_ANALYSIS },
             ticketId,
+            'ticket',
           );
           throw new Error('UPDATE_ANALYSIS step requires reanalysis context (reanalysisCtx) but none was provided');
         }
@@ -2784,6 +2793,7 @@ async function executeRoutePipeline(
             `Sufficiency escalated to INSUFFICIENT after ${currentReanalysisCount} cycles`,
             { ticketId, reanalysisCount: currentReanalysisCount },
             ticketId,
+            'ticket',
           );
         }
 
@@ -2792,7 +2802,7 @@ async function executeRoutePipeline(
           await updateTicketSummary(deps, ticketId);
         }
 
-        appLog.info(`Update analysis complete via ${updateRes.provider}/${updateRes.model}`, { ticketId, taskType: updateTaskType }, ticketId);
+        appLog.info(`Update analysis complete via ${updateRes.provider}/${updateRes.model}`, { ticketId, taskType: updateTaskType }, ticketId, 'ticket');
         break;
       }
 
@@ -2812,7 +2822,7 @@ async function executeRoutePipeline(
         } | null;
 
         if (!queryCfg?.prompt) {
-          appLog.warn('CUSTOM_AI_QUERY step missing prompt config, skipping', { ticketId }, ticketId);
+          appLog.warn('CUSTOM_AI_QUERY step missing prompt config, skipping', { ticketId }, ticketId, 'ticket');
           break;
         }
 
@@ -2853,7 +2863,7 @@ async function executeRoutePipeline(
               freshMcpParts.push(`### ${mq.toolName}`, '', result, '');
             } catch (err) {
               const errMsg = err instanceof Error ? err.message : String(err);
-              appLog.warn(`CUSTOM_AI_QUERY MCP tool call failed: ${mq.toolName}: ${errMsg}`, { ticketId, tool: mq.toolName }, ticketId);
+              appLog.warn(`CUSTOM_AI_QUERY MCP tool call failed: ${mq.toolName}: ${errMsg}`, { ticketId, tool: mq.toolName }, ticketId, 'ticket');
               freshMcpParts.push(`### ${mq.toolName}`, '', `(Error: ${errMsg})`, '');
             }
           }
@@ -2929,7 +2939,7 @@ async function executeRoutePipeline(
                   }
                 } catch (err) {
                   const errMsg = redactUrls(err instanceof Error ? err.message : String(err));
-                  appLog.warn(`CUSTOM_AI_QUERY repo search failed for ${repo.name}: ${errMsg}`, { ticketId, repo: repo.name }, ticketId);
+                  appLog.warn(`CUSTOM_AI_QUERY repo search failed for ${repo.name}: ${errMsg}`, { ticketId, repo: repo.name }, ticketId, 'ticket');
                 }
               }
             }
@@ -2978,7 +2988,7 @@ async function executeRoutePipeline(
             actor: 'system:analyzer',
           },
         });
-        appLog.info(`Custom AI query complete via ${queryRes.provider}/${queryRes.model}`, { ticketId, taskType: queryTaskType, stepName: step.name }, ticketId);
+        appLog.info(`Custom AI query complete via ${queryRes.provider}/${queryRes.model}`, { ticketId, taskType: queryTaskType, stepName: step.name }, ticketId, 'ticket');
         break;
       }
 
@@ -3096,9 +3106,9 @@ async function executeRoutePipeline(
             ? { status: 'WAITING', resolvedAt: null }
             : { resolvedAt: null };
           await db.ticket.update({ where: { id: ticketId }, data: ticketUpdateData });
-          appLog.info(`${reanalysisCtx ? 'Re-analysis' : 'Analysis'} findings email sent to ${emailFrom}${needsUserInput ? ' (with questions)' : ''}`, { ticketId, to: emailFrom, reanalysis: !!reanalysisCtx, needsUserInput }, ticketId);
+          appLog.info(`${reanalysisCtx ? 'Re-analysis' : 'Analysis'} findings email sent to ${emailFrom}${needsUserInput ? ' (with questions)' : ''}`, { ticketId, to: emailFrom, reanalysis: !!reanalysisCtx, needsUserInput }, ticketId, 'ticket');
         } else {
-          appLog.info(`${reanalysisCtx ? 'Re-analysis' : 'Analysis'} findings email skipped (send blocked by loop guard)`, { ticketId, to: emailFrom, reanalysis: !!reanalysisCtx }, ticketId);
+          appLog.info(`${reanalysisCtx ? 'Re-analysis' : 'Analysis'} findings email skipped (send blocked by loop guard)`, { ticketId, to: emailFrom, reanalysis: !!reanalysisCtx }, ticketId, 'ticket');
         }
         break;
       }
@@ -3178,14 +3188,14 @@ async function executeRoutePipeline(
       case RouteStepType.CREATE_TICKET: {
         // CREATE_TICKET is an ingestion-only step. In analysis routes the ticket already
         // exists, so this is a no-op.
-        appLog.info('CREATE_TICKET step skipped — ticket already exists in analysis pipeline', { ticketId }, ticketId);
+        appLog.info('CREATE_TICKET step skipped — ticket already exists in analysis pipeline', { ticketId }, ticketId, 'ticket');
         break;
       }
 
       case RouteStepType.DISPATCH_TO_ROUTE: {
         if (dispatchDepth >= MAX_DISPATCH_DEPTH) {
           logger.warn({ ticketId, routeId: route.id, dispatchDepth }, `Dispatch depth limit (${MAX_DISPATCH_DEPTH}) reached, skipping DISPATCH_TO_ROUTE`);
-          appLog.warn(`Dispatch depth limit reached (${dispatchDepth}/${MAX_DISPATCH_DEPTH}), skipping dispatch`, { ticketId, routeId: route.id, dispatchDepth }, ticketId);
+          appLog.warn(`Dispatch depth limit reached (${dispatchDepth}/${MAX_DISPATCH_DEPTH}), skipping dispatch`, { ticketId, routeId: route.id, dispatchDepth }, ticketId, 'ticket');
           break;
         }
 
@@ -3233,7 +3243,7 @@ async function executeRoutePipeline(
 
         if (dispatchedRoute && dispatchedRoute.id !== route.id) {
           const safeDest = sanitizeName(dispatchedRoute.name);
-          appLog.info(`Dispatching to route "${safeDest}" (${mode}, depth ${dispatchDepth + 1})`, { ticketId, fromRouteId: route.id, toRouteId: dispatchedRoute.id, dispatchDepth: dispatchDepth + 1 }, ticketId);
+          appLog.info(`Dispatching to route "${safeDest}" (${mode}, depth ${dispatchDepth + 1})`, { ticketId, fromRouteId: route.id, toRouteId: dispatchedRoute.id, dispatchDepth: dispatchDepth + 1 }, ticketId, 'ticket');
 
           await executeRoutePipeline(
             deps,
@@ -3245,7 +3255,7 @@ async function executeRoutePipeline(
             reanalysisCtx,
           );
 
-          appLog.info(`Dispatch to "${safeDest}" completed, ending current route`, { ticketId, routeId: route.id }, ticketId);
+          appLog.info(`Dispatch to "${safeDest}" completed, ending current route`, { ticketId, routeId: route.id }, ticketId, 'ticket');
           return;
         }
 
@@ -3288,14 +3298,14 @@ async function executeRoutePipeline(
                 actor: 'system:analyzer',
               },
             });
-            appLog.info(`Operator notification sent to ${notifyTo}`, { ticketId, to: notifyTo }, ticketId);
+            appLog.info(`Operator notification sent to ${notifyTo}`, { ticketId, to: notifyTo }, ticketId, 'ticket');
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err);
-            appLog.error(`NOTIFY_OPERATOR email failed: ${errMsg}`, { err, ticketId, to: notifyTo }, ticketId);
+            appLog.error(`NOTIFY_OPERATOR email failed: ${errMsg}`, { err, ticketId, to: notifyTo }, ticketId, 'ticket');
           }
         } else if (notifyTo !== '') {
           // Non-empty emailTo configured but invalid — warn and skip to avoid broad operator broadcast
-          appLog.warn('NOTIFY_OPERATOR skipped — invalid emailTo configured', { ticketId, stepId: step.id, emailTo: notifyTo }, ticketId);
+          appLog.warn('NOTIFY_OPERATOR skipped — invalid emailTo configured', { ticketId, stepId: step.id, emailTo: notifyTo }, ticketId, 'ticket');
         } else if (mailer) {
           try {
             // No emailTo configured — look up assigned operator for targeted notification
@@ -3321,13 +3331,13 @@ async function executeRoutePipeline(
                   actor: 'system:analyzer',
                 },
               });
-              appLog.info(`Operator notifications sent to ${notified.join(', ')}`, { ticketId, to: notified }, ticketId);
+              appLog.info(`Operator notifications sent to ${notified.join(', ')}`, { ticketId, to: notified }, ticketId, 'ticket');
             } else {
-              appLog.warn('NOTIFY_OPERATOR skipped — no operators configured for email notifications', { ticketId, stepId: step.id }, ticketId);
+              appLog.warn('NOTIFY_OPERATOR skipped — no operators configured for email notifications', { ticketId, stepId: step.id }, ticketId, 'ticket');
             }
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err);
-            appLog.error(`NOTIFY_OPERATOR multi-operator email failed: ${errMsg}`, { err, ticketId }, ticketId);
+            appLog.error(`NOTIFY_OPERATOR multi-operator email failed: ${errMsg}`, { err, ticketId }, ticketId, 'ticket');
           }
         }
         break;
@@ -3349,7 +3359,7 @@ async function executeRoutePipeline(
           if (contact) {
             contactsToAdd.push(contact);
           } else {
-            appLog.warn(`ADD_FOLLOWER skipped — no contact found for email "${rawEmail}"`, { ticketId, email: rawEmail }, ticketId);
+            appLog.warn(`ADD_FOLLOWER skipped — no contact found for email "${rawEmail}"`, { ticketId, email: rawEmail }, ticketId, 'ticket');
           }
         } else if (typeof rawDomain === 'string' && rawDomain.trim()) {
           const domainContacts = await db.contact.findMany({
@@ -3359,10 +3369,10 @@ async function executeRoutePipeline(
           if (domainContacts.length > 0) {
             contactsToAdd.push(...domainContacts);
           } else {
-            appLog.warn(`ADD_FOLLOWER skipped — no contacts found for domain "${rawDomain}"`, { ticketId, domain: rawDomain }, ticketId);
+            appLog.warn(`ADD_FOLLOWER skipped — no contacts found for domain "${rawDomain}"`, { ticketId, domain: rawDomain }, ticketId, 'ticket');
           }
         } else {
-          appLog.warn('ADD_FOLLOWER skipped — no email or emailDomain in step config', { ticketId, stepId: step.id }, ticketId);
+          appLog.warn('ADD_FOLLOWER skipped — no email or emailDomain in step config', { ticketId, stepId: step.id }, ticketId, 'ticket');
           break;
         }
 
@@ -3380,7 +3390,7 @@ async function executeRoutePipeline(
           }
         }
         if (addedCount > 0) {
-          appLog.info(`Added ${addedCount} follower(s) as ${followerType}`, { ticketId, count: addedCount, followerType }, ticketId);
+          appLog.info(`Added ${addedCount} follower(s) as ${followerType}`, { ticketId, count: addedCount, followerType }, ticketId, 'ticket');
         }
         break;
       }
@@ -3399,7 +3409,7 @@ async function executeRoutePipeline(
     }
   }
 
-  appLog.info(`Route pipeline "${safeName}" completed`, { ticketId, routeId: route.id }, ticketId);
+  appLog.info(`Route pipeline "${safeName}" completed`, { ticketId, routeId: route.id }, ticketId, 'ticket');
 }
 
 // ---------------------------------------------------------------------------
@@ -3587,6 +3597,7 @@ export function createAnalysisProcessor(deps: AnalyzerDeps) {
           'Re-analysis pipeline completed successfully (update analysis)',
           { ticketId },
           ticketId,
+          'ticket',
         );
       } catch (err) {
         const rawMsg = err instanceof Error ? err.message : String(err);
@@ -3595,7 +3606,7 @@ export function createAnalysisProcessor(deps: AnalyzerDeps) {
           where: { id: ticketId },
           data: { analysisStatus: AnalysisStatus.FAILED, analysisError },
         });
-        appLog.error(`Re-analysis pipeline failed: ${rawMsg}`, { err, ticketId }, ticketId);
+        appLog.error(`Re-analysis pipeline failed: ${rawMsg}`, { err, ticketId }, ticketId, 'ticket');
         await deps.db.ticketEvent.create({
           data: {
             ticketId,
@@ -3630,7 +3641,7 @@ export function createAnalysisProcessor(deps: AnalyzerDeps) {
     } satisfies ResolvedRoute;
 
     if (!route) {
-      appLog.info('No analysis route found — using default flowchart pipeline', { ticketId }, ticketId);
+      appLog.info('No analysis route found — using default flowchart pipeline', { ticketId }, ticketId, 'ticket');
     }
 
     try {
@@ -3643,6 +3654,7 @@ export function createAnalysisProcessor(deps: AnalyzerDeps) {
         `Ticket analysis pipeline completed successfully (${route ? 'route-driven' : 'default fallback'})`,
         { ticketId, routeId: analysisRoute.id },
         ticketId,
+        'ticket',
       );
     } catch (err) {
       const rawMsg = err instanceof Error ? err.message : String(err);
@@ -3651,7 +3663,7 @@ export function createAnalysisProcessor(deps: AnalyzerDeps) {
         where: { id: ticketId },
         data: { analysisStatus: AnalysisStatus.FAILED, analysisError },
       });
-      appLog.error(`Analysis pipeline failed: ${rawMsg}`, { err, ticketId, routeId: analysisRoute.id }, ticketId);
+      appLog.error(`Analysis pipeline failed: ${rawMsg}`, { err, ticketId, routeId: analysisRoute.id }, ticketId, 'ticket');
       await deps.db.ticketEvent.create({
         data: {
           ticketId,
