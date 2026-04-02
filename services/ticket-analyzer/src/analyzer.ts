@@ -1874,6 +1874,237 @@ async function executeAgenticToolCall(
 }
 
 // ---------------------------------------------------------------------------
+// Orchestrated analysis helpers
+// ---------------------------------------------------------------------------
+
+const ORCHESTRATED_SYSTEM_PROMPT = `You are an expert DBA and systems analyst conducting a structured investigation.
+
+You will investigate the issue step by step. On each iteration you receive:
+- The ticket context and any client-specific knowledge (first iteration only)
+- A "knowledge document" summarizing everything learned so far
+- A prompt directing what to investigate next
+
+Return a JSON object in a markdown code block with:
+{
+  "findings": "Markdown text summarizing what you've learned or concluded in this iteration",
+  "tasks": [
+    {
+      "prompt": "A focused prompt for a sub-task",
+      "tools": ["tool_name_1", "tool_name_2"],
+      "model": "haiku|sonnet|opus"
+    }
+  ],
+  "nextPrompt": "What should be investigated in the next iteration after these tasks complete",
+  "done": false
+}
+
+Guidelines for task assignment:
+- Use "haiku" for simple data gathering (fetching events, listing indexes, getting health stats)
+- Use "sonnet" for moderate analysis (pattern recognition, correlation checking)
+- Use "opus" for complex reasoning (root cause analysis, architecture decisions)
+- Keep tasks focused — each task should have a clear, specific goal
+- Maximum 5 tasks per iteration
+
+When you have enough information to provide a final analysis, set "done": true and include:
+{
+  "findings": "Final summary",
+  "tasks": [],
+  "nextPrompt": null,
+  "done": true,
+  "finalAnalysis": "Full detailed markdown analysis with root cause, evidence, recommendations..."
+}
+
+Include sufficiency evaluation in your final analysis using the ---SUFFICIENCY--- format.
+
+Note: Full raw tool results from all prior iterations are stored and available. If you need to review specific raw data, you can request it in a task prompt.`;
+
+interface StrategistPlan {
+  findings: string;
+  tasks: Array<{ prompt: string; tools: string[]; model: string }>;
+  nextPrompt: string | null;
+  done: boolean;
+  finalAnalysis?: string;
+}
+
+function parseStrategistResponse(content: string): StrategistPlan {
+  // Try to extract JSON from markdown code blocks first, then raw JSON
+  const codeBlockMatch = content.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+  const jsonStr = codeBlockMatch ? codeBlockMatch[1].trim() : content.trim();
+
+  try {
+    const parsed = JSON.parse(jsonStr) as Record<string, unknown>;
+    return {
+      findings: typeof parsed['findings'] === 'string' ? parsed['findings'] : '',
+      tasks: Array.isArray(parsed['tasks'])
+        ? (parsed['tasks'] as Array<Record<string, unknown>>).map(t => ({
+            prompt: typeof t['prompt'] === 'string' ? t['prompt'] : '',
+            tools: Array.isArray(t['tools']) ? (t['tools'] as string[]) : [],
+            model: typeof t['model'] === 'string' ? t['model'] : 'sonnet',
+          }))
+        : [],
+      nextPrompt: typeof parsed['nextPrompt'] === 'string' ? parsed['nextPrompt'] : null,
+      done: parsed['done'] === true,
+      finalAnalysis: typeof parsed['finalAnalysis'] === 'string' ? parsed['finalAnalysis'] : undefined,
+    };
+  } catch (error) {
+    logger.warn(
+      { err: error, contentPreview: content.slice(0, 500) },
+      'Failed to parse strategist JSON response; returning fallback plan',
+    );
+    return {
+      findings: content,
+      tasks: [],
+      nextPrompt: null,
+      done: false,
+      finalAnalysis: undefined,
+    };
+  }
+}
+
+function chunkArray<T>(arr: T[], size: number): T[][] {
+  const normalizedSize = Number.isFinite(size) ? Math.floor(size) : NaN;
+  if (!Number.isFinite(normalizedSize) || normalizedSize <= 0) {
+    throw new Error(`chunkArray size must be a positive integer, got: ${size}`);
+  }
+  const chunks: T[][] = [];
+  for (let i = 0; i < arr.length; i += normalizedSize) {
+    chunks.push(arr.slice(i, i + normalizedSize));
+  }
+  return chunks;
+}
+
+interface SubTaskResult {
+  content: string;
+  inputTokens: number;
+  outputTokens: number;
+  toolCalls: Array<{ tool: string; system?: string; input: Record<string, unknown>; output: string; durationMs: number }>;
+}
+
+const ORCHESTRATED_MODEL_MAP: Record<string, string> = {
+  haiku: 'claude-haiku-4-5-20251001',
+  sonnet: 'claude-sonnet-4-6',
+  opus: 'claude-opus-4-6',
+};
+
+async function executeOrchestratedSubTask(
+  deps: AnalyzerDeps,
+  ticketId: string,
+  clientId: string,
+  category: string,
+  clientContext: string,
+  task: { prompt: string; tools: string[]; model: string },
+  agenticTools: AIToolDefinition[],
+  mcpIntegrations: Map<string, McpIntegrationInfo>,
+  worktrees: Map<string, string>,
+): Promise<SubTaskResult> {
+  const { ai } = deps;
+  const model = ORCHESTRATED_MODEL_MAP[task.model] ?? ORCHESTRATED_MODEL_MAP.sonnet;
+
+  // Filter tools to only those requested by the task
+  const taskTools = task.tools.length > 0
+    ? agenticTools.filter(t => task.tools.some(requested => t.name.includes(requested)))
+    : [];
+
+  const toolCalls: SubTaskResult['toolCalls'] = [];
+  let inputTokens = 0;
+  let outputTokens = 0;
+
+  if (taskTools.length > 0) {
+    // Single-pass tool call: generate with tools, execute any calls, return combined result
+    const response = await ai.generateWithTools({
+      taskType: TaskType.DEEP_ANALYSIS,
+      context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: false },
+      messages: [{ role: 'user', content: task.prompt }],
+      tools: taskTools,
+      systemPrompt: 'Execute the requested investigation step. Call the relevant tools, analyze the results, and return a structured summary of your findings.',
+      providerOverride: 'CLAUDE',
+      modelOverride: model,
+      maxTokens: 4096,
+    });
+
+    inputTokens += response.usage?.inputTokens ?? 0;
+    outputTokens += response.usage?.outputTokens ?? 0;
+
+    // If the model wants to use tools, execute them
+    const toolUseBlocks = response.contentBlocks.filter(
+      (b): b is AIToolUseBlock => b.type === 'tool_use',
+    );
+
+    if (toolUseBlocks.length > 0) {
+      const toolResults: Array<{ type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }> = [];
+
+      for (const toolUse of toolUseBlocks) {
+        const start = Date.now();
+        const result = await executeAgenticToolCall(toolUse, mcpIntegrations, worktrees);
+        const elapsed = Date.now() - start;
+        toolCalls.push({
+          tool: toolUse.name,
+          system: (toolUse.input as Record<string, unknown>)?.system_name as string | undefined,
+          input: toolUse.input,
+          output: result.result.slice(0, 500),
+          durationMs: elapsed,
+        });
+        toolResults.push({
+          type: 'tool_result',
+          tool_use_id: toolUse.id,
+          content: result.result,
+          ...(result.isError ? { is_error: true } : {}),
+        });
+      }
+
+      // Send tool results back for a summary response
+      const summaryResponse = await ai.generateWithTools({
+        taskType: TaskType.DEEP_ANALYSIS,
+        context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: false },
+        messages: [
+          { role: 'user', content: task.prompt },
+          { role: 'assistant', content: response.contentBlocks },
+          { role: 'user', content: toolResults as AIToolResultBlock[] },
+        ],
+        tools: taskTools,
+        systemPrompt: 'Summarize the tool results into a structured finding. Do not call additional tools.',
+        providerOverride: 'CLAUDE',
+        modelOverride: model,
+        maxTokens: 4096,
+      });
+
+      inputTokens += summaryResponse.usage?.inputTokens ?? 0;
+      outputTokens += summaryResponse.usage?.outputTokens ?? 0;
+
+      const summaryText = summaryResponse.contentBlocks
+        .filter((b): b is AITextBlock => b.type === 'text')
+        .map(b => b.text)
+        .join('\n');
+
+      return { content: summaryText, inputTokens, outputTokens, toolCalls };
+    }
+
+    // No tool calls — just text response
+    const textContent = response.contentBlocks
+      .filter((b): b is AITextBlock => b.type === 'text')
+      .map(b => b.text)
+      .join('\n');
+
+    return { content: textContent, inputTokens, outputTokens, toolCalls };
+  }
+
+  // No tools — pure analysis
+  const response = await ai.generate({
+    taskType: TaskType.DEEP_ANALYSIS,
+    context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: false },
+    prompt: task.prompt,
+    providerOverride: 'CLAUDE',
+    modelOverride: model,
+    maxTokens: 4096,
+  });
+
+  inputTokens += response.usage?.inputTokens ?? 0;
+  outputTokens += response.usage?.outputTokens ?? 0;
+
+  return { content: response.content, inputTokens, outputTokens, toolCalls };
+}
+
+// ---------------------------------------------------------------------------
 // Route-driven pipeline execution
 // ---------------------------------------------------------------------------
 
@@ -2428,7 +2659,7 @@ async function executeRoutePipeline(
       }
 
       case RouteStepType.AGENTIC_ANALYSIS: {
-        const stepConfig = step.config as { maxIterations?: unknown; systemPromptOverride?: string } | null;
+        const stepConfig = step.config as { maxIterations?: unknown; systemPromptOverride?: string; analysisStrategy?: string } | null;
         let maxIterations = 10;
         if (stepConfig?.maxIterations !== undefined && stepConfig.maxIterations !== null) {
           const coerced = Number(stepConfig.maxIterations);
@@ -2476,6 +2707,188 @@ async function executeRoutePipeline(
             appLog.warn(`Repo unavailable for agentic analysis: ${repo.name}: ${errMsg}`, { ticketId, repo: repo.name }, ticketId, 'ticket');
           }
         }
+
+        // ── Strategy check: orchestrated vs full_context ──
+        const strategySetting = await db.appSetting.findUnique({ where: { key: 'system-config-analysis-strategy' } });
+        const strategyConfig = strategySetting?.value as { strategy?: string; maxParallelTasks?: number } | null;
+        const effectiveStrategy = stepConfig?.analysisStrategy ?? strategyConfig?.strategy ?? 'full_context';
+
+        if (effectiveStrategy === 'orchestrated' && !reanalysisCtx) {
+          // ── Orchestrated analysis loop ──
+          const rawMaxParallelTasks = strategyConfig?.maxParallelTasks;
+          let maxParallelTasks = 3;
+          if (rawMaxParallelTasks !== undefined && rawMaxParallelTasks !== null) {
+            const coerced = Number(rawMaxParallelTasks);
+            if (Number.isFinite(coerced)) {
+              maxParallelTasks = Math.min(10, Math.max(1, Math.trunc(coerced)));
+            }
+          }
+          const orchMaxIterations = maxIterations;
+          let knowledgeDoc = ticket.knowledgeDoc ?? '';
+          let orchNextPrompt = '';
+          let orchIterationsRun = 0;
+          let orchFinalAnalysis = '';
+          let orchTotalInputTokens = 0;
+          let orchTotalOutputTokens = 0;
+          const orchToolCallLog: Array<{ tool: string; system?: string; input: Record<string, unknown>; output: string; durationMs: number }> = [];
+
+          // Build the initial context for the strategist
+          const ticketContext = [
+            `## Ticket`,
+            `Subject: ${emailSubject}`,
+            `Category: ${category}`,
+            `Priority: ${priority}`,
+            '', emailBody,
+          ].join('\n');
+          const contextParts: string[] = [ticketContext];
+          if (summary) contextParts.push(`\n## Summary\n${summary}`);
+          if (clientContext) contextParts.push(`\n${clientContext}`);
+          if (facts.keywords?.length) contextParts.push(`\n## Key Terms\n${facts.keywords.join(', ')}`);
+          if (dbContext) contextParts.push(`\n## DB Context\n${dbContext}`);
+          if (codeContext.length > 0) contextParts.push(`\n## Code Context\n${codeContext.join('\n')}`);
+
+          const availableToolNames = agenticTools.map(t => t.name);
+          const toolListSection = `\n## Available Tools\n${availableToolNames.join(', ')}`;
+          contextParts.push(toolListSection);
+
+          for (let i = 0; i < orchMaxIterations; i++) {
+            orchIterationsRun = i + 1;
+            appLog.info(`Orchestrated analysis iteration ${i + 1}/${orchMaxIterations}`, { ticketId, iteration: i + 1 }, ticketId, 'ticket');
+
+            const strategistPrompt = i === 0
+              ? `Investigate this ticket. Here is the full context:\n\n${contextParts.join('\n')}`
+              : `Continue the investigation. Here is the knowledge document so far:\n\n${knowledgeDoc}\n\n## Next Investigation Step\n${orchNextPrompt}`;
+
+            const strategistResponse = await ai.generate({
+              taskType: (step.taskTypeOverride ?? TaskType.DEEP_ANALYSIS) as TaskType,
+              context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!clientContext },
+              prompt: strategistPrompt,
+              systemPrompt: ORCHESTRATED_SYSTEM_PROMPT,
+              providerOverride: 'CLAUDE',
+              modelOverride: 'claude-opus-4-6',
+              maxTokens: 4096,
+            });
+
+            orchTotalInputTokens += strategistResponse.usage?.inputTokens ?? 0;
+            orchTotalOutputTokens += strategistResponse.usage?.outputTokens ?? 0;
+
+            const plan = parseStrategistResponse(strategistResponse.content);
+
+            knowledgeDoc += `\n\n### Iteration ${i + 1}\n${plan.findings}`;
+
+            await db.ticket.update({ where: { id: ticketId }, data: { knowledgeDoc } });
+
+            appLog.info(
+              `Orchestrated iteration ${i + 1}: ${plan.tasks.length} tasks, done=${plan.done}`,
+              { ticketId, iteration: i + 1, taskCount: plan.tasks.length, done: plan.done },
+              ticketId, 'ticket',
+            );
+
+            if (plan.done) {
+              orchFinalAnalysis = plan.finalAnalysis ?? plan.findings;
+              break;
+            }
+
+            orchNextPrompt = plan.nextPrompt ?? '';
+
+            // Execute tasks in parallel batches
+            const taskBatches = chunkArray(plan.tasks, maxParallelTasks);
+            for (const batch of taskBatches) {
+              const results = await Promise.allSettled(
+                batch.map(task => executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, task, agenticTools, mcpIntegrations, worktrees)),
+              );
+
+              for (let j = 0; j < results.length; j++) {
+                const result = results[j];
+                const task = batch[j];
+                if (result.status === 'fulfilled') {
+                  knowledgeDoc += `\n\n#### ${task.prompt}\n${result.value.content}`;
+                  orchTotalInputTokens += result.value.inputTokens;
+                  orchTotalOutputTokens += result.value.outputTokens;
+                  orchToolCallLog.push(...result.value.toolCalls);
+                } else {
+                  // Retry once on failure
+                  try {
+                    const retryResult = await executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, task, agenticTools, mcpIntegrations, worktrees);
+                    knowledgeDoc += `\n\n#### ${task.prompt} (retry)\n${retryResult.content}`;
+                    orchTotalInputTokens += retryResult.inputTokens;
+                    orchTotalOutputTokens += retryResult.outputTokens;
+                    orchToolCallLog.push(...retryResult.toolCalls);
+                  } catch (retryErr) {
+                    knowledgeDoc += `\n\n#### ${task.prompt}\n*Failed: ${retryErr instanceof Error ? retryErr.message : String(retryErr)}*`;
+                    appLog.warn(`Orchestrated task failed after retry: ${task.prompt}`, { ticketId, task: task.prompt, err: retryErr }, ticketId, 'ticket');
+                  }
+                }
+              }
+
+              await db.ticket.update({ where: { id: ticketId }, data: { knowledgeDoc } });
+            }
+          }
+
+          if (!orchFinalAnalysis) {
+            orchFinalAnalysis = 'Orchestrated analysis reached maximum iterations without a final conclusion. Review the knowledge document for partial findings.';
+          }
+
+          // Parse sufficiency evaluation from the final analysis
+          const { analysis: cleanOrchAnalysis, evaluation: orchSufficiency } = parseSufficiencyEvaluation(orchFinalAnalysis);
+          analysis = cleanOrchAnalysis;
+          ctx.sufficiencyEval = orchSufficiency;
+
+          // Compute cost
+          const orchCostAgg = await db.aiUsageLog.aggregate({
+            where: { entityId: ticketId, entityType: 'ticket', createdAt: { gte: new Date(stepStart) } },
+            _sum: { costUsd: true },
+          });
+          const orchTotalCostUsd = orchCostAgg._sum.costUsd ?? 0;
+
+          // Store AI_ANALYSIS event
+          await db.ticketEvent.create({
+            data: {
+              ticketId,
+              eventType: 'AI_ANALYSIS',
+              content: analysis,
+              metadata: JSON.parse(JSON.stringify({
+                phase: 'orchestrated_analysis',
+                taskType: step.taskTypeOverride ?? TaskType.DEEP_ANALYSIS,
+                iterationsRun: orchIterationsRun,
+                toolCallCount: orchToolCallLog.length,
+                maxIterations: orchMaxIterations,
+                toolCalls: orchToolCallLog,
+                totalUsage: { inputTokens: orchTotalInputTokens, outputTokens: orchTotalOutputTokens },
+                totalCostUsd: orchTotalCostUsd,
+                routeId: route.id,
+                routeName: route.name,
+                sufficiencyStatus: orchSufficiency.status,
+                sufficiencyQuestions: orchSufficiency.questions,
+                sufficiencyConfidence: orchSufficiency.confidence,
+                sufficiencyReason: orchSufficiency.reason,
+              })),
+              actor: 'system:analyzer',
+            },
+          });
+
+          // Update ticket sufficiency status
+          const orchSuffUpdate: Prisma.TicketUpdateInput = { sufficiencyStatus: orchSufficiency.status };
+          if (orchSufficiency.status === SufficiencyStatus.NEEDS_USER_INPUT) {
+            orchSuffUpdate.status = 'WAITING';
+            orchSuffUpdate.resolvedAt = null;
+          }
+          await db.ticket.update({ where: { id: ticketId }, data: orchSuffUpdate });
+
+          {
+            const stepDuration = Date.now() - stepStart;
+            appLog.info(
+              `Orchestrated analysis complete: ${orchToolCallLog.length} tool calls, ${orchIterationsRun} iterations, sufficiency=${orchSufficiency.status} (${(stepDuration / 1000).toFixed(1)}s)`,
+              { ticketId, toolCalls: orchToolCallLog.length, iterations: orchIterationsRun, sufficiencyStatus: orchSufficiency.status, sufficiencyConfidence: orchSufficiency.confidence, durationMs: stepDuration },
+              ticketId, 'ticket',
+            );
+            totalToolCalls += orchToolCallLog.length;
+          }
+          stepsSucceeded++;
+          break;
+        }
+
+        // ── Full-context agentic loop (existing behavior) ──
 
         // Build system prompt with all available context
         const systemParts: string[] = [];

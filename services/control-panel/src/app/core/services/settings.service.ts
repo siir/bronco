@@ -125,6 +125,11 @@ export interface ActionSafetyConfig {
   actions: Record<string, 'auto' | 'approval'>;
 }
 
+export interface AnalysisStrategyConfig {
+  strategy: 'full_context' | 'orchestrated';
+  maxParallelTasks: number;
+}
+
 export interface TestResult {
   success: boolean;
   message?: string;
@@ -249,5 +254,13 @@ export class SettingsService {
   }
   saveActionSafety(config: ActionSafetyConfig): Observable<ActionSafetyConfig> {
     return this.api.put<ActionSafetyConfig>('/settings/action-safety', config);
+  }
+
+  // --- Analysis Strategy ---
+  getAnalysisStrategy(): Observable<AnalysisStrategyConfig> {
+    return this.api.get<AnalysisStrategyConfig>('/settings/analysis-strategy');
+  }
+  saveAnalysisStrategy(config: AnalysisStrategyConfig): Observable<AnalysisStrategyConfig> {
+    return this.api.put<AnalysisStrategyConfig>('/settings/analysis-strategy', config);
   }
 }

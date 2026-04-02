@@ -121,6 +121,13 @@ interface FlowNode {
             @if (t.client) { <p><strong>Client:</strong> {{ t.client.name }}</p> }
           </div>
         </mat-tab>
+        @if (t.knowledgeDoc) {
+          <mat-tab label="Knowledge">
+            <div class="tab-content knowledge-doc">
+              <div [innerHTML]="t.knowledgeDoc | markdown"></div>
+            </div>
+          </mat-tab>
+        }
         <mat-tab>
           <ng-template mat-tab-label>
             Logs
@@ -813,6 +820,11 @@ interface FlowNode {
     /* Tab group */
     .info-tabs { margin-bottom: 16px; }
     .tab-content { padding: 16px 0; }
+    .knowledge-doc { font-size: 14px; line-height: 1.6; }
+    .knowledge-doc h3 { margin-top: 16px; margin-bottom: 8px; font-size: 16px; color: #333; border-bottom: 1px solid #e0e0e0; padding-bottom: 4px; }
+    .knowledge-doc h4 { margin-top: 12px; margin-bottom: 6px; font-size: 14px; color: #555; }
+    .knowledge-doc pre { background: #f5f5f5; padding: 8px 12px; border-radius: 4px; overflow-x: auto; font-size: 12px; }
+    .knowledge-doc code { background: #f5f5f5; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
     .tab-action-btn { margin-left: 4px; }
     .tab-action-btn mat-icon { font-size: 16px; width: 16px; height: 16px; }
     .blurb-text { line-height: 1.5; margin: 0; }
