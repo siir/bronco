@@ -26,7 +26,7 @@ export interface Ticket {
   source: string;
   category: string | null;
   ticketNumber: number | null;
-  knowledgeDoc: string | null;
+  knowledgeDoc?: string | null;
   analysisStatus: string;
   analysisError: string | null;
   lastAnalyzedAt: string | null;
