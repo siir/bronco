@@ -76,10 +76,10 @@ async function checkFailedJobs(redisUrl: string): Promise<AlertMessage[]> {
     const queues = [
       'issue-resolve', 'log-summarize', 'email-ingestion', 'ticket-analysis',
       'ticket-created', 'ticket-ingest', 'devops-sync', 'mcp-discovery',
-      'model-catalog-refresh', 'system-analysis', 'probe-execution',
+      'model-catalog-refresh', 'system-analysis', 'probe-execution', 'prompt-retention',
     ];
 
-    const commands = queues.map(q => `ZCARD ${q}:failed`);
+    const commands = queues.map(q => `ZCARD bull:${q}:failed`);
     const response = await sendRedisCommand(host, port, commands);
     const numbers = response.match(/:(\d+)/g)?.map(m => parseInt(m.slice(1), 10)) ?? [];
 
@@ -137,9 +137,9 @@ async function checkProbeMisses(db: PrismaClient): Promise<AlertMessage[]> {
         // Unparseable expression — keep the daily fallback
       }
 
-      // Add a buffer of 2x the interval (min 1 hour, max 2 hours) to avoid
+      // Add a buffer of 2x the interval (clamped: min 1 hour, max 2 hours) to avoid
       // noise from minor scheduling jitter.
-      const bufferMs = Math.min(Math.max(expectedIntervalMs, 60 * 60 * 1000), 2 * 60 * 60 * 1000);
+      const bufferMs = Math.min(Math.max(2 * expectedIntervalMs, 60 * 60 * 1000), 2 * 60 * 60 * 1000);
 
       const sinceLastRun = Date.now() - probe.lastRunAt.getTime();
       if (sinceLastRun > expectedIntervalMs + bufferMs) {
@@ -345,7 +345,7 @@ async function checkSummarizationStaleness(db: PrismaClient): Promise<AlertMessa
           '',
           'The log summarizer cron may be hanging on slow Ollama calls.',
           '',
-          'Action required: Check copilot-api logs and Ollama availability.',
+          'Action required: Check scheduler-worker logs and Ollama availability.',
           '',
           '---',
           'This is an automated alert from Bronco operational monitoring.',

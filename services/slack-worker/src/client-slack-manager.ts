@@ -130,6 +130,11 @@ export class ClientSlackManager {
     logger.info({ activeConnections: this.connections.size }, 'Client Slack connections refreshed');
   }
 
+  /** Get the number of active client Slack connections. */
+  getConnectionCount(): number {
+    return this.connections.size;
+  }
+
   /** Gracefully disconnect all client Slack connections. */
   async disconnectAll(): Promise<void> {
     for (const [id, entry] of this.connections) {
@@ -144,11 +149,10 @@ export class ClientSlackManager {
    * When a message arrives, resolve the sender to a Contact and enqueue for ingestion.
    */
   private registerMessageHandler(entry: ClientSlackEntry): void {
-    // SocketModeClient emits envelopes: { envelope_id, payload, ack, body, ... }
-    // The `payload` field contains the actual event data; ack must be called to acknowledge.
+    // SlackClient in shared-utils already registers a socket.on('message') handler that calls ack().
+    // We intentionally do NOT call ack() here to avoid double-acknowledgement.
     entry.client.socket.on('message', async (args: { payload?: Record<string, unknown>; envelope_id?: string; ack?: () => Promise<void> }) => {
       try {
-        if (typeof args.ack === 'function') await args.ack();
         const event = args.payload;
         if (event) {
           await this.handleInboundMessage(entry, event);

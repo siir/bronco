@@ -798,8 +798,9 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
 
     const saved = row.value as Record<string, unknown>;
 
-    // Slack connection is managed by slack-worker — it will pick up config changes on next refresh/restart
-    settingsLogger.info('Slack config updated — slack-worker will pick up changes');
+    // Slack connection is managed by slack-worker — config changes require a slack-worker restart to take effect
+    // TODO: Add cross-service notification (e.g., BullMQ job) so slack-worker can refresh without restart
+    settingsLogger.info('Slack config updated — slack-worker restart required to pick up changes');
 
     return { ...saved, botToken: REDACTED, appToken: REDACTED };
   });

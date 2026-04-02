@@ -3,7 +3,7 @@ import { createAIRouter } from '@bronco/ai-provider';
 import { createLogger, createQueue, createHealthServer, createGracefulShutdown } from '@bronco/shared-utils';
 import type { IngestionJob } from '@bronco/shared-types';
 import { getConfig } from './config.js';
-import { initSlackConnection, disconnectSlack } from './slack-connection.js';
+import { initSlackConnection, disconnectSlack, getSlackClient } from './slack-connection.js';
 import { ClientSlackManager } from './client-slack-manager.js';
 
 const logger = createLogger('slack-worker');
@@ -33,17 +33,24 @@ async function main(): Promise<void> {
   // Initialize per-client Slack connections (non-blocking)
   clientSlackManager.refreshConnections().catch((err) => logger.error({ err }, 'Failed to initialize client Slack connections'));
 
+  // Periodically refresh client connections so Control Panel changes take effect without restart
+  const CLIENT_REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+  const refreshInterval = setInterval(() => {
+    clientSlackManager.refreshConnections().catch((err) => logger.error({ err }, 'Periodic client Slack refresh failed'));
+  }, CLIENT_REFRESH_INTERVAL_MS);
+
   // Health server
   const health = createHealthServer('slack-worker', config.HEALTH_PORT, {
     getDetails: () => ({
-      systemSlackConnected: true,
-      clientConnections: 'active',
+      systemSlackConnected: getSlackClient()?.isConnected() ?? false,
+      clientConnections: clientSlackManager.getConnectionCount(),
     }),
   });
 
   logger.info({ healthPort: config.HEALTH_PORT }, 'Slack worker started');
 
   createGracefulShutdown(logger, [
+    { fn: () => { clearInterval(refreshInterval); } },
     { fn: () => clientSlackManager.disconnectAll() },
     { fn: disconnectSlack },
     health,

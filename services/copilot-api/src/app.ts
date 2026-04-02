@@ -63,7 +63,7 @@ export async function buildApp(config: Config) {
 
   await app.register(authPlugin, { apiKey: config.API_KEY, jwtSecret: config.JWT_SECRET, portalJwtSecret: config.PORTAL_JWT_SECRET });
 
-  await registerRoutes(app, { config, issueResolveQueue, logSummarizeQueue, systemAnalysisQueue, mcpDiscoveryQueue, probeQueue, ticketCreatedQueue, ingestQueue, queueMap, ai, clientMemoryResolver, modelConfigResolver, providerConfigResolver, onSlackIntegrationChange: () => { logger.info('Slack integration changed — slack-worker handles reconnections'); } });
+  await registerRoutes(app, { config, issueResolveQueue, logSummarizeQueue, systemAnalysisQueue, mcpDiscoveryQueue, probeQueue, ticketCreatedQueue, ingestQueue, queueMap, ai, clientMemoryResolver, modelConfigResolver, providerConfigResolver, onSlackIntegrationChange: () => { logger.info('Slack integration changed — slack-worker will pick up changes on next periodic refresh (every 5 minutes)'); } });
 
   // Wire up database log writer after Prisma is ready
   const logWriter = createPrismaLogWriter(app.db);

@@ -52,7 +52,7 @@ async function loadSlackConfig(db: PrismaClient, encryptionKey: string): Promise
 }
 
 /**
- * Initialize the Slack Socket Mode connection on copilot-api startup.
+ * Initialize the Slack Socket Mode connection on slack-worker startup.
  * When interactionDeps is provided, registers handlers for button clicks and threaded replies.
  * Returns the connected SlackClient (or null if Slack is not configured/enabled).
  */

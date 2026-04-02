@@ -21,8 +21,8 @@ interface StoredEntry extends SlackThreadEntry {
  *
  * Key format: `${channelId}:${threadTs}`
  *
- * This is sufficient for a single-operator tool where copilot-api is a single instance.
- * If multi-instance is needed in the future, this could be backed by Redis or the DB.
+ * This is sufficient for a single-operator tool where slack-worker is a single instance.
+ * If slack-worker is horizontally scaled, this must be backed by Redis or the DB.
  */
 const threadMap = new Map<string, StoredEntry>();
 

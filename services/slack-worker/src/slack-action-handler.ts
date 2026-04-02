@@ -517,7 +517,7 @@ async function handleThreadedReply(
  */
 export function createBlockActionHandler(deps: SlackActionHandlerDeps) {
   return async (action: SlackBlockAction): Promise<void> => {
-    logger.info({ actionId: action.actionId, value: action.value, userId: action.userId }, 'Slack block action received');
+    logger.info({ actionId: action.actionId, userId: action.userId }, 'Slack block action received');
 
     switch (action.actionId) {
       case 'plan_approve':
