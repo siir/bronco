@@ -1949,14 +1949,16 @@ function parseStrategistResponse(content: string): StrategistPlan {
   } catch (error) {
     logger.warn(
       { err: error, contentPreview: content.slice(0, 500) },
-      'Failed to parse strategist JSON response; returning fallback plan',
+      'Failed to parse strategist JSON response; treating raw content as final analysis to avoid wasting iterations',
     );
+    // Treat unparseable responses as done to avoid burning tokens on a retry loop.
+    // The raw content is surfaced as the final analysis so no work is lost.
     return {
       findings: content,
       tasks: [],
       nextPrompt: null,
-      done: false,
-      finalAnalysis: undefined,
+      done: true,
+      finalAnalysis: content,
     };
   }
 }
@@ -2009,14 +2011,21 @@ async function executeOrchestratedSubTask(
   let inputTokens = 0;
   let outputTokens = 0;
 
+  // If client context was already injected into the strategist prompt, skip AIRouter
+  // re-injection for sub-tasks to avoid duplicating it in every sub-task system prompt.
+  const skipClientMemory = !!clientContext;
+  const subTaskSystemPrompt = clientContext
+    ? `Execute the requested investigation step. Call the relevant tools, analyze the results, and return a structured summary of your findings.\n\n${clientContext}`
+    : 'Execute the requested investigation step. Call the relevant tools, analyze the results, and return a structured summary of your findings.';
+
   if (taskTools.length > 0) {
     // Single-pass tool call: generate with tools, execute any calls, return combined result
     const response = await ai.generateWithTools({
       taskType: TaskType.DEEP_ANALYSIS,
-      context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: false },
+      context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory },
       messages: [{ role: 'user', content: task.prompt }],
       tools: taskTools,
-      systemPrompt: 'Execute the requested investigation step. Call the relevant tools, analyze the results, and return a structured summary of your findings.',
+      systemPrompt: subTaskSystemPrompt,
       providerOverride: 'CLAUDE',
       modelOverride: model,
       maxTokens: 4096,
@@ -2055,7 +2064,7 @@ async function executeOrchestratedSubTask(
       // Send tool results back for a summary response
       const summaryResponse = await ai.generateWithTools({
         taskType: TaskType.DEEP_ANALYSIS,
-        context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: false },
+        context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory },
         messages: [
           { role: 'user', content: task.prompt },
           { role: 'assistant', content: response.contentBlocks },
@@ -2091,7 +2100,7 @@ async function executeOrchestratedSubTask(
   // No tools — pure analysis
   const response = await ai.generate({
     taskType: TaskType.DEEP_ANALYSIS,
-    context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: false },
+    context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory },
     prompt: task.prompt,
     providerOverride: 'CLAUDE',
     modelOverride: model,
