@@ -1,4 +1,5 @@
 import type { PrismaClient } from '@bronco/db';
+import { Prisma } from '@bronco/db';
 import type { AIRouter } from '@bronco/ai-provider';
 import type { AIToolDefinition, AIMessage, AIContentBlock, AIToolUseBlock, AIToolResponse } from '@bronco/shared-types';
 import type { SlackClient } from '@bronco/shared-utils';
@@ -16,6 +17,9 @@ const MAX_TOOL_ITERATIONS = 3;
 const THREAD_CONTEXT_TTL_SECONDS = 30 * 60;
 
 const REDIS_KEY_PREFIX = 'hugo:thread:';
+
+/** Max length for tool result preview stored in the conversation log. */
+const TOOL_RESULT_PREVIEW_LENGTH = 500;
 
 // --- Redis-backed thread conversation context ---
 
@@ -58,6 +62,28 @@ async function storeConversation(
     'EX',
     THREAD_CONTEXT_TTL_SECONDS,
   );
+}
+
+// --- Cost / tool call tracking ---
+
+interface ToolCallLogEntry {
+  tool: string;
+  params: Record<string, unknown>;
+  resultPreview: string;
+  durationMs: number;
+  isError: boolean;
+}
+
+interface UsageAccumulator {
+  inputTokens: number;
+  outputTokens: number;
+  cost: number;
+  toolCalls: ToolCallLogEntry[];
+}
+
+function accumulateUsage(acc: UsageAccumulator, response: AIToolResponse): void {
+  acc.inputTokens += response.usage?.inputTokens ?? 0;
+  acc.outputTokens += response.usage?.outputTokens ?? 0;
 }
 
 // --- Dependencies ---
@@ -122,6 +148,7 @@ async function executeToolLoop(
   systemPrompt: string,
   client: { id: string; name: string; shortCode: string } | null,
   operator: { id: string; name: string },
+  usage: UsageAccumulator,
 ): Promise<{ text: string; messages: AIMessage[] }> {
   let response = initialResponse;
   const currentMessages = [...messages];
@@ -133,20 +160,36 @@ async function executeToolLoop(
     // Execute each tool call via MCP Platform Server
     const toolResults: Array<{ toolUseId: string; result: string; isError: boolean }> = [];
     for (const toolUse of toolUseBlocks) {
+      const startMs = Date.now();
+      let result: string;
+      let isError = false;
       try {
         logger.info({ tool: toolUse.name, iteration: i + 1 }, 'Executing MCP Platform tool');
-        const result = await callMcpToolViaSdk(
+        result = await callMcpToolViaSdk(
           deps.config.MCP_PLATFORM_URL,
           '/mcp',
           toolUse.name,
           toolUse.input,
         );
-        toolResults.push({ toolUseId: toolUse.id, result, isError: false });
       } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
+        result = err instanceof Error ? err.message : String(err);
+        isError = true;
         logger.warn({ err, tool: toolUse.name }, 'MCP Platform tool call failed');
-        toolResults.push({ toolUseId: toolUse.id, result: errMsg, isError: true });
       }
+      const durationMs = Date.now() - startMs;
+
+      toolResults.push({ toolUseId: toolUse.id, result, isError });
+
+      // Track tool call for logging
+      usage.toolCalls.push({
+        tool: toolUse.name,
+        params: toolUse.input,
+        resultPreview: result.length > TOOL_RESULT_PREVIEW_LENGTH
+          ? result.slice(0, TOOL_RESULT_PREVIEW_LENGTH) + '…'
+          : result,
+        durationMs,
+        isError,
+      });
     }
 
     // Append assistant response + tool results to messages
@@ -179,6 +222,7 @@ async function executeToolLoop(
       modelOverride: 'claude-sonnet-4-6',
       maxTokens: 4096,
     });
+    accumulateUsage(usage, response);
 
     // If response is text (not tool_use), we're done
     if (response.stopReason !== 'tool_use') {
@@ -192,6 +236,61 @@ async function executeToolLoop(
   const text = extractTextContent(response) || response.content || 'I completed the requested operations.';
   currentMessages.push({ role: 'assistant', content: text });
   return { text, messages: currentMessages };
+}
+
+// --- Conversation log persistence ---
+
+function serializeMessages(messages: AIMessage[]): unknown[] {
+  return messages.map(m => ({
+    role: m.role,
+    content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+    timestamp: new Date().toISOString(),
+  }));
+}
+
+async function persistConversationLog(
+  db: PrismaClient,
+  operatorId: string,
+  channelId: string,
+  threadTs: string,
+  clientId: string | null,
+  messages: AIMessage[],
+  usage: UsageAccumulator,
+): Promise<void> {
+  try {
+    const serialized = serializeMessages(messages);
+    const userMessageCount = messages.filter(m => m.role === 'user' && typeof m.content === 'string').length;
+
+    const messagesJson = serialized as unknown as Prisma.InputJsonValue;
+    const toolCallsJson = usage.toolCalls.length > 0
+      ? (usage.toolCalls as unknown as Prisma.InputJsonValue)
+      : undefined;
+
+    await db.slackConversationLog.upsert({
+      where: { channelId_threadTs: { channelId, threadTs } },
+      update: {
+        messages: messagesJson,
+        toolCalls: toolCallsJson,
+        totalInputTokens: usage.inputTokens > 0 ? usage.inputTokens : undefined,
+        totalOutputTokens: usage.outputTokens > 0 ? usage.outputTokens : undefined,
+        messageCount: userMessageCount,
+      },
+      create: {
+        operatorId,
+        channelId,
+        threadTs,
+        clientId,
+        messages: messagesJson,
+        toolCalls: toolCallsJson,
+        totalInputTokens: usage.inputTokens > 0 ? usage.inputTokens : undefined,
+        totalOutputTokens: usage.outputTokens > 0 ? usage.outputTokens : undefined,
+        messageCount: userMessageCount,
+      },
+    });
+  } catch (err) {
+    // Non-blocking — if the DB write fails, the Slack response was already sent
+    logger.warn({ err, channelId, threadTs }, 'Failed to persist conversation log');
+  }
 }
 
 // --- Main conversation handler ---
@@ -262,7 +361,10 @@ export async function handleHugoConversation(
     { role: 'user' as const, content: cleanText },
   ];
 
-  // 8. Call Sonnet with tools
+  // 8. Initialize usage accumulator
+  const usage: UsageAccumulator = { inputTokens: 0, outputTokens: 0, cost: 0, toolCalls: [] };
+
+  // 9. Call Sonnet with tools
   let response: AIToolResponse;
   try {
     response = await ai.generateWithTools({
@@ -279,6 +381,7 @@ export async function handleHugoConversation(
       modelOverride: 'claude-sonnet-4-6',
       maxTokens: 4096,
     });
+    accumulateUsage(usage, response);
   } catch (err) {
     logger.error({ err }, 'AI generateWithTools failed');
     await slack.replyInThread(
@@ -289,7 +392,7 @@ export async function handleHugoConversation(
     return;
   }
 
-  // 9. Execute tool calls if any
+  // 10. Execute tool calls if any
   let finalText: string;
   let finalMessages: AIMessage[];
 
@@ -302,6 +405,7 @@ export async function handleHugoConversation(
       systemPrompt,
       client,
       operator,
+      usage,
     );
     finalText = result.text;
     finalMessages = result.messages;
@@ -310,9 +414,20 @@ export async function handleHugoConversation(
     finalMessages = [...messages, { role: 'assistant' as const, content: finalText }];
   }
 
-  // 10. Reply in thread
+  // 11. Reply in thread
   await slack.replyInThread(channelId, ts, finalText);
 
-  // 11. Store thread context for follow-ups
+  // 12. Store thread context for follow-ups
   await storeConversation(redis, channelId, effectiveThreadTs, finalMessages, client?.id ?? null);
+
+  // 13. Persist conversation log (non-blocking)
+  void persistConversationLog(
+    db,
+    operator.id,
+    channelId,
+    effectiveThreadTs,
+    client?.id ?? null,
+    finalMessages,
+    usage,
+  );
 }
