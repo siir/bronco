@@ -775,6 +775,8 @@ export async function systemStatusRoutes(
       ticketAnalyzer,
       probeWorker,
       mcpDatabase,
+      slackWorker,
+      schedulerWorker,
       queueStats,
       ...externalResults
     ] = await Promise.all([
@@ -787,6 +789,8 @@ export async function systemStatusRoutes(
       checkWorkerHealth('Ticket Analyzer', opts.config.TICKET_ANALYZER_HEALTH_URL, 'ticket-analyzer', containers),
       checkWorkerHealth('Probe Worker', opts.config.PROBE_WORKER_HEALTH_URL, 'probe-worker', containers),
       checkWorkerHealth('MCP Database', opts.config.MCP_DATABASE_HEALTH_URL, 'mcp-database', containers),
+      checkWorkerHealth('Slack Worker', opts.config.SLACK_WORKER_HEALTH_URL, 'slack-worker', containers),
+      checkWorkerHealth('Scheduler Worker', opts.config.SCHEDULER_WORKER_HEALTH_URL, 'scheduler-worker', containers),
       getBullMQQueueStats(opts.config.REDIS_URL),
       ...externalServices.map(svc => checkExternalService(svc, containers)),
     ]);
@@ -814,6 +818,8 @@ export async function systemStatusRoutes(
       ticketAnalyzer,
       probeWorker,
       mcpDatabase,
+      slackWorker,
+      schedulerWorker,
       ...externalResults,
     ];
 
@@ -857,6 +863,8 @@ export async function systemStatusRoutes(
       'ticket-analyzer': 'ticket-analyzer',
       'probe-worker': 'probe-worker',
       'mcp-database': 'mcp-database',
+      'slack-worker': 'slack-worker',
+      'scheduler-worker': 'scheduler-worker',
       'caddy': 'caddy',
       'postgres': 'postgres',
       'redis': 'redis',

@@ -19,6 +19,8 @@ const configSchema = z.object({
   TICKET_ANALYZER_HEALTH_URL: z.string().url().optional().default('http://ticket-analyzer:3106'),
   PROBE_WORKER_HEALTH_URL: z.string().url().optional().default('http://probe-worker:3107'),
   MCP_DATABASE_HEALTH_URL: z.string().url().optional().default('http://mcp-database:3100'),
+  SLACK_WORKER_HEALTH_URL: z.string().url().optional().default('http://slack-worker:3108'),
+  SCHEDULER_WORKER_HEALTH_URL: z.string().url().optional().default('http://scheduler-worker:3109'),
   // Invoice storage
   INVOICE_STORAGE_PATH: z.string().default('/var/lib/copilot-api/invoices'),
   // GitHub (optional — required for manual release notes backfill)

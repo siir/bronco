@@ -10,7 +10,7 @@ AI-augmented database and software architecture operations platform. Single-oper
 - **Control plane DB**: PostgreSQL (Prisma ORM). Schema at `packages/db/prisma/schema.prisma`.
 - **Client databases**: Azure SQL Managed Instances (primary, SQL cred auth), on-prem SQL Server (future clients). Connected via MCP database server (Node.js/Express) running on Hugo in Docker Compose. The MCP server reads system configs directly from the control plane Postgres `System` table and decrypts passwords using `ENCRYPTION_KEY`.
 - **AI routing**: Local Ollama for triage/categorize/summarize/extract; Claude API for deep analysis, code review, architecture review, bug analysis, schema review, feature analysis.
-- **Hugo** (control plane VM): Ubuntu 24.04 LTS on ESXi NUC. Runs copilot-api (Fastify), imap-worker, ticket-analyzer, devops-worker, issue-resolver, status-monitor, mcp-database, Postgres, Redis, Caddy via Docker Compose.
+- **Hugo** (control plane VM): Ubuntu 24.04 LTS on ESXi NUC. Runs copilot-api (Fastify), imap-worker, ticket-analyzer, devops-worker, issue-resolver, status-monitor, slack-worker, scheduler-worker, mcp-database, Postgres, Redis, Caddy via Docker Compose.
 - **Mac mini (siiriaplex)**: Runs Ollama for local LLM inference.
 - **CI/CD**: GitHub Actions — CI runs on push to `staging` (typecheck + build), not on every PR update. Feature branches PR into `staging`; staging PRs into `master`. Pushes to `master` that change app-relevant paths (packages/, services/, mcp-servers/, docker-compose.yml, lockfile) auto-tag a semver release (`tag-release.yml`), which triggers deploy-hugo (GHCR + SSH via Tailscale). Docs-only or workflow-only changes do not trigger a release or deploy. To bump major/minor, push a tag manually before merging staging → master.
 
@@ -297,6 +297,8 @@ pnpm dev:devops           # Start devops-worker (Azure DevOps sync)
 pnpm dev:mcp-db           # Start MCP database server (Express, port 3100, needs DATABASE_URL + ENCRYPTION_KEY)
 pnpm dev:resolver         # Start issue-resolver worker
 pnpm dev:status-monitor   # Start system status monitor
+pnpm dev:slack            # Start slack-worker (Slack Socket Mode connections)
+pnpm dev:scheduler        # Start scheduler-worker (cron jobs, alerts, invoicing)
 pnpm dev:panel            # Start control panel (Angular, port 4200)
 pnpm dev:portal           # Start ticket portal (Angular, port 4201)
 ```
@@ -345,13 +347,15 @@ pnpm dev:portal           # Start ticket portal (Angular, port 4201)
 | `services/ticket-analyzer/src/ingestion-tracker.ts` | `IngestionRunTracker` — records per-step status, timing, and output to `ingestion_runs`/`ingestion_run_steps` DB tables. |
 | `services/copilot-api/src/routes/failed-jobs.ts` | Failed job management API: list, retry (single/all), discard (single/all) across all BullMQ queues. |
 | `services/copilot-api/src/routes/email-logs.ts` | Email processing log API: list/filter logs, stats summary, retry and reclassify endpoints. |
+| `services/slack-worker/src/index.ts` | Slack worker entry: system + per-client Slack Socket Mode connections, interaction handlers. |
+| `services/scheduler-worker/src/index.ts` | Scheduler worker entry: BullMQ cron workers (log-summarize, system-analysis, mcp-discovery, model-catalog-refresh, prompt-retention), auto-invoicing, operational alerts. |
 
 ## Adding a New Service or Worker
 
 Every new service or worker **must** integrate with the operational infrastructure before it ships. Follow this checklist:
 
 ### Health & Monitoring
-1. **Health endpoint** — Use `createHealthServer(name, port, { getDetails })` from shared-utils. Pick the next available `HEALTH_PORT` (current: imap-worker=3101, devops-worker=3102, issue-resolver=3103, status-monitor=3105, ticket-analyzer=3106, probe-worker=3107). Note: copilot-api uses port 3000 for its API server with a `/api/health` route, not a separate health port.
+1. **Health endpoint** — Use `createHealthServer(name, port, { getDetails })` from shared-utils. Pick the next available `HEALTH_PORT` (current: imap-worker=3101, devops-worker=3102, issue-resolver=3103, status-monitor=3105, ticket-analyzer=3106, probe-worker=3107, slack-worker=3108, scheduler-worker=3109). Note: copilot-api uses port 3000 for its API server with a `/api/health` route, not a separate health port.
 2. **Structured logging** — Use `createLogger(name)` from shared-utils (Pino, writes to stderr).
 3. **Zod config** — Validate all env vars via `loadConfig(schema)` from shared-utils.
 
