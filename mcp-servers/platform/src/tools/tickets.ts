@@ -1,5 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { Prisma } from '@bronco/db';
 import type { ServerDeps } from '../server.js';
 
 export function registerTicketTools(server: McpServer, { db }: ServerDeps): void {
@@ -80,25 +81,36 @@ export function registerTicketTools(server: McpServer, { db }: ServerDeps): void
       source: z.string().optional().describe('Ticket source (default MANUAL)'),
     },
     async (params) => {
-      // Get next ticket number for this client
-      const lastTicket = await db.ticket.findFirst({
-        where: { clientId: params.clientId },
-        orderBy: { ticketNumber: 'desc' },
-        select: { ticketNumber: true },
-      });
-      const ticketNumber = (lastTicket?.ticketNumber ?? 0) + 1;
+      let ticket: Awaited<ReturnType<typeof db.ticket.create>>;
+      for (let attempt = 0; attempt <= 3; attempt++) {
+        const lastTicket = await db.ticket.findFirst({
+          where: { clientId: params.clientId, ticketNumber: { gt: 0 } },
+          orderBy: { ticketNumber: 'desc' },
+          select: { ticketNumber: true },
+        });
+        const ticketNumber = (lastTicket?.ticketNumber ?? 0) + 1;
 
-      const data: Record<string, unknown> = {
-        clientId: params.clientId,
-        subject: params.subject,
-        ticketNumber,
-      };
-      if (params.description) data.description = params.description;
-      if (params.priority) data.priority = params.priority;
-      if (params.category) data.category = params.category;
-      if (params.source) data.source = params.source;
+        const data: Prisma.TicketUncheckedCreateInput = {
+          clientId: params.clientId,
+          subject: params.subject,
+          ticketNumber,
+          ...(params.description && { description: params.description }),
+          ...(params.priority && { priority: params.priority as never }),
+          ...(params.category && { category: params.category as never }),
+          ...(params.source && { source: params.source as never }),
+        };
 
-      const ticket = await db.ticket.create({ data: data as never });
+        try {
+          ticket = await db.ticket.create({ data });
+          break;
+        } catch (err: unknown) {
+          if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002' && attempt < 3) {
+            continue;
+          }
+          throw err;
+        }
+      }
+      ticket = ticket!;
 
       return { content: [{ type: 'text', text: JSON.stringify(ticket, null, 2) }] };
     },
@@ -117,14 +129,14 @@ export function registerTicketTools(server: McpServer, { db }: ServerDeps): void
     },
     async (params) => {
       const { ticketId, ...fields } = params;
-      const data: Record<string, unknown> = {};
-      if (fields.status !== undefined) data.status = fields.status;
-      if (fields.priority !== undefined) data.priority = fields.priority;
-      if (fields.category !== undefined) data.category = fields.category;
+      const data: Prisma.TicketUncheckedUpdateInput = {};
+      if (fields.status !== undefined) data.status = fields.status as never;
+      if (fields.priority !== undefined) data.priority = fields.priority as never;
+      if (fields.category !== undefined) data.category = fields.category as never;
       if (fields.assignedOperatorId !== undefined) data.assignedOperatorId = fields.assignedOperatorId;
-      if (fields.sufficiencyStatus !== undefined) data.sufficiencyStatus = fields.sufficiencyStatus;
+      if (fields.sufficiencyStatus !== undefined) data.sufficiencyStatus = fields.sufficiencyStatus as never;
 
-      const ticket = await db.ticket.update({ where: { id: ticketId }, data: data as never });
+      const ticket = await db.ticket.update({ where: { id: ticketId }, data });
 
       return { content: [{ type: 'text', text: JSON.stringify(ticket, null, 2) }] };
     },
@@ -139,18 +151,17 @@ export function registerTicketTools(server: McpServer, { db }: ServerDeps): void
     },
     async (params) => {
       const limit = params.limit ?? 50;
-      const halfLimit = Math.ceil(limit / 2);
 
       const [appLogs, aiLogs] = await Promise.all([
         db.appLog.findMany({
           where: { entityId: params.ticketId, entityType: 'ticket' },
           orderBy: { createdAt: 'desc' },
-          take: halfLimit,
+          take: limit,
         }),
         db.aiUsageLog.findMany({
           where: { entityId: params.ticketId, entityType: 'ticket' },
           orderBy: { createdAt: 'desc' },
-          take: halfLimit,
+          take: limit,
           select: {
             id: true,
             provider: true,
@@ -181,28 +192,42 @@ export function registerTicketTools(server: McpServer, { db }: ServerDeps): void
       ticketId: z.string().uuid().describe('The ticket ID'),
     },
     async (params) => {
-      const logs = await db.aiUsageLog.findMany({
-        where: { entityId: params.ticketId, entityType: 'ticket' },
-        select: { provider: true, model: true, costUsd: true, inputTokens: true, outputTokens: true },
-      });
+      const where = { entityId: params.ticketId, entityType: 'ticket' as const };
 
-      let totalCost = 0;
+      const [totals, grouped] = await Promise.all([
+        db.aiUsageLog.aggregate({
+          where,
+          _sum: { costUsd: true, inputTokens: true, outputTokens: true },
+          _count: true,
+        }),
+        db.aiUsageLog.groupBy({
+          by: ['provider', 'model'],
+          where,
+          _sum: { costUsd: true, inputTokens: true, outputTokens: true },
+          _count: true,
+        }),
+      ]);
+
       const byProvider: Record<string, { cost: number; calls: number; inputTokens: number; outputTokens: number }> = {};
-      for (const log of logs) {
-        const cost = log.costUsd ?? 0;
-        totalCost += cost;
-        const key = `${log.provider}/${log.model}`;
-        if (!byProvider[key]) byProvider[key] = { cost: 0, calls: 0, inputTokens: 0, outputTokens: 0 };
-        byProvider[key].cost += cost;
-        byProvider[key].calls += 1;
-        byProvider[key].inputTokens += log.inputTokens;
-        byProvider[key].outputTokens += log.outputTokens;
+      for (const row of grouped) {
+        const key = `${row.provider}/${row.model}`;
+        byProvider[key] = {
+          cost: row._sum.costUsd ?? 0,
+          calls: row._count,
+          inputTokens: row._sum.inputTokens ?? 0,
+          outputTokens: row._sum.outputTokens ?? 0,
+        };
       }
 
       return {
         content: [{
           type: 'text',
-          text: JSON.stringify({ ticketId: params.ticketId, totalCost, callCount: logs.length, byProvider }, null, 2),
+          text: JSON.stringify({
+            ticketId: params.ticketId,
+            totalCost: totals._sum.costUsd ?? 0,
+            callCount: totals._count,
+            byProvider,
+          }, null, 2),
         }],
       };
     },

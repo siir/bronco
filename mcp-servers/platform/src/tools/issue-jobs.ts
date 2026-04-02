@@ -1,6 +1,14 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { PROTECTED_BRANCH_NAMES, SufficiencyStatus } from '@bronco/shared-types';
 import type { ServerDeps } from '../server.js';
+
+/** Matches the payload shape expected by the issue-resolver worker. */
+interface IssueResolvePayload {
+  issueJobId: string;
+  resume?: boolean;
+  regenerateFeedback?: string;
+}
 
 export function registerIssueJobTools(server: McpServer, { db, issueResolveQueue }: ServerDeps): void {
   server.tool(
@@ -62,19 +70,55 @@ export function registerIssueJobTools(server: McpServer, { db, issueResolveQueue
     {
       ticketId: z.string().uuid().describe('The ticket ID'),
       repoId: z.string().uuid().describe('The code repo ID'),
+      force: z.boolean().optional().describe('Bypass sufficiency gate (default false)'),
     },
     async (params) => {
-      const [ticket, repo] = await Promise.all([
-        db.ticket.findUniqueOrThrow({ where: { id: params.ticketId }, select: { id: true, subject: true } }),
-        db.codeRepo.findUniqueOrThrow({ where: { id: params.repoId }, select: { id: true, branchPrefix: true } }),
-      ]);
+      const ticket = await db.ticket.findUniqueOrThrow({
+        where: { id: params.ticketId },
+        select: { id: true, subject: true, clientId: true, sufficiencyStatus: true },
+      });
+
+      // Sufficiency gate
+      if (!params.force) {
+        const suffStatus = ticket.sufficiencyStatus as string | null;
+        if (suffStatus === SufficiencyStatus.NEEDS_USER_INPUT || suffStatus === SufficiencyStatus.INSUFFICIENT) {
+          throw new Error(
+            `Ticket sufficiency is "${suffStatus}" — resolve outstanding questions before triggering resolution. Set force=true to bypass.`,
+          );
+        }
+      }
+
+      const repo = await db.codeRepo.findUniqueOrThrow({
+        where: { id: params.repoId },
+        select: { id: true, clientId: true, branchPrefix: true, isActive: true },
+      });
+
+      // Repo must belong to same client as ticket
+      if (repo.clientId !== ticket.clientId) {
+        throw new Error('Repo and ticket must belong to the same client');
+      }
+
+      // Repo must be active
+      if (!repo.isActive) {
+        throw new Error('Code repo is not active');
+      }
 
       const slug = ticket.subject
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-|-$/g, '')
-        .slice(0, 40);
+        .slice(0, 60);
+
+      if (!slug) {
+        throw new Error('Ticket subject produced an empty branch slug');
+      }
+
       const branchName = `${repo.branchPrefix}/${slug}`;
+
+      // Branch safety: never target a protected branch
+      if (PROTECTED_BRANCH_NAMES.has(branchName.toLowerCase())) {
+        throw new Error(`Generated branch name "${branchName}" collides with a protected branch`);
+      }
 
       const job = await db.issueJob.create({
         data: {
@@ -85,7 +129,9 @@ export function registerIssueJobTools(server: McpServer, { db, issueResolveQueue
         },
       });
 
-      await issueResolveQueue.add('resolve', { jobId: job.id });
+      await issueResolveQueue.add('resolve-issue', {
+        issueJobId: job.id,
+      } satisfies IssueResolvePayload);
 
       return { content: [{ type: 'text', text: JSON.stringify(job, null, 2) }] };
     },
@@ -99,19 +145,51 @@ export function registerIssueJobTools(server: McpServer, { db, issueResolveQueue
       operatorId: z.string().uuid().optional().describe('The approving operator ID'),
     },
     async (params) => {
-      const job = await db.issueJob.update({
+      const existing = await db.issueJob.findUniqueOrThrow({
         where: { id: params.jobId },
+        select: { id: true, status: true, plan: true },
+      });
+      if (existing.status !== 'AWAITING_APPROVAL') {
+        throw new Error(`Cannot approve job in status "${existing.status}" — must be AWAITING_APPROVAL`);
+      }
+      if (!existing.plan) {
+        throw new Error('Cannot approve job without a plan');
+      }
+
+      let approvedByOperatorId: string | null = null;
+      if (params.operatorId) {
+        const operator = await db.operator.findUnique({
+          where: { id: params.operatorId },
+          select: { id: true, isActive: true },
+        });
+        if (!operator || !operator.isActive) {
+          throw new Error('operatorId is invalid or refers to an inactive operator');
+        }
+        approvedByOperatorId = operator.id;
+      }
+
+      // Atomic transition out of AWAITING_APPROVAL to prevent duplicate approvals
+      const updated = await db.issueJob.updateMany({
+        where: { id: params.jobId, status: 'AWAITING_APPROVAL' },
         data: {
-          status: 'APPLYING',
+          status: 'CLONING',
           approvedAt: new Date(),
           approvedBy: 'mcp:platform',
-          ...(params.operatorId ? { approvedByOperatorId: params.operatorId } : {}),
+          approvedByOperatorId,
         },
       });
+      if (updated.count === 0) {
+        throw new Error('Job is no longer in AWAITING_APPROVAL — it may have already been approved or rejected');
+      }
 
-      await issueResolveQueue.add('execute', { jobId: job.id });
+      await issueResolveQueue.add('resolve-issue', {
+        issueJobId: params.jobId,
+        resume: true,
+      } satisfies IssueResolvePayload, {
+        jobId: `resume-${params.jobId}`,
+      });
 
-      return { content: [{ type: 'text', text: JSON.stringify({ message: 'Plan approved and execution enqueued', jobId: job.id }, null, 2) }] };
+      return { content: [{ type: 'text', text: JSON.stringify({ message: 'Plan approved and execution enqueued', jobId: params.jobId }, null, 2) }] };
     },
   );
 
@@ -120,20 +198,37 @@ export function registerIssueJobTools(server: McpServer, { db, issueResolveQueue
     'Reject an issue resolution plan with feedback for regeneration.',
     {
       jobId: z.string().uuid().describe('The job ID'),
-      feedback: z.string().describe('Feedback explaining why the plan was rejected'),
+      feedback: z.string().min(1).describe('Feedback explaining why the plan was rejected'),
     },
     async (params) => {
-      const job = await db.issueJob.update({
+      const existing = await db.issueJob.findUniqueOrThrow({
         where: { id: params.jobId },
+        select: { id: true, status: true, plan: true },
+      });
+      if (existing.status !== 'AWAITING_APPROVAL') {
+        throw new Error(`Cannot reject job in status "${existing.status}" — must be AWAITING_APPROVAL`);
+      }
+      if (!existing.plan) {
+        throw new Error('Cannot reject job without a plan');
+      }
+
+      // Atomic transition to PLANNING
+      await db.issueJob.updateMany({
+        where: { id: params.jobId, status: 'AWAITING_APPROVAL' },
         data: {
           status: 'PLANNING',
-          planFeedback: params.feedback,
+          planFeedback: params.feedback.trim(),
+          approvedAt: null,
+          approvedBy: null,
         },
       });
 
-      await issueResolveQueue.add('replan', { jobId: job.id });
+      await issueResolveQueue.add('resolve-issue', {
+        issueJobId: params.jobId,
+        regenerateFeedback: params.feedback.trim(),
+      } satisfies IssueResolvePayload);
 
-      return { content: [{ type: 'text', text: JSON.stringify({ message: 'Plan rejected with feedback, replanning enqueued', jobId: job.id }, null, 2) }] };
+      return { content: [{ type: 'text', text: JSON.stringify({ message: 'Plan rejected with feedback, replanning enqueued', jobId: params.jobId }, null, 2) }] };
     },
   );
 }

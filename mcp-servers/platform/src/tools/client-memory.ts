@@ -1,5 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import type { Prisma } from '@bronco/db';
 import type { ServerDeps } from '../server.js';
 
 export function registerClientMemoryTools(server: McpServer, { db }: ServerDeps): void {
@@ -34,16 +35,16 @@ export function registerClientMemoryTools(server: McpServer, { db }: ServerDeps)
       category: z.string().optional().describe('Optional ticket category scope'),
     },
     async (params) => {
-      const data: Record<string, unknown> = {
+      const data: Prisma.ClientMemoryUncheckedCreateInput = {
         clientId: params.clientId,
         title: params.title,
         content: params.content,
-        memoryType: params.memoryType,
+        memoryType: params.memoryType as never,
         source: 'MANUAL',
+        ...(params.category && { category: params.category as never }),
       };
-      if (params.category) data.category = params.category;
 
-      const memory = await db.clientMemory.create({ data: data as never });
+      const memory = await db.clientMemory.create({ data });
       return { content: [{ type: 'text', text: JSON.stringify(memory, null, 2) }] };
     },
   );

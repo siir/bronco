@@ -7,15 +7,13 @@ export function registerSystemStatusTools(server: McpServer, { config }: ServerD
     'Get health status of all Bronco platform services by calling the copilot-api system status endpoint.',
     {},
     async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
       try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 10000);
-
         const res = await fetch(`${config.COPILOT_API_URL}/api/system-status`, {
           signal: controller.signal,
           headers: config.API_KEY ? { 'x-api-key': config.API_KEY } : {},
         });
-        clearTimeout(timeout);
 
         if (!res.ok) {
           return { content: [{ type: 'text', text: JSON.stringify({ error: `HTTP ${res.status}: ${res.statusText}` }, null, 2) }] };
@@ -26,6 +24,8 @@ export function registerSystemStatusTools(server: McpServer, { config }: ServerD
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unknown error';
         return { content: [{ type: 'text', text: JSON.stringify({ error: `Failed to fetch service health: ${message}` }, null, 2) }] };
+      } finally {
+        clearTimeout(timeout);
       }
     },
   );

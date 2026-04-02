@@ -57,44 +57,60 @@ export function registerAiUsageTools(server: McpServer, { db }: ServerDeps): voi
     'Get aggregate AI cost by provider and model for a date range.',
     {
       clientId: z.string().uuid().optional().describe('Filter by client ID'),
-      startDate: z.string().optional().describe('Start date (ISO 8601)'),
-      endDate: z.string().optional().describe('End date (ISO 8601)'),
+      startDate: z.string().datetime().optional().describe('Start date (ISO 8601)'),
+      endDate: z.string().datetime().optional().describe('End date (ISO 8601)'),
     },
     async (params) => {
       const where: Record<string, unknown> = {};
       if (params.clientId) where.clientId = params.clientId;
       if (params.startDate || params.endDate) {
         const createdAt: Record<string, Date> = {};
-        if (params.startDate) createdAt.gte = new Date(params.startDate);
-        if (params.endDate) createdAt.lte = new Date(params.endDate);
+        if (params.startDate) {
+          const d = new Date(params.startDate);
+          if (isNaN(d.getTime())) throw new Error(`Invalid startDate: ${params.startDate}`);
+          createdAt.gte = d;
+        }
+        if (params.endDate) {
+          const d = new Date(params.endDate);
+          if (isNaN(d.getTime())) throw new Error(`Invalid endDate: ${params.endDate}`);
+          createdAt.lte = d;
+        }
         where.createdAt = createdAt;
       }
 
-      const logs = await db.aiUsageLog.findMany({
-        where,
-        select: { provider: true, model: true, costUsd: true, inputTokens: true, outputTokens: true },
-      });
+      const [totals, grouped] = await Promise.all([
+        db.aiUsageLog.aggregate({
+          where,
+          _sum: { costUsd: true, inputTokens: true, outputTokens: true },
+          _count: true,
+        }),
+        db.aiUsageLog.groupBy({
+          by: ['provider', 'model'],
+          where,
+          _sum: { costUsd: true, inputTokens: true, outputTokens: true },
+          _count: true,
+        }),
+      ]);
 
-      let totalCost = 0;
-      let totalCalls = 0;
       const byProviderModel: Record<string, { cost: number; calls: number; inputTokens: number; outputTokens: number }> = {};
-
-      for (const log of logs) {
-        const cost = log.costUsd ?? 0;
-        totalCost += cost;
-        totalCalls += 1;
-        const key = `${log.provider}/${log.model}`;
-        if (!byProviderModel[key]) byProviderModel[key] = { cost: 0, calls: 0, inputTokens: 0, outputTokens: 0 };
-        byProviderModel[key].cost += cost;
-        byProviderModel[key].calls += 1;
-        byProviderModel[key].inputTokens += log.inputTokens;
-        byProviderModel[key].outputTokens += log.outputTokens;
+      for (const row of grouped) {
+        const key = `${row.provider}/${row.model}`;
+        byProviderModel[key] = {
+          cost: row._sum.costUsd ?? 0,
+          calls: row._count,
+          inputTokens: row._sum.inputTokens ?? 0,
+          outputTokens: row._sum.outputTokens ?? 0,
+        };
       }
 
       return {
         content: [{
           type: 'text',
-          text: JSON.stringify({ totalCost, totalCalls, byProviderModel }, null, 2),
+          text: JSON.stringify({
+            totalCost: totals._sum.costUsd ?? 0,
+            totalCalls: totals._count,
+            byProviderModel,
+          }, null, 2),
         }],
       };
     },
