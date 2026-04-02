@@ -2,8 +2,9 @@ import type { FastifyInstance } from 'fastify';
 import { TicketStatus, TicketCategory, DEFAULT_OPERATIONAL_ALERT_CONFIG, DEFAULT_ACTION_SAFETY_CONFIG } from '@bronco/shared-types';
 import type { OperationalAlertConfig, ActionSafetyConfig, ActionSafetyLevel } from '@bronco/shared-types';
 import { Mailer, createLogger, decrypt, encrypt, loadSmtpFromDb, looksEncrypted } from '@bronco/shared-utils';
-import { reconnectSlack } from '../services/slack-connection.js';
 import { z } from 'zod';
+
+const settingsLogger = createLogger('settings');
 
 /** Default configs seeded lazily if the DB tables are empty. */
 const DEFAULT_STATUS_CONFIGS = [
@@ -797,12 +798,8 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
 
     const saved = row.value as Record<string, unknown>;
 
-    // Reconnect Slack with new config (non-blocking), preserving interaction handlers
-    void reconnectSlack(
-      fastify.db,
-      opts.encryptionKey,
-      opts.issueResolveQueue ? { db: fastify.db, issueResolveQueue: opts.issueResolveQueue } : undefined,
-    );
+    // Slack connection is managed by slack-worker — it will pick up config changes on next refresh/restart
+    settingsLogger.info('Slack config updated — slack-worker will pick up changes');
 
     return { ...saved, botToken: REDACTED, appToken: REDACTED };
   });
