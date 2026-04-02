@@ -306,10 +306,10 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     return event;
   });
 
-  fastify.patch<{ Params: { id: string }; Body: { status?: string; priority?: string; systemId?: string; environmentId?: string | null; category?: string | null; sufficiencyStatus?: string | null; assignedOperatorId?: string | null } }>(
+  fastify.patch<{ Params: { id: string }; Body: { status?: string; priority?: string; systemId?: string; environmentId?: string | null; category?: string | null; sufficiencyStatus?: string | null; assignedOperatorId?: string | null; knowledgeDoc?: string | null } }>(
     '/api/tickets/:id',
     async (request, reply) => {
-      const { status: newStatus, priority, systemId, environmentId, category, sufficiencyStatus, assignedOperatorId } = request.body;
+      const { status: newStatus, priority, systemId, environmentId, category, sufficiencyStatus, assignedOperatorId, knowledgeDoc } = request.body;
       if (newStatus && !VALID_STATUSES.has(newStatus)) return fastify.httpErrors.badRequest(`Invalid status: ${newStatus}`);
       if (priority && !VALID_PRIORITIES.has(priority)) return fastify.httpErrors.badRequest(`Invalid priority: ${priority}`);
       if (category && !VALID_CATEGORIES.has(category)) return fastify.httpErrors.badRequest(`Invalid category: ${category}`);
@@ -355,6 +355,7 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
           ...(category !== undefined && { category: category as TicketCategory | null }),
           ...(sufficiencyStatus !== undefined && { sufficiencyStatus: sufficiencyStatus as SufficiencyStatus | null }),
           ...(assignedOperatorId !== undefined && { assignedOperatorId }),
+          ...(knowledgeDoc !== undefined && { knowledgeDoc }),
         },
       });
 
