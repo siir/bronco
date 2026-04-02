@@ -89,13 +89,24 @@ export class SlackClient {
       }
     });
 
-    // Handle message events (threaded replies)
-    this.socket.on('events_api', async ({ body, ack }) => {
+    // Handle events — @slack/socket-mode v2 emits inner event types directly,
+    // NOT 'events_api'. So 'app_mention' events emit as 'app_mention', 'message'
+    // events emit as 'message', etc.
+    this.socket.on('app_mention', async ({ event, ack }: { event: Record<string, unknown>; ack: () => Promise<void> }) => {
       await ack();
       try {
-        await this.handleEventsApi(body);
+        await this.handleEventsApi({ event: { ...event, type: 'app_mention' } });
       } catch (err) {
-        logger.error({ err }, 'Error handling Slack events_api event');
+        logger.error({ err }, 'Error handling Slack app_mention event');
+      }
+    });
+
+    this.socket.on('message', async ({ event, ack }: { event: Record<string, unknown>; ack: () => Promise<void> }) => {
+      await ack();
+      try {
+        await this.handleEventsApi({ event: { ...event, type: 'message' } });
+      } catch (err) {
+        logger.error({ err }, 'Error handling Slack message event');
       }
     });
   }
