@@ -208,7 +208,7 @@ async function autoExecute(
             ticketId,
             eventType: 'STATUS_CHANGE',
             content: `Auto-executed: status changed to ${value} — ${action.reason}`,
-            metadata: { previousStatus: state.currentStatus, newStatus: value, triggeredBy: 'ai_executor' },
+            metadata: { previousStatus: state.currentStatus, newStatus: value, triggeredBy: 'ai_recommendation', recommendationSource: 'SUGGEST_NEXT_STEPS' },
             actor: 'system:recommendation-executor',
           },
         });
@@ -228,7 +228,7 @@ async function autoExecute(
             ticketId,
             eventType: 'PRIORITY_CHANGE',
             content: `Auto-executed: priority changed to ${value} — ${action.reason}`,
-            metadata: { previousPriority: state.currentPriority, newPriority: value, triggeredBy: 'ai_executor' },
+            metadata: { previousPriority: state.currentPriority, newPriority: value, triggeredBy: 'ai_recommendation', recommendationSource: 'SUGGEST_NEXT_STEPS' },
             actor: 'system:recommendation-executor',
           },
         });
@@ -248,7 +248,7 @@ async function autoExecute(
             ticketId,
             eventType: 'CATEGORY_CHANGE',
             content: `Auto-executed: category changed to ${value} — ${action.reason}`,
-            metadata: { previousCategory: state.currentCategory, newCategory: value, triggeredBy: 'ai_executor' },
+            metadata: { previousCategory: state.currentCategory, newCategory: value, triggeredBy: 'ai_recommendation', recommendationSource: 'SUGGEST_NEXT_STEPS' },
             actor: 'system:recommendation-executor',
           },
         });
@@ -264,7 +264,7 @@ async function autoExecute(
             ticketId,
             eventType: 'COMMENT',
             content: text,
-            metadata: { triggeredBy: 'ai_executor' },
+            metadata: { triggeredBy: 'ai_recommendation', recommendationSource: 'SUGGEST_NEXT_STEPS' },
             actor: 'system:recommendation-executor',
           },
         });

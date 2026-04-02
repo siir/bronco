@@ -340,12 +340,28 @@ export class AIRouter {
     if (finalRequest.messages) {
       for (const msg of finalRequest.messages) {
         const entry: ConversationMetadata['messages'][number] = { role: msg.role };
-        if (msg.role === 'assistant' && typeof msg.content === 'string') {
-          // Tool calls are in the assistant turn
-          if (Array.isArray((msg as unknown as Record<string, unknown>).tool_calls)) {
-            entry.toolName = 'tool_call';
+
+        // Extract tool names from tool_use blocks (assistant messages)
+        if (msg.role === 'assistant' && Array.isArray(msg.content)) {
+          const toolNames = (msg.content as Array<{ type: string; name?: string }>)
+            .filter(block => block.type === 'tool_use')
+            .map(block => block.name)
+            .filter(Boolean);
+          if (toolNames.length > 0) {
+            entry.toolName = toolNames.join(', ');
           }
         }
+
+        // Extract tool result count from tool_result blocks (user messages with results)
+        if (msg.role === 'user' && Array.isArray(msg.content)) {
+          const resultCount = (msg.content as Array<{ type: string }>)
+            .filter(block => block.type === 'tool_result')
+            .length;
+          if (resultCount > 0) {
+            entry.toolName = `results:${resultCount}`;
+          }
+        }
+
         convMessages.push(entry);
       }
     }

@@ -2590,6 +2590,28 @@ async function executeRoutePipeline(
           const toolUseBlocks = response.contentBlocks.filter(
             (b): b is AIToolUseBlock => b.type === 'tool_use',
           );
+
+          // Log Claude's reasoning from the response (text blocks alongside tool_use)
+          const reasoningText = response.contentBlocks
+            .filter((b): b is AITextBlock => b.type === 'text')
+            .map((b) => b.text)
+            .join('\n')
+            .trim();
+
+          if (reasoningText) {
+            appLog.info(
+              `Agentic reasoning (iteration ${i + 1}): ${reasoningText.slice(0, 200)}`,
+              {
+                ticketId,
+                iteration: i + 1,
+                reasoning: reasoningText.slice(0, 2000),
+                toolsRequested: toolUseBlocks.map(t => t.name),
+              },
+              ticketId,
+              'ticket',
+            );
+          }
+
           const toolResults: Array<{ type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }> = [];
 
           for (const toolUse of toolUseBlocks) {
@@ -2609,7 +2631,20 @@ async function executeRoutePipeline(
               content: result.result,
               ...(result.isError ? { is_error: true } : {}),
             });
-            appLog.info(`Agentic tool call: ${toolUse.name} (${elapsed}ms)`, { ticketId, tool: toolUse.name, durationMs: elapsed }, ticketId, 'ticket');
+            appLog.info(
+              `Agentic tool call: ${toolUse.name} (${elapsed}ms)`,
+              {
+                ticketId,
+                tool: toolUse.name,
+                durationMs: elapsed,
+                iteration: i + 1,
+                params: toolUse.input ? JSON.stringify(toolUse.input).slice(0, 1000) : null,
+                resultPreview: result.result?.slice(0, 2000) ?? null,
+                isError: result.isError ?? false,
+              },
+              ticketId,
+              'ticket',
+            );
           }
 
           // Append tool results as user message
