@@ -109,8 +109,9 @@ model Operator {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  assignedTickets Ticket[]
-  approvedJobs    IssueJob[] @relation("ApprovedByOperator")
+  assignedTickets    Ticket[]
+  approvedJobs       IssueJob[] @relation("ApprovedByOperator")
+  slackConversations SlackConversationLog[]
 
   @@map("operators")
 }
@@ -132,6 +133,7 @@ model Client {
   billingMarkupPercent Float    @default(1.0) @map("billing_markup_percent")
   billingPeriod        String   @default("disabled") @map("billing_period")
   billingAnchorDay     Int      @default(1) @map("billing_anchor_day")
+  slackChannelId       String?  @map("slack_channel_id")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
@@ -154,6 +156,7 @@ model Client {
   aiCredentials       ClientAiCredential[]
   ingestionRuns       IngestionRun[]
   emailProcessingLogs EmailProcessingLog[]
+  slackConversations  SlackConversationLog[]
 
   @@map("clients")
 }
@@ -1552,6 +1555,33 @@ model PendingAction {
   @@index([ticketId])
   @@index([status])
   @@map("pending_actions")
+}
+
+// --- Slack Conversation Logs (Hugo bot conversation persistence) ---
+
+model SlackConversationLog {
+  id                String   @id @default(uuid()) @db.Uuid
+  operatorId        String   @map("operator_id") @db.Uuid
+  channelId         String   @map("channel_id")
+  threadTs          String   @map("thread_ts")
+  clientId          String?  @map("client_id") @db.Uuid
+  messages          Json
+  toolCalls         Json?    @map("tool_calls")
+  totalCost         Float?   @map("total_cost")
+  totalInputTokens  Int?     @map("total_input_tokens")
+  totalOutputTokens Int?     @map("total_output_tokens")
+  messageCount      Int      @default(0) @map("message_count")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  operator Operator @relation(fields: [operatorId], references: [id])
+  client   Client?  @relation(fields: [clientId], references: [id])
+
+  @@unique([channelId, threadTs])
+  @@index([operatorId])
+  @@index([clientId])
+  @@index([createdAt])
+  @@map("slack_conversation_logs")
 }
 
 // --- App Settings (key-value JSON store for app-wide configuration) ---

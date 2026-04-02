@@ -259,6 +259,85 @@ services:
       retries: 3
       start_period: 10s
 
+  slack-worker:
+    image: ${SLACK_WORKER_IMAGE:-ghcr.io/siir/bronco/slack-worker:latest}
+    build:
+      context: .
+      dockerfile: services/slack-worker/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mcp-platform:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://bronco:${POSTGRES_PASSWORD_URLENCODED}@postgres:5432/bronco
+      REDIS_URL: redis://redis:6379
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      HEALTH_PORT: "3108"
+      MCP_PLATFORM_URL: http://mcp-platform:3110
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3108/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  scheduler-worker:
+    image: ${SCHEDULER_WORKER_IMAGE:-ghcr.io/siir/bronco/scheduler-worker:latest}
+    build:
+      context: .
+      dockerfile: services/scheduler-worker/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://bronco:${POSTGRES_PASSWORD_URLENCODED}@postgres:5432/bronco
+      REDIS_URL: redis://redis:6379
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      HEALTH_PORT: "3109"
+      INVOICE_STORAGE_PATH: /var/lib/scheduler/invoices
+    volumes:
+      - scheduler_invoices:/var/lib/scheduler/invoices
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3109/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  mcp-platform:
+    image: ${MCP_PLATFORM_IMAGE:-ghcr.io/siir/bronco/mcp-platform:latest}
+    build:
+      context: .
+      dockerfile: mcp-servers/platform/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://bronco:${POSTGRES_PASSWORD_URLENCODED}@postgres:5432/bronco
+      REDIS_URL: redis://redis:6379
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      API_KEY: ${API_KEY}
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-}
+      COPILOT_API_URL: http://copilot-api:3000
+      PORT: "3110"
+      LOG_LEVEL: info
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3110/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   # Caddy reverse proxy + static file server for Angular control panel
   caddy:
     image: ${CONTROL_PANEL_IMAGE:-ghcr.io/siir/bronco/control-panel:latest}
@@ -292,5 +371,6 @@ volumes:
   ticket_analyzer_repos:  # Cached bare repo clones for ticket analysis
   issue_resolver_repos:   # Cached repo clones for issue resolver
   copilot_invoices:       # Generated PDF invoices
+  scheduler_invoices:     # Generated PDF invoices (scheduler-worker)
   caddy_data:
   caddy_config:

@@ -48,6 +48,10 @@ export const routes: Routes = [
         loadComponent: () => import('./features/email-logs/email-log.component').then(m => m.EmailLogComponent),
       },
       {
+        path: 'slack-conversations',
+        loadComponent: () => import('./features/slack-conversations/slack-conversations.component').then(m => m.SlackConversationsComponent),
+      },
+      {
         path: 'ai-usage',
         loadComponent: () => import('./features/ai-usage/ai-usage.component').then(m => m.AiUsageComponent),
       },

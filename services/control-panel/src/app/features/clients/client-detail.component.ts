@@ -79,6 +79,17 @@ import { AiUsageService, type AiUsageClientSummary, type AiUsageLogEntry } from 
         <p class="notes">{{ c.notes }}</p>
       }
 
+      <div class="slack-channel-row">
+        <mat-form-field class="slack-channel-field">
+          <mat-label>Slack Channel ID</mat-label>
+          <input matInput [ngModel]="c.slackChannelId ?? ''" (ngModelChange)="pendingSlackChannelId = $event" placeholder="C0AQ0ELLGCV">
+          <mat-hint>Right-click channel in Slack → View channel details → scroll to bottom</mat-hint>
+        </mat-form-field>
+        <button mat-stroked-button (click)="saveSlackChannelId(c)" [disabled]="pendingSlackChannelId === undefined">
+          <mat-icon>save</mat-icon> Save
+        </button>
+      </div>
+
       <mat-tab-group [selectedIndex]="selectedTab()" (selectedTabChange)="onTabChange($event.index)">
         <mat-tab label="Systems">
           <div class="tab-content">
@@ -606,6 +617,8 @@ import { AiUsageService, type AiUsageClientSummary, type AiUsageLogEntry } from 
     .code-chip { font-size: 12px; padding: 2px 8px; background: #e8eaf6; border-radius: 4px; color: #3f51b5; font-family: monospace; }
     .domains { color: #555; font-family: monospace; font-size: 13px; margin-bottom: 4px; }
     .notes { color: #666; margin-bottom: 16px; }
+    .slack-channel-row { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
+    .slack-channel-field { width: 320px; }
     .tab-content { padding: 16px 0; }
     .tab-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
     .tab-header h3 { margin: 0; }
@@ -698,6 +711,7 @@ export class ClientDetailComponent implements OnInit {
   aiUsageTotal = signal(0);
   aiUsageTotalPages = signal(1);
   selectedTab = signal(0);
+  pendingSlackChannelId: string | undefined;
 
   systemColumns = ['name', 'dbEngine', 'host', 'environment', 'status'];
   contactColumns = ['name', 'email', 'role', 'isPrimary', 'actions'];
@@ -792,6 +806,19 @@ export class ClientDetailComponent implements OnInit {
   toggleAutoRoute(c: Client): void {
     this.clientService.updateClient(c.id, { autoRouteTickets: !c.autoRouteTickets }).subscribe(updated => {
       this.client.set({ ...c, autoRouteTickets: updated.autoRouteTickets });
+    });
+  }
+
+  saveSlackChannelId(c: Client): void {
+    const value = this.pendingSlackChannelId;
+    if (value === undefined) return;
+    this.clientService.updateClient(c.id, { slackChannelId: value || null } as Partial<Client>).subscribe({
+      next: (updated) => {
+        this.client.set({ ...c, slackChannelId: updated.slackChannelId });
+        this.pendingSlackChannelId = undefined;
+        this.snackBar.open('Slack Channel ID saved', 'OK', { duration: 3000 });
+      },
+      error: () => this.snackBar.open('Failed to save Slack Channel ID', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
     });
   }
 

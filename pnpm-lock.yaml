@@ -55,6 +55,43 @@ importers:
         specifier: ^5.5.0
         version: 5.9.3
 
+  mcp-servers/platform:
+    dependencies:
+      '@bronco/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@bronco/shared-types':
+        specifier: workspace:*
+        version: link:../../packages/shared-types
+      '@bronco/shared-utils':
+        specifier: workspace:*
+        version: link:../../packages/shared-utils
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.0.0
+        version: 1.26.0(zod@3.25.76)
+      bullmq:
+        specifier: ^5.0.0
+        version: 5.69.3
+      express:
+        specifier: ^4.21.0
+        version: 4.22.1
+      zod:
+        specifier: ^3.23.0
+        version: 3.25.76
+    devDependencies:
+      '@types/express':
+        specifier: ^5.0.0
+        version: 5.0.6
+      '@types/node':
+        specifier: ^25.3.0
+        version: 25.3.0
+      tsx:
+        specifier: ^4.0.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.5.0
+        version: 5.7.3
+
   packages/ai-provider:
     dependencies:
       '@anthropic-ai/sdk':
@@ -438,6 +475,86 @@ importers:
       '@types/node-cron':
         specifier: ^3.0.0
         version: 3.0.11
+      tsx:
+        specifier: ^4.0.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.5.0
+        version: 5.7.3
+
+  services/scheduler-worker:
+    dependencies:
+      '@bronco/ai-provider':
+        specifier: workspace:*
+        version: link:../../packages/ai-provider
+      '@bronco/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@bronco/shared-types':
+        specifier: workspace:*
+        version: link:../../packages/shared-types
+      '@bronco/shared-utils':
+        specifier: workspace:*
+        version: link:../../packages/shared-utils
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.26.0
+        version: 1.26.0(zod@3.25.76)
+      bullmq:
+        specifier: ^5.0.0
+        version: 5.69.3
+      cron-parser:
+        specifier: ^4.9.0
+        version: 4.9.0
+      pdfkit:
+        specifier: ^0.15.0
+        version: 0.15.2
+      zod:
+        specifier: ^3.23.0
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^25.3.0
+        version: 25.3.0
+      '@types/pdfkit':
+        specifier: ^0.13.0
+        version: 0.13.9
+      tsx:
+        specifier: ^4.0.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.5.0
+        version: 5.7.3
+
+  services/slack-worker:
+    dependencies:
+      '@bronco/ai-provider':
+        specifier: workspace:*
+        version: link:../../packages/ai-provider
+      '@bronco/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@bronco/shared-types':
+        specifier: workspace:*
+        version: link:../../packages/shared-types
+      '@bronco/shared-utils':
+        specifier: workspace:*
+        version: link:../../packages/shared-utils
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.26.0
+        version: 1.26.0(zod@3.25.76)
+      bullmq:
+        specifier: ^5.0.0
+        version: 5.69.3
+      ioredis:
+        specifier: ^5.0.0
+        version: 5.9.2
+      zod:
+        specifier: ^3.23.0
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^25.3.0
+        version: 25.3.0
       tsx:
         specifier: ^4.0.0
         version: 4.21.0

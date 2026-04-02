@@ -9,8 +9,9 @@ AI-augmented database and software architecture operations platform. Single-oper
 - **Monorepo**: pnpm workspaces. Shared packages in `packages/`, services in `services/`, MCP servers in `mcp-servers/`.
 - **Control plane DB**: PostgreSQL (Prisma ORM). Schema at `packages/db/prisma/schema.prisma`.
 - **Client databases**: Azure SQL Managed Instances (primary, SQL cred auth), on-prem SQL Server (future clients). Connected via MCP database server (Node.js/Express) running on Hugo in Docker Compose. The MCP server reads system configs directly from the control plane Postgres `System` table and decrypts passwords using `ENCRYPTION_KEY`.
+- **MCP Platform Server**: Exposes all Bronco platform operations (tickets, clients, contacts, probes, AI usage, etc.) as MCP tools. Uses Prisma directly (no HTTP hop to copilot-api). Runs on Hugo in Docker Compose (port 3110).
 - **AI routing**: Local Ollama for triage/categorize/summarize/extract; Claude API for deep analysis, code review, architecture review, bug analysis, schema review, feature analysis.
-- **Hugo** (control plane VM): Ubuntu 24.04 LTS on ESXi NUC. Runs copilot-api (Fastify), imap-worker, ticket-analyzer, devops-worker, issue-resolver, status-monitor, mcp-database, Postgres, Redis, Caddy via Docker Compose.
+- **Hugo** (control plane VM): Ubuntu 24.04 LTS on ESXi NUC. Runs copilot-api (Fastify), imap-worker, ticket-analyzer, devops-worker, issue-resolver, status-monitor, slack-worker, scheduler-worker, mcp-database, mcp-platform, Postgres, Redis, Caddy via Docker Compose.
 - **Mac mini (siiriaplex)**: Runs Ollama for local LLM inference.
 - **CI/CD**: GitHub Actions — CI runs on push to `staging` (typecheck + build), not on every PR update. Feature branches PR into `staging`; staging PRs into `master`. Pushes to `master` that change app-relevant paths (packages/, services/, mcp-servers/, docker-compose.yml, lockfile) auto-tag a semver release (`tag-release.yml`), which triggers deploy-hugo (GHCR + SSH via Tailscale). Docs-only or workflow-only changes do not trigger a release or deploy. To bump major/minor, push a tag manually before merging staging → master.
 
@@ -26,6 +27,7 @@ AI-augmented database and software architecture operations platform. Single-oper
 - Pino logging via `createLogger(name)` from shared-utils. Writes to stderr.
 - The `encrypt`/`decrypt` AES-256-GCM utilities in shared-utils are used for storing IMAP passwords, AI provider API keys, MCP server API keys, and SQL Server credentials (system passwords) in the control plane DB. The MCP database server decrypts system passwords at runtime using `ENCRYPTION_KEY`.
 - ESM throughout. Use `.js` extensions in relative imports (TypeScript resolves these).
+- **MCP Platform Server Sync**: When adding or modifying a copilot-api route, also add or update the corresponding MCP tool in `mcp-servers/platform/src/tools/`. Every API operation should be accessible via both REST and MCP.
 
 ## MCP Server Extensibility
 
@@ -295,8 +297,11 @@ pnpm dev:worker           # Start imap-worker
 pnpm dev:analyzer         # Start ticket-analyzer worker
 pnpm dev:devops           # Start devops-worker (Azure DevOps sync)
 pnpm dev:mcp-db           # Start MCP database server (Express, port 3100, needs DATABASE_URL + ENCRYPTION_KEY)
+pnpm dev:mcp-platform     # Start MCP platform server (Express, port 3110, needs DATABASE_URL + ENCRYPTION_KEY + REDIS_URL)
 pnpm dev:resolver         # Start issue-resolver worker
 pnpm dev:status-monitor   # Start system status monitor
+pnpm dev:slack            # Start slack-worker (Slack Socket Mode connections)
+pnpm dev:scheduler        # Start scheduler-worker (cron jobs, alerts, invoicing)
 pnpm dev:panel            # Start control panel (Angular, port 4200)
 pnpm dev:portal           # Start ticket portal (Angular, port 4201)
 ```
@@ -311,6 +316,7 @@ pnpm dev:portal           # Start ticket portal (Angular, port 4201)
 | `mcp-servers/database/src/systems-loader.ts` | Loads active systems from Postgres, decrypts passwords. |
 | `mcp-servers/database/src/connections/pool-manager.ts` | Connection factory with extensibility guide. |
 | `mcp-servers/database/src/tools/index.ts` | MCP tool registration (Zod schemas + handlers). |
+| `mcp-servers/platform/src/tools/index.ts` | MCP platform tool registration (all Bronco API operations). |
 | `mcp-servers/database/src/security/query-validator.ts` | SQL keyword blocklist. |
 | `mcp-servers/database/src/security/audit-logger.ts` | Query audit logging (Pino structured JSON to stdout). |
 | `packages/ai-provider/src/router.ts` | AI task routing (dynamic provider/model resolution via ModelConfigResolver). |
@@ -345,13 +351,15 @@ pnpm dev:portal           # Start ticket portal (Angular, port 4201)
 | `services/ticket-analyzer/src/ingestion-tracker.ts` | `IngestionRunTracker` — records per-step status, timing, and output to `ingestion_runs`/`ingestion_run_steps` DB tables. |
 | `services/copilot-api/src/routes/failed-jobs.ts` | Failed job management API: list, retry (single/all), discard (single/all) across all BullMQ queues. |
 | `services/copilot-api/src/routes/email-logs.ts` | Email processing log API: list/filter logs, stats summary, retry and reclassify endpoints. |
+| `services/slack-worker/src/index.ts` | Slack worker entry: system + per-client Slack Socket Mode connections, interaction handlers. |
+| `services/scheduler-worker/src/index.ts` | Scheduler worker entry: BullMQ cron workers (log-summarize, system-analysis, mcp-discovery, model-catalog-refresh, prompt-retention), auto-invoicing, operational alerts. |
 
 ## Adding a New Service or Worker
 
 Every new service or worker **must** integrate with the operational infrastructure before it ships. Follow this checklist:
 
 ### Health & Monitoring
-1. **Health endpoint** — Use `createHealthServer(name, port, { getDetails })` from shared-utils. Pick the next available `HEALTH_PORT` (current: imap-worker=3101, devops-worker=3102, issue-resolver=3103, status-monitor=3105, ticket-analyzer=3106, probe-worker=3107). Note: copilot-api uses port 3000 for its API server with a `/api/health` route, not a separate health port.
+1. **Health endpoint** — Use `createHealthServer(name, port, { getDetails })` from shared-utils. Pick the next available `HEALTH_PORT` (current: imap-worker=3101, devops-worker=3102, issue-resolver=3103, status-monitor=3105, ticket-analyzer=3106, probe-worker=3107, slack-worker=3108, scheduler-worker=3109, mcp-platform=3110). Note: copilot-api uses port 3000 for its API server with a `/api/health` route, not a separate health port. MCP servers use their main Express port for `/health`.
 2. **Structured logging** — Use `createLogger(name)` from shared-utils (Pino, writes to stderr).
 3. **Zod config** — Validate all env vars via `loadConfig(schema)` from shared-utils.
 

@@ -50,12 +50,15 @@ jobs:
             [status-monitor]="services/status-monitor/Dockerfile"
             [control-panel]="services/control-panel/Dockerfile"
             [mcp-database]="mcp-servers/database/Dockerfile"
+            [mcp-platform]="mcp-servers/platform/Dockerfile"
+            [slack-worker]="services/slack-worker/Dockerfile"
+            [scheduler-worker]="services/scheduler-worker/Dockerfile"
           )
 
-          ALL_SERVICES=(copilot-api imap-worker ticket-analyzer probe-worker devops-worker issue-resolver status-monitor control-panel mcp-database)
+          ALL_SERVICES=(copilot-api imap-worker ticket-analyzer probe-worker devops-worker issue-resolver status-monitor control-panel mcp-database mcp-platform slack-worker scheduler-worker)
 
           # ai-provider dependents (not all services)
-          AI_PROVIDER_DEPENDENTS=(copilot-api imap-worker ticket-analyzer probe-worker issue-resolver devops-worker)
+          AI_PROVIDER_DEPENDENTS=(copilot-api imap-worker ticket-analyzer probe-worker issue-resolver devops-worker slack-worker scheduler-worker)
 
           build_matrix() {
             local svcs=("$@")
