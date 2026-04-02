@@ -109,6 +109,10 @@ const MOBILE_BREAKPOINT = '(max-width: 767px)';
               <mat-icon matListItemIcon>email</mat-icon>
               <span matListItemTitle>Email Log</span>
             </a>
+            <a mat-list-item routerLink="/slack-conversations" routerLinkActive="active" (click)="onNavClick()">
+              <mat-icon matListItemIcon>chat</mat-icon>
+              <span matListItemTitle>Slack Conversations</span>
+            </a>
             <a mat-list-item routerLink="/clients" routerLinkActive="active" (click)="onNavClick()">
               <mat-icon matListItemIcon>business</mat-icon>
               <span matListItemTitle>Clients</span>

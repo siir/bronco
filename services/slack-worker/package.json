@@ -15,7 +15,9 @@
     "@bronco/db": "workspace:*",
     "@bronco/shared-types": "workspace:*",
     "@bronco/shared-utils": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "bullmq": "^5.0.0",
+    "ioredis": "^5.0.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {

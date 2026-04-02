@@ -12,6 +12,7 @@ import { registerIntegrationTools } from './integrations.js';
 import { registerClientMemoryTools } from './client-memory.js';
 import { registerSettingsTools } from './settings.js';
 import { registerSystemStatusTools } from './system-status.js';
+import { registerSlackConversationTools } from './slack-conversations.js';
 
 export function registerAllTools(server: McpServer, deps: ServerDeps): void {
   registerTicketTools(server, deps);
@@ -26,4 +27,5 @@ export function registerAllTools(server: McpServer, deps: ServerDeps): void {
   registerClientMemoryTools(server, deps);
   registerSettingsTools(server, deps);
   registerSystemStatusTools(server, deps);
+  registerSlackConversationTools(server, deps);
 }

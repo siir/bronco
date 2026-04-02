@@ -1,9 +1,13 @@
 import type { PrismaClient } from '@bronco/db';
+import type { AIRouter } from '@bronco/ai-provider';
 import type { Queue } from 'bullmq';
 import type { SlackClient, SlackBlockAction, SlackThreadMessage, SlackMentionEvent, SlackDirectMessageEvent } from '@bronco/shared-utils';
 import { createLogger } from '@bronco/shared-utils';
+import type { Redis } from 'ioredis';
 import { lookupThread, storeThread } from './slack-thread-store.js';
 import type { SlackThreadEntry } from './slack-thread-store.js';
+import { handleHugoConversation } from './hugo-conversation.js';
+import type { Config } from './config.js';
 
 const logger = createLogger('slack-action-handler');
 
@@ -17,6 +21,9 @@ export interface SlackActionHandlerDeps {
   db: PrismaClient;
   slack: SlackClient;
   issueResolveQueue: Queue;
+  ai: AIRouter;
+  config: Config;
+  redis: Redis;
 }
 
 /**
@@ -542,43 +549,97 @@ export function createBlockActionHandler(deps: SlackActionHandlerDeps) {
 }
 
 /**
- * Create the thread message handler for capturing replies as ticket comments.
+ * Create the thread message handler.
+ * If the thread belongs to an active Hugo conversation (Redis key exists), route
+ * to the Hugo conversational AI handler.  Otherwise fall back to the ticket-comment
+ * capture path.
  */
 export function createThreadMessageHandler(deps: SlackActionHandlerDeps) {
   return async (message: SlackThreadMessage): Promise<void> => {
+    // Check whether a Hugo conversation context exists in Redis for this thread.
+    // If so, route to the AI handler rather than treating it as a ticket comment.
+    const hugoKey = `hugo:thread:${message.channelId}:${message.threadTs}`;
+    const hasHugoContext = await deps.redis.exists(hugoKey);
+    if (hasHugoContext) {
+      logger.info(
+        { channelId: message.channelId, threadTs: message.threadTs },
+        'Thread reply routed to Hugo conversation (existing context)',
+      );
+      try {
+        await handleHugoConversation(
+          { db: deps.db, ai: deps.ai, slack: deps.slack, config: deps.config, redis: deps.redis },
+          message.channelId,
+          message.userId,
+          message.text,
+          message.ts,
+          message.threadTs,
+        );
+      } catch (err) {
+        logger.error({ err, channelId: message.channelId }, 'Hugo thread conversation handler failed');
+        await deps.slack.replyInThread(
+          message.channelId,
+          message.ts,
+          'Sorry, I ran into an unexpected error. Please try again.',
+        );
+      }
+      return;
+    }
+
     await handleThreadedReply(deps, message);
   };
 }
 
 /**
  * Create the mention handler for @mentions in channels.
+ * Routes messages to the Hugo conversational AI handler.
  */
 export function createMentionHandler(deps: SlackActionHandlerDeps) {
   return async (event: SlackMentionEvent): Promise<void> => {
     logger.info({ userId: event.userId, channelId: event.channelId }, 'Slack @mention received');
     await deps.slack.addReaction(event.channelId, event.ts, 'eyes');
 
-    // Strip the bot mention from the text (Slack includes "<@BOT_ID> " prefix)
-    const cleanText = event.text.replace(/^<@[A-Z0-9]+>\s*/, '').trim();
-
-    await deps.slack.replyInThread(
-      event.channelId,
-      event.ts,
-      `Hi <@${event.userId}>! I received your message: "${cleanText}"\n\nI'm the Bronco support bot. I'll notify you here when tickets need attention, plans are ready for approval, or analysis is complete.`,
-    );
+    try {
+      await handleHugoConversation(
+        { db: deps.db, ai: deps.ai, slack: deps.slack, config: deps.config, redis: deps.redis },
+        event.channelId,
+        event.userId,
+        event.text,
+        event.ts,
+      );
+    } catch (err) {
+      logger.error({ err, channelId: event.channelId }, 'Hugo conversation handler failed');
+      await deps.slack.replyInThread(
+        event.channelId,
+        event.ts,
+        'Sorry, I ran into an unexpected error processing your request. Please try again.',
+      );
+    }
   };
 }
 
 /**
  * Create the direct message handler for top-level DMs.
+ * Routes messages to the Hugo conversational AI handler (no channel → client mapping in DMs).
  */
 export function createDirectMessageHandler(deps: SlackActionHandlerDeps) {
   return async (event: SlackDirectMessageEvent): Promise<void> => {
     logger.info({ userId: event.userId, channelId: event.channelId }, 'Slack DM received');
-    await deps.slack.sendMessage(
-      event.channelId,
-      `Hi! I'm Hugo, the Bronco support bot. Here's what I can do:\n\n• Send you notifications when tickets need attention\n• Alert you when resolution plans are ready for approval\n• Share analysis findings and suggested next steps\n\nYou'll receive messages here automatically based on your notification preferences. You can also reply in notification threads to add comments to tickets.`,
-    );
+
+    try {
+      await handleHugoConversation(
+        { db: deps.db, ai: deps.ai, slack: deps.slack, config: deps.config, redis: deps.redis },
+        event.channelId,
+        event.userId,
+        event.text,
+        event.ts,
+      );
+    } catch (err) {
+      logger.error({ err, channelId: event.channelId }, 'Hugo DM conversation handler failed');
+      await deps.slack.sendMessage(
+        event.channelId,
+        'Sorry, I ran into an unexpected error processing your request. Please try again.',
+      );
+    }
   };
 }
 
