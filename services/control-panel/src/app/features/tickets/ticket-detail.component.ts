@@ -121,10 +121,26 @@ interface FlowNode {
             @if (t.client) { <p><strong>Client:</strong> {{ t.client.name }}</p> }
           </div>
         </mat-tab>
-        @if (t.knowledgeDoc) {
+        @if (t.knowledgeDoc || editingKnowledgeDoc()) {
           <mat-tab label="Knowledge">
             <div class="tab-content knowledge-doc">
-              <div [innerHTML]="t.knowledgeDoc | markdown"></div>
+              @if (editingKnowledgeDoc()) {
+                <textarea class="knowledge-editor" [(ngModel)]="knowledgeDocDraft" rows="20"></textarea>
+                <div class="knowledge-actions">
+                  <button mat-raised-button color="primary" (click)="saveKnowledgeDoc()">Save</button>
+                  <button mat-stroked-button (click)="cancelEditKnowledgeDoc()">Cancel</button>
+                </div>
+              } @else {
+                <div class="knowledge-actions">
+                  <button mat-stroked-button (click)="startEditKnowledgeDoc()">
+                    <mat-icon>edit</mat-icon> Edit
+                  </button>
+                  <button mat-stroked-button color="warn" (click)="clearKnowledgeDoc()">
+                    <mat-icon>delete</mat-icon> Clear
+                  </button>
+                </div>
+                <div [innerHTML]="t.knowledgeDoc | markdown"></div>
+              }
             </div>
           </mat-tab>
         }
@@ -1044,6 +1060,10 @@ interface FlowNode {
     .breakdown-chip { display: flex; align-items: center; gap: 4px; }
     .model-name-sm { font-size: 10px; background: #f5f5f5; padding: 1px 4px; border-radius: 3px; }
 
+    /* Knowledge doc editing */
+    .knowledge-editor { width: 100%; font-family: monospace; font-size: 13px; padding: 12px; border: 1px solid #ccc; border-radius: 6px; resize: vertical; box-sizing: border-box; }
+    .knowledge-actions { display: flex; gap: 8px; margin-bottom: 12px; }
+
     .add-comment { margin-bottom: 24px; }
     .full-width { width: 100%; }
     .empty { color: #999; padding: 16px; text-align: center; }
@@ -1071,6 +1091,8 @@ export class TicketDetailComponent implements OnInit {
   ticketCost = signal<TicketCostResponse | null>(null);
   generatingLogs = signal(false);
   reanalyzing = signal(false);
+  editingKnowledgeDoc = signal(false);
+  knowledgeDocDraft = '';
   newComment = '';
   descExpanded = false;
   costDetailsExpanded = false;
@@ -1351,6 +1373,40 @@ export class TicketDetailComponent implements OnInit {
         this.load();
       },
       error: () => this.snackBar.open(`Failed to update ${field}`, 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+    });
+  }
+
+  startEditKnowledgeDoc(): void {
+    this.knowledgeDocDraft = this.ticket()?.knowledgeDoc ?? '';
+    this.editingKnowledgeDoc.set(true);
+  }
+
+  cancelEditKnowledgeDoc(): void {
+    this.editingKnowledgeDoc.set(false);
+    this.knowledgeDocDraft = '';
+  }
+
+  saveKnowledgeDoc(): void {
+    const doc = this.knowledgeDocDraft.trim() || null;
+    this.ticketService.updateKnowledgeDoc(this.id(), doc).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => {
+        this.editingKnowledgeDoc.set(false);
+        this.knowledgeDocDraft = '';
+        this.snackBar.open('Knowledge doc updated', 'OK', { duration: 3000 });
+        this.load();
+      },
+      error: () => this.snackBar.open('Failed to update knowledge doc', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+    });
+  }
+
+  clearKnowledgeDoc(): void {
+    if (!confirm('This will remove all investigation history. Continue?')) return;
+    this.ticketService.updateKnowledgeDoc(this.id(), null).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => {
+        this.snackBar.open('Knowledge doc cleared', 'OK', { duration: 3000 });
+        this.load();
+      },
+      error: () => this.snackBar.open('Failed to clear knowledge doc', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
     });
   }
 

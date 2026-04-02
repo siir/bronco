@@ -1916,6 +1916,8 @@ When you have enough information to provide a final analysis, set "done": true a
 
 Include sufficiency evaluation in your final analysis using the ---SUFFICIENCY--- format.
 
+Prior analysis runs (if any) are shown above the current run header for historical context. Focus your investigation on the current run. Reference prior findings if relevant but don't repeat work already done.
+
 Note: Full raw tool results from all prior iterations are stored and available. If you need to review specific raw data, you can request it in a task prompt.`;
 
 interface StrategistPlan {
@@ -2733,7 +2735,13 @@ async function executeRoutePipeline(
             }
           }
           const orchMaxIterations = maxIterations;
-          let knowledgeDoc = ticket.knowledgeDoc ?? '';
+          const existingDoc = ticket.knowledgeDoc ?? '';
+          const runTimestamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
+          const runNumber = (existingDoc.match(/## Analysis Run \d+/g) ?? []).length + 1;
+
+          let knowledgeDoc = existingDoc
+            ? `${existingDoc}\n\n---\n\n## Analysis Run ${runNumber} (Re-analysis) — ${runTimestamp}\n`
+            : `## Analysis Run 1 — ${runTimestamp}\n`;
           let orchNextPrompt = '';
           let orchIterationsRun = 0;
           let orchFinalAnalysis = '';
@@ -2760,13 +2768,36 @@ async function executeRoutePipeline(
           const toolListSection = `\n## Available Tools\n${availableToolNames.join(', ')}`;
           contextParts.push(toolListSection);
 
+          // Build truncated prior-run context for the strategist prompt (max 2000 chars)
+          const currentRunHeader = runNumber > 1
+            ? `## Analysis Run ${runNumber} (Re-analysis) — ${runTimestamp}\n`
+            : `## Analysis Run 1 — ${runTimestamp}\n`;
+          let priorRunsContext = '';
+          if (existingDoc) {
+            priorRunsContext = existingDoc.length > 2000
+              ? `[Prior analysis truncated — full history available in the Knowledge tab]\n\n…${existingDoc.slice(-2000)}`
+              : existingDoc;
+          }
+
           for (let i = 0; i < orchMaxIterations; i++) {
             orchIterationsRun = i + 1;
             appLog.info(`Orchestrated analysis iteration ${i + 1}/${orchMaxIterations}`, { ticketId, iteration: i + 1 }, ticketId, 'ticket');
 
-            const strategistPrompt = i === 0
-              ? `Investigate this ticket. Here is the full context:\n\n${contextParts.join('\n')}`
-              : `Continue the investigation. Here is the knowledge document so far:\n\n${knowledgeDoc}\n\n## Next Investigation Step\n${orchNextPrompt}`;
+            // Extract only the current run content (after the run header) for the strategist
+            const currentRunStart = knowledgeDoc.lastIndexOf(currentRunHeader);
+            const currentRunContent = currentRunStart >= 0
+              ? knowledgeDoc.slice(currentRunStart)
+              : knowledgeDoc;
+
+            let strategistPrompt: string;
+            if (i === 0) {
+              const priorNote = priorRunsContext
+                ? `\n\n## Prior Analysis Runs (for context)\n${priorRunsContext}\n\n---\n\n`
+                : '';
+              strategistPrompt = `Investigate this ticket. Here is the full context:\n\n${contextParts.join('\n')}${priorNote}`;
+            } else {
+              strategistPrompt = `Continue the investigation. Here is the knowledge document so far:\n\n${currentRunContent}\n\n## Next Investigation Step\n${orchNextPrompt}`;
+            }
 
             const strategistResponse = await ai.generate({
               taskType: (step.taskTypeOverride ?? TaskType.DEEP_ANALYSIS) as TaskType,

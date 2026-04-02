@@ -225,6 +225,10 @@ export class TicketService {
   dismissPendingAction(ticketId: string, actionId: string): Observable<PendingAction> {
     return this.api.post<PendingAction>(`/tickets/${ticketId}/pending-actions/${actionId}/dismiss`, {});
   }
+
+  updateKnowledgeDoc(ticketId: string, knowledgeDoc: string | null): Observable<Ticket> {
+    return this.api.patch<Ticket>(`/tickets/${ticketId}`, { knowledgeDoc });
+  }
 }
 
 export interface AiHelpResponse {
