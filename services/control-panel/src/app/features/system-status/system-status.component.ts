@@ -754,6 +754,7 @@ export class SystemStatusComponent implements OnInit, OnDestroy {
       'MCP Database': 'mcp-database',
       'Slack Worker': 'slack-worker',
       'Scheduler Worker': 'scheduler-worker',
+      'MCP Platform': 'mcp-platform',
       'Caddy (Reverse Proxy)': 'caddy',
     };
     return map[name] ?? name.toLowerCase().replace(/\s+/g, '-');
