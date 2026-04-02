@@ -1946,22 +1946,29 @@ function parseStrategistResponse(content: string): StrategistPlan {
       done: parsed['done'] === true,
       finalAnalysis: typeof parsed['finalAnalysis'] === 'string' ? parsed['finalAnalysis'] : undefined,
     };
-  } catch {
-    // If JSON parse fails, treat the whole response as findings with no tasks
+  } catch (error) {
+    logger.warn(
+      { err: error, contentPreview: content.slice(0, 500) },
+      'Failed to parse strategist JSON response; returning fallback plan',
+    );
     return {
       findings: content,
       tasks: [],
       nextPrompt: null,
-      done: true,
-      finalAnalysis: content,
+      done: false,
+      finalAnalysis: undefined,
     };
   }
 }
 
 function chunkArray<T>(arr: T[], size: number): T[][] {
+  const normalizedSize = Number.isFinite(size) ? Math.floor(size) : NaN;
+  if (!Number.isFinite(normalizedSize) || normalizedSize <= 0) {
+    throw new Error(`chunkArray size must be a positive integer, got: ${size}`);
+  }
   const chunks: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) {
-    chunks.push(arr.slice(i, i + size));
+  for (let i = 0; i < arr.length; i += normalizedSize) {
+    chunks.push(arr.slice(i, i + normalizedSize));
   }
   return chunks;
 }
@@ -2006,7 +2013,7 @@ async function executeOrchestratedSubTask(
     // Single-pass tool call: generate with tools, execute any calls, return combined result
     const response = await ai.generateWithTools({
       taskType: TaskType.DEEP_ANALYSIS,
-      context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!clientContext },
+      context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: false },
       messages: [{ role: 'user', content: task.prompt }],
       tools: taskTools,
       systemPrompt: 'Execute the requested investigation step. Call the relevant tools, analyze the results, and return a structured summary of your findings.',
@@ -2048,7 +2055,7 @@ async function executeOrchestratedSubTask(
       // Send tool results back for a summary response
       const summaryResponse = await ai.generateWithTools({
         taskType: TaskType.DEEP_ANALYSIS,
-        context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!clientContext },
+        context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: false },
         messages: [
           { role: 'user', content: task.prompt },
           { role: 'assistant', content: response.contentBlocks },
@@ -2084,7 +2091,7 @@ async function executeOrchestratedSubTask(
   // No tools — pure analysis
   const response = await ai.generate({
     taskType: TaskType.DEEP_ANALYSIS,
-    context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!clientContext },
+    context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: false },
     prompt: task.prompt,
     providerOverride: 'CLAUDE',
     modelOverride: model,
@@ -2708,7 +2715,14 @@ async function executeRoutePipeline(
 
         if (effectiveStrategy === 'orchestrated' && !reanalysisCtx) {
           // ── Orchestrated analysis loop ──
-          const maxParallelTasks = strategyConfig?.maxParallelTasks ?? 3;
+          const rawMaxParallelTasks = strategyConfig?.maxParallelTasks;
+          let maxParallelTasks = 3;
+          if (rawMaxParallelTasks !== undefined && rawMaxParallelTasks !== null) {
+            const coerced = Number(rawMaxParallelTasks);
+            if (Number.isFinite(coerced)) {
+              maxParallelTasks = Math.min(10, Math.max(1, Math.trunc(coerced)));
+            }
+          }
           const orchMaxIterations = maxIterations;
           let knowledgeDoc = ticket.knowledgeDoc ?? '';
           let orchNextPrompt = '';

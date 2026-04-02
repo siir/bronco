@@ -587,7 +587,7 @@ import { CategoryConfigDialogComponent } from './category-config-dialog.componen
                 @if (analysisStrategy() === 'orchestrated') {
                   <mat-form-field class="full-width">
                     <mat-label>Max Parallel Tasks</mat-label>
-                    <input matInput type="number" [value]="analysisMaxParallel()" (input)="analysisMaxParallel.set(+$any($event.target).value)" min="1" max="10">
+                    <input matInput type="number" [value]="analysisMaxParallel()" (input)="setAnalysisMaxParallel(+$any($event.target).value)" min="1" max="10">
                     <mat-hint>Number of sub-tasks to run concurrently (1-10)</mat-hint>
                   </mat-form-field>
                 }
@@ -1138,6 +1138,12 @@ export class SettingsComponent implements OnInit {
         this.snackBar.open('Failed to load analysis strategy config', 'OK', { duration: 5000 });
       },
     });
+  }
+
+  setAnalysisMaxParallel(value: number): void {
+    if (Number.isFinite(value)) {
+      this.analysisMaxParallel.set(value);
+    }
   }
 
   saveAnalysisStrategy(): void {
