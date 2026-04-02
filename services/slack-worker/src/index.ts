@@ -2,6 +2,7 @@ import { getDb, disconnectDb } from '@bronco/db';
 import { createAIRouter } from '@bronco/ai-provider';
 import { createLogger, createQueue, createHealthServer, createGracefulShutdown } from '@bronco/shared-utils';
 import type { IngestionJob } from '@bronco/shared-types';
+import { Redis } from 'ioredis';
 import { getConfig } from './config.js';
 import { initSlackConnection, disconnectSlack, getSlackClient } from './slack-connection.js';
 import { ClientSlackManager } from './client-slack-manager.js';
@@ -17,6 +18,10 @@ async function main(): Promise<void> {
     encryptionKey: config.ENCRYPTION_KEY,
   });
 
+  // Redis connection for Hugo conversation thread context
+  const redis = new Redis(config.REDIS_URL, { maxRetriesPerRequest: null, lazyConnect: true });
+  await redis.connect();
+
   // Queues — slack-worker needs issue-resolve (for plan approval actions) and ticket-ingest (for client Slack messages)
   const issueResolveQueue = createQueue('issue-resolve', config.REDIS_URL);
   const ingestQueue = createQueue<IngestionJob>('ticket-ingest', config.REDIS_URL);
@@ -30,6 +35,7 @@ async function main(): Promise<void> {
     issueResolveQueue,
     ai,
     config,
+    redis,
   });
 
   // Initialize per-client Slack connections (non-blocking)
@@ -58,6 +64,7 @@ async function main(): Promise<void> {
     health,
     issueResolveQueue,
     ingestQueue,
+    { fn: () => redis.disconnect() },
     { fn: disconnectDb },
   ]);
 }

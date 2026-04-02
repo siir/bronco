@@ -3,6 +3,7 @@ import type { AIRouter } from '@bronco/ai-provider';
 import type { AIToolDefinition, AIMessage, AIContentBlock, AIToolUseBlock, AIToolResponse } from '@bronco/shared-types';
 import type { SlackClient } from '@bronco/shared-utils';
 import { callMcpToolViaSdk, createLogger } from '@bronco/shared-utils';
+import type { Redis } from 'ioredis';
 import { getPlatformTools } from './platform-tools.js';
 import type { Config } from './config.js';
 
@@ -11,10 +12,12 @@ const logger = createLogger('hugo-conversation');
 /** Max tool-use loop iterations per request to prevent runaway costs. */
 const MAX_TOOL_ITERATIONS = 3;
 
-/** Thread conversation context TTL — 30 minutes. */
-const THREAD_CONTEXT_TTL_MS = 30 * 60 * 1000;
+/** Thread conversation context TTL — 30 minutes (in seconds for Redis EX). */
+const THREAD_CONTEXT_TTL_SECONDS = 30 * 60;
 
-// --- Thread conversation context (in-memory) ---
+const REDIS_KEY_PREFIX = 'hugo:thread:';
+
+// --- Redis-backed thread conversation context ---
 
 interface ConversationEntry {
   messages: AIMessage[];
@@ -22,46 +25,39 @@ interface ConversationEntry {
   updatedAt: number;
 }
 
-const conversationStore = new Map<string, ConversationEntry>();
-
-function conversationKey(channelId: string, threadTs: string): string {
-  return `${channelId}:${threadTs}`;
+function threadKey(channelId: string, threadTs: string): string {
+  return `${REDIS_KEY_PREFIX}${channelId}:${threadTs}`;
 }
 
-function getConversation(channelId: string, threadTs: string): ConversationEntry | undefined {
-  const entry = conversationStore.get(conversationKey(channelId, threadTs));
-  if (!entry) return undefined;
-  if (Date.now() - entry.updatedAt > THREAD_CONTEXT_TTL_MS) {
-    conversationStore.delete(conversationKey(channelId, threadTs));
-    return undefined;
+async function getConversation(
+  redis: Redis,
+  channelId: string,
+  threadTs: string,
+): Promise<ConversationEntry | null> {
+  const raw = await redis.get(threadKey(channelId, threadTs));
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as ConversationEntry;
+  } catch {
+    logger.warn({ channelId, threadTs }, 'Failed to parse conversation entry from Redis');
+    return null;
   }
-  return entry;
 }
 
-function storeConversation(
+async function storeConversation(
+  redis: Redis,
   channelId: string,
   threadTs: string,
   messages: AIMessage[],
   clientId: string | null,
-): void {
-  conversationStore.set(conversationKey(channelId, threadTs), {
-    messages,
-    clientId,
-    updatedAt: Date.now(),
-  });
-}
-
-/** Evict expired conversation entries. Called periodically. */
-export function evictStaleConversations(): number {
-  const cutoff = Date.now() - THREAD_CONTEXT_TTL_MS;
-  let evicted = 0;
-  for (const [key, entry] of conversationStore) {
-    if (entry.updatedAt < cutoff) {
-      conversationStore.delete(key);
-      evicted++;
-    }
-  }
-  return evicted;
+): Promise<void> {
+  const entry: ConversationEntry = { messages, clientId, updatedAt: Date.now() };
+  await redis.set(
+    threadKey(channelId, threadTs),
+    JSON.stringify(entry),
+    'EX',
+    THREAD_CONTEXT_TTL_SECONDS,
+  );
 }
 
 // --- Dependencies ---
@@ -71,6 +67,7 @@ export interface HugoConversationDeps {
   ai: AIRouter;
   slack: SlackClient;
   config: Config;
+  redis: Redis;
 }
 
 // --- System prompt ---
@@ -207,7 +204,7 @@ export async function handleHugoConversation(
   ts: string,
   threadTs?: string,
 ): Promise<void> {
-  const { db, ai, slack, config } = deps;
+  const { db, ai, slack, config, redis } = deps;
 
   // 1. Strip bot mention from text
   const cleanText = text.replace(/<@[A-Z0-9]+>\s*/g, '').trim();
@@ -256,7 +253,7 @@ export async function handleHugoConversation(
 
   // 6. Load thread context if this is a reply in an existing thread
   const effectiveThreadTs = threadTs ?? ts;
-  const existing = getConversation(channelId, effectiveThreadTs);
+  const existing = await getConversation(redis, channelId, effectiveThreadTs);
   const threadHistory: AIMessage[] = existing?.messages ?? [];
 
   // 7. Build messages
@@ -317,5 +314,5 @@ export async function handleHugoConversation(
   await slack.replyInThread(channelId, ts, finalText);
 
   // 11. Store thread context for follow-ups
-  storeConversation(channelId, effectiveThreadTs, finalMessages, client?.id ?? null);
+  await storeConversation(redis, channelId, effectiveThreadTs, finalMessages, client?.id ?? null);
 }

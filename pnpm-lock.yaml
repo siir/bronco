@@ -545,6 +545,9 @@ importers:
       bullmq:
         specifier: ^5.0.0
         version: 5.69.3
+      ioredis:
+        specifier: ^5.0.0
+        version: 5.9.2
       zod:
         specifier: ^3.23.0
         version: 3.25.76

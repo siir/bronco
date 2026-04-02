@@ -3,6 +3,7 @@ import type { AIRouter } from '@bronco/ai-provider';
 import type { Queue } from 'bullmq';
 import type { SlackClient, SlackBlockAction, SlackThreadMessage, SlackMentionEvent, SlackDirectMessageEvent } from '@bronco/shared-utils';
 import { createLogger } from '@bronco/shared-utils';
+import type { Redis } from 'ioredis';
 import { lookupThread, storeThread } from './slack-thread-store.js';
 import type { SlackThreadEntry } from './slack-thread-store.js';
 import { handleHugoConversation } from './hugo-conversation.js';
@@ -22,6 +23,7 @@ export interface SlackActionHandlerDeps {
   issueResolveQueue: Queue;
   ai: AIRouter;
   config: Config;
+  redis: Redis;
 }
 
 /**
@@ -566,7 +568,7 @@ export function createMentionHandler(deps: SlackActionHandlerDeps) {
 
     try {
       await handleHugoConversation(
-        { db: deps.db, ai: deps.ai, slack: deps.slack, config: deps.config },
+        { db: deps.db, ai: deps.ai, slack: deps.slack, config: deps.config, redis: deps.redis },
         event.channelId,
         event.userId,
         event.text,
@@ -593,7 +595,7 @@ export function createDirectMessageHandler(deps: SlackActionHandlerDeps) {
 
     try {
       await handleHugoConversation(
-        { db: deps.db, ai: deps.ai, slack: deps.slack, config: deps.config },
+        { db: deps.db, ai: deps.ai, slack: deps.slack, config: deps.config, redis: deps.redis },
         event.channelId,
         event.userId,
         event.text,

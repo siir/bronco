@@ -2,9 +2,9 @@ import type { PrismaClient } from '@bronco/db';
 import type { AIRouter } from '@bronco/ai-provider';
 import type { Queue } from 'bullmq';
 import { SlackClient, createLogger, decrypt, looksEncrypted } from '@bronco/shared-utils';
+import type { Redis } from 'ioredis';
 import { createBlockActionHandler, createThreadMessageHandler, createMentionHandler, createDirectMessageHandler } from './slack-action-handler.js';
 import { evictStaleThreads } from './slack-thread-store.js';
-import { evictStaleConversations } from './hugo-conversation.js';
 import type { Config } from './config.js';
 
 const logger = createLogger('slack-connection');
@@ -28,6 +28,7 @@ export interface SlackInteractionDeps {
   issueResolveQueue: Queue;
   ai: AIRouter;
   config: Config;
+  redis: Redis;
 }
 
 function decryptToken(value: string, encryptionKey: string): string | null {
@@ -83,6 +84,7 @@ export async function initSlackConnection(
         issueResolveQueue: interactionDeps.issueResolveQueue,
         ai: interactionDeps.ai,
         config: interactionDeps.config,
+        redis: interactionDeps.redis,
       };
       client.onBlockAction(createBlockActionHandler(deps));
       client.onThreadMessage(createThreadMessageHandler(deps));
@@ -95,12 +97,10 @@ export async function initSlackConnection(
     activeClient = client;
     defaultChannelId = config.defaultChannelId;
 
-    // Start periodic eviction of stale thread entries and conversation contexts (every 6 hours)
+    // Start periodic eviction of stale thread entries (every 6 hours)
+    // Note: Hugo conversation context is stored in Redis with TTL — no manual eviction needed.
     if (!evictionInterval) {
-      evictionInterval = setInterval(() => {
-        evictStaleThreads();
-        evictStaleConversations();
-      }, 6 * 60 * 60 * 1000);
+      evictionInterval = setInterval(() => evictStaleThreads(), 6 * 60 * 60 * 1000);
     }
 
     logger.info('Slack Socket Mode connection established');
