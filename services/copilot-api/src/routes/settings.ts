@@ -42,6 +42,7 @@ const SETTINGS_KEY_IMAP = 'system-config-imap';
 const SETTINGS_KEY_SLACK = 'system-config-slack';
 const SETTINGS_KEY_PROMPT_RETENTION = 'system-config-prompt-retention';
 const SETTINGS_KEY_ACTION_SAFETY = 'system-config-action-safety';
+const SETTINGS_KEY_ANALYSIS_STRATEGY = 'system-config-analysis-strategy';
 
 const REDACTED = '••••••••';
 
@@ -984,5 +985,53 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     });
 
     return row.value as unknown as ActionSafetyConfig;
+  });
+
+  // ─── Analysis Strategy Configuration ───
+
+  const analysisStrategySchema = z.object({
+    strategy: z.enum(['full_context', 'orchestrated']).default('full_context'),
+    maxParallelTasks: z.coerce.number().int().min(1).max(10).default(3),
+  });
+
+  type AnalysisStrategyConfig = z.output<typeof analysisStrategySchema>;
+
+  const DEFAULT_ANALYSIS_STRATEGY: AnalysisStrategyConfig = { strategy: 'full_context', maxParallelTasks: 3 };
+
+  // GET /api/settings/analysis-strategy
+  fastify.get('/api/settings/analysis-strategy', async () => {
+    const row = await fastify.db.appSetting.findUnique({ where: { key: SETTINGS_KEY_ANALYSIS_STRATEGY } });
+    if (!row) return DEFAULT_ANALYSIS_STRATEGY;
+
+    const parsed = analysisStrategySchema.safeParse(row.value);
+    if (!parsed.success) {
+      logger.warn({ key: SETTINGS_KEY_ANALYSIS_STRATEGY, errors: parsed.error.issues }, 'Stored analysis strategy config is malformed — resetting to defaults');
+      await fastify.db.appSetting.update({
+        where: { key: SETTINGS_KEY_ANALYSIS_STRATEGY },
+        data: { value: DEFAULT_ANALYSIS_STRATEGY as unknown as object },
+      });
+      return DEFAULT_ANALYSIS_STRATEGY;
+    }
+
+    return parsed.data;
+  });
+
+  // PUT /api/settings/analysis-strategy
+  fastify.put<{ Body: Record<string, unknown> }>('/api/settings/analysis-strategy', async (request) => {
+    const parsed = analysisStrategySchema.safeParse(request.body);
+    if (!parsed.success) {
+      const msg = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+      return fastify.httpErrors.badRequest(`Invalid analysis strategy config: ${msg}`);
+    }
+
+    const config = parsed.data;
+
+    const row = await fastify.db.appSetting.upsert({
+      where: { key: SETTINGS_KEY_ANALYSIS_STRATEGY },
+      update: { value: config as unknown as object },
+      create: { key: SETTINGS_KEY_ANALYSIS_STRATEGY, value: config as unknown as object },
+    });
+
+    return row.value as AnalysisStrategyConfig;
   });
 }
