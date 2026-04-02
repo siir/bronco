@@ -159,7 +159,13 @@ import { ClientService, Client } from '../../core/services/client.service';
         </ng-container>
 
         <tr mat-header-row *matHeaderRowDef="columns"></tr>
-        <tr mat-row *matRowDef="let row; columns: columns" class="conv-row" (click)="toggleExpand(row.id)"></tr>
+        <tr mat-row *matRowDef="let row; columns: columns" class="conv-row"
+            tabindex="0"
+            role="button"
+            [attr.aria-expanded]="expandedId() === row.id"
+            (click)="toggleExpand(row.id)"
+            (keydown.enter)="toggleExpand(row.id)"
+            (keydown.space)="toggleExpand(row.id)"></tr>
         <tr mat-row *matRowDef="let row; columns: ['expandedDetail']" class="detail-row"></tr>
       </table>
 

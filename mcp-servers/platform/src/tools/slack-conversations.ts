@@ -19,8 +19,20 @@ export function registerSlackConversationTools(server: McpServer, { db }: Server
       if (params.clientId) where.clientId = params.clientId;
       if (params.startDate || params.endDate) {
         const createdAt: Record<string, Date> = {};
-        if (params.startDate) createdAt.gte = new Date(params.startDate);
-        if (params.endDate) createdAt.lte = new Date(params.endDate);
+        if (params.startDate) {
+          const d = new Date(params.startDate);
+          if (Number.isNaN(d.getTime())) {
+            return { content: [{ type: 'text', text: `Invalid startDate: "${params.startDate}". Use ISO 8601 format (e.g. 2024-01-01T00:00:00Z).` }], isError: true };
+          }
+          createdAt.gte = d;
+        }
+        if (params.endDate) {
+          const d = new Date(params.endDate);
+          if (Number.isNaN(d.getTime())) {
+            return { content: [{ type: 'text', text: `Invalid endDate: "${params.endDate}". Use ISO 8601 format (e.g. 2024-12-31T23:59:59Z).` }], isError: true };
+          }
+          createdAt.lte = d;
+        }
         where.createdAt = createdAt;
       }
 

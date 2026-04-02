@@ -5,19 +5,24 @@ import type { AIToolDefinition } from '@bronco/shared-types';
 
 const logger = createLogger('platform-tools');
 
-/** Cached tool definitions — tools don't change at runtime. */
-let cachedTools: AIToolDefinition[] | null = null;
-let cacheTimestamp = 0;
+interface CacheEntry {
+  tools: AIToolDefinition[];
+  timestamp: number;
+}
+
+/** Per-URL tool cache — keyed by MCP Platform URL so multi-instance setups don't collide. */
+const toolsCache = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 /**
  * Fetch MCP Platform Server tools and convert them to AIToolDefinition format.
- * Results are cached for 10 minutes since tools don't change at runtime.
+ * Results are cached per URL for 10 minutes since tools don't change at runtime.
  */
 export async function getPlatformTools(mcpPlatformUrl: string): Promise<AIToolDefinition[]> {
   const now = Date.now();
-  if (cachedTools && (now - cacheTimestamp) < CACHE_TTL_MS) {
-    return cachedTools;
+  const cached = toolsCache.get(mcpPlatformUrl);
+  if (cached && (now - cached.timestamp) < CACHE_TTL_MS) {
+    return cached.tools;
   }
 
   const endpointUrl = new URL('/mcp', mcpPlatformUrl);
@@ -43,9 +48,8 @@ export async function getPlatformTools(mcpPlatformUrl: string): Promise<AIToolDe
       input_schema: (t.inputSchema as Record<string, unknown>) ?? { type: 'object', properties: {} },
     }));
 
-    cachedTools = definitions;
-    cacheTimestamp = now;
-    logger.info({ toolCount: definitions.length }, 'MCP Platform tools discovered and cached');
+    toolsCache.set(mcpPlatformUrl, { tools: definitions, timestamp: now });
+    logger.info({ toolCount: definitions.length, mcpPlatformUrl }, 'MCP Platform tools discovered and cached');
     return definitions;
   } finally {
     if (timer !== undefined) clearTimeout(timer);
@@ -53,8 +57,11 @@ export async function getPlatformTools(mcpPlatformUrl: string): Promise<AIToolDe
   }
 }
 
-/** Clear the cached tools (useful for testing). */
-export function clearPlatformToolsCache(): void {
-  cachedTools = null;
-  cacheTimestamp = 0;
+/** Clear the cached tools (useful for testing). Clears all URLs or a specific URL. */
+export function clearPlatformToolsCache(mcpPlatformUrl?: string): void {
+  if (mcpPlatformUrl) {
+    toolsCache.delete(mcpPlatformUrl);
+  } else {
+    toolsCache.clear();
+  }
 }

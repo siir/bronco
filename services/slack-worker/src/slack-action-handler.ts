@@ -549,10 +549,42 @@ export function createBlockActionHandler(deps: SlackActionHandlerDeps) {
 }
 
 /**
- * Create the thread message handler for capturing replies as ticket comments.
+ * Create the thread message handler.
+ * If the thread belongs to an active Hugo conversation (Redis key exists), route
+ * to the Hugo conversational AI handler.  Otherwise fall back to the ticket-comment
+ * capture path.
  */
 export function createThreadMessageHandler(deps: SlackActionHandlerDeps) {
   return async (message: SlackThreadMessage): Promise<void> => {
+    // Check whether a Hugo conversation context exists in Redis for this thread.
+    // If so, route to the AI handler rather than treating it as a ticket comment.
+    const hugoKey = `hugo:thread:${message.channelId}:${message.threadTs}`;
+    const hasHugoContext = await deps.redis.exists(hugoKey);
+    if (hasHugoContext) {
+      logger.info(
+        { channelId: message.channelId, threadTs: message.threadTs },
+        'Thread reply routed to Hugo conversation (existing context)',
+      );
+      try {
+        await handleHugoConversation(
+          { db: deps.db, ai: deps.ai, slack: deps.slack, config: deps.config, redis: deps.redis },
+          message.channelId,
+          message.userId,
+          message.text,
+          message.ts,
+          message.threadTs,
+        );
+      } catch (err) {
+        logger.error({ err, channelId: message.channelId }, 'Hugo thread conversation handler failed');
+        await deps.slack.replyInThread(
+          message.channelId,
+          message.ts,
+          'Sorry, I ran into an unexpected error. Please try again.',
+        );
+      }
+      return;
+    }
+
     await handleThreadedReply(deps, message);
   };
 }
