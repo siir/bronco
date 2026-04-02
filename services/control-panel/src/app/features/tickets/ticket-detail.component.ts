@@ -213,8 +213,10 @@ interface FlowNode {
                   <div class="iteration-group-header">
                     <mat-icon class="iteration-icon">loop</mat-icon>
                     <span class="iteration-label">{{ extractIterationLabel(entry) }}</span>
+                    <span class="log-seq">#{{ idx + 1 }}</span>
+                    <span class="log-time" [matTooltip]="entry.timestamp">{{ formatTime(entry.timestamp) }}</span>
                   </div>
-                }
+                } @else {
                 <div class="log-entry" [ngClass]="'unified-type-' + entry.type" [class.iteration-grouped]="isWithinIteration(entry)">
                   <div class="log-entry-header">
                     <span class="log-seq">#{{ idx + 1 }}</span>
@@ -305,6 +307,7 @@ interface FlowNode {
                     }
                   }
                 </div>
+                }
               } @empty {
                 @if (!unifiedLogsLoading()) {
                   <p class="empty">No logs found for this ticket.</p>
