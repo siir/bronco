@@ -62,6 +62,7 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
             assignedOperatorId: assignedOperatorId === 'unassigned' ? null : assignedOperatorId,
           }),
         },
+        omit: { knowledgeDoc: true },
         include: {
           client: { select: { name: true, shortCode: true } },
           system: { select: { name: true } },
