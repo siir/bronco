@@ -45,7 +45,7 @@ export async function clientRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  fastify.patch<{ Params: { id: string }; Body: { name?: string; notes?: string; isActive?: boolean; autoRouteTickets?: boolean; allowSelfRegistration?: boolean; domainMappings?: string[]; companyProfile?: string | null; systemsProfile?: string | null; aiMode?: string; billingPeriod?: string; billingAnchorDay?: number; billingMarkupPercent?: number } }>(
+  fastify.patch<{ Params: { id: string }; Body: { name?: string; notes?: string; isActive?: boolean; autoRouteTickets?: boolean; allowSelfRegistration?: boolean; domainMappings?: string[]; companyProfile?: string | null; systemsProfile?: string | null; aiMode?: string; billingPeriod?: string; billingAnchorDay?: number; billingMarkupPercent?: number; slackChannelId?: string | null } }>(
     '/api/clients/:id',
     async (request, reply) => {
       const { aiMode, billingPeriod, billingAnchorDay, billingMarkupPercent, ...rest } = request.body;

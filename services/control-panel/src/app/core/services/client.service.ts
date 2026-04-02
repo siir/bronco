@@ -15,6 +15,7 @@ export interface Client {
   systemsProfile: string | null;
   domainMappings: string[];
   billingMarkupPercent: number;
+  slackChannelId: string | null;
   createdAt: string;
   updatedAt: string;
   _count?: { tickets: number; systems: number };

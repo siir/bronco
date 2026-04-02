@@ -2,8 +2,11 @@ import type { FastifyInstance } from 'fastify';
 import bcrypt from 'bcryptjs';
 import { UserRole } from '@bronco/shared-types';
 import type { AuthUser } from '../plugins/auth.js';
+import { createLogger } from '@bronco/shared-utils';
 
+const logger = createLogger('users');
 const VALID_ROLES: string[] = [UserRole.ADMIN, UserRole.OPERATOR];
+const OPERATOR_ROLES = new Set<string>([UserRole.ADMIN, UserRole.OPERATOR]);
 
 export async function userRoutes(fastify: FastifyInstance): Promise<void> {
   /**
@@ -22,7 +25,7 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
 
   /**
    * GET /api/users
-   * List all control panel users.
+   * List all control panel users. Includes slackUserId from matching Operator record.
    */
   fastify.get('/api/users', async () => {
     const users = await fastify.db.user.findMany({
@@ -39,17 +42,34 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
       orderBy: { name: 'asc' },
     });
 
-    return users;
+    // Bulk-load Operator records for ADMIN/OPERATOR users to attach slackUserId
+    const operatorEmails = users
+      .filter((u) => OPERATOR_ROLES.has(u.role))
+      .map((u) => u.email);
+
+    const operators = operatorEmails.length > 0
+      ? await fastify.db.operator.findMany({
+          where: { email: { in: operatorEmails } },
+          select: { email: true, slackUserId: true },
+        })
+      : [];
+
+    const slackMap = new Map(operators.map((o) => [o.email, o.slackUserId]));
+
+    return users.map((u) => ({
+      ...u,
+      slackUserId: OPERATOR_ROLES.has(u.role) ? (slackMap.get(u.email) ?? null) : undefined,
+    }));
   });
 
   /**
    * POST /api/users
-   * Create a new control panel user.
+   * Create a new control panel user. Auto-creates Operator record when role is ADMIN/OPERATOR.
    */
-  fastify.post<{ Body: { email: string; password: string; name: string; role?: string } }>(
+  fastify.post<{ Body: { email: string; password: string; name: string; role?: string; slackUserId?: string } }>(
     '/api/users',
     async (request, reply) => {
-      const { email: rawEmail, password, name, role } = request.body;
+      const { email: rawEmail, password, name, role, slackUserId } = request.body;
 
       if (!rawEmail || !password || !name) {
         return reply.code(400).send({ error: 'Email, password, and name are required' });
@@ -71,12 +91,13 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       const passwordHash = await bcrypt.hash(password, 10);
+      const effectiveRole = (role as UserRole) ?? UserRole.OPERATOR;
       const user = await fastify.db.user.create({
         data: {
           email,
           passwordHash,
           name: name.trim(),
-          role: (role as UserRole) ?? UserRole.OPERATOR,
+          role: effectiveRole,
         },
         select: {
           id: true,
@@ -90,19 +111,41 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
         },
       });
 
-      return reply.code(201).send(user);
+      // Auto-sync Operator record for ADMIN/OPERATOR roles
+      let operatorSlackUserId: string | null = null;
+      if (OPERATOR_ROLES.has(effectiveRole)) {
+        const trimmedSlackUserId = slackUserId?.trim() || null;
+        try {
+          const existingOp = await fastify.db.operator.findUnique({ where: { email } });
+          if (existingOp) {
+            if (trimmedSlackUserId !== null) {
+              await fastify.db.operator.update({ where: { email }, data: { slackUserId: trimmedSlackUserId } });
+            }
+            operatorSlackUserId = trimmedSlackUserId ?? existingOp.slackUserId;
+          } else {
+            const op = await fastify.db.operator.create({
+              data: { email, name: name.trim(), slackUserId: trimmedSlackUserId },
+            });
+            operatorSlackUserId = op.slackUserId;
+          }
+        } catch (err) {
+          logger.warn({ err, email }, 'Failed to sync Operator record on user create');
+        }
+      }
+
+      return reply.code(201).send({ ...user, slackUserId: operatorSlackUserId });
     },
   );
 
   /**
    * PATCH /api/users/:id
-   * Update a control panel user.
+   * Update a control panel user. Syncs slackUserId to Operator record when provided.
    */
-  fastify.patch<{ Params: { id: string }; Body: { name?: string; email?: string; role?: string; isActive?: boolean } }>(
+  fastify.patch<{ Params: { id: string }; Body: { name?: string; email?: string; role?: string; isActive?: boolean; slackUserId?: string } }>(
     '/api/users/:id',
     async (request, reply) => {
       const { id } = request.params;
-      const { name, email: rawEmail, role, isActive } = request.body;
+      const { name, email: rawEmail, role, isActive, slackUserId } = request.body;
 
       if (role && !VALID_ROLES.includes(role)) {
         return reply.code(400).send({ error: `Invalid role. Must be one of: ${VALID_ROLES.join(', ')}` });
@@ -149,7 +192,33 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
         },
       });
 
-      return updated;
+      // Sync slackUserId to Operator record
+      let operatorSlackUserId: string | null | undefined;
+      const effectiveRole = updated.role as string;
+      if (OPERATOR_ROLES.has(effectiveRole)) {
+        const operatorEmail = updated.email;
+        try {
+          const existingOp = await fastify.db.operator.findUnique({ where: { email: operatorEmail } });
+          if (slackUserId !== undefined) {
+            const trimmedSlackUserId = slackUserId.trim() || null;
+            if (existingOp) {
+              await fastify.db.operator.update({ where: { email: operatorEmail }, data: { slackUserId: trimmedSlackUserId } });
+              operatorSlackUserId = trimmedSlackUserId;
+            } else {
+              const op = await fastify.db.operator.create({
+                data: { email: operatorEmail, name: updated.name, slackUserId: trimmedSlackUserId },
+              });
+              operatorSlackUserId = op.slackUserId;
+            }
+          } else {
+            operatorSlackUserId = existingOp?.slackUserId ?? null;
+          }
+        } catch (err) {
+          logger.warn({ err, email: operatorEmail }, 'Failed to sync Operator record on user update');
+        }
+      }
+
+      return { ...updated, ...(operatorSlackUserId !== undefined && { slackUserId: operatorSlackUserId }) };
     },
   );
 
@@ -169,9 +238,7 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       const target = await fastify.db.user.findUnique({ where: { id } });
-      if (!target) {
-        return reply.code(404).send({ error: 'User not found' });
-      }
+      if (!target) return fastify.httpErrors.notFound('User not found');
 
       await fastify.db.user.update({
         where: { id },

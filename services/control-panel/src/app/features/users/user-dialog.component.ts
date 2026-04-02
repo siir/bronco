@@ -41,6 +41,13 @@ interface DialogData {
           <mat-option value="OPERATOR">Operator</mat-option>
         </mat-select>
       </mat-form-field>
+      @if (role === 'OPERATOR' || role === 'ADMIN') {
+        <mat-form-field class="full-width">
+          <mat-label>Slack User ID</mat-label>
+          <input matInput [(ngModel)]="slackUserId" placeholder="U0123456789">
+          <mat-hint>Click user profile in Slack → More → Copy member ID</mat-hint>
+        </mat-form-field>
+      }
       @if (data.user && !isSelf) {
         <mat-slide-toggle [(ngModel)]="isActive">{{ isActive ? 'Active' : 'Inactive' }}</mat-slide-toggle>
       }
@@ -64,6 +71,7 @@ export class UserDialogComponent {
   email = this.data.user?.email ?? '';
   password = '';
   role = this.data.user?.role ?? 'OPERATOR';
+  slackUserId = this.data.user?.slackUserId ?? '';
   isActive = this.data.user?.isActive ?? true;
   isSelf = this.data.user?.id === this.data.currentUserId;
 
@@ -74,6 +82,7 @@ export class UserDialogComponent {
         email: this.email,
         role: this.role,
         isActive: this.isActive,
+        ...(this.slackUserId !== undefined && { slackUserId: this.slackUserId }),
       }).subscribe({
         next: () => {
           this.snackBar.open('User updated', 'OK', { duration: 3000 });
@@ -87,6 +96,7 @@ export class UserDialogComponent {
         password: this.password,
         name: this.name,
         role: this.role,
+        ...(this.slackUserId && { slackUserId: this.slackUserId }),
       }).subscribe({
         next: () => {
           this.snackBar.open('User created', 'OK', { duration: 3000 });
