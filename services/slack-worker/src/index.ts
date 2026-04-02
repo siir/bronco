@@ -12,7 +12,7 @@ async function main(): Promise<void> {
   const config = getConfig();
   const db = getDb();
 
-  // AI router (needed for future conversational bot features)
+  // AI router for Hugo conversational bot (MCP Platform tools via Sonnet)
   const { ai } = createAIRouter(db, {
     encryptionKey: config.ENCRYPTION_KEY,
   });
@@ -28,6 +28,8 @@ async function main(): Promise<void> {
   void initSlackConnection(db, config.ENCRYPTION_KEY, {
     db,
     issueResolveQueue,
+    ai,
+    config,
   });
 
   // Initialize per-client Slack connections (non-blocking)

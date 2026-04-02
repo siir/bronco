@@ -1,8 +1,11 @@
 import type { PrismaClient } from '@bronco/db';
+import type { AIRouter } from '@bronco/ai-provider';
 import type { Queue } from 'bullmq';
 import { SlackClient, createLogger, decrypt, looksEncrypted } from '@bronco/shared-utils';
 import { createBlockActionHandler, createThreadMessageHandler, createMentionHandler, createDirectMessageHandler } from './slack-action-handler.js';
 import { evictStaleThreads } from './slack-thread-store.js';
+import { evictStaleConversations } from './hugo-conversation.js';
+import type { Config } from './config.js';
 
 const logger = createLogger('slack-connection');
 
@@ -23,6 +26,8 @@ export interface SlackConfig {
 export interface SlackInteractionDeps {
   db: PrismaClient;
   issueResolveQueue: Queue;
+  ai: AIRouter;
+  config: Config;
 }
 
 function decryptToken(value: string, encryptionKey: string): string | null {
@@ -72,7 +77,13 @@ export async function initSlackConnection(
 
     // Register interaction handlers before connecting so no events are missed
     if (interactionDeps) {
-      const deps = { db: interactionDeps.db, slack: client, issueResolveQueue: interactionDeps.issueResolveQueue };
+      const deps = {
+        db: interactionDeps.db,
+        slack: client,
+        issueResolveQueue: interactionDeps.issueResolveQueue,
+        ai: interactionDeps.ai,
+        config: interactionDeps.config,
+      };
       client.onBlockAction(createBlockActionHandler(deps));
       client.onThreadMessage(createThreadMessageHandler(deps));
       client.onMention(createMentionHandler(deps));
@@ -84,9 +95,12 @@ export async function initSlackConnection(
     activeClient = client;
     defaultChannelId = config.defaultChannelId;
 
-    // Start periodic eviction of stale thread entries (every 6 hours)
+    // Start periodic eviction of stale thread entries and conversation contexts (every 6 hours)
     if (!evictionInterval) {
-      evictionInterval = setInterval(() => evictStaleThreads(), 6 * 60 * 60 * 1000);
+      evictionInterval = setInterval(() => {
+        evictStaleThreads();
+        evictStaleConversations();
+      }, 6 * 60 * 60 * 1000);
     }
 
     logger.info('Slack Socket Mode connection established');
