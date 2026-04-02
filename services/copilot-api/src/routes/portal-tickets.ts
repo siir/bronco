@@ -109,6 +109,7 @@ export async function portalTicketRoutes(fastify: FastifyInstance, opts: PortalT
       const [tickets, total] = await Promise.all([
         fastify.db.ticket.findMany({
           where,
+          omit: { knowledgeDoc: true },
           include: {
             system: { select: { name: true } },
             _count: { select: { events: true, artifacts: true } },

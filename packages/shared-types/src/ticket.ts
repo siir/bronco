@@ -147,6 +147,7 @@ export interface Ticket {
   analysisStatus: AnalysisStatus;
   analysisError: string | null;
   sufficiencyStatus: SufficiencyStatus | null;
+  knowledgeDoc: string | null;
   lastAnalyzedAt: Date | null;
   metadata: Record<string, unknown> | null;
   externalRef: string | null;

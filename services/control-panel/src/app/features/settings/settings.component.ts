@@ -559,6 +559,57 @@ import { CategoryConfigDialogComponent } from './category-config-dialog.componen
           </mat-card>
         </div>
       </mat-tab>
+      <!-- Analysis Strategy tab -->
+      <mat-tab label="Analysis Strategy">
+        <div class="tab-content">
+          <mat-card>
+            <mat-card-header>
+              <mat-card-title>Analysis Strategy</mat-card-title>
+            </mat-card-header>
+            <mat-card-content>
+              <p class="hint">
+                Configure how the AI investigates tickets during agentic analysis.
+                <strong>Full Context</strong> sends the entire conversation history on each iteration (higher quality, higher cost).
+                <strong>Orchestrated</strong> uses Opus as a strategist to assign parallel tasks to smaller models with a growing knowledge document (lower cost).
+              </p>
+
+              @if (analysisStrategyLoading()) {
+                <mat-spinner diameter="24"></mat-spinner>
+              } @else {
+                <mat-form-field class="full-width">
+                  <mat-label>Strategy</mat-label>
+                  <mat-select [value]="analysisStrategy()" (selectionChange)="analysisStrategy.set($event.value)">
+                    <mat-option value="full_context">Full Context (brute force)</mat-option>
+                    <mat-option value="orchestrated">Orchestrated (parallel tasks)</mat-option>
+                  </mat-select>
+                </mat-form-field>
+
+                @if (analysisStrategy() === 'orchestrated') {
+                  <mat-form-field class="full-width">
+                    <mat-label>Max Parallel Tasks</mat-label>
+                    <input matInput type="number" [value]="analysisMaxParallel()" (input)="setAnalysisMaxParallel(+$any($event.target).value)" min="1" max="10">
+                    <mat-hint>Number of sub-tasks to run concurrently (1-10)</mat-hint>
+                  </mat-form-field>
+                }
+
+                <mat-card-actions align="end">
+                  <button
+                    mat-raised-button
+                    color="primary"
+                    (click)="saveAnalysisStrategy()"
+                    [disabled]="analysisStrategySaving()"
+                  >
+                    @if (analysisStrategySaving()) {
+                      <mat-spinner diameter="18" class="inline-spinner"></mat-spinner>
+                    }
+                    Save
+                  </button>
+                </mat-card-actions>
+              }
+            </mat-card-content>
+          </mat-card>
+        </div>
+      </mat-tab>
     </mat-tab-group>
   `,
   styles: [`
@@ -724,13 +775,19 @@ export class SettingsComponent implements OnInit {
   actionSafetyColumns = ['actionType', 'level'];
   actionSafetyRows = signal<Array<{ actionType: string; level: 'auto' | 'approval' }>>([]);
 
+  // Analysis Strategy tab
+  analysisStrategy = signal<'full_context' | 'orchestrated'>('full_context');
+  analysisMaxParallel = signal(3);
+  analysisStrategyLoading = signal(true);
+  analysisStrategySaving = signal(false);
+
   selectedTab = signal(0);
 
   ngOnInit(): void {
     const tabParam = this.route.snapshot.queryParamMap.get('tab');
     if (tabParam !== null) {
       const tab = Number(tabParam);
-      if (Number.isInteger(tab) && tab >= 0 && tab <= 5) this.selectedTab.set(tab);
+      if (Number.isInteger(tab) && tab >= 0 && tab <= 6) this.selectedTab.set(tab);
     }
     this.loadUsers();
     this.loadSuperAdmin();
@@ -739,6 +796,7 @@ export class SettingsComponent implements OnInit {
     this.loadCategories();
     this.loadAlertConfig();
     this.loadActionSafety();
+    this.loadAnalysisStrategy();
   }
 
   onTabChange(index: number): void {
@@ -1063,5 +1121,48 @@ export class SettingsComponent implements OnInit {
       escalate: 'Escalate',
     };
     return labels[type] ?? type;
+  }
+
+  // ─── Analysis Strategy ───
+
+  loadAnalysisStrategy(): void {
+    this.analysisStrategyLoading.set(true);
+    this.settingsSvc.getAnalysisStrategy().subscribe({
+      next: (config) => {
+        this.analysisStrategy.set(config.strategy);
+        this.analysisMaxParallel.set(config.maxParallelTasks);
+        this.analysisStrategyLoading.set(false);
+      },
+      error: () => {
+        this.analysisStrategyLoading.set(false);
+        this.snackBar.open('Failed to load analysis strategy config', 'OK', { duration: 5000 });
+      },
+    });
+  }
+
+  setAnalysisMaxParallel(value: number): void {
+    if (Number.isFinite(value)) {
+      this.analysisMaxParallel.set(value);
+    }
+  }
+
+  saveAnalysisStrategy(): void {
+    this.analysisStrategySaving.set(true);
+    const config = {
+      strategy: this.analysisStrategy(),
+      maxParallelTasks: Math.min(10, Math.max(1, this.analysisMaxParallel())),
+    };
+    this.settingsSvc.saveAnalysisStrategy(config).subscribe({
+      next: (saved) => {
+        this.analysisStrategy.set(saved.strategy);
+        this.analysisMaxParallel.set(saved.maxParallelTasks);
+        this.analysisStrategySaving.set(false);
+        this.snackBar.open('Analysis strategy saved', 'OK', { duration: 3000, panelClass: 'success-snackbar' });
+      },
+      error: () => {
+        this.analysisStrategySaving.set(false);
+        this.snackBar.open('Failed to save analysis strategy', 'OK', { duration: 5000 });
+      },
+    });
   }
 }
