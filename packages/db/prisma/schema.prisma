@@ -132,6 +132,7 @@ model Client {
   billingMarkupPercent Float    @default(1.0) @map("billing_markup_percent")
   billingPeriod        String   @default("disabled") @map("billing_period")
   billingAnchorDay     Int      @default(1) @map("billing_anchor_day")
+  slackChannelId       String?  @map("slack_channel_id")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 

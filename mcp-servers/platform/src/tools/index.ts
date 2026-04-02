@@ -1,0 +1,29 @@
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { ServerDeps } from '../server.js';
+import { registerTicketTools } from './tickets.js';
+import { registerContactTools } from './contacts.js';
+import { registerClientTools } from './clients.js';
+import { registerSystemTools } from './systems.js';
+import { registerProbeTools } from './probes.js';
+import { registerIssueJobTools } from './issue-jobs.js';
+import { registerAiUsageTools } from './ai-usage.js';
+import { registerOperatorTools } from './operators.js';
+import { registerIntegrationTools } from './integrations.js';
+import { registerClientMemoryTools } from './client-memory.js';
+import { registerSettingsTools } from './settings.js';
+import { registerSystemStatusTools } from './system-status.js';
+
+export function registerAllTools(server: McpServer, deps: ServerDeps): void {
+  registerTicketTools(server, deps);
+  registerContactTools(server, deps);
+  registerClientTools(server, deps);
+  registerSystemTools(server, deps);
+  registerProbeTools(server, deps);
+  registerIssueJobTools(server, deps);
+  registerAiUsageTools(server, deps);
+  registerOperatorTools(server, deps);
+  registerIntegrationTools(server, deps);
+  registerClientMemoryTools(server, deps);
+  registerSettingsTools(server, deps);
+  registerSystemStatusTools(server, deps);
+}

@@ -35,6 +35,7 @@ export interface Client {
   billingMarkupPercent: number;
   billingPeriod: BillingPeriod;
   billingAnchorDay: number;
+  slackChannelId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
