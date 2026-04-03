@@ -84,6 +84,14 @@ const STEP_TYPE_INFO: RouteStepTypeInfo[] = [
     defaultPromptKey: null,
   },
   {
+    type: RouteStepType.LOAD_ENVIRONMENT_CONTEXT,
+    name: 'Load Environment Context',
+    description: 'Loads the environment\'s operationalInstructions and injects them into the pipeline context for downstream analysis steps. Only runs if the ticket is scoped to an environment.',
+    phase: 'analysis',
+    defaultTaskType: null,
+    defaultPromptKey: null,
+  },
+  {
     type: RouteStepType.EXTRACT_FACTS,
     name: 'Extract Facts',
     description: 'Extracts structured facts (error messages, file paths, services, keywords) from the email.',

@@ -31,6 +31,7 @@ export const RouteStepType = {
 
   // Context loading steps
   LOAD_CLIENT_CONTEXT: 'LOAD_CLIENT_CONTEXT',
+  LOAD_ENVIRONMENT_CONTEXT: 'LOAD_ENVIRONMENT_CONTEXT',
 
   // Analysis steps (category-driven investigation)
   EXTRACT_FACTS: 'EXTRACT_FACTS',
