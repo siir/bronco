@@ -44,3 +44,4 @@ systems-config.json
 
 # User-local scripts
 usr/
+.claude/worktrees/
