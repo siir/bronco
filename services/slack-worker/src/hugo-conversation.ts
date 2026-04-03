@@ -198,6 +198,8 @@ async function executeToolLoop(
             if (repoId) {
               toolInput = { ...toolInput, repoId, ...(client ? { clientId: client.id } : {}) };
             }
+          } else if (actualToolName === 'list_repos' && client) {
+            toolInput = { ...toolInput, clientId: client.id };
           }
           logger.info({ tool: toolUse.name, actualTool: actualToolName, iteration: i + 1 }, 'Executing mcp-repo tool');
           result = await callMcpToolViaSdk(
@@ -447,6 +449,7 @@ export async function handleHugoConversation(
             properties: {
               clientId: { type: 'string', description: 'Client ID to filter by' },
             },
+            required: ['clientId'],
           },
         });
         repoToolPrefixes.add('repo');

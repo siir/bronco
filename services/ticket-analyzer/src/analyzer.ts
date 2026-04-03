@@ -27,6 +27,18 @@ function sanitizeName(raw: string, maxLen = 120): string {
   return raw.replace(/[\x00-\x1f\x7f-\x9f]/g, '').trim().slice(0, maxLen);
 }
 
+/**
+ * Sanitize a file path for safe use in shell commands within repo worktrees.
+ * Rejects absolute paths, paths with `..` segments, and strips leading `./`.
+ * Returns null for invalid paths, the sanitized path for valid ones.
+ */
+function sanitizeFilePath(fp: string): string | null {
+  if (!fp || fp.startsWith('/')) return null;
+  const normalized = fp.replace(/\\/g, '/');
+  if (normalized.split('/').some(seg => seg === '..')) return null;
+  return normalized.replace(/^\.\//, '');
+}
+
 /** Max events to include in ticket summary prompts to bound prompt size. */
 const SUMMARY_EVENT_LIMIT = 50;
 
@@ -903,11 +915,12 @@ async function deepAnalysis(
         try {
           const grepResult = await callMcpToolViaSdk(
             deps.mcpRepoUrl, '/mcp', 'repo_exec',
-            { repoId: repo.id, sessionId: initialSessionId, clientId: ticket.clientId, command: `grep -rnil "${sanitized.replace(/"/g, '\\"')}" . --include="*.sql" --include="*.cs" --include="*.ts"` },
+            { repoId: repo.id, sessionId: initialSessionId, clientId: ticket.clientId, command: `grep -rnil "${sanitized.replace(/"/g, '\\"')}" .` },
           );
+          const exts = ['.sql', '.cs', '.ts'];
           for (const line of grepResult.split('\n')) {
             const trimmed = line.trim();
-            if (trimmed && !trimmed.startsWith('[session:') && !trimmed.startsWith('[stderr]')) {
+            if (trimmed && !trimmed.startsWith('[session:') && !trimmed.startsWith('[stderr]') && exts.some(e => trimmed.endsWith(e))) {
               relevantFiles.add(trimmed);
             }
           }
@@ -923,12 +936,14 @@ async function deepAnalysis(
       if (relevantFiles.size > 0) {
         const fileParts: string[] = [];
         let totalBytes = 0;
-        for (const fp of relevantFiles) {
+        for (const rawFp of relevantFiles) {
           if (totalBytes >= 60_000) break;
+          const fp = sanitizeFilePath(rawFp);
+          if (!fp) continue;
           try {
             const catResult = await callMcpToolViaSdk(
               deps.mcpRepoUrl, '/mcp', 'repo_exec',
-              { repoId: repo.id, sessionId: initialSessionId, clientId: ticket.clientId, command: `cat ${fp}` },
+              { repoId: repo.id, sessionId: initialSessionId, clientId: ticket.clientId, command: `cat '${fp.replace(/'/g, "'\\''")}'` },
             );
             const content = catResult.split('\n').filter(l => !l.startsWith('[session:')).join('\n');
             const truncated = content.slice(0, 3000);
@@ -1599,6 +1614,7 @@ async function buildAgenticTools(
         properties: {
           clientId: { type: 'string', description: 'Client ID to filter by' },
         },
+        required: ['clientId'],
       },
     });
 
@@ -1667,12 +1683,15 @@ async function executeAgenticToolCall(
     }
 
     // For repo_exec, inject the baked-in repoId and clientId for defense-in-depth
+    // For list_repos, inject clientId to prevent cross-client repo enumeration
     let toolInput = input;
     if (actualToolName === 'repo_exec') {
       const repoId = repoIdByPrefix.get(prefix);
       if (repoId) {
         toolInput = { ...input, repoId, ...(clientId ? { clientId } : {}) };
       }
+    } else if (actualToolName === 'list_repos' && clientId) {
+      toolInput = { ...input, clientId };
     }
 
     const result = await callMcpToolViaSdk(
@@ -2539,9 +2558,10 @@ async function executeRoutePipeline(
       }
 
       case RouteStepType.GATHER_REPO_CONTEXT: {
+        if (!ticket) break;
         // Query client repos via CodeRepo model
-        const clientRepos = await db.codeRepo.findMany({ where: { clientId: ticket?.clientId, isActive: true } });
-        if (!ticket || clientRepos.length === 0) break;
+        const clientRepos = await db.codeRepo.findMany({ where: { clientId: ticket.clientId, isActive: true } });
+        if (clientRepos.length === 0) break;
 
         const gatherSessionId = `gather-${ticketId}`;
         const mcpRepoUrl = deps.mcpRepoUrl;
@@ -2562,13 +2582,14 @@ async function executeRoutePipeline(
               try {
                 const grepResult = await callMcpToolViaSdk(
                   mcpRepoUrl, '/mcp', 'repo_exec',
-                  { repoId: repo.id, sessionId: gatherSessionId, clientId: ticket.clientId, command: `grep -rnil "${sanitized.replace(/"/g, '\\"')}" . --include="*.sql" --include="*.cs" --include="*.ts"` },
+                  { repoId: repo.id, sessionId: gatherSessionId, clientId: ticket.clientId, command: `grep -rnil "${sanitized.replace(/"/g, '\\"')}" .` },
                   repoAuth,
                 );
                 // Parse file paths from stdout (skip the [session:...] line)
+                const exts = ['.sql', '.cs', '.ts'];
                 for (const line of grepResult.split('\n')) {
                   const trimmed = line.trim();
-                  if (trimmed && !trimmed.startsWith('[session:') && !trimmed.startsWith('[stderr]')) {
+                  if (trimmed && !trimmed.startsWith('[session:') && !trimmed.startsWith('[stderr]') && exts.some(e => trimmed.endsWith(e))) {
                     relevantFiles.add(trimmed);
                   }
                 }
@@ -2581,12 +2602,14 @@ async function executeRoutePipeline(
             if (relevantFiles.size > 0) {
               const fileParts: string[] = [];
               let totalBytes = 0;
-              for (const fp of relevantFiles) {
+              for (const rawFp of relevantFiles) {
                 if (totalBytes >= 60_000) break;
+                const fp = sanitizeFilePath(rawFp);
+                if (!fp) continue;
                 try {
                   const catResult = await callMcpToolViaSdk(
                     mcpRepoUrl, '/mcp', 'repo_exec',
-                    { repoId: repo.id, sessionId: gatherSessionId, clientId: ticket.clientId, command: `cat ${fp}` },
+                    { repoId: repo.id, sessionId: gatherSessionId, clientId: ticket.clientId, command: `cat '${fp.replace(/'/g, "'\\''")}'` },
                     repoAuth,
                   );
                   // Strip the [session:...] prefix line
@@ -3458,11 +3481,12 @@ async function executeRoutePipeline(
                     try {
                       const grepResult = await callMcpToolViaSdk(
                         deps.mcpRepoUrl, '/mcp', 'repo_exec',
-                        { repoId: repo.id, sessionId: customSessionId, clientId, command: `grep -rnil "${sanitized.replace(/"/g, '\\"')}" . --include="*.sql" --include="*.cs" --include="*.ts"` },
+                        { repoId: repo.id, sessionId: customSessionId, clientId, command: `grep -rnil "${sanitized.replace(/"/g, '\\"')}" .` },
                       );
+                      const exts = ['.sql', '.cs', '.ts'];
                       for (const line of grepResult.split('\n')) {
                         const trimmed = line.trim();
-                        if (trimmed && !trimmed.startsWith('[session:') && !trimmed.startsWith('[stderr]')) {
+                        if (trimmed && !trimmed.startsWith('[session:') && !trimmed.startsWith('[stderr]') && exts.some(e => trimmed.endsWith(e))) {
                           relevantFiles.add(trimmed);
                         }
                       }
@@ -3484,12 +3508,14 @@ async function executeRoutePipeline(
                   if (relevantFiles.size > 0) {
                     const fileParts: string[] = [];
                     let totalBytes = 0;
-                    for (const fp of relevantFiles) {
+                    for (const rawFp of relevantFiles) {
                       if (totalBytes >= 60_000) break;
+                      const fp = sanitizeFilePath(rawFp);
+                      if (!fp) continue;
                       try {
                         const catResult = await callMcpToolViaSdk(
                           deps.mcpRepoUrl, '/mcp', 'repo_exec',
-                          { repoId: repo.id, sessionId: customSessionId, clientId, command: `cat ${fp}` },
+                          { repoId: repo.id, sessionId: customSessionId, clientId, command: `cat '${fp.replace(/'/g, "'\\''")}'` },
                         );
                         const content = catResult.split('\n').filter(l => !l.startsWith('[session:')).join('\n');
                         const truncated = content.slice(0, 3000);
