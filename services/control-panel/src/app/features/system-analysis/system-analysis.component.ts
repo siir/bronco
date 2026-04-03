@@ -129,16 +129,24 @@ const STATUS_META: Record<string, { icon: string; label: string; color: string }
               </div>
             }
 
-            @if (a.status === 'PENDING') {
-              <div class="action-bar">
+            <div class="action-bar">
+              @if (a.status === 'PENDING') {
                 <button mat-raised-button color="primary" (click)="acknowledge(a)">
                   <mat-icon>check</mat-icon> Acknowledge
                 </button>
                 <button mat-raised-button color="warn" (click)="openRejectDialog(a)">
                   <mat-icon>close</mat-icon> Reject
                 </button>
-              </div>
-            }
+              }
+              @if (a.status !== 'PENDING') {
+                <button mat-stroked-button (click)="reopen(a)" matTooltip="Reset to pending for re-review">
+                  <mat-icon>undo</mat-icon> Reopen
+                </button>
+              }
+              <button mat-icon-button color="warn" (click)="deleteAnalysis(a)" matTooltip="Delete permanently">
+                <mat-icon>delete</mat-icon>
+              </button>
+            </div>
           </mat-card-content>
         </mat-card>
       } @empty {
@@ -373,6 +381,33 @@ export class SystemAnalysisComponent implements OnInit {
           },
         });
       }
+    });
+  }
+
+  reopen(a: SystemAnalysis): void {
+    this.analysisService.reopen(a.id).subscribe({
+      next: () => {
+        this.snackBar.open('Analysis reopened', 'OK', { duration: 3000 });
+        this.load();
+        this.loadStats();
+      },
+      error: (err) => {
+        this.snackBar.open(err.error?.error ?? 'Failed to reopen', 'OK', { duration: 5000 });
+      },
+    });
+  }
+
+  deleteAnalysis(a: SystemAnalysis): void {
+    if (!confirm('Delete this analysis permanently?')) return;
+    this.analysisService.delete(a.id).subscribe({
+      next: () => {
+        this.snackBar.open('Analysis deleted', 'OK', { duration: 3000 });
+        this.load();
+        this.loadStats();
+      },
+      error: (err) => {
+        this.snackBar.open(err.error?.error ?? 'Failed to delete', 'OK', { duration: 5000 });
+      },
     });
   }
 
