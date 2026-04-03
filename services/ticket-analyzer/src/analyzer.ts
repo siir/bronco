@@ -1,9 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { mkdir, readFile, readdir, rm, stat } from 'node:fs/promises';
-import { join, resolve, basename } from 'node:path';
-import { promisify } from 'node:util';
+import { readdir, rm, stat } from 'node:fs/promises';
+import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Job } from 'bullmq';
 import { Prisma } from '@bronco/db';
@@ -17,7 +14,6 @@ import type { Mailer, ReplyOptions } from '@bronco/shared-utils';
 import { executeRecommendations } from './recommendation-executor.js';
 import type { ParsedAction } from './recommendation-executor.js';
 
-const execFileAsync = promisify(execFile);
 const logger = createLogger('ticket-analyzer');
 export const appLog = new AppLogger('ticket-analyzer');
 
@@ -33,11 +29,6 @@ function sanitizeName(raw: string, maxLen = 120): string {
 
 /** Max events to include in ticket summary prompts to bound prompt size. */
 const SUMMARY_EVENT_LIMIT = 50;
-
-const DEFAULT_REPO_BASE_DIR = '/tmp/bronco-repos';
-
-/** Timeout (ms) for git clone/fetch operations to prevent indefinite blocking. */
-const GIT_CLONE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 /** Canonical list of AI action types — used in both the LLM prompt and runtime validation. */
 const KNOWN_ACTIONS = [
@@ -283,33 +274,6 @@ async function sendReplyWithRetry(
   throw lastError ?? new Error('All email send attempts failed');
 }
 
-// ---------------------------------------------------------------------------
-// In-process mutex for bare-clone fetch/clone operations
-// ---------------------------------------------------------------------------
-
-const repoLocks = new Map<string, Promise<void>>();
-
-function acquireRepoLock(repoName: string): { wait: Promise<void>; release: () => void } {
-  const prev = repoLocks.get(repoName) ?? Promise.resolve();
-  let release!: () => void;
-  const next = new Promise<void>((res) => {
-    release = res;
-  });
-  const chain = prev.then(() => next);
-  repoLocks.set(repoName, chain);
-  chain.finally(() => {
-    if (repoLocks.get(repoName) === chain) {
-      repoLocks.delete(repoName);
-    }
-  });
-  return { wait: prev, release };
-}
-
-interface WorktreeResult {
-  worktreePath: string;
-  cleanup: () => Promise<void>;
-}
-
 // Re-export AnalysisJob from shared-types for backward compatibility with existing imports.
 export type { AnalysisJob } from '@bronco/shared-types';
 
@@ -338,6 +302,8 @@ export interface AnalyzerDeps {
   repoWorkspacePath: string;
   /** AES-256-GCM encryption key for decrypting integration secrets (API keys, etc.). */
   encryptionKey: string;
+  /** MCP repo server URL for code repository access via mcp-repo. */
+  mcpRepoUrl: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -759,139 +725,6 @@ async function sendReceiptConfirmation(
 // ---------------------------------------------------------------------------
 
 /**
- * Clone or pull a git repository to a local directory.
- */
-function validateGitArgument(value: string, kind: 'branch' | 'url'): string {
-  if (value.startsWith('-')) {
-    throw new Error(`Invalid git ${kind}: must not start with '-'`);
-  }
-  if (kind === 'url') {
-    // Only allow https:// and git@ (SSH) URLs
-    if (!/^(https:\/\/|git@)/.test(value)) {
-      throw new Error('Invalid git url: only https:// and git@ (SSH) URLs are allowed');
-    }
-  }
-  if (kind === 'branch') {
-    // git branch names: alphanumeric, slashes, dashes, dots, underscores
-    if (!/^[a-zA-Z0-9._\/-]+$/.test(value)) {
-      throw new Error('Invalid git branch: contains disallowed characters');
-    }
-    // Disallow path traversal sequences in branch names
-    if (value.includes('..')) {
-      throw new Error('Invalid git branch: must not contain ".."');
-    }
-  }
-  return value;
-}
-
-/** Sanitize a search term for use with git grep to prevent argument injection. */
-function sanitizeSearchTerm(term: string): string {
-  // Strip control characters and limit length
-  return term.replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200);
-}
-
-async function ensureRepo(
-  url: string,
-  branch: string,
-  name: string,
-  clientId: string,
-  jobId: string,
-  baseDir: string = DEFAULT_REPO_BASE_DIR,
-): Promise<WorktreeResult> {
-  const safeUrl = validateGitArgument(url, 'url');
-  const safeBranch = validateGitArgument(branch, 'branch');
-
-  // Sanitize repo name to prevent path traversal — use only the basename
-  // and strip any characters that aren't alphanumeric, dash, dot, or underscore.
-  const safeName = basename(name).replace(/[^a-zA-Z0-9._-]/g, '_');
-  if (!safeName) {
-    throw new Error('Invalid repository name');
-  }
-  const safeJobId = basename(jobId).replace(/[^a-zA-Z0-9._-]/g, '_');
-
-  // Sanitize clientId the same way as repo name to prevent path traversal
-  const safeClientId = basename(clientId).replace(/[^a-zA-Z0-9._-]/g, '_');
-
-  // Include clientId in path/lock key to avoid cross-client repo collisions
-  const repoKey = `${safeClientId}_${safeName}`;
-
-  const bareDir = join(baseDir, 'bare');
-  const worktreeDir = join(baseDir, 'worktrees');
-
-  await mkdir(bareDir, { recursive: true });
-  await mkdir(worktreeDir, { recursive: true });
-
-  const barePath = join(bareDir, `${repoKey}.git`);
-
-  // Lock the bare clone so concurrent jobs for the same repo don't race
-  const lock = acquireRepoLock(repoKey);
-  await lock.wait;
-  try {
-    if (existsSync(join(barePath, 'HEAD'))) {
-      // Fetch latest into the bare clone (shallow — full history not needed for analysis)
-      await execFileAsync('git', ['-C', barePath, 'fetch', '--depth', '1', 'origin', safeBranch], { timeout: GIT_CLONE_TIMEOUT_MS });
-      await execFileAsync('git', ['-C', barePath, 'worktree', 'prune']);
-      // Verify the remote branch exists after fetch
-      try {
-        await execFileAsync('git', ['-C', barePath, 'rev-parse', '--verify', `origin/${safeBranch}`]);
-      } catch {
-        throw new Error(`Remote branch 'origin/${safeBranch}' not found in ${safeName}`);
-      }
-      logger.info({ repo: safeName, branch: safeBranch }, 'Bare repo fetched');
-    } else {
-      // If the directory exists without a valid bare repo, remove it first
-      if (existsSync(barePath)) {
-        logger.warn({ repo: safeName }, 'Removing corrupted bare repo directory');
-        await rm(barePath, { recursive: true, force: true });
-      }
-      await execFileAsync('git', [
-        'clone', '--bare', '--single-branch', '--branch', safeBranch,
-        '--depth', '1',
-        safeUrl, barePath,
-      ], { timeout: GIT_CLONE_TIMEOUT_MS });
-      logger.info({ repo: safeName, branch: safeBranch }, 'Bare repo cloned');
-    }
-  } finally {
-    lock.release();
-  }
-
-  // Create a per-job worktree (no lock needed — path is unique)
-  const worktreePath = join(worktreeDir, `${repoKey}-${safeJobId}`);
-
-  // Clean up any stale worktree registration and directory before adding
-  try {
-    await execFileAsync('git', ['-C', barePath, 'worktree', 'remove', '--force', worktreePath]);
-  } catch {
-    // Worktree may not be registered — just clean up the directory
-    if (existsSync(worktreePath)) {
-      await rm(worktreePath, { recursive: true, force: true });
-    }
-  }
-  try {
-    await execFileAsync('git', ['-C', barePath, 'worktree', 'prune']);
-  } catch { /* best effort */ }
-
-  await execFileAsync('git', [
-    '-C', barePath, 'worktree', 'add', '--detach', worktreePath, `origin/${safeBranch}`,
-  ]);
-  logger.info({ repo: safeName, worktree: worktreePath }, 'Worktree created');
-
-  const cleanup = async () => {
-    try {
-      await execFileAsync('git', ['-C', barePath, 'worktree', 'remove', '--force', worktreePath]);
-      logger.debug({ repo: safeName, worktree: worktreePath }, 'Worktree removed');
-    } catch {
-      // Fallback: just delete the directory and let prune clean up metadata
-      try {
-        await rm(worktreePath, { recursive: true, force: true });
-      } catch { /* best effort */ }
-    }
-  };
-
-  return { worktreePath, cleanup };
-}
-
-/**
  * Remove bare repo clones and orphaned worktrees that haven't been
  * accessed within `retentionDays`. Runs best-effort — errors are logged
  * but never propagated.
@@ -943,43 +776,6 @@ export async function cleanupStaleRepos(
     logger.warn({ err, worktreeDir }, 'Failed to list worktree directory for cleanup');
   }
 }
-
-/**
- * Read a set of files from a repo directory, returning their contents
- * truncated to a reasonable size for AI context. Uses a total byte budget
- * instead of an arbitrary file-count cap so that all mentioned files have
- * a chance to be included.
- */
-async function readRepoFiles(
-  repoPath: string,
-  filePaths: string[],
-  maxPerFile = 3000,
-  maxTotalBytes = 60_000,
-): Promise<string> {
-  const absRepoPath = resolve(repoPath);
-  const parts: string[] = [];
-  let totalBytes = 0;
-  for (const fp of filePaths) {
-    if (totalBytes >= maxTotalBytes) break;
-    try {
-      const full = resolve(absRepoPath, fp);
-      // Ensure the resolved path stays within the repo directory
-      if (!full.startsWith(absRepoPath + '/')) {
-        logger.warn({ filePath: fp }, 'Skipping file outside repo boundary');
-        continue;
-      }
-      const content = await readFile(full, 'utf-8');
-      const truncated = content.slice(0, maxPerFile);
-      const formatted = `--- ${fp} ---\n${truncated}\n`;
-      parts.push(formatted);
-      totalBytes += formatted.length;
-    } catch {
-      // File not found or unreadable — skip
-    }
-  }
-  return parts.join('\n');
-}
-
 
 /** Map MCP tool names (snake_case) to REST bridge paths (kebab-case, prefix stripped). */
 const MCP_TOOL_TO_REST_PATH: Record<string, string> = {
@@ -1089,15 +885,10 @@ async function deepAnalysis(
   const failedRepos: Array<{ name: string; error: string }> = [];
 
   try {
-  for (const repo of ticket.client.repositories) {
+  const clientCodeRepos = await db.codeRepo.findMany({ where: { clientId: ticket.clientId, isActive: true } });
+  const initialSessionId = `initial-${ticketId}`;
+  for (const repo of clientCodeRepos) {
     try {
-      const { worktreePath, cleanup } = await ensureRepo(
-        repo.url, repo.branch, repo.name, ticket.clientId, `${ticketId}-${bullmqJobId}`,
-        deps.repoWorkspacePath,
-      );
-      cleanups.push(cleanup);
-
-      // Use git grep to find relevant files based on keywords/errors
       const searchTerms = [
         ...(facts.keywords ?? []),
         ...(facts.filesMentioned ?? []),
@@ -1107,31 +898,47 @@ async function deepAnalysis(
       const relevantFiles = new Set<string>();
 
       for (const rawTerm of searchTerms) {
-        const term = sanitizeSearchTerm(rawTerm);
-        if (!term) continue;
+        if (!rawTerm || rawTerm.replace(/[\x00-\x1f\x7f]/g, '').trim().length === 0) continue;
+        const sanitized = rawTerm.replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200);
         try {
-          const { stdout } = await execFileAsync(
-            'git',
-            ['-C', worktreePath, 'grep', '-l', '--max-count=3', '-i', '--', term],
-            { timeout: 10_000 },
+          const grepResult = await callMcpToolViaSdk(
+            deps.mcpRepoUrl, '/mcp', 'repo_exec',
+            { repoId: repo.id, sessionId: initialSessionId, clientId: ticket.clientId, command: `grep -rnil "${sanitized.replace(/"/g, '\\"')}" . --include="*.sql" --include="*.cs" --include="*.ts"` },
           );
-          for (const line of stdout.trim().split('\n').filter(Boolean)) {
-            relevantFiles.add(line);
+          for (const line of grepResult.split('\n')) {
+            const trimmed = line.trim();
+            if (trimmed && !trimmed.startsWith('[session:') && !trimmed.startsWith('[stderr]')) {
+              relevantFiles.add(trimmed);
+            }
           }
         } catch {
           // grep found nothing — that's fine
         }
       }
 
-      // Also check explicitly mentioned files
       for (const f of facts.filesMentioned ?? []) {
         relevantFiles.add(f);
       }
 
       if (relevantFiles.size > 0) {
-        const content = await readRepoFiles(worktreePath, [...relevantFiles]);
-        if (content) {
-          codeContext.push(`## Repository: ${repo.name}\n\n${content}`);
+        const fileParts: string[] = [];
+        let totalBytes = 0;
+        for (const fp of relevantFiles) {
+          if (totalBytes >= 60_000) break;
+          try {
+            const catResult = await callMcpToolViaSdk(
+              deps.mcpRepoUrl, '/mcp', 'repo_exec',
+              { repoId: repo.id, sessionId: initialSessionId, clientId: ticket.clientId, command: `cat ${fp}` },
+            );
+            const content = catResult.split('\n').filter(l => !l.startsWith('[session:')).join('\n');
+            const truncated = content.slice(0, 3000);
+            const formatted = `--- ${fp} ---\n${truncated}\n`;
+            fileParts.push(formatted);
+            totalBytes += formatted.length;
+          } catch { /* file not found or unreadable */ }
+        }
+        if (fileParts.length > 0) {
+          codeContext.push(`## Repository: ${repo.name}\n\n${fileParts.join('\n')}`);
         }
       }
     } catch (err) {
@@ -1140,6 +947,8 @@ async function deepAnalysis(
       appLog.warn(`Repo context unavailable for ${repo.name}: ${errMsg}`, { ticketId, repo: repo.name, err }, ticketId, 'ticket');
     }
   }
+  // Clean up session worktrees
+  try { await callMcpToolViaSdk(deps.mcpRepoUrl, '/mcp', 'repo_cleanup', { sessionId: initialSessionId }); } catch { /* best effort */ }
 
   // --- Gather context from MCP (database) ---
   let dbContext = '';
@@ -1703,20 +1512,24 @@ interface McpIntegrationInfo {
 
 /**
  * Build Claude tool definitions from a client's active MCP_DATABASE integrations
- * and code repositories. MCP tool names are prefixed with the integration label
- * to disambiguate across servers (e.g. `prod-db__get_blocking_tree`).
+ * and code repositories (via mcp-repo). MCP tool names are prefixed with the
+ * integration label to disambiguate across servers (e.g. `prod-db__get_blocking_tree`).
  */
 async function buildAgenticTools(
   db: PrismaClient,
   clientId: string,
   encryptionKey: string,
-  repos: Array<{ name: string; url: string; branch: string }>,
+  mcpRepoUrl: string,
+  apiKey?: string,
+  mcpAuthToken?: string,
 ): Promise<{
   tools: AIToolDefinition[];
   mcpIntegrations: Map<string, McpIntegrationInfo>;
+  repoIdByPrefix: Map<string, string>;
 }> {
   const tools: AIToolDefinition[] = [];
   const mcpIntegrations = new Map<string, McpIntegrationInfo>();
+  const repoIdByPrefix = new Map<string, string>();
 
   // Collect MCP_DATABASE integrations
   const integrations = await db.clientIntegration.findMany({
@@ -1730,10 +1543,10 @@ async function buildAgenticTools(
     if (!url) continue;
 
     // Decrypt API key if present
-    let apiKey: string | undefined;
+    let integApiKey: string | undefined;
     if (typeof cfg['apiKey'] === 'string' && cfg['apiKey']) {
       try {
-        apiKey = looksEncrypted(cfg['apiKey'])
+        integApiKey = looksEncrypted(cfg['apiKey'])
           ? decrypt(cfg['apiKey'], encryptionKey)
           : cfg['apiKey'];
       } catch (err) {
@@ -1747,7 +1560,7 @@ async function buildAgenticTools(
     const prefix = `${labelSlug}-${integ.id.slice(0, 8)}`;
 
     const mcpPath = typeof cfg['mcpPath'] === 'string' ? cfg['mcpPath'] : undefined;
-    mcpIntegrations.set(prefix, { label: integ.label, url, mcpPath, apiKey, authHeader });
+    mcpIntegrations.set(prefix, { label: integ.label, url, mcpPath, apiKey: integApiKey, authHeader });
 
     // Read tool metadata — includes inputSchema from discovery
     const disabledTools = new Set(
@@ -1768,36 +1581,64 @@ async function buildAgenticTools(
     }
   }
 
-  // Add repo tools if repos exist
+  // Discover mcp-repo tools for client repositories
+  const repos = await db.codeRepo.findMany({ where: { clientId, isActive: true } });
   if (repos.length > 0) {
-    const repoNames = repos.map((r) => r.name);
+    // Resolve auth for mcp-repo — prefer MCP_AUTH_TOKEN, fall back to API_KEY
+    const repoAuth = mcpAuthToken || apiKey;
+    const repoAuthHeader = mcpAuthToken ? 'bearer' : 'x-api-key';
+
+    // Register shared mcp-repo integration for list_repos and repo_cleanup
+    mcpIntegrations.set('repo', { label: 'mcp-repo', url: mcpRepoUrl, mcpPath: '/mcp', apiKey: repoAuth, authHeader: repoAuthHeader });
+
     tools.push({
-      name: 'search_repo',
-      description: `Search code repositories using git grep. Available repos: ${repoNames.join(', ')}`,
+      name: 'repo__list_repos',
+      description: 'List available code repositories registered for this client.',
       input_schema: {
         type: 'object',
         properties: {
-          repo: { type: 'string', description: 'Repository name', enum: repoNames },
-          query: { type: 'string', description: 'Search pattern (git grep pattern)' },
+          clientId: { type: 'string', description: 'Client ID to filter by' },
         },
-        required: ['repo', 'query'],
       },
     });
+
     tools.push({
-      name: 'read_file',
-      description: `Read a file from a code repository. Available repos: ${repoNames.join(', ')}`,
+      name: 'repo__repo_cleanup',
+      description: 'Release a session\'s repository worktrees to free disk space.',
       input_schema: {
         type: 'object',
         properties: {
-          repo: { type: 'string', description: 'Repository name', enum: repoNames },
-          path: { type: 'string', description: 'File path relative to repo root' },
+          sessionId: { type: 'string', description: 'The session ID to clean up' },
         },
-        required: ['repo', 'path'],
+        required: ['sessionId'],
       },
     });
+
+    // Register per-repo repo_exec tools with repoId baked in
+    for (const repo of repos) {
+      const prefix = `repo-${repo.name.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase()}-${repo.id.slice(0, 8)}`;
+      repoIdByPrefix.set(prefix, repo.id);
+
+      // Register this prefix to point at mcp-repo
+      mcpIntegrations.set(prefix, { label: `repo:${repo.name}`, url: mcpRepoUrl, mcpPath: '/mcp', apiKey: repoAuth, authHeader: repoAuthHeader });
+
+      // Build a modified input schema for repo_exec with repoId removed
+      tools.push({
+        name: `${prefix}__repo_exec`,
+        description: `[${repo.name}] ${repo.description || 'Code repository'}. Execute a read-only shell command in a sandboxed worktree. Allowed: grep, find, cat, head, tail, ls, tree, diff, stat. Pipes to grep/sed/awk/sort allowed.`,
+        input_schema: {
+          type: 'object',
+          properties: {
+            command: { type: 'string', description: 'The shell command to execute' },
+            sessionId: { type: 'string', description: 'Session ID for worktree reuse (auto-generated if omitted)' },
+          },
+          required: ['command'],
+        },
+      });
+    }
   }
 
-  return { tools, mcpIntegrations };
+  return { tools, mcpIntegrations, repoIdByPrefix };
 }
 
 /**
@@ -1807,45 +1648,12 @@ async function buildAgenticTools(
 async function executeAgenticToolCall(
   toolCall: AIToolUseBlock,
   mcpIntegrations: Map<string, McpIntegrationInfo>,
-  worktrees: Map<string, string>,
+  repoIdByPrefix: Map<string, string>,
+  clientId?: string,
 ): Promise<{ toolUseId: string; result: string; isError: boolean }> {
   const { id: toolUseId, name, input } = toolCall;
 
   try {
-    // Check for repo tools first
-    if (name === 'search_repo') {
-      const repoName = input['repo'] as string;
-      const query = input['query'] as string;
-      const worktreePath = worktrees.get(repoName);
-      if (!worktreePath) {
-        return { toolUseId, result: `Repository "${repoName}" not available`, isError: true };
-      }
-      const sanitized = sanitizeSearchTerm(query);
-      if (!sanitized) {
-        return { toolUseId, result: 'Invalid search query', isError: true };
-      }
-      try {
-        const { stdout } = await execFileAsync(
-          'git', ['-C', worktreePath, 'grep', '-n', '--max-count=20', '-i', '--', sanitized],
-          { timeout: 15_000, maxBuffer: 256 * 1024 },
-        );
-        return { toolUseId, result: stdout.trim() || 'No matches found', isError: false };
-      } catch {
-        return { toolUseId, result: 'No matches found', isError: false };
-      }
-    }
-
-    if (name === 'read_file') {
-      const repoName = input['repo'] as string;
-      const filePath = input['path'] as string;
-      const worktreePath = worktrees.get(repoName);
-      if (!worktreePath) {
-        return { toolUseId, result: `Repository "${repoName}" not available`, isError: true };
-      }
-      const content = await readRepoFiles(worktreePath, [filePath], 5000, 30_000);
-      return { toolUseId, result: content || 'File not found or empty', isError: false };
-    }
-
     // MCP tool — parse prefix
     const sepIndex = name.indexOf('__');
     if (sepIndex === -1) {
@@ -1858,11 +1666,20 @@ async function executeAgenticToolCall(
       return { toolUseId, result: `No MCP integration found for prefix "${prefix}"`, isError: true };
     }
 
+    // For repo_exec, inject the baked-in repoId and clientId for defense-in-depth
+    let toolInput = input;
+    if (actualToolName === 'repo_exec') {
+      const repoId = repoIdByPrefix.get(prefix);
+      if (repoId) {
+        toolInput = { ...input, repoId, ...(clientId ? { clientId } : {}) };
+      }
+    }
+
     const result = await callMcpToolViaSdk(
       integration.url,
       integration.mcpPath,
       actualToolName,
-      input,
+      toolInput,
       integration.apiKey,
       integration.authHeader,
     );
@@ -2111,7 +1928,7 @@ async function executeOrchestratedSubTask(
   task: { prompt: string; tools: string[]; model: string },
   agenticTools: AIToolDefinition[],
   mcpIntegrations: Map<string, McpIntegrationInfo>,
-  worktrees: Map<string, string>,
+  repoIdByPrefix: Map<string, string>,
 ): Promise<SubTaskResult> {
   const { ai } = deps;
   const model = ORCHESTRATED_MODEL_MAP[task.model] ?? ORCHESTRATED_MODEL_MAP.sonnet;
@@ -2196,7 +2013,7 @@ async function executeOrchestratedSubTask(
 
         for (const toolUse of toolUseBlocks) {
           const start = Date.now();
-          const result = await executeAgenticToolCall(toolUse, mcpIntegrations, worktrees);
+          const result = await executeAgenticToolCall(toolUse, mcpIntegrations, repoIdByPrefix, clientId);
           const elapsed = Date.now() - start;
           passToolCalls.push({
             tool: toolUse.name,
@@ -2722,21 +2539,16 @@ async function executeRoutePipeline(
       }
 
       case RouteStepType.GATHER_REPO_CONTEXT: {
-        // Reload ticket to get repos
-        ticket = await db.ticket.findUnique({
-          where: { id: ticketId },
-          include: { client: { include: { repositories: { where: { isActive: true } } } }, system: true },
-        });
-        if (!ticket || !ticket.client) break;
+        // Query client repos via CodeRepo model
+        const clientRepos = await db.codeRepo.findMany({ where: { clientId: ticket?.clientId, isActive: true } });
+        if (!ticket || clientRepos.length === 0) break;
 
-        for (const repo of ticket.client.repositories) {
+        const gatherSessionId = `gather-${ticketId}`;
+        const mcpRepoUrl = deps.mcpRepoUrl;
+        const repoAuth = undefined; // mcp-repo uses same auth as env — handled by callMcpToolViaSdk
+
+        for (const repo of clientRepos) {
           try {
-            const { worktreePath, cleanup } = await ensureRepo(
-              repo.url, repo.branch, repo.name, ticket.clientId, `${ticketId}-${bullmqJobId}`,
-              deps.repoWorkspacePath,
-            );
-            cleanups.push(cleanup);
-
             const searchTerms = [
               ...(facts.keywords ?? []),
               ...(facts.filesMentioned ?? []),
@@ -2745,25 +2557,48 @@ async function executeRoutePipeline(
 
             const relevantFiles = new Set<string>();
             for (const rawTerm of searchTerms) {
-              const term = sanitizeSearchTerm(rawTerm);
-              if (!term) continue;
+              if (!rawTerm || rawTerm.replace(/[\x00-\x1f\x7f]/g, '').trim().length === 0) continue;
+              const sanitized = rawTerm.replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200);
               try {
-                const { stdout } = await execFileAsync(
-                  'git', ['-C', worktreePath, 'grep', '-l', '--max-count=3', '-i', '--', term],
-                  { timeout: 10_000 },
+                const grepResult = await callMcpToolViaSdk(
+                  mcpRepoUrl, '/mcp', 'repo_exec',
+                  { repoId: repo.id, sessionId: gatherSessionId, clientId: ticket.clientId, command: `grep -rnil "${sanitized.replace(/"/g, '\\"')}" . --include="*.sql" --include="*.cs" --include="*.ts"` },
+                  repoAuth,
                 );
-                for (const line of stdout.trim().split('\n').filter(Boolean)) {
-                  relevantFiles.add(line);
+                // Parse file paths from stdout (skip the [session:...] line)
+                for (const line of grepResult.split('\n')) {
+                  const trimmed = line.trim();
+                  if (trimmed && !trimmed.startsWith('[session:') && !trimmed.startsWith('[stderr]')) {
+                    relevantFiles.add(trimmed);
+                  }
                 }
               } catch { /* grep found nothing */ }
             }
             for (const f of facts.filesMentioned ?? []) {
               relevantFiles.add(f);
             }
+
             if (relevantFiles.size > 0) {
-              const content = await readRepoFiles(worktreePath, [...relevantFiles]);
-              if (content) {
-                codeContext.push(`## Repository: ${repo.name}\n\n${content}`);
+              const fileParts: string[] = [];
+              let totalBytes = 0;
+              for (const fp of relevantFiles) {
+                if (totalBytes >= 60_000) break;
+                try {
+                  const catResult = await callMcpToolViaSdk(
+                    mcpRepoUrl, '/mcp', 'repo_exec',
+                    { repoId: repo.id, sessionId: gatherSessionId, clientId: ticket.clientId, command: `cat ${fp}` },
+                    repoAuth,
+                  );
+                  // Strip the [session:...] prefix line
+                  const content = catResult.split('\n').filter(l => !l.startsWith('[session:')).join('\n');
+                  const truncated = content.slice(0, 3000);
+                  const formatted = `--- ${fp} ---\n${truncated}\n`;
+                  fileParts.push(formatted);
+                  totalBytes += formatted.length;
+                } catch { /* file not found or unreadable */ }
+              }
+              if (fileParts.length > 0) {
+                codeContext.push(`## Repository: ${repo.name}\n\n${fileParts.join('\n')}`);
               }
             }
           } catch (err) {
@@ -2771,12 +2606,17 @@ async function executeRoutePipeline(
             appLog.warn(`Repo context unavailable for ${repo.name}: ${errMsg}`, { ticketId, repo: repo.name, err }, ticketId, 'ticket');
           }
         }
+
+        // Clean up the gather session worktrees
+        try {
+          await callMcpToolViaSdk(mcpRepoUrl, '/mcp', 'repo_cleanup', { sessionId: gatherSessionId });
+        } catch { /* best effort */ }
+
         {
           const stepDuration = Date.now() - stepStart;
-          const repoCount = ticket?.client?.repositories.length ?? 0;
           appLog.info(
-            `Repo context gathered: ${repoCount} repos checked, ${codeContext.length} with results (${(stepDuration / 1000).toFixed(1)}s)`,
-            { ticketId, reposChecked: repoCount, reposWithResults: codeContext.length, durationMs: stepDuration },
+            `Repo context gathered: ${clientRepos.length} repos checked, ${codeContext.length} with results (${(stepDuration / 1000).toFixed(1)}s)`,
+            { ticketId, reposChecked: clientRepos.length, reposWithResults: codeContext.length, durationMs: stepDuration },
             ticketId, 'ticket',
           );
         }
@@ -2910,34 +2750,14 @@ async function executeRoutePipeline(
           break;
         }
 
-        const repos = ticket.client.repositories.map((r) => ({
-          name: r.name, url: r.url, branch: r.branch,
-        }));
-
-        // Build tool definitions from MCP integrations and repos
-        const { tools: agenticTools, mcpIntegrations } = await buildAgenticTools(
-          db, ticket.clientId, deps.encryptionKey, repos,
+        // Build tool definitions from MCP integrations and mcp-repo
+        const { tools: agenticTools, mcpIntegrations, repoIdByPrefix } = await buildAgenticTools(
+          db, ticket.clientId, deps.encryptionKey, deps.mcpRepoUrl,
         );
 
         if (agenticTools.length === 0) {
           appLog.info('No tools available for agentic analysis, skipping', { ticketId }, ticketId, 'ticket');
           break;
-        }
-
-        // Set up worktrees for repo tools
-        const worktrees = new Map<string, string>();
-        for (const repo of repos) {
-          try {
-            const { worktreePath, cleanup } = await ensureRepo(
-              repo.url, repo.branch, repo.name, ticket.clientId,
-              `${ticketId}-agentic-${bullmqJobId}`, deps.repoWorkspacePath,
-            );
-            worktrees.set(repo.name, worktreePath);
-            cleanups.push(cleanup);
-          } catch (err) {
-            const errMsg = redactUrls(err instanceof Error ? err.message : String(err));
-            appLog.warn(`Repo unavailable for agentic analysis: ${repo.name}: ${errMsg}`, { ticketId, repo: repo.name }, ticketId, 'ticket');
-          }
         }
 
         // ── Strategy check: orchestrated vs full_context ──
@@ -3054,7 +2874,7 @@ async function executeRoutePipeline(
             const taskBatches = chunkArray(plan.tasks, maxParallelTasks);
             for (const batch of taskBatches) {
               const results = await Promise.allSettled(
-                batch.map(task => executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, task, agenticTools, mcpIntegrations, worktrees)),
+                batch.map(task => executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, task, agenticTools, mcpIntegrations, repoIdByPrefix)),
               );
 
               for (let j = 0; j < results.length; j++) {
@@ -3068,7 +2888,7 @@ async function executeRoutePipeline(
                 } else {
                   // Retry once on failure
                   try {
-                    const retryResult = await executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, task, agenticTools, mcpIntegrations, worktrees);
+                    const retryResult = await executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, task, agenticTools, mcpIntegrations, repoIdByPrefix);
                     knowledgeDoc += `\n\n#### ${task.prompt} (retry)\n${retryResult.content}`;
                     orchTotalInputTokens += retryResult.inputTokens;
                     orchTotalOutputTokens += retryResult.outputTokens;
@@ -3288,7 +3108,7 @@ async function executeRoutePipeline(
 
           for (const toolUse of toolUseBlocks) {
             const start = Date.now();
-            const result = await executeAgenticToolCall(toolUse, mcpIntegrations, worktrees);
+            const result = await executeAgenticToolCall(toolUse, mcpIntegrations, repoIdByPrefix, clientId);
             const elapsed = Date.now() - start;
             toolCallLog.push({
               tool: toolUse.name,
@@ -3615,49 +3435,36 @@ async function executeRoutePipeline(
           }
         }
 
-        // Gather fresh repo context
+        // Gather fresh repo context via mcp-repo
         if (queryCfg.repoSearches?.length) {
-          ticket = await db.ticket.findUnique({
-            where: { id: ticketId },
-            include: { client: { include: { repositories: { where: { isActive: true } } } }, system: true },
-          });
-          if (ticket?.client) {
+          const customRepos = await db.codeRepo.findMany({ where: { clientId, isActive: true } });
+          if (customRepos.length > 0) {
             const freshRepoParts: string[] = [];
-            // Cache worktree paths by repo id to avoid repeated ensureRepo calls
-            // when the same repo appears across multiple searches.
-            const repoWorktreeCache = new Map<string, string>();
+            const customSessionId = `custom-${ticketId}-${bullmqJobId}`;
             for (const rs of queryCfg.repoSearches) {
-              const repos = rs.repoName
-                ? ticket.client.repositories.filter((r) => r.name === rs.repoName)
-                : ticket.client.repositories;
+              const targetRepos = rs.repoName
+                ? customRepos.filter((r) => r.name === rs.repoName)
+                : customRepos;
 
-              for (const repo of repos) {
+              for (const repo of targetRepos) {
                 try {
-                  let worktreePath = repoWorktreeCache.get(repo.id);
-                  if (!worktreePath) {
-                    const { worktreePath: wtp, cleanup } = await ensureRepo(
-                      repo.url, repo.branch, repo.name, ticket.clientId,
-                      `${ticketId}-custom-${bullmqJobId}`, deps.repoWorkspacePath,
-                    );
-                    worktreePath = wtp;
-                    repoWorktreeCache.set(repo.id, worktreePath);
-                    cleanups.push(cleanup);
-                  }
-
                   const relevantFiles = new Set<string>();
 
                   // Search by terms (skip non-string entries from untyped JSON config)
                   for (const rawTerm of rs.searchTerms ?? []) {
                     if (typeof rawTerm !== 'string') continue;
-                    const term = sanitizeSearchTerm(rawTerm);
-                    if (!term) continue;
+                    const sanitized = rawTerm.replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200);
+                    if (!sanitized) continue;
                     try {
-                      const { stdout } = await execFileAsync(
-                        'git', ['-C', worktreePath, 'grep', '-l', '--max-count=3', '-i', '--', term],
-                        { timeout: 10_000 },
+                      const grepResult = await callMcpToolViaSdk(
+                        deps.mcpRepoUrl, '/mcp', 'repo_exec',
+                        { repoId: repo.id, sessionId: customSessionId, clientId, command: `grep -rnil "${sanitized.replace(/"/g, '\\"')}" . --include="*.sql" --include="*.cs" --include="*.ts"` },
                       );
-                      for (const line of stdout.trim().split('\n').filter(Boolean)) {
-                        relevantFiles.add(line);
+                      for (const line of grepResult.split('\n')) {
+                        const trimmed = line.trim();
+                        if (trimmed && !trimmed.startsWith('[session:') && !trimmed.startsWith('[stderr]')) {
+                          relevantFiles.add(trimmed);
+                        }
                       }
                     } catch { /* grep found nothing */ }
                   }
@@ -3675,9 +3482,24 @@ async function executeRoutePipeline(
                   }
 
                   if (relevantFiles.size > 0) {
-                    const content = await readRepoFiles(worktreePath, [...relevantFiles]);
-                    if (content) {
-                      freshRepoParts.push(`### Repository: ${repo.name}`, '', content, '');
+                    const fileParts: string[] = [];
+                    let totalBytes = 0;
+                    for (const fp of relevantFiles) {
+                      if (totalBytes >= 60_000) break;
+                      try {
+                        const catResult = await callMcpToolViaSdk(
+                          deps.mcpRepoUrl, '/mcp', 'repo_exec',
+                          { repoId: repo.id, sessionId: customSessionId, clientId, command: `cat ${fp}` },
+                        );
+                        const content = catResult.split('\n').filter(l => !l.startsWith('[session:')).join('\n');
+                        const truncated = content.slice(0, 3000);
+                        const formatted = `--- ${fp} ---\n${truncated}\n`;
+                        fileParts.push(formatted);
+                        totalBytes += formatted.length;
+                      } catch { /* file not found or unreadable */ }
+                    }
+                    if (fileParts.length > 0) {
+                      freshRepoParts.push(`### Repository: ${repo.name}`, '', fileParts.join('\n'), '');
                     }
                   }
                 } catch (err) {
@@ -3686,6 +3508,8 @@ async function executeRoutePipeline(
                 }
               }
             }
+            // Clean up session worktrees
+            try { await callMcpToolViaSdk(deps.mcpRepoUrl, '/mcp', 'repo_cleanup', { sessionId: customSessionId }); } catch { /* best effort */ }
             if (freshRepoParts.length > 0) {
               promptParts.push('## Fresh Repository Context', '', ...freshRepoParts);
             }
