@@ -72,6 +72,19 @@ export interface OperationalAlertConfig {
   };
 }
 
+export const DEFAULT_OPERATIONAL_ALERT_CONFIG: OperationalAlertConfig = {
+  enabled: false,
+  recipientOperatorId: '',
+  throttleMinutes: 60,
+  alerts: {
+    failedJobs: true,
+    probeMisses: true,
+    aiProviderDown: true,
+    devopsSyncStale: true,
+    summarizationStale: true,
+  },
+};
+
 export interface TestAlertResult {
   success: boolean;
   message?: string;

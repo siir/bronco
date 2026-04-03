@@ -96,18 +96,37 @@ const slackConfigSchema = z
     }
   });
 
-const operationalAlertConfigSchema = z.object({
-  enabled: z.boolean(),
-  recipientOperatorId: z.string(),
-  throttleMinutes: z.number().int().min(1),
-  alerts: z.object({
-    failedJobs: z.boolean(),
-    probeMisses: z.boolean(),
-    aiProviderDown: z.boolean(),
-    devopsSyncStale: z.boolean(),
-    summarizationStale: z.boolean(),
-  }),
-});
+const operationalAlertConfigSchema = z
+  .object({
+    enabled: z.boolean(),
+    recipientOperatorId: z.string().trim(),
+    throttleMinutes: z.number().int().min(1),
+    alerts: z.object({
+      failedJobs: z.boolean(),
+      probeMisses: z.boolean(),
+      aiProviderDown: z.boolean(),
+      devopsSyncStale: z.boolean(),
+      summarizationStale: z.boolean(),
+    }),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.enabled) return;
+    if (!value.recipientOperatorId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'recipientOperatorId is required when alerts are enabled',
+        path: ['recipientOperatorId'],
+      });
+      return;
+    }
+    if (!z.string().uuid().safeParse(value.recipientOperatorId).success) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'recipientOperatorId must be a valid UUID',
+        path: ['recipientOperatorId'],
+      });
+    }
+  });
 
 function isPrismaError(err: unknown, code: string): boolean {
   return err instanceof Error && 'code' in err && (err as { code: string }).code === code;

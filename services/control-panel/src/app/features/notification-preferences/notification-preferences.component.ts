@@ -13,6 +13,10 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatTabsModule } from '@angular/material/tabs';
 import { environment } from '../../../environments/environment';
+import {
+  DEFAULT_OPERATIONAL_ALERT_CONFIG,
+  OperationalAlertConfig,
+} from '../../core/services/settings.service';
 
 interface NotificationPreference {
   id: string;
@@ -32,32 +36,6 @@ interface OperatorOption {
   slackUserId: string | null;
   isActive: boolean;
 }
-
-interface OperationalAlertConfig {
-  enabled: boolean;
-  recipientOperatorId: string;
-  throttleMinutes: number;
-  alerts: {
-    failedJobs: boolean;
-    probeMisses: boolean;
-    aiProviderDown: boolean;
-    devopsSyncStale: boolean;
-    summarizationStale: boolean;
-  };
-}
-
-const DEFAULT_ALERT_CONFIG: OperationalAlertConfig = {
-  enabled: false,
-  recipientOperatorId: '',
-  throttleMinutes: 60,
-  alerts: {
-    failedJobs: true,
-    probeMisses: true,
-    aiProviderDown: true,
-    devopsSyncStale: true,
-    summarizationStale: true,
-  },
-};
 
 const EVENT_LABELS: Record<string, string> = {
   TICKET_CREATED: 'New Ticket',
@@ -426,7 +404,7 @@ export class NotificationPreferencesComponent implements OnInit {
   preferences = signal<NotificationPreference[]>([]);
   operators = signal<OperatorOption[]>([]);
 
-  alertConfig = signal<OperationalAlertConfig>({ ...DEFAULT_ALERT_CONFIG });
+  alertConfig = signal<OperationalAlertConfig>({ ...DEFAULT_OPERATIONAL_ALERT_CONFIG });
   alertsLoading = signal(false);
   alertsError = signal(false);
   alertsSaving = signal(false);
@@ -590,8 +568,9 @@ export class NotificationPreferencesComponent implements OnInit {
         this.alertTestResult.set(result);
         this.alertsTesting.set(false);
       },
-      error: () => {
-        this.alertTestResult.set({ success: false, error: 'Request failed' });
+      error: (err) => {
+        const serverError = err?.error?.error ?? err?.error?.message ?? 'Request failed';
+        this.alertTestResult.set({ success: false, error: serverError });
         this.alertsTesting.set(false);
       },
     });
