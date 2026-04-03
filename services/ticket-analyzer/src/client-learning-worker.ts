@@ -32,6 +32,11 @@ export async function processClientLearningJob(
     return;
   }
 
+  if (ticket.clientId !== clientId) {
+    logger.warn({ ticketId, clientId, ticketClientId: ticket.clientId }, 'clientId mismatch — skipping client learning extraction');
+    return;
+  }
+
   // Load existing client memories to avoid duplication
   const existingMemories = await db.clientMemory.findMany({
     where: { clientId, isActive: true },
@@ -47,7 +52,7 @@ export async function processClientLearningJob(
     '',
     '## Events',
     ...ticket.events.map(e =>
-      `[${e.createdAt.toISOString()}] ${e.eventType}: ${e.content ?? '(no content)'}`,
+      `[${e.createdAt.toISOString()}] ${e.eventType}: ${(e.content ?? '(no content)').slice(0, 500)}`,
     ),
   ].join('\n');
 
@@ -103,7 +108,16 @@ export async function processClientLearningJob(
   const VALID_TYPES = new Set(Object.values(MemoryType));
   const VALID_CATEGORIES = new Set<string | null>([...Object.values(TicketCategory), null]);
 
-  let created = 0;
+  const toCreate: Array<{
+    clientId: string;
+    title: string;
+    memoryType: string;
+    content: string;
+    source: string;
+    category: TicketCategory | null;
+    isActive: boolean;
+  }> = [];
+
   for (const item of learnings) {
     if (!VALID_TYPES.has(item.type as MemoryType)) {
       logger.warn({ item }, 'Invalid memory type in AI response — skipping entry');
@@ -118,19 +132,21 @@ export async function processClientLearningJob(
     // Generate a short title from the content (first line, truncated)
     const title = item.content.trim().split('\n')[0].slice(0, 120);
 
-    await db.clientMemory.create({
-      data: {
-        clientId,
-        title,
-        memoryType: item.type as MemoryType,
-        content: item.content.trim(),
-        source: MemorySource.AI_LEARNED,
-        category,
-        isActive: true,
-      },
+    toCreate.push({
+      clientId,
+      title,
+      memoryType: item.type as MemoryType,
+      content: item.content.trim(),
+      source: MemorySource.AI_LEARNED,
+      category,
+      isActive: true,
     });
-    created++;
   }
+
+  const { count: created } = await db.clientMemory.createMany({
+    data: toCreate,
+    skipDuplicates: true,
+  });
 
   // Invalidate the resolver cache so new memories are picked up
   clientMemoryResolver.invalidate(clientId);

@@ -948,10 +948,12 @@ export class ClientDetailComponent implements OnInit {
 
   toggleMemory(mem: ClientMemory, checked: boolean): void {
     this.memories.update(list => list.map(m => m.id === mem.id ? { ...m, isActive: checked } : m));
+    this.filterMemories();
     this.memoryService.updateMemory(mem.id, { isActive: checked }).subscribe({
       next: () => this.snackBar.open(`Memory ${checked ? 'enabled' : 'disabled'}`, 'OK', { duration: 3000 }),
       error: (err) => {
         this.memories.update(list => list.map(m => m.id === mem.id ? { ...m, isActive: !checked } : m));
+        this.filterMemories();
         this.snackBar.open(err.error?.message ?? err.error?.error ?? 'Toggle failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
       },
     });
