@@ -188,6 +188,8 @@ async function executeToolLoop(
           '/mcp',
           toolUse.name,
           toolUse.input,
+          deps.config.MCP_AUTH_TOKEN || deps.config.API_KEY,
+          deps.config.MCP_AUTH_TOKEN ? undefined : 'x-api-key',
         );
       } catch (err) {
         result = err instanceof Error ? err.message : String(err);
@@ -390,7 +392,7 @@ export async function handleHugoConversation(
   // 5. Get MCP Platform tools
   let tools: AIToolDefinition[];
   try {
-    tools = await getPlatformTools(config.MCP_PLATFORM_URL);
+    tools = await getPlatformTools(config.MCP_PLATFORM_URL, { apiKey: config.API_KEY, authToken: config.MCP_AUTH_TOKEN });
   } catch (err) {
     logger.error({ err }, 'Failed to discover MCP Platform tools');
     await slack.replyInThread(

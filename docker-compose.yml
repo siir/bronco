@@ -276,8 +276,10 @@ services:
       DATABASE_URL: postgresql://bronco:${POSTGRES_PASSWORD_URLENCODED}@postgres:5432/bronco
       REDIS_URL: redis://redis:6379
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      API_KEY: ${API_KEY}
       HEALTH_PORT: "3108"
       MCP_PLATFORM_URL: http://mcp-platform:3110
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-}
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3108/health || exit 1"]
       interval: 15s
