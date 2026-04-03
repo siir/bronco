@@ -16,6 +16,8 @@ export async function logRoutes(fastify: FastifyInstance): Promise<void> {
       until?: string;
       limit?: string;
       offset?: string;
+      cursor?: string;
+      direction?: string;
     };
   }>('/api/logs', async (request) => {
     const {
@@ -28,6 +30,8 @@ export async function logRoutes(fastify: FastifyInstance): Promise<void> {
       until,
       limit: rawLimit = '100',
       offset: rawOffset = '0',
+      cursor,
+      direction = 'older',
     } = request.query;
 
     const takeNum = Number(rawLimit);
@@ -35,6 +39,9 @@ export async function logRoutes(fastify: FastifyInstance): Promise<void> {
     if (!Number.isFinite(takeNum) || !Number.isInteger(takeNum) || takeNum < 0 ||
         !Number.isFinite(skipNum) || !Number.isInteger(skipNum) || skipNum < 0) {
       return fastify.httpErrors.badRequest('limit and offset must be non-negative integers');
+    }
+    if (direction !== 'older' && direction !== 'newer') {
+      return fastify.httpErrors.badRequest('direction must be "older" or "newer"');
     }
     const take = takeNum;
     const skip = skipNum;
@@ -83,6 +90,38 @@ export async function logRoutes(fastify: FastifyInstance): Promise<void> {
       where.createdAt = createdAt;
     }
 
+    // Cursor-based pagination
+    if (cursor) {
+      const cursorRow = await fastify.db.appLog.findUnique({ where: { id: cursor }, select: { id: true, createdAt: true } });
+      if (!cursorRow) {
+        return fastify.httpErrors.badRequest(`cursor "${cursor}" not found`);
+      }
+
+      const op = direction === 'older' ? 'lt' : 'gt';
+      const cursorWhere = {
+        ...where,
+        OR: [
+          { createdAt: { [op]: cursorRow.createdAt } },
+          { createdAt: cursorRow.createdAt, id: { [op]: cursorRow.id } },
+        ],
+      };
+
+      const capped = Math.min(take, 500);
+      const orderDir = direction === 'older' ? 'desc' : 'asc';
+      const rows = await fastify.db.appLog.findMany({
+        where: cursorWhere,
+        orderBy: [{ createdAt: orderDir }, { id: orderDir }],
+        take: capped + 1,
+      });
+
+      const hasMore = rows.length > capped;
+      const logs = hasMore ? rows.slice(0, capped) : rows;
+      const nextCursor = logs.length > 0 ? logs[logs.length - 1].id : null;
+
+      return { logs, nextCursor, hasMore };
+    }
+
+    // Offset-based pagination (original behavior)
     const [logs, total] = await Promise.all([
       fastify.db.appLog.findMany({
         where,
