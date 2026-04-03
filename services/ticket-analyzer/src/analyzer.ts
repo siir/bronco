@@ -1967,7 +1967,7 @@ async function executeOrchestratedSubTask(
 
   // If client/environment context was already injected into the strategist prompt, skip AIRouter
   // re-injection for sub-tasks to avoid duplicating it in every sub-task system prompt.
-  const skipClientMemory = !!(clientContext || environmentContext);
+  const skipClientMemory = !!clientContext;
   const combinedContext = [clientContext, environmentContext].filter(Boolean).join('\n\n');
   const subTaskSystemPrompt = combinedContext
     ? `Execute the requested investigation step. Call the relevant tools, analyze the results, and return a structured summary of your findings.\n\n${combinedContext}`
@@ -2540,8 +2540,8 @@ async function executeRoutePipeline(
           stepsSkipped++;
           break;
         }
-        const environment = await db.clientEnvironment.findUnique({
-          where: { id: ticket.environmentId },
+        const environment = await db.clientEnvironment.findFirst({
+          where: { id: ticket.environmentId, clientId },
           select: { name: true, tag: true, operationalInstructions: true },
         });
         if (environment?.operationalInstructions?.trim()) {
@@ -2758,7 +2758,7 @@ async function executeRoutePipeline(
           // Set skipClientMemory to prevent AIRouter from also injecting it into the system prompt.
           // Pass ticketCategory so that if skipClientMemory is not set (e.g. no prior LOAD_CLIENT_CONTEXT
           // step in this route), the router still applies the correct category scoping.
-          context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!(clientContext || environmentContext) },
+          context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!clientContext },
           prompt: analysisPrompt,
           promptKey,
         });
@@ -2901,7 +2901,7 @@ async function executeRoutePipeline(
 
             const strategistResponse = await ai.generate({
               taskType: (step.taskTypeOverride ?? TaskType.DEEP_ANALYSIS) as TaskType,
-              context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!(clientContext || environmentContext) },
+              context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!clientContext },
               prompt: strategistPrompt,
               systemPrompt: ORCHESTRATED_SYSTEM_PROMPT,
               providerOverride: 'CLAUDE',
@@ -3436,6 +3436,7 @@ async function executeRoutePipeline(
           includeContext?: {
             ticket?: boolean;
             clientContext?: boolean;
+            environmentContext?: boolean;
             codeContext?: boolean;
             dbContext?: boolean;
             facts?: boolean;
@@ -3461,7 +3462,7 @@ async function executeRoutePipeline(
         if (inc.clientContext && clientContext) {
           promptParts.push(clientContext, '');
         }
-        if (inc.clientContext && environmentContext) {
+        if ((inc.environmentContext ?? inc.clientContext) && environmentContext) {
           promptParts.push(environmentContext, '');
         }
         if (inc.codeContext && codeContext.length > 0) {
@@ -3599,7 +3600,7 @@ async function executeRoutePipeline(
           taskType: queryTaskType,
           // Skip AIRouter's automatic client-memory injection only when client context
           // was actually included in the prompt — not just when it happens to exist.
-          context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!(inc?.clientContext && (clientContext || environmentContext)) },
+          context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!(inc?.clientContext && clientContext) },
           prompt: promptParts.join('\n'),
           ...(queryPromptKey && { promptKey: queryPromptKey }),
         });
