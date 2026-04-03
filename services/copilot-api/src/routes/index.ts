@@ -55,6 +55,7 @@ interface RouteOpts {
   issueResolveQueue: Queue;
   logSummarizeQueue: Queue;
   systemAnalysisQueue: Queue;
+  clientLearningQueue: Queue;
   mcpDiscoveryQueue: Queue;
   probeQueue: Queue;
   ticketCreatedQueue: Queue<TicketCreatedJob>;
@@ -88,7 +89,7 @@ export async function registerRoutes(fastify: FastifyInstance, opts: RouteOpts):
     await scoped.register(clientRoutes);
     await scoped.register(contactRoutes);
     await scoped.register(systemRoutes);
-    await scoped.register(ticketRoutes, { logSummarizeQueue: opts.logSummarizeQueue, systemAnalysisQueue: opts.systemAnalysisQueue, ticketCreatedQueue: opts.ticketCreatedQueue, ingestQueue: opts.ingestQueue, ai: opts.ai });
+    await scoped.register(ticketRoutes, { logSummarizeQueue: opts.logSummarizeQueue, systemAnalysisQueue: opts.systemAnalysisQueue, clientLearningQueue: opts.clientLearningQueue, ticketCreatedQueue: opts.ticketCreatedQueue, ingestQueue: opts.ingestQueue, ai: opts.ai });
     await scoped.register(artifactRoutes, { config: opts.config });
     await scoped.register(repoRoutes);
     await scoped.register(issueJobRoutes, { issueResolveQueue: opts.issueResolveQueue });

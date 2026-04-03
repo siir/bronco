@@ -298,14 +298,25 @@ import { AiUsageService, type AiUsageClientSummary, type AiUsageLogEntry } from 
               <button mat-raised-button color="primary" (click)="addMemory()">
                 <mat-icon>add</mat-icon> Add Memory
               </button>
+              <mat-form-field appearance="outline" class="compact-select">
+                <mat-label>Source</mat-label>
+                <mat-select [(ngModel)]="memSourceFilter" (ngModelChange)="filterMemories()">
+                  <mat-option value="">All</mat-option>
+                  <mat-option value="MANUAL">Manual</mat-option>
+                  <mat-option value="AI_LEARNED">AI Learned</mat-option>
+                </mat-select>
+              </mat-form-field>
             </div>
-            @for (mem of memories(); track mem.id) {
+            @for (mem of filteredMemories(); track mem.id) {
               <mat-card class="memory-card" [class.inactive-card]="!mem.isActive">
                 <mat-card-content>
                   <div class="memory-header">
                     <mat-icon>{{ memoryTypeIcon(mem.memoryType) }}</mat-icon>
                     <strong>{{ mem.title }}</strong>
                     <span class="type-chip type-{{ mem.memoryType.toLowerCase() }}">{{ mem.memoryType }}</span>
+                    <span class="source-badge source-{{ mem.source?.toLowerCase() ?? 'manual' }}">
+                      {{ mem.source === 'AI_LEARNED' ? 'AI' : 'MANUAL' }}
+                    </span>
                     @if (mem.category) {
                       <span class="category-chip">{{ mem.category }}</span>
                     }
@@ -647,6 +658,9 @@ import { AiUsageService, type AiUsageClientSummary, type AiUsageLogEntry } from 
     .type-context { background: #e3f2fd; color: #1565c0; }
     .type-playbook { background: #fce4ec; color: #c62828; }
     .type-tool_guidance { background: #f3e5f5; color: #6a1b9a; }
+    .source-badge { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.3px; }
+    .source-manual { background: #f5f5f5; color: #999; }
+    .source-ai_learned { background: #ede7f6; color: #6a1b9a; }
     .category-chip { font-size: 11px; padding: 2px 6px; background: #fff3e0; color: #e65100; border-radius: 4px; }
     .tags { display: flex; gap: 4px; margin: 8px 0 4px; flex-wrap: wrap; }
     .tag-chip { font-size: 11px; padding: 2px 6px; background: #f5f5f5; color: #616161; border-radius: 4px; }
@@ -700,6 +714,8 @@ export class ClientDetailComponent implements OnInit {
   integrations = signal<ClientIntegration[]>([]);
   tickets = signal<Ticket[]>([]);
   memories = signal<ClientMemory[]>([]);
+  memSourceFilter = '';
+  filteredMemories = signal<ClientMemory[]>([]);
   clientUsers = signal<ClientUser[]>([]);
   environments = signal<ClientEnvironment[]>([]);
   invoices = signal<Invoice[]>([]);
@@ -751,7 +767,7 @@ export class ClientDetailComponent implements OnInit {
     this.repoService.getRepos(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(r => this.repos.set(r));
     this.integrationService.getIntegrations(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(i => this.integrations.set(i));
     this.ticketService.getTickets({ clientId: cid, limit: 20 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(t => this.tickets.set(t));
-    this.memoryService.getMemories({ clientId: cid }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(m => this.memories.set(m));
+    this.memoryService.getMemories({ clientId: cid }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(m => { this.memories.set(m); this.filterMemories(); });
     this.clientUserService.getUsers(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(u => this.clientUsers.set(u));
     this.envService.getEnvironments(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(e => this.environments.set(e));
     this.invoiceService.getInvoices(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(i => this.invoices.set(i));
@@ -909,6 +925,15 @@ export class ClientDetailComponent implements OnInit {
       },
       error: (err) => this.snackBar.open(err.error?.message ?? err.error?.error ?? 'Delete failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
     });
+  }
+
+  filterMemories(): void {
+    const all = this.memories();
+    if (!this.memSourceFilter) {
+      this.filteredMemories.set(all);
+    } else {
+      this.filteredMemories.set(all.filter(m => (m.source ?? 'MANUAL') === this.memSourceFilter));
+    }
   }
 
   addMemory(): void {

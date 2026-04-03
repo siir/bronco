@@ -137,6 +137,7 @@ System prompts for each task are registered in `packages/ai-provider/src/prompts
 - `CHANGE_CODEBASE_SMALL` — Small-scope codebase modifications
 - `CHANGE_CODEBASE_LARGE` — Large-scope codebase modifications
 - `ANALYZE_TICKET_CLOSURE` — Post-closure analysis for system improvement suggestions
+- `EXTRACT_CLIENT_LEARNINGS` — Extract client-specific knowledge from resolved tickets into client memory
 - `GENERATE_RESOLUTION_PLAN` — Generate a resolution plan for operator review before code execution
 - `CUSTOM_AI_QUERY` — Flexible configurable AI query within a route pipeline (task type and model overridable per step)
 

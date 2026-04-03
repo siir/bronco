@@ -32,6 +32,8 @@ export const TaskType = {
   CHANGE_CODEBASE_LARGE: 'CHANGE_CODEBASE_LARGE',
   // Post-closure ticket analysis — system improvement suggestions
   ANALYZE_TICKET_CLOSURE: 'ANALYZE_TICKET_CLOSURE',
+  // Client learning extraction from resolved tickets
+  EXTRACT_CLIENT_LEARNINGS: 'EXTRACT_CLIENT_LEARNINGS',
   // Release notes generation
   GENERATE_RELEASE_NOTE: 'GENERATE_RELEASE_NOTE',
   // Custom AI query (configurable per route step)
@@ -96,6 +98,7 @@ export const TASK_APP_SCOPE: Record<TaskType, AppScope> = {
   [TaskType.CHANGE_CODEBASE_SMALL]: AppScope.CORE,
   [TaskType.CHANGE_CODEBASE_LARGE]: AppScope.CORE,
   [TaskType.ANALYZE_TICKET_CLOSURE]: AppScope.CORE,
+  [TaskType.EXTRACT_CLIENT_LEARNINGS]: AppScope.CORE,
 
   // Custom AI query
   [TaskType.CUSTOM_AI_QUERY]: AppScope.CORE,

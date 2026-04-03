@@ -8,6 +8,7 @@ import type { TicketCreatedJob, IngestionJob } from '@bronco/shared-types';
 interface TicketRouteOpts {
   logSummarizeQueue?: Queue;
   systemAnalysisQueue?: Queue;
+  clientLearningQueue?: Queue;
   ticketCreatedQueue?: Queue<TicketCreatedJob>;
   ingestQueue?: Queue<IngestionJob>;
   ai?: AIRouter;
@@ -394,6 +395,15 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
           'analyze-ticket-closure',
           { ticketId: request.params.id },
           { jobId: `closure-${request.params.id}-${Date.now()}` },
+        );
+      }
+
+      // Trigger client learning extraction when ticket transitions to closed
+      if (statusChanged && existing && !isClosedStatus(existing.status) && isClosedStatus(request.body.status!) && existing.clientId && opts?.clientLearningQueue) {
+        await opts.clientLearningQueue.add(
+          'extract-client-learnings',
+          { ticketId: request.params.id, clientId: existing.clientId },
+          { jobId: `client-learning-${request.params.id}-${Date.now()}` },
         );
       }
 

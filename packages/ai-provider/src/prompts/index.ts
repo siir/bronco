@@ -21,6 +21,9 @@ export * from './release-notes.js';
 export { ROUTING_PROMPTS } from './routing.js';
 export * from './routing.js';
 
+export { CLIENT_MEMORY_PROMPTS } from './client-memory.js';
+export * from './client-memory.js';
+
 // Re-export individual prompts for direct import convenience
 import { IMAP_PROMPTS } from './imap.js';
 import { DEVOPS_PROMPTS } from './devops.js';
@@ -29,6 +32,7 @@ import { LOG_PROMPTS } from './logs.js';
 import { SYSTEM_ANALYSIS_PROMPTS } from './system-analysis.js';
 import { RELEASE_NOTES_PROMPTS } from './release-notes.js';
 import { ROUTING_PROMPTS } from './routing.js';
+import { CLIENT_MEMORY_PROMPTS } from './client-memory.js';
 import type { PromptDefinition } from './types.js';
 
 /**
@@ -47,6 +51,7 @@ export const ALL_PROMPTS: PromptDefinition[] = [
   ...SYSTEM_ANALYSIS_PROMPTS,
   ...RELEASE_NOTES_PROMPTS,
   ...ROUTING_PROMPTS,
+  ...CLIENT_MEMORY_PROMPTS,
 ];
 
 /**
