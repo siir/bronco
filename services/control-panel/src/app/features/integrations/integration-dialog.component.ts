@@ -1,16 +1,17 @@
 import { Component, inject, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MAT_DIALOG_DATA, MatDialogRef, MatDialogModule } from '@angular/material/dialog';
+import { MAT_DIALOG_DATA, MatDialogRef, MatDialogModule, MatDialog } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatButtonModule } from '@angular/material/button';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
-import { MatCheckboxModule } from '@angular/material/checkbox';
+import { MatIconModule } from '@angular/material/icon';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { IntegrationService } from '../../core/services/integration.service';
 import type { ClientIntegration } from '../../core/services/integration.service';
 import { AuthService } from '../../core/services/auth.service';
+import { McpToolVisibilityDialogComponent } from './mcp-tool-visibility-dialog.component';
 
 interface DialogData {
   clientId: string;
@@ -19,7 +20,7 @@ interface DialogData {
 
 @Component({
   standalone: true,
-  imports: [FormsModule, MatDialogModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatButtonModule, MatSlideToggleModule, MatCheckboxModule],
+  imports: [FormsModule, MatDialogModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatButtonModule, MatSlideToggleModule, MatIconModule],
   template: `
     <h2 mat-dialog-title>{{ editing ? 'Edit' : 'Add' }} Integration</h2>
     <mat-dialog-content>
@@ -143,18 +144,13 @@ interface DialogData {
 
         @if (discoveredTools.length > 0) {
           <div class="tool-visibility-section">
-            <h4 class="tool-heading">Tool Visibility for Agentic Analysis</h4>
-            <p class="tool-hint">Uncheck tools to hide them from the AI during agentic analysis.</p>
-            @for (tool of discoveredTools; track tool.name) {
-              <mat-checkbox
-                [checked]="!disabledTools.has(tool.name)"
-                (change)="toggleTool(tool.name, $event.checked)">
-                <span class="tool-name">{{ tool.name }}</span>
-                @if (tool.description) {
-                  <span class="tool-desc"> — {{ tool.description }}</span>
-                }
-              </mat-checkbox>
-            }
+            <span class="tool-summary">
+              {{ discoveredTools.length - disabledTools.size }}/{{ discoveredTools.length }} tools enabled
+              @if (disabledTools.size > 0) { <span class="disabled-count">({{ disabledTools.size }} hidden)</span> }
+            </span>
+            <button mat-stroked-button type="button" (click)="openToolVisibility()">
+              <mat-icon>tune</mat-icon> Manage Tools
+            </button>
           </div>
         }
       }
@@ -200,12 +196,9 @@ interface DialogData {
     .full-width { width: 100%; margin-bottom: 8px; }
     .advanced-toggle { font-size: 13px; color: #666; margin-bottom: 8px; }
     .loop-warning { background: #fff3e0; border: 1px solid #ff9800; border-radius: 6px; padding: 10px 14px; margin-bottom: 12px; font-size: 13px; color: #e65100; line-height: 1.4; }
-    .tool-visibility-section { margin-top: 12px; border-top: 1px solid #e0e0e0; padding-top: 12px; }
-    .tool-heading { font-size: 14px; font-weight: 500; margin: 0 0 4px; color: #333; }
-    .tool-hint { font-size: 12px; color: #777; margin: 0 0 8px; }
-    .tool-visibility-section mat-checkbox { display: block; margin-bottom: 4px; }
-    .tool-name { font-weight: 500; font-size: 13px; }
-    .tool-desc { font-size: 12px; color: #666; }
+    .tool-visibility-section { display: flex; align-items: center; gap: 12px; margin-top: 12px; border-top: 1px solid #e0e0e0; padding-top: 12px; }
+    .tool-summary { font-size: 13px; color: #555; flex: 1; }
+    .disabled-count { color: #e65100; margin-left: 4px; }
   `],
 })
 export class IntegrationDialogComponent implements OnInit {
@@ -214,6 +207,7 @@ export class IntegrationDialogComponent implements OnInit {
   private integrationService = inject(IntegrationService);
   private authService = inject(AuthService);
   private snackBar = inject(MatSnackBar);
+  private matDialog = inject(MatDialog);
 
   editing = false;
   type = '';
@@ -297,12 +291,15 @@ export class IntegrationDialogComponent implements OnInit {
     this.disabledTools = new Set();
   }
 
-  toggleTool(name: string, enabled: boolean): void {
-    if (enabled) {
-      this.disabledTools.delete(name);
-    } else {
-      this.disabledTools.add(name);
-    }
+  openToolVisibility(): void {
+    this.matDialog.open(McpToolVisibilityDialogComponent, {
+      width: '480px',
+      data: { tools: this.discoveredTools, disabledTools: this.disabledTools },
+    }).afterClosed().subscribe((result: Set<string> | undefined) => {
+      if (result !== undefined) {
+        this.disabledTools = result;
+      }
+    });
   }
 
   checkImapLoop(): void {
