@@ -20,6 +20,7 @@ import { TicketService, Ticket, TicketEvent, type TicketAppLog, type TicketAiUsa
 import { LogSummaryService, type LogSummary } from '../../core/services/log-summary.service';
 import { AiUsageService, type TicketCostResponse } from '../../core/services/ai-usage.service';
 import { AiHelpDialogComponent, type AiHelpDialogData } from '../../shared/components/ai-help-dialog.component';
+import { AiLogEntryComponent } from './ai-log-entry.component';
 import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
 import { RelativeTimePipe } from '../../shared/pipes/relative-time.pipe';
 
@@ -32,7 +33,7 @@ interface FlowNode {
 
 @Component({
   standalone: true,
-  imports: [CommonModule, RouterLink, DatePipe, JsonPipe, FormsModule, MatCardModule, MatButtonModule, MatIconModule, MatChipsModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatProgressBarModule, MatTooltipModule, MatTabsModule, MarkdownPipe, RelativeTimePipe],
+  imports: [CommonModule, RouterLink, DatePipe, JsonPipe, FormsModule, MatCardModule, MatButtonModule, MatIconModule, MatChipsModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatProgressBarModule, MatTooltipModule, MatTabsModule, MarkdownPipe, RelativeTimePipe, AiLogEntryComponent],
   template: `
     @if (ticket(); as t) {
       <div class="page-header">
@@ -239,103 +240,33 @@ interface FlowNode {
                     <span class="log-seq">#{{ idx + 1 }}</span>
                     <span class="log-time" [matTooltip]="entry.timestamp">{{ formatTime(entry.timestamp) }}</span>
                   </div>
+                } @else if (entry.type === 'ai') {
+                  <app-ai-log-entry [entry]="entry" [idx]="idx" [iterationGrouped]="isWithinIteration(entry)" />
                 } @else {
                 <div class="log-entry" [ngClass]="'unified-type-' + entry.type" [class.iteration-grouped]="isWithinIteration(entry)">
                   <div class="log-entry-header">
                     <span class="log-seq">#{{ idx + 1 }}</span>
                     <span class="log-time" [matTooltip]="entry.timestamp">{{ formatTime(entry.timestamp) }}</span>
                     <span class="unified-type-badge" [ngClass]="'ubadge-' + entry.type">{{ entry.type | uppercase }}</span>
-
-                    <!-- AI entry display -->
-                    @if (entry.type === 'ai') {
-                      <span class="meta-chip provider-chip provider-{{ (entry.provider ?? '').toLowerCase() }}">{{ entry.provider }}</span>
-                      <code class="meta-chip model-chip">{{ entry.model }}</code>
-                      <span class="meta-chip task-chip">{{ entry.taskType }}</span>
-                      <span class="meta-chip token-chip">{{ entry.inputTokens | number }}in / {{ entry.outputTokens | number }}out</span>
-                      @if (entry.durationMs != null) {
-                        <span class="meta-chip duration-chip">{{ entry.durationMs | number }}ms</span>
-                      }
-                      @if (entry.costUsd != null) {
-                        <span class="ai-usage-cost">\${{ entry.costUsd | number:'1.4-4' }}</span>
-                      }
-                      @if (!expandedLogs[entry.id] && promptFirstLine(entry)) {
-                        <span class="prompt-preview">{{ promptFirstLine(entry) }}</span>
-                      }
+                    @if (entry.level) {
+                      <span class="log-level-badge log-badge-{{ entry.level.toLowerCase() }}">{{ entry.level }}</span>
                     }
-
-                    <!-- Log/Tool/Step/Error entry display -->
-                    @if (entry.type !== 'ai') {
-                      @if (entry.level) {
-                        <span class="log-level-badge log-badge-{{ entry.level.toLowerCase() }}">{{ entry.level }}</span>
-                      }
-                      @if (entry.service) {
-                        <span class="log-service">{{ entry.service }}</span>
-                      }
-                      <span class="log-message">{{ entry.message }}</span>
+                    @if (entry.service) {
+                      <span class="log-service">{{ entry.service }}</span>
                     }
+                    <span class="log-message">{{ entry.message }}</span>
                   </div>
-
-                  <!-- Expandable AI detail -->
-                  @if (entry.type === 'ai') {
+                  @if (entry.context && hasKeys(entry.context)) {
                     <button mat-button class="log-expand-btn" (click)="expandedLogs[entry.id] = !expandedLogs[entry.id]">
-                      {{ expandedLogs[entry.id] ? 'Hide details' : 'Show details' }}
+                      {{ expandedLogs[entry.id] ? 'Hide metadata' : 'Show metadata' }}
                       <mat-icon>{{ expandedLogs[entry.id] ? 'expand_less' : 'expand_more' }}</mat-icon>
                     </button>
                     @if (expandedLogs[entry.id]) {
-                      <div class="ai-detail-sections">
-                        @if (entry.promptKey) {
-                          <div class="ai-detail-label">Prompt Key: <code>{{ entry.promptKey }}</code></div>
-                        }
-                        @if (entry.archive?.fullPrompt || entry.promptText) {
-                          <div class="ai-detail-block">
-                            <div class="ai-detail-label">Prompt</div>
-                            <pre class="log-metadata">{{ entry.archive?.fullPrompt ?? entry.promptText }}</pre>
-                          </div>
-                        }
-                        @if (entry.archive?.systemPrompt || entry.systemPrompt) {
-                          <div class="ai-detail-block">
-                            <button mat-button class="log-expand-btn sys-prompt-toggle" (click)="expandedSystemPrompts[entry.id] = !expandedSystemPrompts[entry.id]">
-                              System Prompt
-                              <mat-icon>{{ expandedSystemPrompts[entry.id] ? 'expand_less' : 'expand_more' }}</mat-icon>
-                            </button>
-                            @if (expandedSystemPrompts[entry.id]) {
-                              <pre class="log-metadata">{{ entry.archive?.systemPrompt ?? entry.systemPrompt }}</pre>
-                            }
-                          </div>
-                        }
-                        @if (entry.archive?.fullResponse || entry.responseText) {
-                          <div class="ai-detail-block">
-                            <div class="ai-detail-label">Response</div>
-                            <pre class="log-metadata">{{ entry.archive?.fullResponse ?? entry.responseText }}</pre>
-                          </div>
-                        }
-                        @if (entry.conversationMetadata) {
-                          <div class="ai-detail-block">
-                            <div class="ai-detail-label">Conversation Metadata</div>
-                            <pre class="log-metadata">{{ entry.conversationMetadata | json }}</pre>
-                          </div>
-                        }
-                        @if (entry.archive?.messageCount != null) {
-                          <div class="ai-detail-label">Messages: {{ entry.archive?.messageCount }} &middot; Context tokens: {{ entry.archive?.totalContextTokens | number }}</div>
-                        }
-                      </div>
+                      <pre class="log-metadata">{{ entry.context | json }}</pre>
                     }
                   }
-
-                  <!-- Expandable metadata for log entries -->
-                  @if (entry.type !== 'ai') {
-                    @if (entry.context && hasKeys(entry.context)) {
-                      <button mat-button class="log-expand-btn" (click)="expandedLogs[entry.id] = !expandedLogs[entry.id]">
-                        {{ expandedLogs[entry.id] ? 'Hide metadata' : 'Show metadata' }}
-                        <mat-icon>{{ expandedLogs[entry.id] ? 'expand_less' : 'expand_more' }}</mat-icon>
-                      </button>
-                      @if (expandedLogs[entry.id]) {
-                        <pre class="log-metadata">{{ entry.context | json }}</pre>
-                      }
-                    }
-                    @if (entry.error) {
-                      <div class="log-error-detail">{{ entry.error }}</div>
-                    }
+                  @if (entry.error) {
+                    <div class="log-error-detail">{{ entry.error }}</div>
                   }
                 </div>
                 }
@@ -1055,10 +986,7 @@ interface FlowNode {
     /* AI detail sections in unified logs */
     .ai-detail-sections { padding: 8px 0 4px; }
     .ai-detail-label { font-size: 11px; font-weight: 600; color: #666; margin: 4px 0 2px; }
-    .ai-detail-label code { font-weight: 400; background: #f5f5f5; padding: 1px 4px; border-radius: 3px; }
     .ai-detail-block { margin-bottom: 8px; }
-    .prompt-preview { display: block; font-size: 11px; color: #888; font-family: monospace; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 600px; }
-    .sys-prompt-toggle { min-height: 24px; font-size: 11px; font-weight: 600; color: #666; padding: 0 4px; text-transform: uppercase; letter-spacing: 0.3px; }
 
     /* Logs cost summary */
     .logs-cost-summary { background: #f8faf8; border: 1px solid #e0e8e0; border-radius: 8px; padding: 12px 16px; margin-bottom: 12px; }
@@ -1123,7 +1051,6 @@ export class TicketDetailComponent implements OnInit {
   logsLevelFilter = signal('');
   logsSearchFilter = signal('');
   expandedLogs: Record<string, boolean> = {};
-  expandedSystemPrompts: Record<string, boolean> = {};
   costSummary = signal<TicketCostSummary | null>(null);
 
   // Legacy — still used by loadTicketAiUsage for the existing AI Cost card
@@ -1411,12 +1338,6 @@ export class TicketDetailComponent implements OnInit {
 
   hasKeys(obj: Record<string, unknown>): boolean {
     return Object.keys(obj).length > 0;
-  }
-
-  promptFirstLine(entry: UnifiedLogEntry): string {
-    const text = entry.archive?.fullPrompt ?? entry.promptText ?? '';
-    const line = text.split('\n').find(l => l.trim().length > 0) ?? '';
-    return line.length > 120 ? line.slice(0, 120) + '…' : line;
   }
 
   generateLogSummary(): void {
