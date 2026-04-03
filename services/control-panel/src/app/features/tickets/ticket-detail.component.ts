@@ -24,6 +24,17 @@ import { AiLogEntryComponent } from './ai-log-entry.component';
 import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
 import { RelativeTimePipe } from '../../shared/pipes/relative-time.pipe';
 
+interface StepGroup {
+  stepName: string;
+  status: 'running' | 'completed' | 'failed';
+  entries: UnifiedLogEntry[];
+  aggrInputTokens: number;
+  aggrOutputTokens: number;
+  aggrCostUsd: number;
+  aiCallCount: number;
+  expanded: boolean;
+}
+
 interface FlowNode {
   label: string;
   icon: string;
@@ -93,7 +104,7 @@ interface FlowNode {
       }
 
       <!-- Tab group: AI Summary, Resolution Summary, Details, Log Digest -->
-      <mat-tab-group class="info-tabs" animationDuration="0ms">
+      <mat-tab-group class="info-tabs" animationDuration="0ms" (selectedTabChange)="onTabChange($event)">
         @if (emailBlurb()) {
           <mat-tab label="AI Summary">
             <div class="tab-content">
@@ -231,8 +242,8 @@ interface FlowNode {
 
             <!-- Unified log stream -->
             <div class="logs-list">
-              @for (entry of unifiedLogs(); track entry.id; let idx = $index) {
-                <!-- Iteration group header -->
+              <!-- Ungrouped entries (before first step) -->
+              @for (entry of ungroupedEntries(); track entry.id; let idx = $index) {
                 @if (isIterationHeader(entry)) {
                   <div class="iteration-group-header">
                     <mat-icon class="iteration-icon">loop</mat-icon>
@@ -243,37 +254,120 @@ interface FlowNode {
                 } @else if (entry.type === 'ai') {
                   <app-ai-log-entry [entry]="entry" [idx]="idx" [iterationGrouped]="isWithinIteration(entry)" />
                 } @else {
-                <div class="log-entry" [ngClass]="'unified-type-' + entry.type" [class.iteration-grouped]="isWithinIteration(entry)">
-                  <div class="log-entry-header">
-                    <span class="log-seq">#{{ idx + 1 }}</span>
-                    <span class="log-time" [matTooltip]="entry.timestamp">{{ formatTime(entry.timestamp) }}</span>
-                    <span class="unified-type-badge" [ngClass]="'ubadge-' + entry.type">{{ entry.type | uppercase }}</span>
-                    @if (entry.level) {
-                      <span class="log-level-badge log-badge-{{ entry.level.toLowerCase() }}">{{ entry.level }}</span>
+                  <div class="log-entry" [ngClass]="'unified-type-' + entry.type" [class.iteration-grouped]="isWithinIteration(entry)">
+                    <div class="log-entry-header">
+                      <span class="log-seq">#{{ idx + 1 }}</span>
+                      <span class="log-time" [matTooltip]="entry.timestamp">{{ formatTime(entry.timestamp) }}</span>
+                      <span class="unified-type-badge" [ngClass]="'ubadge-' + entry.type">{{ entry.type | uppercase }}</span>
+                      @if (entry.level) { <span class="log-level-badge log-badge-{{ entry.level.toLowerCase() }}">{{ entry.level }}</span> }
+                      @if (entry.service) { <span class="log-service">{{ entry.service }}</span> }
+                      <span class="log-message">{{ entry.message }}</span>
+                    </div>
+                    @if (entry.context && hasKeys(entry.context)) {
+                      <button mat-button class="log-expand-btn" (click)="expandedLogs[entry.id] = !expandedLogs[entry.id]">
+                        {{ expandedLogs[entry.id] ? 'Hide metadata' : 'Show metadata' }}
+                        <mat-icon>{{ expandedLogs[entry.id] ? 'expand_less' : 'expand_more' }}</mat-icon>
+                      </button>
+                      @if (expandedLogs[entry.id]) { <pre class="log-metadata">{{ entry.context | json }}</pre> }
                     }
-                    @if (entry.service) {
-                      <span class="log-service">{{ entry.service }}</span>
-                    }
-                    <span class="log-message">{{ entry.message }}</span>
+                    @if (entry.error) { <div class="log-error-detail">{{ entry.error }}</div> }
                   </div>
-                  @if (entry.context && hasKeys(entry.context)) {
-                    <button mat-button class="log-expand-btn" (click)="expandedLogs[entry.id] = !expandedLogs[entry.id]">
-                      {{ expandedLogs[entry.id] ? 'Hide metadata' : 'Show metadata' }}
-                      <mat-icon>{{ expandedLogs[entry.id] ? 'expand_less' : 'expand_more' }}</mat-icon>
-                    </button>
-                    @if (expandedLogs[entry.id]) {
-                      <pre class="log-metadata">{{ entry.context | json }}</pre>
+                }
+              }
+
+              <!-- Step groups -->
+              @for (group of stepGroups(); track $index) {
+                <div class="step-group">
+                  <div class="step-group-header" (click)="group.expanded = !group.expanded">
+                    <mat-icon class="step-status-icon" [class.status-completed]="group.status === 'completed'" [class.status-failed]="group.status === 'failed'" [class.status-running]="group.status === 'running'">
+                      {{ group.status === 'completed' ? 'check_circle' : group.status === 'failed' ? 'error' : 'pending' }}
+                    </mat-icon>
+                    <span class="step-name">{{ group.stepName }}</span>
+                    @if (group.aiCallCount > 0) {
+                      <span class="step-meta-chip">{{ group.aiCallCount }} AI call{{ group.aiCallCount > 1 ? 's' : '' }}</span>
+                      <span class="step-meta-chip token-chip">{{ group.aggrInputTokens | number }}in / {{ group.aggrOutputTokens | number }}out</span>
+                      @if (group.aggrCostUsd > 0) {
+                        <span class="step-meta-chip cost-chip">\${{ group.aggrCostUsd | number:'1.4-4' }}</span>
+                      }
                     }
-                  }
-                  @if (entry.error) {
-                    <div class="log-error-detail">{{ entry.error }}</div>
+                    <span class="step-entry-count">{{ group.entries.length }} entr{{ group.entries.length === 1 ? 'y' : 'ies' }}</span>
+                    <mat-icon class="step-chevron">{{ group.expanded ? 'expand_less' : 'expand_more' }}</mat-icon>
+                  </div>
+                  @if (group.expanded) {
+                    <div class="step-group-entries">
+                      @for (entry of group.entries; track entry.id; let idx = $index) {
+                        @if (isIterationHeader(entry)) {
+                          <div class="iteration-group-header">
+                            <mat-icon class="iteration-icon">loop</mat-icon>
+                            <span class="iteration-label">{{ extractIterationLabel(entry) }}</span>
+                            <span class="log-time" [matTooltip]="entry.timestamp">{{ formatTime(entry.timestamp) }}</span>
+                          </div>
+                        } @else {
+                          <div class="log-entry" [ngClass]="'unified-type-' + entry.type" [class.iteration-grouped]="isWithinIteration(entry)">
+                            <div class="log-entry-header">
+                              <span class="log-seq">#{{ idx + 1 }}</span>
+                              <span class="log-time" [matTooltip]="entry.timestamp">{{ formatTime(entry.timestamp) }}</span>
+                              <span class="unified-type-badge" [ngClass]="'ubadge-' + entry.type">{{ entry.type | uppercase }}</span>
+                              @if (entry.type === 'ai') {
+                                <span class="meta-chip provider-chip provider-{{ (entry.provider ?? '').toLowerCase() }}">{{ entry.provider }}</span>
+                                <code class="meta-chip model-chip">{{ entry.model }}</code>
+                                <span class="meta-chip task-chip">{{ entry.taskType }}</span>
+                                <span class="meta-chip token-chip">{{ entry.inputTokens | number }}in / {{ entry.outputTokens | number }}out</span>
+                                @if (entry.durationMs != null) { <span class="meta-chip duration-chip">{{ entry.durationMs | number }}ms</span> }
+                                @if (entry.costUsd != null) { <span class="ai-usage-cost">\${{ entry.costUsd | number:'1.4-4' }}</span> }
+                              }
+                              @if (entry.type !== 'ai') {
+                                @if (entry.level) { <span class="log-level-badge log-badge-{{ entry.level.toLowerCase() }}">{{ entry.level }}</span> }
+                                @if (entry.service) { <span class="log-service">{{ entry.service }}</span> }
+                                <span class="log-message">{{ entry.message }}</span>
+                              }
+                            </div>
+                            @if (entry.type === 'ai') {
+                              <button mat-button class="log-expand-btn" (click)="expandedLogs[entry.id] = !expandedLogs[entry.id]">
+                                {{ expandedLogs[entry.id] ? 'Hide details' : 'Show details' }}
+                                <mat-icon>{{ expandedLogs[entry.id] ? 'expand_less' : 'expand_more' }}</mat-icon>
+                              </button>
+                              @if (expandedLogs[entry.id]) {
+                                <div class="ai-detail-sections">
+                                  @if (entry.promptKey) { <div class="ai-detail-label">Prompt Key: <code>{{ entry.promptKey }}</code></div> }
+                                  @if (entry.archive?.fullPrompt || entry.promptText) {
+                                    <div class="ai-detail-block"><div class="ai-detail-label">Prompt</div><pre class="log-metadata">{{ entry.archive?.fullPrompt ?? entry.promptText }}</pre></div>
+                                  }
+                                  @if (entry.archive?.systemPrompt || entry.systemPrompt) {
+                                    <div class="ai-detail-block"><div class="ai-detail-label">System Prompt</div><pre class="log-metadata">{{ entry.archive?.systemPrompt ?? entry.systemPrompt }}</pre></div>
+                                  }
+                                  @if (entry.archive?.fullResponse || entry.responseText) {
+                                    <div class="ai-detail-block"><div class="ai-detail-label">Response</div><pre class="log-metadata">{{ entry.archive?.fullResponse ?? entry.responseText }}</pre></div>
+                                  }
+                                  @if (entry.conversationMetadata) {
+                                    <div class="ai-detail-block"><div class="ai-detail-label">Conversation Metadata</div><pre class="log-metadata">{{ entry.conversationMetadata | json }}</pre></div>
+                                  }
+                                  @if (entry.archive?.messageCount != null) {
+                                    <div class="ai-detail-label">Messages: {{ entry.archive?.messageCount }} &middot; Context tokens: {{ entry.archive?.totalContextTokens | number }}</div>
+                                  }
+                                </div>
+                              }
+                            }
+                            @if (entry.type !== 'ai') {
+                              @if (entry.context && hasKeys(entry.context)) {
+                                <button mat-button class="log-expand-btn" (click)="expandedLogs[entry.id] = !expandedLogs[entry.id]">
+                                  {{ expandedLogs[entry.id] ? 'Hide metadata' : 'Show metadata' }}
+                                  <mat-icon>{{ expandedLogs[entry.id] ? 'expand_less' : 'expand_more' }}</mat-icon>
+                                </button>
+                                @if (expandedLogs[entry.id]) { <pre class="log-metadata">{{ entry.context | json }}</pre> }
+                              }
+                              @if (entry.error) { <div class="log-error-detail">{{ entry.error }}</div> }
+                            }
+                          </div>
+                        }
+                      }
+                    </div>
                   }
                 </div>
-                }
-              } @empty {
-                @if (!unifiedLogsLoading()) {
-                  <p class="empty">No logs found for this ticket.</p>
-                }
+              }
+
+              @if (ungroupedEntries().length === 0 && stepGroups().length === 0 && !unifiedLogsLoading()) {
+                <p class="empty">No logs found for this ticket.</p>
               }
             </div>
 
@@ -282,6 +376,100 @@ interface FlowNode {
               <div class="logs-pagination">
                 <span class="logs-showing">Showing {{ unifiedLogs().length }} of {{ unifiedLogsTotal() }}</span>
                 <button mat-stroked-button (click)="loadMoreUnifiedLogs()">Load more</button>
+              </div>
+            }
+          </div>
+        </mat-tab>
+        <mat-tab label="Conversation">
+          <div class="tab-content">
+            @if (conversationLoading()) {
+              <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+            } @else if (!conversationLoaded()) {
+              <div class="conv-empty">
+                <p>Activate this tab to load conversation.</p>
+              </div>
+            } @else if (conversationEntries().length === 0) {
+              <div class="conv-empty"><p>No AI calls recorded for this ticket.</p></div>
+            } @else {
+              <div class="conv-view">
+                @for (group of convStepGroups(); track $index) {
+                  <div class="conv-step-section">
+                    <div class="conv-step-label">
+                      <mat-icon class="conv-step-icon">{{ group.status === 'completed' ? 'check_circle' : group.status === 'failed' ? 'error' : 'pending' }}</mat-icon>
+                      {{ group.stepName }}
+                    </div>
+                    @for (entry of group.entries; track entry.id) {
+                      @if (entry.type === 'ai') {
+                        <div class="conv-ai-block">
+                          <div class="conv-ai-header">
+                            <span class="conv-task-type">{{ entry.taskType }}</span>
+                            <span class="conv-model">{{ entry.model }}</span>
+                            <span class="conv-tokens">{{ entry.inputTokens | number }}in / {{ entry.outputTokens | number }}out</span>
+                            @if (entry.costUsd != null) { <span class="conv-cost">\${{ entry.costUsd | number:'1.4-4' }}</span> }
+                          </div>
+                          @if (convMessages(entry).length > 0) {
+                            <div class="conv-turns">
+                              @for (turn of convMessages(entry); track $index) {
+                                <div class="conv-turn" [ngClass]="'conv-turn-' + turn.role">
+                                  <span class="conv-turn-role">{{ turn.role === 'user' ? '👤' : '🤖' }}</span>
+                                  @if (turn.toolName) { <span class="conv-tool-call">🔧 {{ turn.toolName }}</span> }
+                                  @if (turn.tokenCount) { <span class="conv-token-count">{{ turn.tokenCount | number }} tokens</span> }
+                                </div>
+                              }
+                            </div>
+                          }
+                          @if (entry.archive?.fullResponse || entry.responseText) {
+                            <div class="conv-final-response">
+                              <span class="conv-final-label">Response</span>
+                              <pre class="conv-response-text" [class.clamped]="!convExpanded[entry.id]">{{ convResponseText(entry) }}</pre>
+                              @if (isMultilineConv(entry)) {
+                                <button mat-button class="inline-expand-btn" (click)="convExpanded[entry.id] = !convExpanded[entry.id]">
+                                  {{ convExpanded[entry.id] ? 'less' : 'more' }}
+                                  <mat-icon>{{ convExpanded[entry.id] ? 'keyboard_double_arrow_up' : 'keyboard_double_arrow_down' }}</mat-icon>
+                                </button>
+                              }
+                            </div>
+                          }
+                        </div>
+                      }
+                    }
+                  </div>
+                }
+                @for (entry of convUngrouped(); track entry.id) {
+                  @if (entry.type === 'ai') {
+                    <div class="conv-ai-block">
+                      <div class="conv-ai-header">
+                        <span class="conv-task-type">{{ entry.taskType }}</span>
+                        <span class="conv-model">{{ entry.model }}</span>
+                        <span class="conv-tokens">{{ entry.inputTokens | number }}in / {{ entry.outputTokens | number }}out</span>
+                        @if (entry.costUsd != null) { <span class="conv-cost">\${{ entry.costUsd | number:'1.4-4' }}</span> }
+                      </div>
+                      @if (convMessages(entry).length > 0) {
+                        <div class="conv-turns">
+                          @for (turn of convMessages(entry); track $index) {
+                            <div class="conv-turn" [ngClass]="'conv-turn-' + turn.role">
+                              <span class="conv-turn-role">{{ turn.role === 'user' ? '👤' : '🤖' }}</span>
+                              @if (turn.toolName) { <span class="conv-tool-call">🔧 {{ turn.toolName }}</span> }
+                              @if (turn.tokenCount) { <span class="conv-token-count">{{ turn.tokenCount | number }} tokens</span> }
+                            </div>
+                          }
+                        </div>
+                      }
+                      @if (entry.archive?.fullResponse || entry.responseText) {
+                        <div class="conv-final-response">
+                          <span class="conv-final-label">Response</span>
+                          <pre class="conv-response-text" [class.clamped]="!convExpanded[entry.id]">{{ convResponseText(entry) }}</pre>
+                          @if (isMultilineConv(entry)) {
+                            <button mat-button class="inline-expand-btn" (click)="convExpanded[entry.id] = !convExpanded[entry.id]">
+                              {{ convExpanded[entry.id] ? 'less' : 'more' }}
+                              <mat-icon>{{ convExpanded[entry.id] ? 'keyboard_double_arrow_up' : 'keyboard_double_arrow_down' }}</mat-icon>
+                            </button>
+                          }
+                        </div>
+                      }
+                    </div>
+                  }
+                }
               </div>
             }
           </div>
@@ -1011,6 +1199,48 @@ interface FlowNode {
 
     /* Floating AI help button */
     .ai-fab { position: fixed; bottom: 24px; right: 24px; z-index: 100; }
+
+    /* Step grouping */
+    .step-group { margin-bottom: 8px; border: 1px solid #e0e0e0; border-radius: 6px; overflow: hidden; }
+    .step-group-header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #f5f5f5; cursor: pointer; user-select: none; flex-wrap: wrap; }
+    .step-group-header:hover { background: #eeeeee; }
+    .step-name { font-size: 13px; font-weight: 700; color: #333; letter-spacing: 0.3px; }
+    .step-status-icon { font-size: 18px; width: 18px; height: 18px; }
+    .status-completed { color: #2e7d32; }
+    .status-failed { color: #c62828; }
+    .status-running { color: #e65100; }
+    .step-meta-chip { font-size: 11px; padding: 1px 7px; border-radius: 10px; background: #e8eaf6; color: #3949ab; white-space: nowrap; }
+    .step-meta-chip.token-chip { background: #fff3e0; color: #e65100; }
+    .step-meta-chip.cost-chip { background: #e8f5e9; color: #2e7d32; font-weight: 600; }
+    .step-entry-count { font-size: 11px; color: #999; margin-left: auto; }
+    .step-chevron { font-size: 18px; width: 18px; height: 18px; color: #999; }
+    .step-group-entries { padding: 6px 8px; background: #fafafa; }
+
+    /* Conversation tab */
+    .conv-view { padding: 12px 0; }
+    .conv-step-section { margin-bottom: 20px; }
+    .conv-step-label { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #888; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 4px; }
+    .conv-step-icon { font-size: 14px; width: 14px; height: 14px; color: #aaa; }
+    .conv-ai-block { border-left: 3px solid #7c4dff; background: #fafafa; border-radius: 0 6px 6px 0; padding: 8px 12px; margin-bottom: 10px; }
+    .conv-ai-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+    .conv-task-type { font-size: 12px; font-weight: 700; background: #e8f5e9; color: #2e7d32; padding: 1px 7px; border-radius: 10px; }
+    .conv-model { font-size: 11px; color: #888; font-family: monospace; }
+    .conv-tokens { font-size: 11px; background: #fff3e0; color: #e65100; padding: 1px 7px; border-radius: 10px; }
+    .conv-cost { font-size: 11px; font-weight: 600; color: #2e7d32; }
+    .conv-turns { border-left: 2px solid #e0e0e0; margin-left: 8px; padding-left: 8px; margin-bottom: 6px; }
+    .conv-turn { display: flex; align-items: center; gap: 8px; padding: 2px 0; font-size: 12px; }
+    .conv-turn-user { color: #444; }
+    .conv-turn-assistant { color: #3949ab; }
+    .conv-turn-role { font-size: 14px; }
+    .conv-tool-call { background: #e8f5e9; color: #2e7d32; padding: 1px 7px; border-radius: 10px; font-size: 11px; font-family: monospace; }
+    .conv-token-count { font-size: 10px; color: #bbb; }
+    .conv-final-label { font-size: 10px; font-weight: 700; color: #999; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 2px; }
+    .conv-final-response { margin-top: 6px; }
+    .conv-response-text { font-size: 12px; font-family: monospace; color: #333; margin: 0; white-space: pre-wrap; word-break: break-word; background: #f7f7f7; padding: 6px 8px; border-radius: 4px; border-left: 2px solid #7c4dff; }
+    .conv-response-text.clamped { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+    .conv-empty { padding: 24px; text-align: center; color: #888; }
+    .inline-expand-btn { font-size: 11px; color: #666; padding: 0; min-width: auto; margin-top: 2px; }
+    .inline-expand-btn mat-icon { font-size: 14px; width: 14px; height: 14px; }
   `],
 })
 export class TicketDetailComponent implements OnInit {
@@ -1052,6 +1282,14 @@ export class TicketDetailComponent implements OnInit {
   logsSearchFilter = signal('');
   expandedLogs: Record<string, boolean> = {};
   costSummary = signal<TicketCostSummary | null>(null);
+  stepGroups = signal<StepGroup[]>([]);
+  ungroupedEntries = signal<UnifiedLogEntry[]>([]);
+  conversationEntries = signal<UnifiedLogEntry[]>([]);
+  conversationLoading = signal(false);
+  conversationLoaded = signal(false);
+  convStepGroups = signal<StepGroup[]>([]);
+  convUngrouped = signal<UnifiedLogEntry[]>([]);
+  convExpanded: Record<string, boolean> = {};
 
   // Legacy — still used by loadTicketAiUsage for the existing AI Cost card
   ticketLogs = signal<TicketAppLog[]>([]);
@@ -1262,6 +1500,7 @@ export class TicketDetailComponent implements OnInit {
       .subscribe({
         next: (res) => {
           this.unifiedLogs.set(res.entries);
+          this.buildStepGroups(res.entries);
           this.unifiedLogsTotal.set(res.total);
           this.unifiedLogsLoading.set(false);
           this.knownUnifiedLogIds.clear();
@@ -1320,7 +1559,9 @@ export class TicketDetailComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
-          this.unifiedLogs.set([...current, ...res.entries]);
+          const allEntries = [...current, ...res.entries];
+          this.unifiedLogs.set(allEntries);
+          this.buildStepGroups(allEntries);
           this.unifiedLogsTotal.set(res.total);
           this.unifiedLogsLoading.set(false);
         },
@@ -1340,6 +1581,102 @@ export class TicketDetailComponent implements OnInit {
 
   loadMoreLogs(): void {
     // Legacy — kept for backward compatibility but loadMoreUnifiedLogs is primary
+  }
+
+  private buildGroups(entries: UnifiedLogEntry[]): { groups: StepGroup[]; ungrouped: UnifiedLogEntry[] } {
+    const groups: StepGroup[] = [];
+    const ungrouped: UnifiedLogEntry[] = [];
+    let current: StepGroup | null = null;
+
+    for (const entry of entries) {
+      const msg = entry.message?.toLowerCase() ?? '';
+
+      if (entry.type === 'step' && msg.includes('executing step')) {
+        const match = entry.message?.match(/executing step[:\s]+(.+)/i);
+        const stepName = match?.[1] ?? entry.message ?? 'STEP';
+        current = {
+          stepName,
+          status: 'running',
+          entries: [entry],
+          aggrInputTokens: 0,
+          aggrOutputTokens: 0,
+          aggrCostUsd: 0,
+          aiCallCount: 0,
+          expanded: true,
+        };
+        groups.push(current);
+      } else if (entry.type === 'step' && (msg.includes('step completed') || msg.includes('step failed') || msg.includes('step skipped'))) {
+        if (current) {
+          current.status = msg.includes('failed') ? 'failed' : 'completed';
+          current.entries.push(entry);
+        }
+      } else if (current) {
+        current.entries.push(entry);
+        if (entry.type === 'ai') {
+          current.aiCallCount++;
+          current.aggrInputTokens += entry.inputTokens ?? 0;
+          current.aggrOutputTokens += entry.outputTokens ?? 0;
+          current.aggrCostUsd += entry.costUsd ?? 0;
+        }
+      } else {
+        ungrouped.push(entry);
+      }
+    }
+
+    return { groups, ungrouped };
+  }
+
+  private buildStepGroups(entries: UnifiedLogEntry[]): void {
+    const { groups, ungrouped } = this.buildGroups(entries);
+    this.stepGroups.set(groups);
+    this.ungroupedEntries.set(ungrouped);
+  }
+
+  private buildConvGroups(entries: UnifiedLogEntry[]): void {
+    const { groups, ungrouped } = this.buildGroups(entries);
+    this.convStepGroups.set(groups);
+    this.convUngrouped.set(ungrouped);
+  }
+
+  loadConversationEntries(): void {
+    if (this.conversationLoaded()) return;
+    const ticketId = this.ticket()?.id;
+    if (!ticketId) return;
+    this.conversationLoading.set(true);
+    this.ticketService
+      .getUnifiedLogs(ticketId, { limit: 200 })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.conversationEntries.set(res.entries);
+          this.buildConvGroups(res.entries);
+          this.conversationLoading.set(false);
+          this.conversationLoaded.set(true);
+        },
+        error: () => {
+          this.conversationLoading.set(false);
+        },
+      });
+  }
+
+  onTabChange(event: { tab: { textLabel: string } }): void {
+    if (event.tab.textLabel === 'Conversation') {
+      this.loadConversationEntries();
+    }
+  }
+
+  convMessages(entry: UnifiedLogEntry): Array<{ role: string; tokenCount?: number; toolName?: string }> {
+    const meta = entry.conversationMetadata as { messages?: Array<{ role: string; tokenCount?: number; toolName?: string }> } | null;
+    return meta?.messages ?? [];
+  }
+
+  convResponseText(entry: UnifiedLogEntry): string {
+    return entry.archive?.fullResponse ?? entry.responseText ?? '';
+  }
+
+  isMultilineConv(entry: UnifiedLogEntry): boolean {
+    const text = this.convResponseText(entry);
+    return text.split('\n').filter(l => l.trim().length > 0).length > 2;
   }
 
   hasKeys(obj: Record<string, unknown>): boolean {
