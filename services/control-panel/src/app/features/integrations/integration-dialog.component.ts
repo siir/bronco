@@ -349,12 +349,8 @@ export class IntegrationDialogComponent implements OnInit {
       if (config['authHeader'] === 'bearer') {
         delete config['authHeader'];
       }
-      // Persist disabled tools
-      if (this.disabledTools.size > 0) {
-        config['disabledTools'] = [...this.disabledTools];
-      } else {
-        delete config['disabledTools'];
-      }
+      // Always send disabledTools (even as empty array) so the backend merge can clear it
+      config['disabledTools'] = [...this.disabledTools];
     }
 
     // When editing, strip blank secret fields so the backend keeps the existing encrypted value
