@@ -1905,6 +1905,8 @@ Guidelines for task assignment:
 - Keep tasks focused — each task should have a clear, specific goal
 - Maximum 5 tasks per iteration
 
+CRITICAL: In the "tools" array, use EXACT tool names from the Available Tools list provided in the prompt. Do not abbreviate, rename, or invent tool names. Copy-paste the full tool name including any prefix (e.g. "ap-dbadmin-e5834180__run_query", not "run_query" or "run_sql_query"). If no available tool fits the task, leave the tools array empty and describe what data you need in the prompt text so the model can request it conversationally.
+
 When you have enough information to provide a final analysis, set "done": true and include:
 {
   "findings": "Final summary",
@@ -1990,6 +1992,116 @@ const ORCHESTRATED_MODEL_MAP: Record<string, string> = {
   opus: 'claude-opus-4-6',
 };
 
+// ---------------------------------------------------------------------------
+// Tool resolution: exact → base-name → substring → fuzzy
+// ---------------------------------------------------------------------------
+
+interface ToolResolution {
+  resolved: AIToolDefinition[];
+  fuzzy: Map<string, Array<{ tool: AIToolDefinition; score: number }>>;
+  unmatched: string[];
+}
+
+function resolveTaskTools(
+  requestedNames: string[],
+  availableTools: AIToolDefinition[],
+): ToolResolution {
+  const resolved: AIToolDefinition[] = [];
+  const fuzzy = new Map<string, Array<{ tool: AIToolDefinition; score: number }>>();
+  const unmatched: string[] = [];
+  const resolvedSet = new Set<string>();
+
+  // Normalize: trim whitespace and drop empty strings to prevent spurious substring matches
+  const normalizedNames = requestedNames.map(n => n.trim()).filter(n => n.length > 0);
+
+  for (const requested of normalizedNames) {
+    // 1. Exact match
+    const exact = availableTools.find(t => t.name === requested);
+    if (exact) {
+      if (!resolvedSet.has(exact.name)) {
+        resolved.push(exact);
+        resolvedSet.add(exact.name);
+      }
+      continue;
+    }
+
+    // 2. Base name exact (strip prefix before __) — only accept if unambiguous
+    const baseNameMatches = availableTools.filter(
+      t => (t.name.split('__').pop() ?? t.name) === requested,
+    );
+    if (baseNameMatches.length === 1) {
+      const [baseName] = baseNameMatches;
+      if (!resolvedSet.has(baseName.name)) {
+        resolved.push(baseName);
+        resolvedSet.add(baseName.name);
+      }
+      continue;
+    }
+    if (baseNameMatches.length > 1) {
+      // Ambiguous base name — surface as fuzzy candidates rather than auto-selecting
+      fuzzy.set(requested, baseNameMatches.slice(0, 3).map(tool => ({ tool, score: 1 })));
+      continue;
+    }
+
+    // 3. Substring match on base name only — only accept if unambiguous
+    const substringMatches = availableTools.filter(
+      t => (t.name.split('__').pop() ?? t.name).includes(requested),
+    );
+    if (substringMatches.length === 1) {
+      const [substring] = substringMatches;
+      if (!resolvedSet.has(substring.name)) {
+        resolved.push(substring);
+        resolvedSet.add(substring.name);
+      }
+      continue;
+    }
+    if (substringMatches.length > 1) {
+      // Ambiguous substring — fall through to fuzzy scoring
+    }
+
+    // 4. Fuzzy scoring
+    const requestedWords = new Set(requested.toLowerCase().split(/[_-]/));
+    const candidates: Array<{ tool: AIToolDefinition; score: number }> = [];
+
+    for (const tool of availableTools) {
+      const toolBase = (tool.name.split('__').pop() ?? tool.name).toLowerCase();
+      const toolWords = new Set(toolBase.split(/[_-]/));
+
+      // Jaccard similarity
+      const intersection = new Set([...requestedWords].filter(w => toolWords.has(w)));
+      const union = new Set([...requestedWords, ...toolWords]);
+      const jaccard = union.size > 0 ? intersection.size / union.size : 0;
+
+      // Description match
+      const descLower = (tool.description ?? '').toLowerCase();
+      const reqWordArr = [...requestedWords];
+      const descMatches = reqWordArr.filter(w => descLower.includes(w)).length;
+      const descScore = reqWordArr.length > 0 ? descMatches / reqWordArr.length : 0;
+
+      const score = jaccard * 0.7 + descScore * 0.3;
+      if (score >= 0.3) {
+        candidates.push({ tool, score });
+      }
+    }
+
+    if (candidates.length > 0) {
+      candidates.sort((a, b) => b.score - a.score);
+      fuzzy.set(requested, candidates.slice(0, 3));
+    } else {
+      unmatched.push(requested);
+    }
+  }
+
+  return { resolved, fuzzy, unmatched };
+}
+
+// Signals indicating a sub-task result may be irrelevant (checked in first 500 chars)
+const IRRELEVANT_SIGNALS = [
+  'not relevant', 'unable to', 'cannot access', 'i cannot', "i don't have",
+  'wrong tool', 'unexpected result', 'does not apply', 'no data returned',
+  'tool returned an error',
+];
+
 async function executeOrchestratedSubTask(
   deps: AnalyzerDeps,
   ticketId: string,
@@ -2004,11 +2116,6 @@ async function executeOrchestratedSubTask(
   const { ai } = deps;
   const model = ORCHESTRATED_MODEL_MAP[task.model] ?? ORCHESTRATED_MODEL_MAP.sonnet;
 
-  // Filter tools to only those requested by the task
-  const taskTools = task.tools.length > 0
-    ? agenticTools.filter(t => task.tools.some(requested => t.name.includes(requested)))
-    : [];
-
   const toolCalls: SubTaskResult['toolCalls'] = [];
   let inputTokens = 0;
   let outputTokens = 0;
@@ -2020,99 +2127,213 @@ async function executeOrchestratedSubTask(
     ? `Execute the requested investigation step. Call the relevant tools, analyze the results, and return a structured summary of your findings.\n\n${clientContext}`
     : 'Execute the requested investigation step. Call the relevant tools, analyze the results, and return a structured summary of your findings.';
 
-  if (taskTools.length > 0) {
-    // Single-pass tool call: generate with tools, execute any calls, return combined result
-    const response = await ai.generateWithTools({
-      taskType: TaskType.DEEP_ANALYSIS,
-      context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory },
-      messages: [{ role: 'user', content: task.prompt }],
-      tools: taskTools,
-      systemPrompt: subTaskSystemPrompt,
-      providerOverride: 'CLAUDE',
-      modelOverride: model,
-      maxTokens: 4096,
-    });
+  // Resolve tools using ranked matching (exact → base name → substring → fuzzy)
+  const resolution = task.tools.length > 0
+    ? resolveTaskTools(task.tools, agenticTools)
+    : { resolved: [] as AIToolDefinition[], fuzzy: new Map<string, Array<{ tool: AIToolDefinition; score: number }>>(), unmatched: [] as string[] };
 
-    inputTokens += response.usage?.inputTokens ?? 0;
-    outputTokens += response.usage?.outputTokens ?? 0;
+  // Build initial tool set: resolved + top fuzzy candidate per entry
+  const initialTools = [...resolution.resolved];
+  const initialToolNames = new Set(initialTools.map(t => t.name));
+  const fuzzyUsed = new Map<string, { tool: AIToolDefinition; score: number; candidateIndex: number }>();
 
-    // If the model wants to use tools, execute them
-    const toolUseBlocks = response.contentBlocks.filter(
-      (b): b is AIToolUseBlock => b.type === 'tool_use',
-    );
+  for (const [reqName, candidates] of resolution.fuzzy) {
+    if (candidates.length > 0 && !initialToolNames.has(candidates[0].tool.name)) {
+      initialTools.push(candidates[0].tool);
+      initialToolNames.add(candidates[0].tool.name);
+      fuzzyUsed.set(reqName, { ...candidates[0], candidateIndex: 0 });
+    }
+  }
 
-    if (toolUseBlocks.length > 0) {
-      const toolResults: Array<{ type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }> = [];
+  // If tools were requested but none matched at all, return early with guidance
+  if (task.tools.length > 0 && initialTools.length === 0) {
+    const MAX_TOOLS_IN_ERROR = 10;
+    const toolNames = agenticTools.map(t => t.name);
+    const availableList = toolNames.length > MAX_TOOLS_IN_ERROR
+      ? `${toolNames.slice(0, MAX_TOOLS_IN_ERROR).join(', ')} … (${toolNames.length - MAX_TOOLS_IN_ERROR} more)`
+      : toolNames.join(', ');
+    return {
+      content: `Tool resolution failed: requested [${task.tools.join(', ')}] but no matching tools found. Available tools: [${availableList}]. Use exact tool names from this list.`,
+      inputTokens: 0,
+      outputTokens: 0,
+      toolCalls: [],
+    };
+  }
 
-      for (const toolUse of toolUseBlocks) {
-        const start = Date.now();
-        const result = await executeAgenticToolCall(toolUse, mcpIntegrations, worktrees);
-        const elapsed = Date.now() - start;
-        toolCalls.push({
-          tool: toolUse.name,
-          system: (toolUse.input as Record<string, unknown>)?.system_name as string | undefined,
-          input: toolUse.input,
-          output: result.result.slice(0, 500),
-          durationMs: elapsed,
-        });
-        toolResults.push({
-          type: 'tool_result',
-          tool_use_id: toolUse.id,
-          content: result.result,
-          ...(result.isError ? { is_error: true } : {}),
-        });
-      }
+  /**
+   * Run a sub-task with the given tool set and return the result plus
+   * whether any "irrelevant" signals were detected.
+   */
+  async function runSubTaskPass(
+    tools: AIToolDefinition[],
+  ): Promise<{ result: SubTaskResult; seemsIrrelevant: boolean }> {
+    const passToolCalls: SubTaskResult['toolCalls'] = [];
+    let passInput = 0;
+    let passOutput = 0;
+    let hasToolError = false;
 
-      // Send tool results back for a summary response
-      const summaryResponse = await ai.generateWithTools({
+    if (tools.length > 0) {
+      const response = await ai.generateWithTools({
         taskType: TaskType.DEEP_ANALYSIS,
         context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory },
-        messages: [
-          { role: 'user', content: task.prompt },
-          { role: 'assistant', content: response.contentBlocks },
-          { role: 'user', content: toolResults as AIToolResultBlock[] },
-        ],
-        tools: taskTools,
-        systemPrompt: 'Summarize the tool results into a structured finding. Do not call additional tools.',
+        messages: [{ role: 'user', content: task.prompt }],
+        tools,
+        systemPrompt: subTaskSystemPrompt,
         providerOverride: 'CLAUDE',
         modelOverride: model,
         maxTokens: 4096,
       });
 
-      inputTokens += summaryResponse.usage?.inputTokens ?? 0;
-      outputTokens += summaryResponse.usage?.outputTokens ?? 0;
+      passInput += response.usage?.inputTokens ?? 0;
+      passOutput += response.usage?.outputTokens ?? 0;
 
-      const summaryText = summaryResponse.contentBlocks
+      const toolUseBlocks = response.contentBlocks.filter(
+        (b): b is AIToolUseBlock => b.type === 'tool_use',
+      );
+
+      if (toolUseBlocks.length > 0) {
+        const toolResults: Array<{ type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }> = [];
+
+        for (const toolUse of toolUseBlocks) {
+          const start = Date.now();
+          const result = await executeAgenticToolCall(toolUse, mcpIntegrations, worktrees);
+          const elapsed = Date.now() - start;
+          passToolCalls.push({
+            tool: toolUse.name,
+            system: (toolUse.input as Record<string, unknown>)?.system_name as string | undefined,
+            input: toolUse.input,
+            output: result.result.slice(0, 500),
+            durationMs: elapsed,
+          });
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: toolUse.id,
+            content: result.result,
+            ...(result.isError ? { is_error: true } : {}),
+          });
+          if (result.isError) hasToolError = true;
+        }
+
+        const summaryResponse = await ai.generateWithTools({
+          taskType: TaskType.DEEP_ANALYSIS,
+          context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory },
+          messages: [
+            { role: 'user', content: task.prompt },
+            { role: 'assistant', content: response.contentBlocks },
+            { role: 'user', content: toolResults as AIToolResultBlock[] },
+          ],
+          tools: [],
+          systemPrompt: 'Summarize the tool results into a structured finding. Do not call additional tools.',
+          providerOverride: 'CLAUDE',
+          modelOverride: model,
+          maxTokens: 4096,
+        });
+
+        passInput += summaryResponse.usage?.inputTokens ?? 0;
+        passOutput += summaryResponse.usage?.outputTokens ?? 0;
+
+        const summaryText = summaryResponse.contentBlocks
+          .filter((b): b is AITextBlock => b.type === 'text')
+          .map(b => b.text)
+          .join('\n');
+
+        const lowered = summaryText.slice(0, 500).toLowerCase();
+        const hasIrrelevantSignal = IRRELEVANT_SIGNALS.some(s => lowered.includes(s));
+
+        return {
+          result: { content: summaryText, inputTokens: passInput, outputTokens: passOutput, toolCalls: passToolCalls },
+          seemsIrrelevant: hasToolError || hasIrrelevantSignal,
+        };
+      }
+
+      // No tool calls — just text response
+      const textContent = response.contentBlocks
         .filter((b): b is AITextBlock => b.type === 'text')
         .map(b => b.text)
         .join('\n');
 
-      return { content: summaryText, inputTokens, outputTokens, toolCalls };
+      const lowered = textContent.slice(0, 500).toLowerCase();
+      const hasIrrelevantSignal = IRRELEVANT_SIGNALS.some(s => lowered.includes(s));
+
+      return {
+        result: { content: textContent, inputTokens: passInput, outputTokens: passOutput, toolCalls: passToolCalls },
+        seemsIrrelevant: hasIrrelevantSignal,
+      };
     }
 
-    // No tool calls — just text response
-    const textContent = response.contentBlocks
-      .filter((b): b is AITextBlock => b.type === 'text')
-      .map(b => b.text)
-      .join('\n');
+    // No tools — pure analysis
+    const response = await ai.generate({
+      taskType: TaskType.DEEP_ANALYSIS,
+      context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory },
+      prompt: task.prompt,
+      providerOverride: 'CLAUDE',
+      modelOverride: model,
+      maxTokens: 4096,
+    });
 
-    return { content: textContent, inputTokens, outputTokens, toolCalls };
+    passInput += response.usage?.inputTokens ?? 0;
+    passOutput += response.usage?.outputTokens ?? 0;
+
+    return {
+      result: { content: response.content, inputTokens: passInput, outputTokens: passOutput, toolCalls: [] },
+      seemsIrrelevant: false,
+    };
   }
 
-  // No tools — pure analysis
-  const response = await ai.generate({
-    taskType: TaskType.DEEP_ANALYSIS,
-    context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory },
-    prompt: task.prompt,
-    providerOverride: 'CLAUDE',
-    modelOverride: model,
-    maxTokens: 4096,
-  });
+  // --- First pass ---
+  const firstPass = await runSubTaskPass(initialTools);
+  inputTokens += firstPass.result.inputTokens;
+  outputTokens += firstPass.result.outputTokens;
+  toolCalls.push(...firstPass.result.toolCalls);
 
-  inputTokens += response.usage?.inputTokens ?? 0;
-  outputTokens += response.usage?.outputTokens ?? 0;
+  // --- Retry with alternate fuzzy candidates if first pass seems irrelevant ---
+  if (firstPass.seemsIrrelevant && fuzzyUsed.size > 0) {
+    // Try swapping in next candidate for each fuzzy-matched tool; return first non-irrelevant result
+    let lastRetryResult: SubTaskResult | undefined;
+    let lastRetryScore = 0;
 
-  return { content: response.content, inputTokens, outputTokens, toolCalls };
+    for (const [reqName, used] of fuzzyUsed) {
+      const candidates = resolution.fuzzy.get(reqName);
+      if (!candidates || candidates.length <= used.candidateIndex + 1) continue;
+
+      const nextCandidate = candidates[used.candidateIndex + 1];
+      const retryTools = initialTools
+        .filter(t => t.name !== used.tool.name)
+        .concat(nextCandidate.tool);
+
+      const retryPass = await runSubTaskPass(retryTools);
+      inputTokens += retryPass.result.inputTokens;
+      outputTokens += retryPass.result.outputTokens;
+      toolCalls.push(...retryPass.result.toolCalls);
+      lastRetryResult = retryPass.result;
+      lastRetryScore = nextCandidate.score;
+
+      if (!retryPass.seemsIrrelevant) {
+        return { content: retryPass.result.content, inputTokens, outputTokens, toolCalls };
+      }
+    }
+
+    if (lastRetryResult !== undefined) {
+      // All retries seemed irrelevant — use last retry result with warning
+      return {
+        content: `Warning: Tool match was uncertain (fuzzy match score: ${lastRetryScore.toFixed(2)}) — results may not be fully relevant.\n\n${lastRetryResult.content}`,
+        inputTokens,
+        outputTokens,
+        toolCalls,
+      };
+    }
+
+    // No alternate candidates available — return first pass with warning
+    const topScore = [...fuzzyUsed.values()].reduce((max, v) => Math.max(max, v.score), 0);
+    return {
+      content: `Warning: Tool match was uncertain (fuzzy match score: ${topScore.toFixed(2)}) — results may not be fully relevant.\n\n${firstPass.result.content}`,
+      inputTokens,
+      outputTokens,
+      toolCalls,
+    };
+  }
+
+  return { content: firstPass.result.content, inputTokens, outputTokens, toolCalls };
 }
 
 // ---------------------------------------------------------------------------
