@@ -2011,7 +2011,10 @@ function resolveTaskTools(
   const unmatched: string[] = [];
   const resolvedSet = new Set<string>();
 
-  for (const requested of requestedNames) {
+  // Normalize: trim whitespace and drop empty strings to prevent spurious substring matches
+  const normalizedNames = requestedNames.map(n => n.trim()).filter(n => n.length > 0);
+
+  for (const requested of normalizedNames) {
     // 1. Exact match
     const exact = availableTools.find(t => t.name === requested);
     if (exact) {
@@ -2022,26 +2025,38 @@ function resolveTaskTools(
       continue;
     }
 
-    // 2. Base name exact (strip prefix before __)
-    const baseName = availableTools.find(
+    // 2. Base name exact (strip prefix before __) — only accept if unambiguous
+    const baseNameMatches = availableTools.filter(
       t => (t.name.split('__').pop() ?? t.name) === requested,
     );
-    if (baseName) {
+    if (baseNameMatches.length === 1) {
+      const [baseName] = baseNameMatches;
       if (!resolvedSet.has(baseName.name)) {
         resolved.push(baseName);
         resolvedSet.add(baseName.name);
       }
       continue;
     }
+    if (baseNameMatches.length > 1) {
+      // Ambiguous base name — surface as fuzzy candidates rather than auto-selecting
+      fuzzy.set(requested, baseNameMatches.slice(0, 3).map(tool => ({ tool, score: 1 })));
+      continue;
+    }
 
-    // 3. Substring
-    const substring = availableTools.find(t => t.name.includes(requested));
-    if (substring) {
+    // 3. Substring match on base name only — only accept if unambiguous
+    const substringMatches = availableTools.filter(
+      t => (t.name.split('__').pop() ?? t.name).includes(requested),
+    );
+    if (substringMatches.length === 1) {
+      const [substring] = substringMatches;
       if (!resolvedSet.has(substring.name)) {
         resolved.push(substring);
         resolvedSet.add(substring.name);
       }
       continue;
+    }
+    if (substringMatches.length > 1) {
+      // Ambiguous substring — fall through to fuzzy scoring
     }
 
     // 4. Fuzzy scoring
@@ -2132,7 +2147,11 @@ async function executeOrchestratedSubTask(
 
   // If tools were requested but none matched at all, return early with guidance
   if (task.tools.length > 0 && initialTools.length === 0) {
-    const availableList = agenticTools.map(t => t.name).join(', ');
+    const MAX_TOOLS_IN_ERROR = 10;
+    const toolNames = agenticTools.map(t => t.name);
+    const availableList = toolNames.length > MAX_TOOLS_IN_ERROR
+      ? `${toolNames.slice(0, MAX_TOOLS_IN_ERROR).join(', ')} … (${toolNames.length - MAX_TOOLS_IN_ERROR} more)`
+      : toolNames.join(', ');
     return {
       content: `Tool resolution failed: requested [${task.tools.join(', ')}] but no matching tools found. Available tools: [${availableList}]. Use exact tool names from this list.`,
       inputTokens: 0,
@@ -2203,7 +2222,7 @@ async function executeOrchestratedSubTask(
             { role: 'assistant', content: response.contentBlocks },
             { role: 'user', content: toolResults as AIToolResultBlock[] },
           ],
-          tools,
+          tools: [],
           systemPrompt: 'Summarize the tool results into a structured finding. Do not call additional tools.',
           providerOverride: 'CLAUDE',
           modelOverride: model,
@@ -2267,10 +2286,12 @@ async function executeOrchestratedSubTask(
   outputTokens += firstPass.result.outputTokens;
   toolCalls.push(...firstPass.result.toolCalls);
 
-  // --- Retry with alternate fuzzy candidate if first pass seems irrelevant ---
+  // --- Retry with alternate fuzzy candidates if first pass seems irrelevant ---
   if (firstPass.seemsIrrelevant && fuzzyUsed.size > 0) {
-    // Try swapping in next fuzzy candidate for each fuzzy-matched tool
-    let retried = false;
+    // Try swapping in next candidate for each fuzzy-matched tool; return first non-irrelevant result
+    let lastRetryResult: SubTaskResult | undefined;
+    let lastRetryScore = 0;
+
     for (const [reqName, used] of fuzzyUsed) {
       const candidates = resolution.fuzzy.get(reqName);
       if (!candidates || candidates.length <= used.candidateIndex + 1) continue;
@@ -2284,32 +2305,32 @@ async function executeOrchestratedSubTask(
       inputTokens += retryPass.result.inputTokens;
       outputTokens += retryPass.result.outputTokens;
       toolCalls.push(...retryPass.result.toolCalls);
-      retried = true;
+      lastRetryResult = retryPass.result;
+      lastRetryScore = nextCandidate.score;
 
       if (!retryPass.seemsIrrelevant) {
         return { content: retryPass.result.content, inputTokens, outputTokens, toolCalls };
       }
+    }
 
-      // Retry also failed — use best result with warning
-      const bestScore = Math.max(used.score, nextCandidate.score);
+    if (lastRetryResult !== undefined) {
+      // All retries seemed irrelevant — use last retry result with warning
       return {
-        content: `Warning: Tool match was uncertain (fuzzy match score: ${bestScore.toFixed(2)}) — results may not be fully relevant.\n\n${retryPass.result.content}`,
+        content: `Warning: Tool match was uncertain (fuzzy match score: ${lastRetryScore.toFixed(2)}) — results may not be fully relevant.\n\n${lastRetryResult.content}`,
         inputTokens,
         outputTokens,
         toolCalls,
       };
     }
 
-    if (!retried) {
-      // No alternate candidates available — return first pass with warning
-      const topScore = [...fuzzyUsed.values()].reduce((max, v) => Math.max(max, v.score), 0);
-      return {
-        content: `Warning: Tool match was uncertain (fuzzy match score: ${topScore.toFixed(2)}) — results may not be fully relevant.\n\n${firstPass.result.content}`,
-        inputTokens,
-        outputTokens,
-        toolCalls,
-      };
-    }
+    // No alternate candidates available — return first pass with warning
+    const topScore = [...fuzzyUsed.values()].reduce((max, v) => Math.max(max, v.score), 0);
+    return {
+      content: `Warning: Tool match was uncertain (fuzzy match score: ${topScore.toFixed(2)}) — results may not be fully relevant.\n\n${firstPass.result.content}`,
+      inputTokens,
+      outputTokens,
+      toolCalls,
+    };
   }
 
   return { content: firstPass.result.content, inputTokens, outputTokens, toolCalls };
