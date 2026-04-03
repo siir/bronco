@@ -18,7 +18,7 @@ const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
  * Fetch MCP Platform Server tools and convert them to AIToolDefinition format.
  * Results are cached per URL for 10 minutes since tools don't change at runtime.
  */
-export async function getPlatformTools(mcpPlatformUrl: string): Promise<AIToolDefinition[]> {
+export async function getPlatformTools(mcpPlatformUrl: string, opts?: { apiKey?: string; authToken?: string }): Promise<AIToolDefinition[]> {
   const now = Date.now();
   const cached = toolsCache.get(mcpPlatformUrl);
   if (cached && (now - cached.timestamp) < CACHE_TTL_MS) {
@@ -27,7 +27,15 @@ export async function getPlatformTools(mcpPlatformUrl: string): Promise<AIToolDe
 
   const endpointUrl = new URL('/mcp', mcpPlatformUrl);
 
-  const transport = new StreamableHTTPClientTransport(endpointUrl, {});
+  const apiKey = typeof opts?.apiKey === 'string' && opts.apiKey.trim().length > 0 ? opts.apiKey.trim() : undefined;
+  const authToken = typeof opts?.authToken === 'string' && opts.authToken.trim().length > 0 ? opts.authToken.trim() : undefined;
+
+  const headers: Record<string, string> = {};
+  if (apiKey) headers['x-api-key'] = apiKey;
+  else if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+
+  const transportOptions = Object.keys(headers).length > 0 ? { requestInit: { headers } } : undefined;
+  const transport = new StreamableHTTPClientTransport(endpointUrl, transportOptions);
   const client = new Client({ name: 'slack-worker-discovery', version: '0.1.0' });
 
   let timer: ReturnType<typeof setTimeout> | undefined;

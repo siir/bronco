@@ -778,6 +778,7 @@ export async function systemStatusRoutes(
       slackWorker,
       schedulerWorker,
       mcpPlatform,
+      mcpRepo,
       queueStats,
       ...externalResults
     ] = await Promise.all([
@@ -793,6 +794,7 @@ export async function systemStatusRoutes(
       checkWorkerHealth('Slack Worker', opts.config.SLACK_WORKER_HEALTH_URL, 'slack-worker', containers),
       checkWorkerHealth('Scheduler Worker', opts.config.SCHEDULER_WORKER_HEALTH_URL, 'scheduler-worker', containers),
       checkWorkerHealth('MCP Platform', opts.config.MCP_PLATFORM_HEALTH_URL, 'mcp-platform', containers),
+      checkWorkerHealth('MCP Repo', opts.config.MCP_REPO_HEALTH_URL, 'mcp-repo', containers),
       getBullMQQueueStats(opts.config.REDIS_URL),
       ...externalServices.map(svc => checkExternalService(svc, containers)),
     ]);
@@ -823,6 +825,7 @@ export async function systemStatusRoutes(
       slackWorker,
       schedulerWorker,
       mcpPlatform,
+      mcpRepo,
       ...externalResults,
     ];
 
@@ -869,6 +872,7 @@ export async function systemStatusRoutes(
       'slack-worker': 'slack-worker',
       'scheduler-worker': 'scheduler-worker',
       'mcp-platform': 'mcp-platform',
+      'mcp-repo': 'mcp-repo',
       'caddy': 'caddy',
       'postgres': 'postgres',
       'redis': 'redis',

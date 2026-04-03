@@ -16,7 +16,9 @@ export interface AppLog {
 
 export interface LogResponse {
   logs: AppLog[];
-  total: number;
+  total?: number;
+  nextCursor?: string | null;
+  hasMore?: boolean;
 }
 
 export interface LogFilters {
@@ -29,6 +31,8 @@ export interface LogFilters {
   until?: string;
   limit?: number;
   offset?: number;
+  cursor?: string;
+  direction?: 'newer' | 'older';
 }
 
 @Injectable({ providedIn: 'root' })
