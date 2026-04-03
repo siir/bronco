@@ -80,7 +80,7 @@ import { AiUsageService, type AiUsageClientSummary, type AiUsageLogEntry } from 
       }
 
       <div class="slack-channel-row">
-        <mat-form-field class="slack-channel-field">
+        <mat-form-field class="slack-channel-field" floatLabel="always">
           <mat-label>Slack Channel ID</mat-label>
           <input matInput [ngModel]="c.slackChannelId ?? ''" (ngModelChange)="pendingSlackChannelId = $event" placeholder="C0AQ0ELLGCV">
           <mat-hint>Right-click channel in Slack → View channel details → scroll to bottom</mat-hint>
