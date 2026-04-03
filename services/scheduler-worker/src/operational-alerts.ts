@@ -314,36 +314,29 @@ async function checkDevopsSyncStaleness(db: PrismaClient): Promise<AlertMessage[
 async function checkSummarizationStaleness(db: PrismaClient): Promise<AlertMessage[]> {
   const alerts: AlertMessage[] = [];
   try {
-    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    // Use the heartbeat written by runSummarizationPass after every pass — this updates even
+    // when there is nothing to summarize, preventing false positives on idle systems.
+    const heartbeatRow = await db.appSetting.findUnique({
+      where: { key: 'log-summarizer:last-run-at' },
+    });
 
-    const [latestSummary, unsummarizedCount] = await Promise.all([
-      db.logSummary.findFirst({
-        orderBy: { createdAt: 'desc' },
-        select: { createdAt: true },
-      }),
-      db.appLog.count({
-        where: {
-          createdAt: { gte: twoHoursAgo },
-        },
-      }),
-    ]);
+    if (!heartbeatRow) return alerts; // Summarizer hasn't run yet — system is new
 
-    if (!latestSummary) return alerts; // No summaries yet — system is new
+    const lastRunAt = new Date(heartbeatRow.value as string);
+    const sinceLast = Date.now() - lastRunAt.getTime();
+    const staleThresholdMs = 90 * 60 * 1000; // 90 min — runs every 30 min, so 3 missed passes = alert
 
-    const sinceLast = Date.now() - latestSummary.createdAt.getTime();
-    const staleThresholdMs = 2 * 60 * 60 * 1000; // 2 hours
-
-    if (sinceLast > staleThresholdMs && unsummarizedCount > 0) {
-      const hoursAgo = Math.round(sinceLast / (60 * 60 * 1000));
+    if (sinceLast > staleThresholdMs) {
+      const minutesAgo = Math.round(sinceLast / (60 * 1000));
       alerts.push({
         key: 'summarization-stale',
-        subject: `[Bronco Alert] Log summarization stale (${hoursAgo}h since last summary)`,
+        subject: `[Bronco Alert] Log summarizer not running (${minutesAgo}m since last pass)`,
         body: [
-          `No log summary has been created in ${hoursAgo} hours, and there are ${unsummarizedCount} recent log entries.`,
+          `The log summarizer has not completed a pass in ${minutesAgo} minutes.`,
           '',
-          `Last summary: ${latestSummary.createdAt.toISOString()}`,
+          `Last run: ${lastRunAt.toISOString()}`,
           '',
-          'The log summarizer cron may be hanging on slow Ollama calls.',
+          'The log summarizer cron may be hanging on slow Ollama calls, or the scheduler-worker may have stopped.',
           '',
           'Action required: Check scheduler-worker logs and Ollama availability.',
           '',

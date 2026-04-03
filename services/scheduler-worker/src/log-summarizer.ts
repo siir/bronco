@@ -479,6 +479,13 @@ export async function runSummarizationPass(
     'Log summarization pass complete',
   );
 
+  // Write heartbeat so the staleness alert knows the pass ran, even when nothing was summarized
+  await db.appSetting.upsert({
+    where: { key: 'log-summarizer:last-run-at' },
+    create: { key: 'log-summarizer:last-run-at', value: new Date().toISOString() as unknown as object },
+    update: { value: new Date().toISOString() as unknown as object },
+  });
+
   return {
     ticketSummaries,
     orphanSummaries: orphanResult.created,
