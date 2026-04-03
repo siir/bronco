@@ -1085,6 +1085,10 @@ export class TicketDetailComponent implements OnInit {
   private snackBar = inject(MatSnackBar);
   private dialog = inject(MatDialog);
 
+  private pollHandle: ReturnType<typeof setInterval> | null = null;
+  private readonly POLL_INTERVAL_MS = 4_000;
+  private readonly TERMINAL_STATUSES = new Set(['COMPLETED', 'FAILED', 'PENDING']);
+
   ticket = signal<(Ticket & { client?: { name: string }; system?: { name: string } | null }) | null>(null);
   events = signal<TicketEvent[]>([]);
   logSummaries = signal<LogSummary[]>([]);
@@ -1230,13 +1234,32 @@ export class TicketDetailComponent implements OnInit {
     this.loadUnifiedLogs();
     this.loadCostSummary();
     this.loadTicketAiUsage();
+    this.destroyRef.onDestroy(() => this.stopPolling());
   }
 
   load(): void {
     this.ticketService.getTicket(this.id()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(t => {
       this.ticket.set(t);
       this.events.set(t.events ?? []);
+      this.managePoll(t.analysisStatus);
     });
+  }
+
+  private managePoll(analysisStatus: string | null | undefined): void {
+    if (analysisStatus === 'IN_PROGRESS') {
+      if (!this.pollHandle) {
+        this.pollHandle = setInterval(() => this.load(), this.POLL_INTERVAL_MS);
+      }
+    } else {
+      this.stopPolling();
+    }
+  }
+
+  private stopPolling(): void {
+    if (this.pollHandle) {
+      clearInterval(this.pollHandle);
+      this.pollHandle = null;
+    }
   }
 
   loadTicketCost(): void {
