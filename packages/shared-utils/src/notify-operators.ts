@@ -245,7 +245,7 @@ async function dispatchWithPreference(
       } else if (slackTarget.startsWith('operator:')) {
         const id = slackTarget.slice('operator:'.length);
         const op = operators.find(o => o.id === id);
-        if (op?.slackUserId) {
+        if (op?.slackUserId && op.notifySlack) {
           if (opts.slack.sendDMWithTs) {
             const result = await opts.slack.sendDMWithTs(op.slackUserId, slackText, blocks);
             slackMessages.push({ ...result, operatorId: op.id });
@@ -260,7 +260,7 @@ async function dispatchWithPreference(
           } else {
             await opts.slack.sendMessage(opts.defaultSlackChannelId, slackText, blocks);
           }
-          logger.info({ event: opts.event }, 'Specific operator has no slackUserId — sent to default channel');
+          logger.info({ event: opts.event }, 'Specific operator not eligible for Slack DM — sent to default channel');
         }
       } else {
         // Treat as a channel ID
