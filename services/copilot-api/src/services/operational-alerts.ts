@@ -388,13 +388,21 @@ async function runAlertCheck(opts: OperationalAlertOpts): Promise<void> {
     ? (settingRow.value as unknown as OperationalAlertConfig)
     : DEFAULT_OPERATIONAL_ALERT_CONFIG;
 
-  if (!config.enabled || !config.recipientEmail) {
-    logger.debug('Operational alerts disabled or no recipient — skipping');
+  if (!config.enabled || !config.recipientOperatorId) {
+    logger.debug('Operational alerts disabled or no recipient operator — skipping');
     return;
   }
 
   // Restore throttle state from DB so restarts don't reset the throttle window
   await loadThrottleState(db);
+
+  const operator = await db.operator.findUnique({
+    where: { id: config.recipientOperatorId },
+  });
+  if (!operator) {
+    logger.warn({ recipientOperatorId: config.recipientOperatorId }, 'Recipient operator not found — skipping alerts');
+    return;
+  }
 
   // Gather alerts from all enabled checks in parallel
   const checkPromises: Promise<AlertMessage[]>[] = [];
@@ -439,12 +447,12 @@ async function runAlertCheck(opts: OperationalAlertOpts): Promise<void> {
     for (const alert of alertsToSend) {
       try {
         await mailer.send({
-          to: config.recipientEmail,
+          to: operator.email,
           subject: alert.subject,
           body: alert.body,
         });
         markAlertSent(alert.key);
-        logger.info({ alertKey: alert.key, to: config.recipientEmail }, 'Operational alert sent');
+        logger.info({ alertKey: alert.key, to: operator.email }, 'Operational alert sent');
       } catch (err) {
         logger.error({ err, alertKey: alert.key }, 'Failed to send operational alert email');
       }

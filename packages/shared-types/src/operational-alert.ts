@@ -10,7 +10,7 @@ export type OperationalAlertType =
 
 export interface OperationalAlertConfig {
   enabled: boolean;
-  recipientEmail: string;
+  recipientOperatorId: string;
   throttleMinutes: number;
   alerts: {
     failedJobs: boolean;
@@ -23,7 +23,7 @@ export interface OperationalAlertConfig {
 
 export const DEFAULT_OPERATIONAL_ALERT_CONFIG: OperationalAlertConfig = {
   enabled: false,
-  recipientEmail: '',
+  recipientOperatorId: '',
   throttleMinutes: 60,
   alerts: {
     failedJobs: true,

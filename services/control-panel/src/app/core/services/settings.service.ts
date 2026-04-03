@@ -61,7 +61,7 @@ export interface UpdateCategoryConfig {
 
 export interface OperationalAlertConfig {
   enabled: boolean;
-  recipientEmail: string;
+  recipientOperatorId: string;
   throttleMinutes: number;
   alerts: {
     failedJobs: boolean;

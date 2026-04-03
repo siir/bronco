@@ -30,8 +30,6 @@ const VALID_CATEGORIES: ReadonlySet<string> = new Set(Object.values(TicketCatego
 const VALID_STATUS_CLASSES: ReadonlySet<string> = new Set(['open', 'closed']);
 const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 const logger = createLogger('settings');
 
 const SETTINGS_KEY_OPERATIONAL_ALERTS = 'operational-alerts';
@@ -98,44 +96,18 @@ const slackConfigSchema = z
     }
   });
 
-const operationalAlertConfigSchema = z
-  .object({
-    enabled: z.boolean(),
-    recipientEmail: z.string().transform((value) => value.trim()),
-    throttleMinutes: z.number().int().min(1),
-    alerts: z.object({
-      failedJobs: z.boolean(),
-      probeMisses: z.boolean(),
-      aiProviderDown: z.boolean(),
-      devopsSyncStale: z.boolean(),
-      summarizationStale: z.boolean(),
-    }),
-  })
-  .superRefine((value, ctx) => {
-    const email = value.recipientEmail;
-
-    if (!value.enabled) {
-      // When alerts are disabled, allow an empty or missing recipientEmail.
-      return;
-    }
-
-    if (!email) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'recipientEmail is required when alerts are enabled',
-        path: ['recipientEmail'],
-      });
-      return;
-    }
-
-    if (!EMAIL_RE.test(email)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'recipientEmail must be a valid email address',
-        path: ['recipientEmail'],
-      });
-    }
-  });
+const operationalAlertConfigSchema = z.object({
+  enabled: z.boolean(),
+  recipientOperatorId: z.string(),
+  throttleMinutes: z.number().int().min(1),
+  alerts: z.object({
+    failedJobs: z.boolean(),
+    probeMisses: z.boolean(),
+    aiProviderDown: z.boolean(),
+    devopsSyncStale: z.boolean(),
+    summarizationStale: z.boolean(),
+  }),
+});
 
 function isPrismaError(err: unknown, code: string): boolean {
   return err instanceof Error && 'code' in err && (err as { code: string }).code === code;
@@ -432,8 +404,16 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
       ? (settingRow.value as unknown as OperationalAlertConfig)
       : DEFAULT_OPERATIONAL_ALERT_CONFIG;
 
-    if (!alertConfig.recipientEmail) {
-      return fastify.httpErrors.badRequest('No recipient email configured in operational alert settings');
+    if (!alertConfig.recipientOperatorId) {
+      return fastify.httpErrors.badRequest('No recipient operator configured in operational alert settings');
+    }
+
+    const operator = await fastify.db.operator.findUnique({
+      where: { id: alertConfig.recipientOperatorId },
+    });
+
+    if (!operator) {
+      return fastify.httpErrors.badRequest('Configured recipient operator not found');
     }
 
     // Load SMTP config from System Settings
@@ -448,7 +428,7 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
 
     try {
       await mailer.send({
-        to: alertConfig.recipientEmail,
+        to: operator.email,
         subject: '[Bronco Alert] Test notification',
         body: [
           'This is a test alert from Bronco operational monitoring.',
@@ -456,10 +436,10 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
           'If you received this email, your alert configuration is working correctly.',
           '',
           '---',
-          'To configure alerts: Control Panel → Settings → Operational Alerts.',
+          'To configure alerts: Control Panel → Notifications → Operational Alerts.',
         ].join('\n'),
       });
-      return { success: true, message: `Test alert sent to ${alertConfig.recipientEmail}` };
+      return { success: true, message: `Test alert sent to ${operator.email}` };
     } catch (err) {
       logger.error({ err }, 'Test alert email failed');
       return { success: false, error: err instanceof Error ? err.message : 'Failed to send test email' };
