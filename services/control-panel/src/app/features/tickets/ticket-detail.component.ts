@@ -258,6 +258,9 @@ interface FlowNode {
                       @if (entry.costUsd != null) {
                         <span class="ai-usage-cost">\${{ entry.costUsd | number:'1.4-4' }}</span>
                       }
+                      @if (!expandedLogs[entry.id] && promptFirstLine(entry)) {
+                        <span class="prompt-preview">{{ promptFirstLine(entry) }}</span>
+                      }
                     }
 
                     <!-- Log/Tool/Step/Error entry display -->
@@ -291,8 +294,13 @@ interface FlowNode {
                         }
                         @if (entry.archive?.systemPrompt || entry.systemPrompt) {
                           <div class="ai-detail-block">
-                            <div class="ai-detail-label">System Prompt</div>
-                            <pre class="log-metadata">{{ entry.archive?.systemPrompt ?? entry.systemPrompt }}</pre>
+                            <button mat-button class="log-expand-btn sys-prompt-toggle" (click)="expandedSystemPrompts[entry.id] = !expandedSystemPrompts[entry.id]">
+                              System Prompt
+                              <mat-icon>{{ expandedSystemPrompts[entry.id] ? 'expand_less' : 'expand_more' }}</mat-icon>
+                            </button>
+                            @if (expandedSystemPrompts[entry.id]) {
+                              <pre class="log-metadata">{{ entry.archive?.systemPrompt ?? entry.systemPrompt }}</pre>
+                            }
                           </div>
                         }
                         @if (entry.archive?.fullResponse || entry.responseText) {
@@ -1049,6 +1057,8 @@ interface FlowNode {
     .ai-detail-label { font-size: 11px; font-weight: 600; color: #666; margin: 4px 0 2px; }
     .ai-detail-label code { font-weight: 400; background: #f5f5f5; padding: 1px 4px; border-radius: 3px; }
     .ai-detail-block { margin-bottom: 8px; }
+    .prompt-preview { display: block; font-size: 11px; color: #888; font-family: monospace; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 600px; }
+    .sys-prompt-toggle { min-height: 24px; font-size: 11px; font-weight: 600; color: #666; padding: 0 4px; text-transform: uppercase; letter-spacing: 0.3px; }
 
     /* Logs cost summary */
     .logs-cost-summary { background: #f8faf8; border: 1px solid #e0e8e0; border-radius: 8px; padding: 12px 16px; margin-bottom: 12px; }
@@ -1113,6 +1123,7 @@ export class TicketDetailComponent implements OnInit {
   logsLevelFilter = signal('');
   logsSearchFilter = signal('');
   expandedLogs: Record<string, boolean> = {};
+  expandedSystemPrompts: Record<string, boolean> = {};
   costSummary = signal<TicketCostSummary | null>(null);
 
   // Legacy — still used by loadTicketAiUsage for the existing AI Cost card
@@ -1400,6 +1411,12 @@ export class TicketDetailComponent implements OnInit {
 
   hasKeys(obj: Record<string, unknown>): boolean {
     return Object.keys(obj).length > 0;
+  }
+
+  promptFirstLine(entry: UnifiedLogEntry): string {
+    const text = entry.archive?.fullPrompt ?? entry.promptText ?? '';
+    const line = text.split('\n').find(l => l.trim().length > 0) ?? '';
+    return line.length > 120 ? line.slice(0, 120) + '…' : line;
   }
 
   generateLogSummary(): void {
