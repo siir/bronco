@@ -1025,8 +1025,8 @@ export class TicketDetailComponent implements OnInit {
 
   private pollHandle: ReturnType<typeof setInterval> | null = null;
   private readonly POLL_INTERVAL_MS = 4_000;
-  private readonly TERMINAL_STATUSES = new Set(['COMPLETED', 'FAILED', 'PENDING']);
   private knownEventIds = new Set<string>();
+  private knownUnifiedLogIds = new Set<string>();
   private lastUnifiedLogAt: string | null = null;
 
   ticket = signal<(Ticket & { client?: { name: string }; system?: { name: string } | null }) | null>(null);
@@ -1264,6 +1264,8 @@ export class TicketDetailComponent implements OnInit {
           this.unifiedLogs.set(res.entries);
           this.unifiedLogsTotal.set(res.total);
           this.unifiedLogsLoading.set(false);
+          this.knownUnifiedLogIds.clear();
+          for (const e of res.entries) this.knownUnifiedLogIds.add(e.id);
           if (res.entries.length > 0) {
             this.lastUnifiedLogAt = res.entries[res.entries.length - 1].timestamp;
           }
@@ -1273,8 +1275,10 @@ export class TicketDetailComponent implements OnInit {
   }
 
   private pollUnifiedLogs(): void {
-    if (!this.lastUnifiedLogAt) return;
-    const filters: Record<string, string | number> = { limit: 200, createdAfter: this.lastUnifiedLogAt };
+    const filters: Record<string, string | number> = { limit: 200 };
+    if (this.lastUnifiedLogAt) {
+      filters['createdAfter'] = this.lastUnifiedLogAt;
+    }
     const type = this.unifiedTypeFilter();
     const level = this.logsLevelFilter();
     const search = this.logsSearchFilter();
@@ -1287,10 +1291,12 @@ export class TicketDetailComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
-          if (res.entries.length > 0) {
-            this.unifiedLogs.update(current => [...current, ...res.entries]);
-            this.unifiedLogsTotal.update(t => t + res.entries.length);
-            this.lastUnifiedLogAt = res.entries[res.entries.length - 1].timestamp;
+          const newEntries = res.entries.filter(e => !this.knownUnifiedLogIds.has(e.id));
+          if (newEntries.length > 0) {
+            this.unifiedLogs.update(current => [...current, ...newEntries]);
+            this.unifiedLogsTotal.update(t => t + newEntries.length);
+            this.lastUnifiedLogAt = newEntries[newEntries.length - 1].timestamp;
+            for (const e of newEntries) this.knownUnifiedLogIds.add(e.id);
           }
         },
         error: () => {},

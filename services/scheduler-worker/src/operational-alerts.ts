@@ -322,7 +322,10 @@ async function checkSummarizationStaleness(db: PrismaClient): Promise<AlertMessa
 
     if (!heartbeatRow) return alerts; // Summarizer hasn't run yet — system is new
 
-    const lastRunAt = new Date(heartbeatRow.value as string);
+    const raw = heartbeatRow.value;
+    if (typeof raw !== 'string') return alerts; // Unexpected value type — skip
+    const lastRunAt = new Date(raw);
+    if (isNaN(lastRunAt.getTime())) return alerts; // Invalid date — skip
     const sinceLast = Date.now() - lastRunAt.getTime();
     const staleThresholdMs = 90 * 60 * 1000; // 90 min — runs every 30 min, so 3 missed passes = alert
 

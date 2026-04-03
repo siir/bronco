@@ -571,11 +571,11 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     const logWhere: Record<string, unknown> = { entityId: ticketId, entityType: 'ticket' };
     if (level) logWhere.level = level;
     if (search) logWhere.message = { contains: search, mode: 'insensitive' };
-    if (afterDate) logWhere.createdAt = { gt: afterDate };
+    if (afterDate) logWhere.createdAt = { gte: afterDate };
 
     // Build ai_usage_logs where clause
     const aiWhere: Record<string, unknown> = { entityId: ticketId, entityType: 'ticket' };
-    if (afterDate) aiWhere.createdAt = { gt: afterDate };
+    if (afterDate) aiWhere.createdAt = { gte: afterDate };
     if (search) {
       aiWhere.OR = [
         { taskType: { contains: search, mode: 'insensitive' } },
