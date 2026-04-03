@@ -285,15 +285,21 @@ export class NotificationPreferencesComponent implements OnInit {
     } else if (value === 'custom') {
       pref.slackTarget = '';
     } else if (value === 'specific_operator') {
-      pref.slackTarget = '';
+      // Use 'operator:' prefix as placeholder so slackTargetSelection() keeps returning
+      // 'specific_operator' until the user picks an operator from the dropdown.
+      pref.slackTarget = 'operator:';
     } else {
       pref.slackTarget = value;
     }
   }
 
   onEmailTargetChange(pref: NotificationPreference, value: string): void {
-    if (value === 'custom' || value === 'specific_operator') {
+    if (value === 'custom') {
       pref.emailTarget = '';
+    } else if (value === 'specific_operator') {
+      // Use 'operator:' prefix as placeholder so emailTargetSelection() keeps returning
+      // 'specific_operator' until the user picks an operator from the dropdown.
+      pref.emailTarget = 'operator:';
     } else {
       pref.emailTarget = value;
     }
@@ -324,8 +330,8 @@ export class NotificationPreferencesComponent implements OnInit {
       event: p.event,
       emailEnabled: p.emailEnabled,
       slackEnabled: p.slackEnabled,
-      slackTarget: p.slackTarget || null,
-      emailTarget: p.emailTarget || null,
+      slackTarget: (p.slackTarget && p.slackTarget !== 'operator:') ? p.slackTarget : null,
+      emailTarget: (p.emailTarget && p.emailTarget !== 'operator:') ? p.emailTarget : null,
       isActive: p.isActive,
     }));
 
