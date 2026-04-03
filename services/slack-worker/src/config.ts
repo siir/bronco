@@ -7,6 +7,8 @@ const configSchema = z.object({
   ENCRYPTION_KEY: z.string().min(64),
   HEALTH_PORT: z.coerce.number().default(3108),
   MCP_PLATFORM_URL: z.string().default('http://mcp-platform:3110'),
+  API_KEY: z.string().optional(),
+  MCP_AUTH_TOKEN: z.string().optional(),
 });
 
 export type Config = z.output<typeof configSchema>;
