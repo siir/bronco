@@ -1088,6 +1088,8 @@ export class TicketDetailComponent implements OnInit {
   private pollHandle: ReturnType<typeof setInterval> | null = null;
   private readonly POLL_INTERVAL_MS = 4_000;
   private readonly TERMINAL_STATUSES = new Set(['COMPLETED', 'FAILED', 'PENDING']);
+  private knownEventIds = new Set<string>();
+  private lastUnifiedLogAt: string | null = null;
 
   ticket = signal<(Ticket & { client?: { name: string }; system?: { name: string } | null }) | null>(null);
   events = signal<TicketEvent[]>([]);
@@ -1240,7 +1242,17 @@ export class TicketDetailComponent implements OnInit {
   load(): void {
     this.ticketService.getTicket(this.id()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(t => {
       this.ticket.set(t);
-      this.events.set(t.events ?? []);
+      const incoming = t.events ?? [];
+      if (this.knownEventIds.size === 0) {
+        this.events.set(incoming);
+        for (const e of incoming) this.knownEventIds.add(e.id);
+      } else {
+        const newEvents = incoming.filter(e => !this.knownEventIds.has(e.id));
+        if (newEvents.length > 0) {
+          this.events.update(current => [...current, ...newEvents]);
+          for (const e of newEvents) this.knownEventIds.add(e.id);
+        }
+      }
       this.managePoll(t.analysisStatus);
     });
   }
@@ -1248,7 +1260,12 @@ export class TicketDetailComponent implements OnInit {
   private managePoll(analysisStatus: string | null | undefined): void {
     if (analysisStatus === 'IN_PROGRESS') {
       if (!this.pollHandle) {
-        this.pollHandle = setInterval(() => this.load(), this.POLL_INTERVAL_MS);
+        this.pollHandle = setInterval(() => {
+          this.load();
+          this.pollUnifiedLogs();
+          this.loadTicketCost();
+          this.loadCostSummary();
+        }, this.POLL_INTERVAL_MS);
       }
     } else {
       this.stopPolling();
@@ -1309,8 +1326,36 @@ export class TicketDetailComponent implements OnInit {
           this.unifiedLogs.set(res.entries);
           this.unifiedLogsTotal.set(res.total);
           this.unifiedLogsLoading.set(false);
+          if (res.entries.length > 0) {
+            this.lastUnifiedLogAt = res.entries[res.entries.length - 1].timestamp;
+          }
         },
         error: () => this.unifiedLogsLoading.set(false),
+      });
+  }
+
+  private pollUnifiedLogs(): void {
+    if (!this.lastUnifiedLogAt) return;
+    const filters: Record<string, string | number> = { limit: 200, createdAfter: this.lastUnifiedLogAt };
+    const type = this.unifiedTypeFilter();
+    const level = this.logsLevelFilter();
+    const search = this.logsSearchFilter();
+    if (type) filters['type'] = type;
+    if (level) filters['level'] = level;
+    if (search) filters['search'] = search;
+
+    this.ticketService
+      .getUnifiedLogs(this.id(), filters as never)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          if (res.entries.length > 0) {
+            this.unifiedLogs.update(current => [...current, ...res.entries]);
+            this.unifiedLogsTotal.update(t => t + res.entries.length);
+            this.lastUnifiedLogAt = res.entries[res.entries.length - 1].timestamp;
+          }
+        },
+        error: () => {},
       });
   }
 

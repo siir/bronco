@@ -541,9 +541,9 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
 
   fastify.get<{
     Params: { id: string };
-    Querystring: { limit?: string; offset?: string; type?: string; level?: string; search?: string; includeArchive?: string };
+    Querystring: { limit?: string; offset?: string; type?: string; level?: string; search?: string; includeArchive?: string; createdAfter?: string };
   }>('/api/tickets/:id/unified-logs', async (request) => {
-    const { limit: rawLimit = '100', offset: rawOffset = '0', type, level, search, includeArchive } = request.query;
+    const { limit: rawLimit = '100', offset: rawOffset = '0', type, level, search, includeArchive, createdAfter } = request.query;
 
     const take = Math.trunc(Number(rawLimit));
     const skip = Math.trunc(Number(rawOffset));
@@ -562,13 +562,20 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     const wantLogs = !type || type === 'log' || type === 'tool' || type === 'step' || type === 'error';
     const wantAi = !type || type === 'ai';
 
+    const afterDate = createdAfter ? new Date(createdAfter) : null;
+    if (afterDate && isNaN(afterDate.getTime())) {
+      return fastify.httpErrors.badRequest('createdAfter must be a valid ISO timestamp');
+    }
+
     // Build app_logs where clause
     const logWhere: Record<string, unknown> = { entityId: ticketId, entityType: 'ticket' };
     if (level) logWhere.level = level;
     if (search) logWhere.message = { contains: search, mode: 'insensitive' };
+    if (afterDate) logWhere.createdAt = { gt: afterDate };
 
     // Build ai_usage_logs where clause
     const aiWhere: Record<string, unknown> = { entityId: ticketId, entityType: 'ticket' };
+    if (afterDate) aiWhere.createdAt = { gt: afterDate };
     if (search) {
       aiWhere.OR = [
         { taskType: { contains: search, mode: 'insensitive' } },
