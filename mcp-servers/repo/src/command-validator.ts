@@ -8,7 +8,12 @@ const BASE_COMMANDS = new Set([
 ]);
 
 const PIPE_COMMANDS = new Set([
-  'grep', 'sed', 'awk', 'sort', 'uniq', 'head', 'tail', 'wc', 'cut', 'tr',
+  'grep', 'sort', 'uniq', 'head', 'tail', 'wc', 'cut', 'tr',
+]);
+
+// find flags that can write, delete, or execute
+const DANGEROUS_FIND_FLAGS = new Set([
+  '-delete', '-exec', '-execdir', '-fprint', '-fprintf', '-ok', '-okdir',
 ]);
 
 const BLOCKED_COMMANDS = new Set([
@@ -103,6 +108,11 @@ export function validateCommand(command: string): ValidationResult {
     return { valid: false, error: 'Empty command' };
   }
 
+  // Block newlines (can be used for command injection even when semicolons are blocked)
+  if (trimmed.includes('\n') || trimmed.includes('\r')) {
+    return { valid: false, error: 'Newlines are not allowed in commands' };
+  }
+
   // Block shell expansion: $( or backtick or $((
   if (trimmed.includes('$(') || trimmed.includes('`') || trimmed.includes('$((')) {
     return { valid: false, error: 'Shell expansion ($(...), backticks, $((...))) is not allowed' };
@@ -114,6 +124,9 @@ export function validateCommand(command: string): ValidationResult {
 
     if (trimmed[i] === '&' && i + 1 < trimmed.length && trimmed[i + 1] === '&') {
       return { valid: false, error: 'Command chaining (&&) is not allowed' };
+    }
+    if (trimmed[i] === '&') {
+      return { valid: false, error: 'Background execution (&) is not allowed' };
     }
     if (trimmed[i] === '|' && i + 1 < trimmed.length && trimmed[i + 1] === '|') {
       return { valid: false, error: 'Command chaining (||) is not allowed' };
@@ -170,6 +183,15 @@ export function validateCommand(command: string): ValidationResult {
       valid: false,
       error: `Command "${baseParsed.command}" is not in the allowlist. Allowed: ${[...BASE_COMMANDS].join(', ')}`,
     };
+  }
+
+  // Validate find-specific dangerous flags
+  if (baseParsed.command === 'find') {
+    for (const arg of baseParsed.args) {
+      if (DANGEROUS_FIND_FLAGS.has(arg)) {
+        return { valid: false, error: `find flag "${arg}" is not allowed` };
+      }
+    }
   }
 
   // Parse and validate pipe commands

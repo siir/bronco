@@ -26,6 +26,10 @@ export class RepoManager {
   ) {}
 
   start(): void {
+    // Recover any worktrees left on disk from a previous process run
+    this.recoverOrphanedWorktrees().catch((err) => {
+      logger.error({ err }, 'Failed to recover orphaned worktrees');
+    });
     this.cleanupTimer = setInterval(() => {
       this.cleanupStale().catch((err) => {
         logger.error({ err }, 'Stale worktree cleanup failed');
@@ -51,7 +55,7 @@ export class RepoManager {
       logger.info({ repoId, barePath }, 'Fetching updates for bare clone');
       await execFileAsync('git', ['fetch', '--all'], { cwd: barePath });
     } else {
-      logger.info({ repoId, repoUrl: repo.repoUrl, barePath }, 'Cloning bare repository');
+      logger.info({ repoId, barePath }, 'Cloning bare repository');
       await mkdir(this.config.REPO_WORKSPACE_PATH, { recursive: true });
       await execFileAsync('git', ['clone', '--bare', repo.repoUrl, barePath]);
     }
@@ -129,6 +133,37 @@ export class RepoManager {
     }
 
     logger.info({ sessionId, removed: toRemove.length }, 'Cleaned up session worktrees');
+  }
+
+  private async recoverOrphanedWorktrees(): Promise<void> {
+    const worktreesDir = join(this.config.REPO_WORKSPACE_PATH, 'worktrees');
+    if (!(await this.pathExists(worktreesDir))) return;
+
+    const sessions = await readdir(worktreesDir).catch(() => [] as string[]);
+    let recovered = 0;
+    for (const sessionId of sessions) {
+      const sessionDir = join(worktreesDir, sessionId);
+      const repos = await readdir(sessionDir).catch(() => [] as string[]);
+      for (const repoId of repos) {
+        const worktreePath = join(sessionDir, repoId);
+        const key = `${sessionId}:${repoId}`;
+        if (!this.worktrees.has(key)) {
+          const info = await stat(worktreePath).catch(() => null);
+          if (info?.isDirectory()) {
+            this.worktrees.set(key, {
+              repoId,
+              sessionId,
+              path: worktreePath,
+              createdAt: info.mtimeMs,
+            });
+            recovered++;
+          }
+        }
+      }
+    }
+    if (recovered > 0) {
+      logger.info({ recovered }, 'Recovered orphaned worktrees from disk');
+    }
   }
 
   async cleanupStale(): Promise<void> {

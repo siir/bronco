@@ -35,10 +35,10 @@ export function registerAllTools(
         const worktreePath = await repoManager.getOrCreateWorktree(repoId, sid);
         const result = await executeCommand(command, worktreePath);
 
-        const parts: string[] = [];
+        const parts: string[] = [`[session:${sid}]`];
         if (result.stdout) parts.push(result.stdout);
         if (result.stderr) parts.push(`[stderr]\n${result.stderr}`);
-        if (parts.length === 0) parts.push('(no output)');
+        if (parts.length === 1) parts.push('(no output)');
 
         return {
           content: [{ type: 'text' as const, text: parts.join('\n\n') }],

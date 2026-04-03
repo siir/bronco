@@ -24,6 +24,8 @@ FROM base AS production
 RUN apk add --no-cache git
 COPY --from=build /app /app
 RUN pnpm prune --prod
+RUN mkdir -p /var/lib/mcp-repo/repos \
+    && chown -R node:node /var/lib/mcp-repo
 EXPOSE 3111
 USER node
 CMD ["node", "mcp-servers/repo/dist/index.js"]
