@@ -104,7 +104,7 @@ async function checkFailedJobs(redisUrl: string): Promise<AlertMessage[]> {
           '',
           '---',
           'This is an automated alert from Bronco operational monitoring.',
-          'To configure alerts: Control Panel → Settings → Operational Alerts.',
+          'To configure alerts: Control Panel → Notifications → Operational Alerts.',
         ].join('\n'),
       });
     }
@@ -159,7 +159,7 @@ async function checkProbeMisses(db: PrismaClient): Promise<AlertMessage[]> {
             '',
             '---',
             'This is an automated alert from Bronco operational monitoring.',
-            'To configure alerts: Control Panel → Settings → Operational Alerts.',
+            'To configure alerts: Control Panel → Notifications → Operational Alerts.',
           ].join('\n'),
         });
       }
@@ -202,7 +202,7 @@ async function checkAiProviderHealth(db: PrismaClient): Promise<AlertMessage[]> 
                 '',
                 '---',
                 'This is an automated alert from Bronco operational monitoring.',
-                'To configure alerts: Control Panel → Settings → Operational Alerts.',
+                'To configure alerts: Control Panel → Notifications → Operational Alerts.',
               ].join('\n'),
             });
           }
@@ -217,7 +217,7 @@ async function checkAiProviderHealth(db: PrismaClient): Promise<AlertMessage[]> 
               '',
               '---',
               'This is an automated alert from Bronco operational monitoring.',
-              'To configure alerts: Control Panel → Settings → Operational Alerts.',
+              'To configure alerts: Control Panel → Notifications → Operational Alerts.',
             ].join('\n'),
           });
         }
@@ -243,7 +243,7 @@ async function checkAiProviderHealth(db: PrismaClient): Promise<AlertMessage[]> 
                 '',
                 '---',
                 'This is an automated alert from Bronco operational monitoring.',
-                'To configure alerts: Control Panel → Settings → Operational Alerts.',
+                'To configure alerts: Control Panel → Notifications → Operational Alerts.',
               ].join('\n'),
             });
           }
@@ -258,7 +258,7 @@ async function checkAiProviderHealth(db: PrismaClient): Promise<AlertMessage[]> 
               '',
               '---',
               'This is an automated alert from Bronco operational monitoring.',
-              'To configure alerts: Control Panel → Settings → Operational Alerts.',
+              'To configure alerts: Control Panel → Notifications → Operational Alerts.',
             ].join('\n'),
           });
         }
@@ -301,7 +301,7 @@ async function checkDevopsSyncStaleness(db: PrismaClient): Promise<AlertMessage[
           '',
           '---',
           'This is an automated alert from Bronco operational monitoring.',
-          'To configure alerts: Control Panel → Settings → Operational Alerts.',
+          'To configure alerts: Control Panel → Notifications → Operational Alerts.',
         ].join('\n'),
       });
     }
@@ -349,7 +349,7 @@ async function checkSummarizationStaleness(db: PrismaClient): Promise<AlertMessa
           '',
           '---',
           'This is an automated alert from Bronco operational monitoring.',
-          'To configure alerts: Control Panel → Settings → Operational Alerts.',
+          'To configure alerts: Control Panel → Notifications → Operational Alerts.',
         ].join('\n'),
       });
     }
@@ -388,8 +388,12 @@ async function runAlertCheck(opts: OperationalAlertOpts): Promise<void> {
     ? (settingRow.value as unknown as OperationalAlertConfig)
     : DEFAULT_OPERATIONAL_ALERT_CONFIG;
 
-  if (!config.enabled || !config.recipientEmail) {
-    logger.debug('Operational alerts disabled or no recipient — skipping');
+  if (!config.enabled) {
+    logger.debug('Operational alerts disabled — skipping');
+    return;
+  }
+  if (!config.recipientOperatorId) {
+    logger.warn('Operational alerts enabled but no recipient operator configured — skipping');
     return;
   }
 
@@ -428,6 +432,14 @@ async function runAlertCheck(opts: OperationalAlertOpts): Promise<void> {
 
   if (alertsToSend.length === 0) return;
 
+  const operator = await db.operator.findUnique({
+    where: { id: config.recipientOperatorId },
+  });
+  if (!operator) {
+    logger.warn({ recipientOperatorId: config.recipientOperatorId }, 'Recipient operator not found — skipping alerts');
+    return;
+  }
+
   // Create mailer from System Settings SMTP config
   const mailer = await createMailerFromSmtpSettings(db, encryptionKey);
   if (!mailer) {
@@ -439,12 +451,12 @@ async function runAlertCheck(opts: OperationalAlertOpts): Promise<void> {
     for (const alert of alertsToSend) {
       try {
         await mailer.send({
-          to: config.recipientEmail,
+          to: operator.email,
           subject: alert.subject,
           body: alert.body,
         });
         markAlertSent(alert.key);
-        logger.info({ alertKey: alert.key, to: config.recipientEmail }, 'Operational alert sent');
+        logger.info({ alertKey: alert.key, to: operator.email }, 'Operational alert sent');
       } catch (err) {
         logger.error({ err, alertKey: alert.key }, 'Failed to send operational alert email');
       }
