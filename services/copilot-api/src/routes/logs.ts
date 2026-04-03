@@ -4,6 +4,22 @@ import { EntityType, LogLevel } from '@bronco/shared-types';
 const VALID_LEVELS = new Set<string>(Object.values(LogLevel));
 const VALID_ENTITY_TYPES = new Set<string>(Object.values(EntityType));
 
+interface CursorPayload { id: string; createdAt: string; }
+
+function encodeCursor(id: string, createdAt: Date): string {
+  return Buffer.from(JSON.stringify({ id, createdAt: createdAt.toISOString() })).toString('base64url');
+}
+
+function decodeCursor(raw: string): CursorPayload | null {
+  try {
+    const decoded = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
+    if (typeof decoded.id !== 'string' || typeof decoded.createdAt !== 'string') return null;
+    return decoded as CursorPayload;
+  } catch {
+    return null;
+  }
+}
+
 export async function logRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get<{
     Querystring: {
@@ -31,20 +47,25 @@ export async function logRoutes(fastify: FastifyInstance): Promise<void> {
       limit: rawLimit = '100',
       offset: rawOffset = '0',
       cursor,
-      direction = 'older',
+      direction,
     } = request.query;
 
+    // limit is validated for both modes; offset only matters without a cursor
     const takeNum = Number(rawLimit);
-    const skipNum = Number(rawOffset);
-    if (!Number.isFinite(takeNum) || !Number.isInteger(takeNum) || takeNum < 0 ||
-        !Number.isFinite(skipNum) || !Number.isInteger(skipNum) || skipNum < 0) {
-      return fastify.httpErrors.badRequest('limit and offset must be non-negative integers');
+    if (!Number.isFinite(takeNum) || !Number.isInteger(takeNum) || takeNum < 0) {
+      return fastify.httpErrors.badRequest('limit must be a non-negative integer');
     }
-    if (direction !== 'older' && direction !== 'newer') {
-      return fastify.httpErrors.badRequest('direction must be "older" or "newer"');
+
+    let skip = 0;
+    if (!cursor) {
+      const skipNum = Number(rawOffset);
+      if (!Number.isFinite(skipNum) || !Number.isInteger(skipNum) || skipNum < 0) {
+        return fastify.httpErrors.badRequest('offset must be a non-negative integer');
+      }
+      skip = skipNum;
     }
+
     const take = takeNum;
-    const skip = skipNum;
 
     const where: Record<string, unknown> = {};
 
@@ -92,22 +113,34 @@ export async function logRoutes(fastify: FastifyInstance): Promise<void> {
 
     // Cursor-based pagination
     if (cursor) {
-      const cursorRow = await fastify.db.appLog.findUnique({ where: { id: cursor }, select: { id: true, createdAt: true } });
-      if (!cursorRow) {
-        return fastify.httpErrors.badRequest(`cursor "${cursor}" not found`);
+      // direction is only meaningful (and validated) in cursor mode
+      const dir = direction ?? 'older';
+      if (dir !== 'older' && dir !== 'newer') {
+        return fastify.httpErrors.badRequest('direction must be "older" or "newer"');
       }
 
-      const op = direction === 'older' ? 'lt' : 'gt';
+      // Decode the opaque cursor token ({id, createdAt} encoded as base64url JSON).
+      // This avoids a DB round-trip: createdAt is already embedded in the token.
+      const decoded = decodeCursor(cursor);
+      if (!decoded) {
+        return fastify.httpErrors.badRequest(`cursor "${cursor}" is invalid`);
+      }
+      const cursorCreatedAt = new Date(decoded.createdAt);
+      if (Number.isNaN(cursorCreatedAt.getTime())) {
+        return fastify.httpErrors.badRequest(`cursor "${cursor}" is invalid`);
+      }
+
+      const op = dir === 'older' ? 'lt' : 'gt';
       const cursorWhere = {
         ...where,
         OR: [
-          { createdAt: { [op]: cursorRow.createdAt } },
-          { createdAt: cursorRow.createdAt, id: { [op]: cursorRow.id } },
+          { createdAt: { [op]: cursorCreatedAt } },
+          { createdAt: cursorCreatedAt, id: { [op]: decoded.id } },
         ],
       };
 
       const capped = Math.min(take, 500);
-      const orderDir = direction === 'older' ? 'desc' : 'asc';
+      const orderDir = dir === 'older' ? 'desc' : 'asc';
       const rows = await fastify.db.appLog.findMany({
         where: cursorWhere,
         orderBy: [{ createdAt: orderDir }, { id: orderDir }],
@@ -116,7 +149,8 @@ export async function logRoutes(fastify: FastifyInstance): Promise<void> {
 
       const hasMore = rows.length > capped;
       const logs = hasMore ? rows.slice(0, capped) : rows;
-      const nextCursor = logs.length > 0 ? logs[logs.length - 1].id : null;
+      const lastLog = logs.length > 0 ? logs[logs.length - 1] : null;
+      const nextCursor = lastLog ? encodeCursor(lastLog.id, lastLog.createdAt) : null;
 
       return { logs, nextCursor, hasMore };
     }
