@@ -164,6 +164,8 @@ async function executeToolLoop(
   client: { id: string; name: string; shortCode: string } | null,
   operator: { id: string; name: string },
   usage: UsageAccumulator,
+  repoIdByPrefix: Map<string, string> = new Map(),
+  repoToolPrefixes: Set<string> = new Set(),
 ): Promise<{ text: string; timestampedMessages: TimestampedMessage[] }> {
   let response = initialResponse;
   const current: TimestampedMessage[] = [...timestampedMessages];
@@ -182,15 +184,43 @@ async function executeToolLoop(
       let result: string;
       let isError = false;
       try {
-        logger.info({ tool: toolUse.name, iteration: i + 1 }, 'Executing MCP Platform tool');
-        result = await callMcpToolViaSdk(
-          deps.config.MCP_PLATFORM_URL,
-          '/mcp',
-          toolUse.name,
-          toolUse.input,
-          deps.config.MCP_AUTH_TOKEN || deps.config.API_KEY,
-          deps.config.MCP_AUTH_TOKEN ? undefined : 'x-api-key',
-        );
+        // Route repo tools to mcp-repo, everything else to mcp-platform
+        const sepIdx = toolUse.name.indexOf('__');
+        const toolPrefix = sepIdx !== -1 ? toolUse.name.slice(0, sepIdx) : '';
+        const isRepoTool = repoToolPrefixes.has(toolPrefix);
+
+        if (isRepoTool) {
+          const actualToolName = toolUse.name.slice(sepIdx + 2);
+          let toolInput = toolUse.input;
+          // For repo_exec, inject the baked-in repoId and clientId
+          if (actualToolName === 'repo_exec') {
+            const repoId = repoIdByPrefix.get(toolPrefix);
+            if (repoId) {
+              toolInput = { ...toolInput, repoId, ...(client ? { clientId: client.id } : {}) };
+            }
+          } else if (actualToolName === 'list_repos' && client) {
+            toolInput = { ...toolInput, clientId: client.id };
+          }
+          logger.info({ tool: toolUse.name, actualTool: actualToolName, iteration: i + 1 }, 'Executing mcp-repo tool');
+          result = await callMcpToolViaSdk(
+            deps.config.MCP_REPO_URL,
+            '/mcp',
+            actualToolName,
+            toolInput,
+            deps.config.MCP_AUTH_TOKEN || deps.config.API_KEY,
+            deps.config.MCP_AUTH_TOKEN ? undefined : 'x-api-key',
+          );
+        } else {
+          logger.info({ tool: toolUse.name, iteration: i + 1 }, 'Executing MCP Platform tool');
+          result = await callMcpToolViaSdk(
+            deps.config.MCP_PLATFORM_URL,
+            '/mcp',
+            toolUse.name,
+            toolUse.input,
+            deps.config.MCP_AUTH_TOKEN || deps.config.API_KEY,
+            deps.config.MCP_AUTH_TOKEN ? undefined : 'x-api-key',
+          );
+        }
       } catch (err) {
         result = err instanceof Error ? err.message : String(err);
         isError = true;
@@ -391,6 +421,8 @@ export async function handleHugoConversation(
 
   // 5. Get MCP Platform tools
   let tools: AIToolDefinition[];
+  const repoIdByPrefix = new Map<string, string>();
+  const repoToolPrefixes = new Set<string>();
   try {
     tools = await getPlatformTools(config.MCP_PLATFORM_URL, { apiKey: config.API_KEY, authToken: config.MCP_AUTH_TOKEN });
   } catch (err) {
@@ -401,6 +433,63 @@ export async function handleHugoConversation(
       'I couldn\'t connect to the platform tools service. Please check that `mcp-platform` is running and try again.',
     );
     return;
+  }
+
+  // 5b. Discover mcp-repo tools for the client's code repositories
+  if (client) {
+    try {
+      const clientRepos = await db.codeRepo.findMany({ where: { clientId: client.id, isActive: true } });
+      if (clientRepos.length > 0) {
+        // Register shared list_repos and repo_cleanup tools
+        tools.push({
+          name: 'repo__list_repos',
+          description: 'List available code repositories registered for this client.',
+          input_schema: {
+            type: 'object',
+            properties: {
+              clientId: { type: 'string', description: 'Client ID to filter by' },
+            },
+            required: ['clientId'],
+          },
+        });
+        repoToolPrefixes.add('repo');
+
+        tools.push({
+          name: 'repo__repo_cleanup',
+          description: 'Release a session\'s repository worktrees to free disk space.',
+          input_schema: {
+            type: 'object',
+            properties: {
+              sessionId: { type: 'string', description: 'The session ID to clean up' },
+            },
+            required: ['sessionId'],
+          },
+        });
+
+        // Register per-repo repo_exec tools with repoId baked in
+        for (const repo of clientRepos) {
+          const prefix = `repo-${repo.name.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase()}-${repo.id.slice(0, 8)}`;
+          repoIdByPrefix.set(prefix, repo.id);
+          repoToolPrefixes.add(prefix);
+
+          tools.push({
+            name: `${prefix}__repo_exec`,
+            description: `[${repo.name}] ${repo.description || 'Code repository'}. Execute a read-only shell command in a sandboxed worktree. Allowed: grep, find, cat, head, tail, ls, tree, diff, stat. Pipes to grep/sed/awk/sort allowed.`,
+            input_schema: {
+              type: 'object',
+              properties: {
+                command: { type: 'string', description: 'The shell command to execute' },
+                sessionId: { type: 'string', description: 'Session ID for worktree reuse (auto-generated if omitted)' },
+              },
+              required: ['command'],
+            },
+          });
+        }
+        logger.info({ clientId: client.id, repoCount: clientRepos.length }, 'Registered mcp-repo tools for client');
+      }
+    } catch (err) {
+      logger.warn({ err, clientId: client.id }, 'Failed to discover mcp-repo tools, continuing without repo access');
+    }
   }
 
   // 6. Load thread context if this is a reply in an existing thread
@@ -469,6 +558,8 @@ export async function handleHugoConversation(
       client,
       operator,
       usage,
+      repoIdByPrefix,
+      repoToolPrefixes,
     );
     finalText = result.text;
     finalTimestampedMessages = result.timestampedMessages;

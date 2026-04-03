@@ -21,6 +21,11 @@ import { RepoService, type CodeRepo } from '../../core/services/repo.service';
         <mat-label>Repository URL</mat-label>
         <input matInput [(ngModel)]="form.repoUrl" required placeholder="https://github.com/org/repo.git">
       </mat-form-field>
+      <mat-form-field class="full-width">
+        <mat-label>Description (helps AI understand repo contents)</mat-label>
+        <textarea matInput [(ngModel)]="form.description" rows="2"
+          placeholder="SQL Server stored procedures, table schemas, and ETL jobs for..."></textarea>
+      </mat-form-field>
       <div class="row">
         <mat-form-field class="flex">
           <mat-label>Default Branch</mat-label>
@@ -55,6 +60,7 @@ export class RepoDialogComponent {
   form = {
     name: this.data.repo?.name ?? '',
     repoUrl: this.data.repo?.repoUrl ?? '',
+    description: this.data.repo?.description ?? '',
     defaultBranch: this.data.repo?.defaultBranch ?? 'master',
     branchPrefix: this.data.repo?.branchPrefix ?? 'claude',
   };
@@ -63,6 +69,7 @@ export class RepoDialogComponent {
     const payload = {
       name: this.form.name,
       repoUrl: this.form.repoUrl,
+      description: this.form.description || undefined,
       defaultBranch: this.form.defaultBranch,
       branchPrefix: this.form.branchPrefix,
     };
