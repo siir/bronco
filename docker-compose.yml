@@ -340,6 +340,32 @@ services:
       retries: 3
       start_period: 10s
 
+  mcp-repo:
+    image: ${MCP_REPO_IMAGE:-ghcr.io/siir/bronco/mcp-repo:latest}
+    build:
+      context: .
+      dockerfile: mcp-servers/repo/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://bronco:${POSTGRES_PASSWORD_URLENCODED}@postgres:5432/bronco
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      API_KEY: ${API_KEY}
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-}
+      PORT: "3111"
+      WORKTREE_TTL_MINUTES: "30"
+      REPO_WORKSPACE_PATH: /var/lib/mcp-repo/repos
+    volumes:
+      - mcp_repo_data:/var/lib/mcp-repo/repos
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3111/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   # Caddy reverse proxy + static file server for Angular control panel
   caddy:
     image: ${CONTROL_PANEL_IMAGE:-ghcr.io/siir/bronco/control-panel:latest}
@@ -374,5 +400,6 @@ volumes:
   issue_resolver_repos:   # Cached repo clones for issue resolver
   copilot_invoices:       # Generated PDF invoices
   scheduler_invoices:     # Generated PDF invoices (scheduler-worker)
+  mcp_repo_data:            # Cached bare repo clones and worktrees for MCP repo server
   caddy_data:
   caddy_config:

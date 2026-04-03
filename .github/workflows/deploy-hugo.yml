@@ -51,11 +51,12 @@ jobs:
             [control-panel]="services/control-panel/Dockerfile"
             [mcp-database]="mcp-servers/database/Dockerfile"
             [mcp-platform]="mcp-servers/platform/Dockerfile"
+            [mcp-repo]="mcp-servers/repo/Dockerfile"
             [slack-worker]="services/slack-worker/Dockerfile"
             [scheduler-worker]="services/scheduler-worker/Dockerfile"
           )
 
-          ALL_SERVICES=(copilot-api imap-worker ticket-analyzer probe-worker devops-worker issue-resolver status-monitor control-panel mcp-database mcp-platform slack-worker scheduler-worker)
+          ALL_SERVICES=(copilot-api imap-worker ticket-analyzer probe-worker devops-worker issue-resolver status-monitor control-panel mcp-database mcp-platform mcp-repo slack-worker scheduler-worker)
 
           # ai-provider dependents (not all services)
           AI_PROVIDER_DEPENDENTS=(copilot-api imap-worker ticket-analyzer probe-worker issue-resolver devops-worker slack-worker scheduler-worker)
@@ -174,7 +175,9 @@ jobs:
                 AFFECTED[control-panel]=1
                 ;;
               mcp-servers/*)
-                svc_name="mcp-database"
+                # Extract server name: mcp-servers/<name>/... → mcp-<name>
+                raw_name=$(echo "$file" | cut -d/ -f2)
+                svc_name="mcp-${raw_name}"
                 if [ -n "${DOCKERFILES[$svc_name]+x}" ]; then
                   AFFECTED[$svc_name]=1
                 fi
