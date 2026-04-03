@@ -301,7 +301,7 @@ export class LogViewerComponent implements OnInit, OnDestroy {
       takeUntil(this.destroy$),
     ).subscribe(res => {
       this.logs.set(res.logs);
-      this.total.set(res.total);
+      this.total.set(res.total ?? 0);
     });
 
     // Kick off the first load

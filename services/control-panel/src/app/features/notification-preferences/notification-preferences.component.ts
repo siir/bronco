@@ -24,6 +24,14 @@ interface NotificationPreference {
   isActive: boolean;
 }
 
+interface OperatorOption {
+  id: string;
+  name: string;
+  email: string;
+  slackUserId: string | null;
+  isActive: boolean;
+}
+
 const EVENT_LABELS: Record<string, string> = {
   TICKET_CREATED: 'New Ticket',
   ANALYSIS_COMPLETE: 'Analysis Complete',
@@ -38,15 +46,17 @@ const EVENT_LABELS: Record<string, string> = {
 };
 
 const SLACK_TARGET_OPTIONS = [
-  { value: null, label: 'Default Channel' },
+  { value: 'default', label: 'Default Channel' },
   { value: 'assigned_operator', label: 'Assigned Operator (DM)' },
   { value: 'all_operators', label: 'All Operators (DM each)' },
+  { value: 'specific_operator', label: 'Specific Operator' },
   { value: 'custom', label: 'Custom Channel ID' },
 ];
 
 const EMAIL_TARGET_OPTIONS = [
   { value: 'all_operators', label: 'All Operators' },
   { value: 'assigned_operator', label: 'Assigned Operator' },
+  { value: 'specific_operator', label: 'Specific Operator' },
   { value: 'custom', label: 'Custom Email' },
 ];
 
@@ -110,6 +120,18 @@ const EMAIL_TARGET_OPTIONS = [
                         <input matInput [(ngModel)]="pref.emailTarget" placeholder="user@example.com">
                       </mat-form-field>
                     }
+                    @if (emailTargetSelection(pref) === 'specific_operator') {
+                      <mat-form-field appearance="outline" class="compact-field custom-input">
+                        <mat-select
+                          [value]="selectedOperatorValue(pref.emailTarget)"
+                          (selectionChange)="pref.emailTarget = $event.value"
+                          placeholder="Select operator">
+                          @for (op of operators(); track op.id) {
+                            <mat-option [value]="'operator:' + op.id">{{ op.name }}</mat-option>
+                          }
+                        </mat-select>
+                      </mat-form-field>
+                    }
                   }
                 </td>
               </ng-container>
@@ -135,6 +157,18 @@ const EMAIL_TARGET_OPTIONS = [
                     @if (slackTargetSelection(pref) === 'custom') {
                       <mat-form-field appearance="outline" class="compact-field custom-input">
                         <input matInput [(ngModel)]="pref.slackTarget" placeholder="C0123456789">
+                      </mat-form-field>
+                    }
+                    @if (slackTargetSelection(pref) === 'specific_operator') {
+                      <mat-form-field appearance="outline" class="compact-field custom-input">
+                        <mat-select
+                          [value]="selectedOperatorValue(pref.slackTarget)"
+                          (selectionChange)="pref.slackTarget = $event.value"
+                          placeholder="Select operator">
+                          @for (op of operators(); track op.id) {
+                            <mat-option [value]="'operator:' + op.id">{{ op.name }}</mat-option>
+                          }
+                        </mat-select>
                       </mat-form-field>
                     }
                   }
@@ -213,6 +247,7 @@ export class NotificationPreferencesComponent implements OnInit {
   loading = signal(true);
   saving = signal(false);
   preferences = signal<NotificationPreference[]>([]);
+  operators = signal<OperatorOption[]>([]);
 
   displayedColumns = ['event', 'emailEnabled', 'emailTarget', 'slackEnabled', 'slackTarget'];
   slackTargetOptions = SLACK_TARGET_OPTIONS;
@@ -220,27 +255,39 @@ export class NotificationPreferencesComponent implements OnInit {
 
   ngOnInit(): void {
     this.load();
+    this.http.get<OperatorOption[]>(`${environment.apiUrl}/operators`).subscribe({
+      next: ops => this.operators.set(ops.filter(o => o.isActive !== false)),
+      error: () => { /* non-critical, leave empty */ },
+    });
   }
 
   eventLabel(event: string): string {
     return EVENT_LABELS[event] ?? event;
   }
 
-  slackTargetSelection(pref: NotificationPreference): string | null {
-    if (!pref.slackTarget) return null;
+  slackTargetSelection(pref: NotificationPreference): string {
+    if (pref.slackTarget === null || pref.slackTarget === undefined) return 'default';
     if (pref.slackTarget === 'assigned_operator' || pref.slackTarget === 'all_operators') return pref.slackTarget;
+    if (pref.slackTarget.startsWith('operator:')) return 'specific_operator';
     return 'custom';
   }
 
   emailTargetSelection(pref: NotificationPreference): string {
-    if (!pref.emailTarget || pref.emailTarget === 'all_operators') return 'all_operators';
+    if (pref.emailTarget === null || pref.emailTarget === undefined || pref.emailTarget === 'all_operators') return 'all_operators';
     if (pref.emailTarget === 'assigned_operator') return 'assigned_operator';
+    if (pref.emailTarget.startsWith('operator:')) return 'specific_operator';
     return 'custom';
   }
 
-  onSlackTargetChange(pref: NotificationPreference, value: string | null): void {
-    if (value === 'custom') {
+  onSlackTargetChange(pref: NotificationPreference, value: string): void {
+    if (value === 'default') {
+      pref.slackTarget = null;
+    } else if (value === 'custom') {
       pref.slackTarget = '';
+    } else if (value === 'specific_operator') {
+      // Use 'operator:' prefix as placeholder so slackTargetSelection() keeps returning
+      // 'specific_operator' until the user picks an operator from the dropdown.
+      pref.slackTarget = 'operator:';
     } else {
       pref.slackTarget = value;
     }
@@ -249,9 +296,18 @@ export class NotificationPreferencesComponent implements OnInit {
   onEmailTargetChange(pref: NotificationPreference, value: string): void {
     if (value === 'custom') {
       pref.emailTarget = '';
+    } else if (value === 'specific_operator') {
+      // Use 'operator:' prefix as placeholder so emailTargetSelection() keeps returning
+      // 'specific_operator' until the user picks an operator from the dropdown.
+      pref.emailTarget = 'operator:';
     } else {
       pref.emailTarget = value;
     }
+  }
+
+  selectedOperatorValue(target: string | null): string {
+    if (target?.startsWith('operator:')) return target;
+    return '';
   }
 
   private load(): void {
@@ -274,8 +330,8 @@ export class NotificationPreferencesComponent implements OnInit {
       event: p.event,
       emailEnabled: p.emailEnabled,
       slackEnabled: p.slackEnabled,
-      slackTarget: p.slackTarget || null,
-      emailTarget: p.emailTarget || null,
+      slackTarget: (p.slackTarget && p.slackTarget !== 'operator:') ? p.slackTarget : null,
+      emailTarget: (p.emailTarget && p.emailTarget !== 'operator:') ? p.emailTarget : null,
       isActive: p.isActive,
     }));
 

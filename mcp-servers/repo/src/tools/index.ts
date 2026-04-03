@@ -18,9 +18,21 @@ export function registerAllTools(
       repoId: z.string().uuid().describe('The CodeRepo ID'),
       command: z.string().describe('The shell command to execute'),
       sessionId: z.string().optional().describe('Session ID for worktree reuse (auto-generated if omitted)'),
+      clientId: z.string().uuid().optional().describe('Client ID for ownership validation'),
     },
-    async ({ repoId, command, sessionId }) => {
+    async ({ repoId, command, sessionId, clientId }) => {
       const sid = sessionId ?? randomUUID();
+
+      // Ownership validation: if clientId is provided, verify the repo belongs to that client
+      if (clientId) {
+        const repo = await db.codeRepo.findUnique({ where: { id: repoId }, select: { clientId: true } });
+        if (!repo || repo.clientId !== clientId) {
+          return {
+            content: [{ type: 'text' as const, text: 'Access denied: repository does not belong to the specified client.' }],
+            isError: true,
+          };
+        }
+      }
 
       // Validate before creating worktree
       const validation = validateCommand(command);

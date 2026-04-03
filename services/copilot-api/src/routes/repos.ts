@@ -63,6 +63,7 @@ export async function repoRoutes(fastify: FastifyInstance): Promise<void> {
       clientId: string;
       name: string;
       repoUrl: string;
+      description?: string;
       defaultBranch?: string;
       branchPrefix?: string;
       environmentId?: string | null;
@@ -102,6 +103,7 @@ export async function repoRoutes(fastify: FastifyInstance): Promise<void> {
     Body: {
       name?: string;
       repoUrl?: string;
+      description?: string;
       defaultBranch?: string;
       branchPrefix?: string;
       environmentId?: string | null;

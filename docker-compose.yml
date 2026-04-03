@@ -107,14 +107,19 @@ services:
         condition: service_healthy
       mcp-database:
         condition: service_healthy
+      mcp-repo:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgresql://bronco:${POSTGRES_PASSWORD_URLENCODED}@postgres:5432/bronco
       REDIS_URL: redis://redis:6379
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       MCP_DATABASE_URL: ${MCP_DATABASE_URL:-http://mcp-database:3100}
+      MCP_REPO_URL: http://mcp-repo:3111
       REPO_WORKSPACE_PATH: /var/lib/ticket-analyzer/repos
       REPO_RETENTION_DAYS: ${REPO_RETENTION_DAYS:-14}
       ARTIFACT_STORAGE_PATH: ${ARTIFACT_STORAGE_PATH:-/mnt/qnap/artifacts}
+      API_KEY: ${API_KEY}
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-}
       HEALTH_PORT: "3106"
     volumes:
       - ticket_analyzer_repos:/var/lib/ticket-analyzer/repos
@@ -272,6 +277,8 @@ services:
         condition: service_healthy
       mcp-platform:
         condition: service_healthy
+      mcp-repo:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgresql://bronco:${POSTGRES_PASSWORD_URLENCODED}@postgres:5432/bronco
       REDIS_URL: redis://redis:6379
@@ -279,6 +286,7 @@ services:
       API_KEY: ${API_KEY}
       HEALTH_PORT: "3108"
       MCP_PLATFORM_URL: http://mcp-platform:3110
+      MCP_REPO_URL: http://mcp-repo:3111
       MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-}
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3108/health || exit 1"]

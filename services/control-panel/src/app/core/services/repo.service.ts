@@ -9,6 +9,7 @@ export interface CodeRepo {
   repoUrl: string;
   defaultBranch: string;
   branchPrefix: string;
+  description?: string;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
