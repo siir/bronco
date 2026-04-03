@@ -63,6 +63,8 @@ async function main(): Promise<void> {
     repoWorkspacePath: config.REPO_WORKSPACE_PATH,
     encryptionKey: config.ENCRYPTION_KEY,
     mcpRepoUrl: config.MCP_REPO_URL,
+    apiKey: config.API_KEY,
+    mcpAuthToken: config.MCP_AUTH_TOKEN,
   });
   const analysisWorker = createWorker<AnalysisJob>(
     'ticket-analysis',

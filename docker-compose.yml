@@ -118,6 +118,8 @@ services:
       REPO_WORKSPACE_PATH: /var/lib/ticket-analyzer/repos
       REPO_RETENTION_DAYS: ${REPO_RETENTION_DAYS:-14}
       ARTIFACT_STORAGE_PATH: ${ARTIFACT_STORAGE_PATH:-/mnt/qnap/artifacts}
+      API_KEY: ${API_KEY}
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-}
       HEALTH_PORT: "3106"
     volumes:
       - ticket_analyzer_repos:/var/lib/ticket-analyzer/repos

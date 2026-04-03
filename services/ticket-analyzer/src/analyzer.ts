@@ -316,6 +316,10 @@ export interface AnalyzerDeps {
   encryptionKey: string;
   /** MCP repo server URL for code repository access via mcp-repo. */
   mcpRepoUrl: string;
+  /** API key for authenticating to mcp-repo (x-api-key header). */
+  apiKey?: string;
+  /** MCP auth token for authenticating to mcp-repo (Bearer header, takes precedence over apiKey). */
+  mcpAuthToken?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -899,6 +903,8 @@ async function deepAnalysis(
   try {
   const clientCodeRepos = await db.codeRepo.findMany({ where: { clientId: ticket.clientId, isActive: true } });
   const initialSessionId = `initial-${ticketId}`;
+  const repoAuth = deps.mcpAuthToken || deps.apiKey;
+  const repoAuthHeader = deps.mcpAuthToken ? 'bearer' : 'x-api-key';
   for (const repo of clientCodeRepos) {
     try {
       const searchTerms = [
@@ -916,6 +922,7 @@ async function deepAnalysis(
           const grepResult = await callMcpToolViaSdk(
             deps.mcpRepoUrl, '/mcp', 'repo_exec',
             { repoId: repo.id, sessionId: initialSessionId, clientId: ticket.clientId, command: `grep -rnil "${sanitized.replace(/"/g, '\\"')}" .` },
+            repoAuth, repoAuthHeader,
           );
           const exts = ['.sql', '.cs', '.ts'];
           for (const line of grepResult.split('\n')) {
@@ -944,6 +951,7 @@ async function deepAnalysis(
             const catResult = await callMcpToolViaSdk(
               deps.mcpRepoUrl, '/mcp', 'repo_exec',
               { repoId: repo.id, sessionId: initialSessionId, clientId: ticket.clientId, command: `cat '${fp.replace(/'/g, "'\\''")}'` },
+              repoAuth, repoAuthHeader,
             );
             const content = catResult.split('\n').filter(l => !l.startsWith('[session:')).join('\n');
             const truncated = content.slice(0, 3000);
@@ -963,7 +971,7 @@ async function deepAnalysis(
     }
   }
   // Clean up session worktrees
-  try { await callMcpToolViaSdk(deps.mcpRepoUrl, '/mcp', 'repo_cleanup', { sessionId: initialSessionId }); } catch { /* best effort */ }
+  try { await callMcpToolViaSdk(deps.mcpRepoUrl, '/mcp', 'repo_cleanup', { sessionId: initialSessionId }, repoAuth, repoAuthHeader); } catch { /* best effort */ }
 
   // --- Gather context from MCP (database) ---
   let dbContext = '';
@@ -2565,7 +2573,8 @@ async function executeRoutePipeline(
 
         const gatherSessionId = `gather-${ticketId}`;
         const mcpRepoUrl = deps.mcpRepoUrl;
-        const repoAuth = undefined; // mcp-repo uses same auth as env — handled by callMcpToolViaSdk
+        const repoAuth = deps.mcpAuthToken || deps.apiKey;
+        const repoAuthHeader = deps.mcpAuthToken ? 'bearer' : 'x-api-key';
 
         for (const repo of clientRepos) {
           try {
@@ -2583,7 +2592,7 @@ async function executeRoutePipeline(
                 const grepResult = await callMcpToolViaSdk(
                   mcpRepoUrl, '/mcp', 'repo_exec',
                   { repoId: repo.id, sessionId: gatherSessionId, clientId: ticket.clientId, command: `grep -rnil "${sanitized.replace(/"/g, '\\"')}" .` },
-                  repoAuth,
+                  repoAuth, repoAuthHeader,
                 );
                 // Parse file paths from stdout (skip the [session:...] line)
                 const exts = ['.sql', '.cs', '.ts'];
@@ -2610,7 +2619,7 @@ async function executeRoutePipeline(
                   const catResult = await callMcpToolViaSdk(
                     mcpRepoUrl, '/mcp', 'repo_exec',
                     { repoId: repo.id, sessionId: gatherSessionId, clientId: ticket.clientId, command: `cat '${fp.replace(/'/g, "'\\''")}'` },
-                    repoAuth,
+                    repoAuth, repoAuthHeader,
                   );
                   // Strip the [session:...] prefix line
                   const content = catResult.split('\n').filter(l => !l.startsWith('[session:')).join('\n');
@@ -2632,7 +2641,7 @@ async function executeRoutePipeline(
 
         // Clean up the gather session worktrees
         try {
-          await callMcpToolViaSdk(mcpRepoUrl, '/mcp', 'repo_cleanup', { sessionId: gatherSessionId });
+          await callMcpToolViaSdk(mcpRepoUrl, '/mcp', 'repo_cleanup', { sessionId: gatherSessionId }, repoAuth, repoAuthHeader);
         } catch { /* best effort */ }
 
         {
@@ -2775,7 +2784,7 @@ async function executeRoutePipeline(
 
         // Build tool definitions from MCP integrations and mcp-repo
         const { tools: agenticTools, mcpIntegrations, repoIdByPrefix } = await buildAgenticTools(
-          db, ticket.clientId, deps.encryptionKey, deps.mcpRepoUrl,
+          db, ticket.clientId, deps.encryptionKey, deps.mcpRepoUrl, deps.apiKey, deps.mcpAuthToken,
         );
 
         if (agenticTools.length === 0) {
@@ -3464,6 +3473,8 @@ async function executeRoutePipeline(
           if (customRepos.length > 0) {
             const freshRepoParts: string[] = [];
             const customSessionId = `custom-${ticketId}-${bullmqJobId}`;
+            const customRepoAuth = deps.mcpAuthToken || deps.apiKey;
+            const customRepoAuthHeader = deps.mcpAuthToken ? 'bearer' : 'x-api-key';
             for (const rs of queryCfg.repoSearches) {
               const targetRepos = rs.repoName
                 ? customRepos.filter((r) => r.name === rs.repoName)
@@ -3482,6 +3493,7 @@ async function executeRoutePipeline(
                       const grepResult = await callMcpToolViaSdk(
                         deps.mcpRepoUrl, '/mcp', 'repo_exec',
                         { repoId: repo.id, sessionId: customSessionId, clientId, command: `grep -rnil "${sanitized.replace(/"/g, '\\"')}" .` },
+                        customRepoAuth, customRepoAuthHeader,
                       );
                       const exts = ['.sql', '.cs', '.ts'];
                       for (const line of grepResult.split('\n')) {
@@ -3516,6 +3528,7 @@ async function executeRoutePipeline(
                         const catResult = await callMcpToolViaSdk(
                           deps.mcpRepoUrl, '/mcp', 'repo_exec',
                           { repoId: repo.id, sessionId: customSessionId, clientId, command: `cat '${fp.replace(/'/g, "'\\''")}'` },
+                          customRepoAuth, customRepoAuthHeader,
                         );
                         const content = catResult.split('\n').filter(l => !l.startsWith('[session:')).join('\n');
                         const truncated = content.slice(0, 3000);
@@ -3535,7 +3548,7 @@ async function executeRoutePipeline(
               }
             }
             // Clean up session worktrees
-            try { await callMcpToolViaSdk(deps.mcpRepoUrl, '/mcp', 'repo_cleanup', { sessionId: customSessionId }); } catch { /* best effort */ }
+            try { await callMcpToolViaSdk(deps.mcpRepoUrl, '/mcp', 'repo_cleanup', { sessionId: customSessionId }, customRepoAuth, customRepoAuthHeader); } catch { /* best effort */ }
             if (freshRepoParts.length > 0) {
               promptParts.push('## Fresh Repository Context', '', ...freshRepoParts);
             }
