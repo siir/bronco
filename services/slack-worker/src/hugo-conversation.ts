@@ -188,7 +188,7 @@ async function executeToolLoop(
           '/mcp',
           toolUse.name,
           toolUse.input,
-          deps.config.MCP_AUTH_TOKEN ?? deps.config.API_KEY,
+          deps.config.MCP_AUTH_TOKEN || deps.config.API_KEY,
           deps.config.MCP_AUTH_TOKEN ? undefined : 'x-api-key',
         );
       } catch (err) {

@@ -27,10 +27,15 @@ export async function getPlatformTools(mcpPlatformUrl: string, opts?: { apiKey?:
 
   const endpointUrl = new URL('/mcp', mcpPlatformUrl);
 
+  const apiKey = typeof opts?.apiKey === 'string' && opts.apiKey.trim().length > 0 ? opts.apiKey.trim() : undefined;
+  const authToken = typeof opts?.authToken === 'string' && opts.authToken.trim().length > 0 ? opts.authToken.trim() : undefined;
+
   const headers: Record<string, string> = {};
-  if (opts?.apiKey) headers['x-api-key'] = opts.apiKey;
-  else if (opts?.authToken) headers['Authorization'] = `Bearer ${opts.authToken}`;
-  const transport = new StreamableHTTPClientTransport(endpointUrl, { requestInit: { headers } });
+  if (apiKey) headers['x-api-key'] = apiKey;
+  else if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+
+  const transportOptions = Object.keys(headers).length > 0 ? { requestInit: { headers } } : undefined;
+  const transport = new StreamableHTTPClientTransport(endpointUrl, transportOptions);
   const client = new Client({ name: 'slack-worker-discovery', version: '0.1.0' });
 
   let timer: ReturnType<typeof setTimeout> | undefined;
