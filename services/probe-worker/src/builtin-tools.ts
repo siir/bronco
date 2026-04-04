@@ -273,11 +273,8 @@ async function executeAppHealthAnalysis(
   // 4. Fetch open GitHub issues (if configured)
   let issuesSummary = 'GitHub not configured — skipping open issues.';
   try {
-    const [tokenSetting, repoSetting] = await Promise.all([
-      db.appSetting.findUnique({ where: { key: 'system-config-github' } }),
-      db.appSetting.findUnique({ where: { key: 'system-config-github' } }),
-    ]);
-    const ghConfig = tokenSetting?.value as Record<string, unknown> | undefined;
+    const ghSetting = await db.appSetting.findUnique({ where: { key: 'system-config-github' } });
+    const ghConfig = ghSetting?.value as Record<string, unknown> | undefined;
     const ghToken = typeof ghConfig?.['token'] === 'string' ? ghConfig['token'] : undefined;
     const ghRepo = typeof ghConfig?.['repo'] === 'string' ? ghConfig['repo'] : undefined;
 

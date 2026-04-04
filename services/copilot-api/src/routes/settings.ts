@@ -1077,7 +1077,8 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
   fastify.patch<{ Body: Record<string, unknown> }>('/api/settings/self-analysis', async (request) => {
     // Load existing config and merge with incoming partial update
     const existing = await fastify.db.appSetting.findUnique({ where: { key: SETTINGS_KEY_SELF_ANALYSIS } });
-    const current = existing ? selfAnalysisConfigSchema.parse(existing.value) : DEFAULT_SELF_ANALYSIS_CONFIG;
+    const existingParsed = existing ? selfAnalysisConfigSchema.safeParse(existing.value) : null;
+    const current = existingParsed?.success ? existingParsed.data : DEFAULT_SELF_ANALYSIS_CONFIG;
     const merged = { ...current, ...request.body };
 
     const parsed = selfAnalysisConfigSchema.safeParse(merged);

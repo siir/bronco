@@ -1,6 +1,6 @@
 import type { PrismaClient } from '@bronco/db';
 import type { AIRouter } from '@bronco/ai-provider';
-import { TaskType, SELF_CLIENT_ID } from '@bronco/shared-types';
+import { TaskType } from '@bronco/shared-types';
 import { createLogger } from '@bronco/shared-utils';
 
 const logger = createLogger('system-analyzer');
