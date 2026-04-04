@@ -198,7 +198,7 @@ export class TicketService {
     return this.api.get<TicketAiUsageResponse>(`/tickets/${ticketId}/ai-usage`, filters as Record<string, string | number>);
   }
 
-  getUnifiedLogs(ticketId: string, filters?: { limit?: number; offset?: number; type?: string; level?: string; search?: string }): Observable<UnifiedLogsResponse> {
+  getUnifiedLogs(ticketId: string, filters?: { limit?: number; offset?: number; type?: string; level?: string; search?: string; createdAfter?: string }): Observable<UnifiedLogsResponse> {
     return this.api.get<UnifiedLogsResponse>(`/tickets/${ticketId}/unified-logs`, filters as Record<string, string | number>);
   }
 

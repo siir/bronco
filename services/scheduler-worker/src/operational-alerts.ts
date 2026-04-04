@@ -104,7 +104,7 @@ async function checkFailedJobs(redisUrl: string): Promise<AlertMessage[]> {
           '',
           '---',
           'This is an automated alert from Bronco operational monitoring.',
-          'To configure alerts: Control Panel → Settings → Operational Alerts.',
+          'To configure alerts: Control Panel → Notifications → Operational Alerts.',
         ].join('\n'),
       });
     }
@@ -159,7 +159,7 @@ async function checkProbeMisses(db: PrismaClient): Promise<AlertMessage[]> {
             '',
             '---',
             'This is an automated alert from Bronco operational monitoring.',
-            'To configure alerts: Control Panel → Settings → Operational Alerts.',
+            'To configure alerts: Control Panel → Notifications → Operational Alerts.',
           ].join('\n'),
         });
       }
@@ -202,7 +202,7 @@ async function checkAiProviderHealth(db: PrismaClient): Promise<AlertMessage[]> 
                 '',
                 '---',
                 'This is an automated alert from Bronco operational monitoring.',
-                'To configure alerts: Control Panel → Settings → Operational Alerts.',
+                'To configure alerts: Control Panel → Notifications → Operational Alerts.',
               ].join('\n'),
             });
           }
@@ -217,7 +217,7 @@ async function checkAiProviderHealth(db: PrismaClient): Promise<AlertMessage[]> 
               '',
               '---',
               'This is an automated alert from Bronco operational monitoring.',
-              'To configure alerts: Control Panel → Settings → Operational Alerts.',
+              'To configure alerts: Control Panel → Notifications → Operational Alerts.',
             ].join('\n'),
           });
         }
@@ -243,7 +243,7 @@ async function checkAiProviderHealth(db: PrismaClient): Promise<AlertMessage[]> 
                 '',
                 '---',
                 'This is an automated alert from Bronco operational monitoring.',
-                'To configure alerts: Control Panel → Settings → Operational Alerts.',
+                'To configure alerts: Control Panel → Notifications → Operational Alerts.',
               ].join('\n'),
             });
           }
@@ -258,7 +258,7 @@ async function checkAiProviderHealth(db: PrismaClient): Promise<AlertMessage[]> 
               '',
               '---',
               'This is an automated alert from Bronco operational monitoring.',
-              'To configure alerts: Control Panel → Settings → Operational Alerts.',
+              'To configure alerts: Control Panel → Notifications → Operational Alerts.',
             ].join('\n'),
           });
         }
@@ -301,7 +301,7 @@ async function checkDevopsSyncStaleness(db: PrismaClient): Promise<AlertMessage[
           '',
           '---',
           'This is an automated alert from Bronco operational monitoring.',
-          'To configure alerts: Control Panel → Settings → Operational Alerts.',
+          'To configure alerts: Control Panel → Notifications → Operational Alerts.',
         ].join('\n'),
       });
     }
@@ -314,42 +314,38 @@ async function checkDevopsSyncStaleness(db: PrismaClient): Promise<AlertMessage[
 async function checkSummarizationStaleness(db: PrismaClient): Promise<AlertMessage[]> {
   const alerts: AlertMessage[] = [];
   try {
-    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    // Use the heartbeat written by runSummarizationPass after every pass — this updates even
+    // when there is nothing to summarize, preventing false positives on idle systems.
+    const heartbeatRow = await db.appSetting.findUnique({
+      where: { key: 'log-summarizer:last-run-at' },
+    });
 
-    const [latestSummary, unsummarizedCount] = await Promise.all([
-      db.logSummary.findFirst({
-        orderBy: { createdAt: 'desc' },
-        select: { createdAt: true },
-      }),
-      db.appLog.count({
-        where: {
-          createdAt: { gte: twoHoursAgo },
-        },
-      }),
-    ]);
+    if (!heartbeatRow) return alerts; // Summarizer hasn't run yet — system is new
 
-    if (!latestSummary) return alerts; // No summaries yet — system is new
+    const raw = heartbeatRow.value;
+    if (typeof raw !== 'string') return alerts; // Unexpected value type — skip
+    const lastRunAt = new Date(raw);
+    if (isNaN(lastRunAt.getTime())) return alerts; // Invalid date — skip
+    const sinceLast = Date.now() - lastRunAt.getTime();
+    const staleThresholdMs = 90 * 60 * 1000; // 90 min — runs every 30 min, so 3 missed passes = alert
 
-    const sinceLast = Date.now() - latestSummary.createdAt.getTime();
-    const staleThresholdMs = 2 * 60 * 60 * 1000; // 2 hours
-
-    if (sinceLast > staleThresholdMs && unsummarizedCount > 0) {
-      const hoursAgo = Math.round(sinceLast / (60 * 60 * 1000));
+    if (sinceLast > staleThresholdMs) {
+      const minutesAgo = Math.round(sinceLast / (60 * 1000));
       alerts.push({
         key: 'summarization-stale',
-        subject: `[Bronco Alert] Log summarization stale (${hoursAgo}h since last summary)`,
+        subject: `[Bronco Alert] Log summarizer not running (${minutesAgo}m since last pass)`,
         body: [
-          `No log summary has been created in ${hoursAgo} hours, and there are ${unsummarizedCount} recent log entries.`,
+          `The log summarizer has not completed a pass in ${minutesAgo} minutes.`,
           '',
-          `Last summary: ${latestSummary.createdAt.toISOString()}`,
+          `Last run: ${lastRunAt.toISOString()}`,
           '',
-          'The log summarizer cron may be hanging on slow Ollama calls.',
+          'The log summarizer cron may be hanging on slow Ollama calls, or the scheduler-worker may have stopped.',
           '',
           'Action required: Check scheduler-worker logs and Ollama availability.',
           '',
           '---',
           'This is an automated alert from Bronco operational monitoring.',
-          'To configure alerts: Control Panel → Settings → Operational Alerts.',
+          'To configure alerts: Control Panel → Notifications → Operational Alerts.',
         ].join('\n'),
       });
     }
@@ -388,8 +384,12 @@ async function runAlertCheck(opts: OperationalAlertOpts): Promise<void> {
     ? (settingRow.value as unknown as OperationalAlertConfig)
     : DEFAULT_OPERATIONAL_ALERT_CONFIG;
 
-  if (!config.enabled || !config.recipientEmail) {
-    logger.debug('Operational alerts disabled or no recipient — skipping');
+  if (!config.enabled) {
+    logger.debug('Operational alerts disabled — skipping');
+    return;
+  }
+  if (!config.recipientOperatorId) {
+    logger.warn('Operational alerts enabled but no recipient operator configured — skipping');
     return;
   }
 
@@ -428,6 +428,14 @@ async function runAlertCheck(opts: OperationalAlertOpts): Promise<void> {
 
   if (alertsToSend.length === 0) return;
 
+  const operator = await db.operator.findUnique({
+    where: { id: config.recipientOperatorId },
+  });
+  if (!operator) {
+    logger.warn({ recipientOperatorId: config.recipientOperatorId }, 'Recipient operator not found — skipping alerts');
+    return;
+  }
+
   // Create mailer from System Settings SMTP config
   const mailer = await createMailerFromSmtpSettings(db, encryptionKey);
   if (!mailer) {
@@ -439,12 +447,12 @@ async function runAlertCheck(opts: OperationalAlertOpts): Promise<void> {
     for (const alert of alertsToSend) {
       try {
         await mailer.send({
-          to: config.recipientEmail,
+          to: operator.email,
           subject: alert.subject,
           body: alert.body,
         });
         markAlertSent(alert.key);
-        logger.info({ alertKey: alert.key, to: config.recipientEmail }, 'Operational alert sent');
+        logger.info({ alertKey: alert.key, to: operator.email }, 'Operational alert sent');
       } catch (err) {
         logger.error({ err, alertKey: alert.key }, 'Failed to send operational alert email');
       }

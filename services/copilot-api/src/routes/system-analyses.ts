@@ -177,4 +177,39 @@ export async function systemAnalysisRoutes(
       return { message: 'Analysis regeneration queued' };
     },
   );
+
+  // PATCH /api/system-analyses/:id/reopen — reset to PENDING so it can be re-reviewed
+  fastify.patch<{ Params: { id: string } }>(
+    '/api/system-analyses/:id/reopen',
+    async (request) => {
+      const existing = await fastify.db.systemAnalysis.findUnique({
+        where: { id: request.params.id },
+        select: { status: true },
+      });
+      if (!existing) return fastify.httpErrors.notFound('Analysis not found');
+      if (existing.status === 'PENDING') {
+        return fastify.httpErrors.badRequest('Analysis is already pending');
+      }
+
+      return fastify.db.systemAnalysis.update({
+        where: { id: request.params.id },
+        data: { status: 'PENDING', rejectionReason: null },
+      });
+    },
+  );
+
+  // DELETE /api/system-analyses/:id — permanently delete an analysis
+  fastify.delete<{ Params: { id: string } }>(
+    '/api/system-analyses/:id',
+    async (request, reply) => {
+      const existing = await fastify.db.systemAnalysis.findUnique({
+        where: { id: request.params.id },
+        select: { id: true },
+      });
+      if (!existing) return fastify.httpErrors.notFound('Analysis not found');
+
+      await fastify.db.systemAnalysis.delete({ where: { id: request.params.id } });
+      reply.code(204);
+    },
+  );
 }

@@ -39,6 +39,18 @@ export const BUILTIN_PROBE_TOOLS: BuiltinToolDefinition[] = [
       },
     },
   },
+  {
+    name: 'analyze_app_health',
+    description: 'Analyze Bronco app health: ticket patterns, AI usage trends, error logs, and codebase — generates SystemAnalysis improvement suggestions',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        lookbackDays: { type: 'number', description: 'Days to look back for ticket/AI stats (default: 7)', default: 7 },
+        repoUrl: { type: 'string', description: 'Git repo URL for code reading via mcp-repo' },
+        mcpRepoUrl: { type: 'string', description: 'mcp-repo server URL (e.g. http://mcp-repo:3120)' },
+      },
+    },
+  },
 ];
 
 export const BUILTIN_PROBE_TOOL_NAMES = new Set(BUILTIN_PROBE_TOOLS.map((t) => t.name));

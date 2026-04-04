@@ -242,6 +242,26 @@ async function dispatchWithPreference(
             }
           }
         }
+      } else if (slackTarget.startsWith('operator:')) {
+        const id = slackTarget.slice('operator:'.length);
+        const op = operators.find(o => o.id === id);
+        if (op?.slackUserId && op.notifySlack) {
+          if (opts.slack.sendDMWithTs) {
+            const result = await opts.slack.sendDMWithTs(op.slackUserId, slackText, blocks);
+            slackMessages.push({ ...result, operatorId: op.id });
+          } else {
+            await opts.slack.sendDM(op.slackUserId, slackText, blocks);
+          }
+          logger.info({ slackUserId: op.slackUserId, event: opts.event }, 'Event-driven Slack DM sent to specific operator');
+        } else if (opts.defaultSlackChannelId) {
+          if (opts.slack.sendMessageWithTs) {
+            const result = await opts.slack.sendMessageWithTs(opts.defaultSlackChannelId, slackText, blocks);
+            slackMessages.push({ ...result });
+          } else {
+            await opts.slack.sendMessage(opts.defaultSlackChannelId, slackText, blocks);
+          }
+          logger.info({ event: opts.event }, 'Specific operator not eligible for Slack DM — sent to default channel');
+        }
       } else {
         // Treat as a channel ID
         if (opts.slack.sendMessageWithTs) {
@@ -278,6 +298,12 @@ function resolveEmailRecipients(
 
   if (emailTarget === 'all_operators') {
     return operators.filter(o => o.notifyEmail).map(o => o.email);
+  }
+
+  if (emailTarget.startsWith('operator:')) {
+    const id = emailTarget.slice('operator:'.length);
+    const op = operators.find(o => o.id === id && o.notifyEmail);
+    return op ? [op.email] : [];
   }
 
   // Specific email address

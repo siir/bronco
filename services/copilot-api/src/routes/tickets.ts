@@ -3,11 +3,13 @@ import type { Queue } from 'bullmq';
 import type { AIRouter } from '@bronco/ai-provider';
 import { ensureClientUser, Prisma } from '@bronco/db';
 import { TicketStatus, TicketCategory, TicketEventType, Priority, TicketSource, TaskType, isClosedStatus, AnalysisStatus, SufficiencyStatus, LogLevel } from '@bronco/shared-types';
+import { getSelfAnalysisConfig } from '@bronco/shared-utils';
 import type { TicketCreatedJob, IngestionJob } from '@bronco/shared-types';
 
 interface TicketRouteOpts {
   logSummarizeQueue?: Queue;
   systemAnalysisQueue?: Queue;
+  clientLearningQueue?: Queue;
   ticketCreatedQueue?: Queue<TicketCreatedJob>;
   ingestQueue?: Queue<IngestionJob>;
   ai?: AIRouter;
@@ -390,10 +392,22 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
       // Trigger system analysis when ticket transitions to a closed status from a non-closed status
       const statusChanged = request.body.status && request.body.status !== existing?.status;
       if (statusChanged && existing && !isClosedStatus(existing.status) && isClosedStatus(request.body.status!) && opts?.systemAnalysisQueue) {
-        await opts.systemAnalysisQueue.add(
-          'analyze-ticket-closure',
-          { ticketId: request.params.id },
-          { jobId: `closure-${request.params.id}-${Date.now()}` },
+        const selfAnalysisCfg = await getSelfAnalysisConfig(fastify.db);
+        if (selfAnalysisCfg.ticketCloseTrigger) {
+          await opts.systemAnalysisQueue.add(
+            'analyze-ticket-closure',
+            { ticketId: request.params.id, triggerType: 'TICKET_CLOSE' },
+            { jobId: `closure-${request.params.id}-${Date.now()}` },
+          );
+        }
+      }
+
+      // Trigger client learning extraction when ticket transitions to closed
+      if (statusChanged && existing && !isClosedStatus(existing.status) && isClosedStatus(request.body.status!) && existing.clientId && opts?.clientLearningQueue) {
+        await opts.clientLearningQueue.add(
+          'extract-client-learnings',
+          { ticketId: request.params.id, clientId: existing.clientId },
+          { jobId: `client-learning-${request.params.id}-${Date.now()}` },
         );
       }
 
@@ -541,9 +555,9 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
 
   fastify.get<{
     Params: { id: string };
-    Querystring: { limit?: string; offset?: string; type?: string; level?: string; search?: string; includeArchive?: string };
+    Querystring: { limit?: string; offset?: string; type?: string; level?: string; search?: string; includeArchive?: string; createdAfter?: string };
   }>('/api/tickets/:id/unified-logs', async (request) => {
-    const { limit: rawLimit = '100', offset: rawOffset = '0', type, level, search, includeArchive } = request.query;
+    const { limit: rawLimit = '100', offset: rawOffset = '0', type, level, search, includeArchive, createdAfter } = request.query;
 
     const take = Math.trunc(Number(rawLimit));
     const skip = Math.trunc(Number(rawOffset));
@@ -562,13 +576,20 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     const wantLogs = !type || type === 'log' || type === 'tool' || type === 'step' || type === 'error';
     const wantAi = !type || type === 'ai';
 
+    const afterDate = createdAfter ? new Date(createdAfter) : null;
+    if (afterDate && isNaN(afterDate.getTime())) {
+      return fastify.httpErrors.badRequest('createdAfter must be a valid ISO timestamp');
+    }
+
     // Build app_logs where clause
     const logWhere: Record<string, unknown> = { entityId: ticketId, entityType: 'ticket' };
     if (level) logWhere.level = level;
     if (search) logWhere.message = { contains: search, mode: 'insensitive' };
+    if (afterDate) logWhere.createdAt = { gte: afterDate };
 
     // Build ai_usage_logs where clause
     const aiWhere: Record<string, unknown> = { entityId: ticketId, entityType: 'ticket' };
+    if (afterDate) aiWhere.createdAt = { gte: afterDate };
     if (search) {
       aiWhere.OR = [
         { taskType: { contains: search, mode: 'insensitive' } },

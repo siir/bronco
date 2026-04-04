@@ -7,6 +7,8 @@ import { createAnalysisProcessor, initAnalyzerLogger, cleanupStaleRepos } from '
 import type { AnalysisJob } from './analyzer.js';
 import { createRouteDispatcher } from './route-dispatcher.js';
 import { createIngestionProcessor } from './ingestion-engine.js';
+import { processClientLearningJob } from './client-learning-worker.js';
+import type { ClientLearningJob } from './client-learning-worker.js';
 
 const logger = createLogger('ticket-analyzer');
 const appLog = new AppLogger('ticket-analyzer');
@@ -46,12 +48,13 @@ async function main(): Promise<void> {
   const senderSignature = dbSmtp?.fromName || config.EMAIL_SENDER_NAME;
 
   // --- AI router (DB-backed provider config) ---
-  const { ai } = createAIRouter(db, {
+  const { ai, clientMemoryResolver } = createAIRouter(db, {
     encryptionKey: config.ENCRYPTION_KEY,
   });
 
   // --- Queues ---
   const analysisQueue = createQueue<AnalysisJob>('ticket-analysis', config.REDIS_URL);
+  const selfAnalysisQueue = createQueue('system-analysis', config.REDIS_URL);
 
   // --- Analysis worker ---
   const analysisProcessor = createAnalysisProcessor({
@@ -65,6 +68,7 @@ async function main(): Promise<void> {
     mcpRepoUrl: config.MCP_REPO_URL,
     apiKey: config.API_KEY,
     mcpAuthToken: config.MCP_AUTH_TOKEN,
+    selfAnalysisQueue,
   });
   const analysisWorker = createWorker<AnalysisJob>(
     'ticket-analysis',
@@ -123,6 +127,23 @@ async function main(): Promise<void> {
     appLog.error(`Ingestion job failed: ${err.message}`, { err, source: job?.data.source, clientId: job?.data.clientId });
   });
 
+  // --- Client learning worker (extracts memories from closed tickets) ---
+  const clientLearningWorker = createWorker<ClientLearningJob>(
+    'client-learning',
+    config.REDIS_URL,
+    async (job) => {
+      await processClientLearningJob(job.data, db, ai, clientMemoryResolver);
+    },
+  );
+
+  clientLearningWorker.on('completed', (job) => {
+    appLog.info('Client learning extraction completed', { ticketId: job.data.ticketId, clientId: job.data.clientId }, job.data.ticketId, 'ticket');
+  });
+
+  clientLearningWorker.on('failed', (job, err) => {
+    appLog.error(`Client learning extraction failed: ${err.message}`, { err, ticketId: job?.data.ticketId, clientId: job?.data.clientId }, job?.data.ticketId, 'ticket');
+  });
+
   // Health tracking state
   let lastAnalysisAt: Date | undefined;
   let analysisCount = 0;
@@ -153,11 +174,13 @@ async function main(): Promise<void> {
   createGracefulShutdown(logger, [
     { interval: cleanupInterval },
     health,
+    clientLearningWorker,
     ingestionWorker,
     ticketCreatedWorker,
     ticketCreatedQueue,
     analysisWorker,
     analysisQueue,
+    selfAnalysisQueue,
     ...(mailer ? [mailer] : []),
     { fn: disconnectDb },
   ]);

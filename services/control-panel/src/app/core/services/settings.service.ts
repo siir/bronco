@@ -61,7 +61,7 @@ export interface UpdateCategoryConfig {
 
 export interface OperationalAlertConfig {
   enabled: boolean;
-  recipientEmail: string;
+  recipientOperatorId: string;
   throttleMinutes: number;
   alerts: {
     failedJobs: boolean;
@@ -71,6 +71,19 @@ export interface OperationalAlertConfig {
     summarizationStale: boolean;
   };
 }
+
+export const DEFAULT_OPERATIONAL_ALERT_CONFIG: OperationalAlertConfig = {
+  enabled: false,
+  recipientOperatorId: '',
+  throttleMinutes: 60,
+  alerts: {
+    failedJobs: true,
+    probeMisses: true,
+    aiProviderDown: true,
+    devopsSyncStale: true,
+    summarizationStale: true,
+  },
+};
 
 export interface TestAlertResult {
   success: boolean;
@@ -128,6 +141,14 @@ export interface ActionSafetyConfig {
 export interface AnalysisStrategyConfig {
   strategy: 'full_context' | 'orchestrated';
   maxParallelTasks: number;
+}
+
+export interface SelfAnalysisConfig {
+  postAnalysisTrigger: boolean;
+  ticketCloseTrigger: boolean;
+  scheduledEnabled: boolean;
+  scheduledCron: string;
+  repoUrl: string;
 }
 
 export interface TestResult {
@@ -262,5 +283,13 @@ export class SettingsService {
   }
   saveAnalysisStrategy(config: AnalysisStrategyConfig): Observable<AnalysisStrategyConfig> {
     return this.api.put<AnalysisStrategyConfig>('/settings/analysis-strategy', config);
+  }
+
+  // --- Self Analysis ---
+  getSelfAnalysis(): Observable<SelfAnalysisConfig> {
+    return this.api.get<SelfAnalysisConfig>('/settings/self-analysis');
+  }
+  saveSelfAnalysis(config: Partial<SelfAnalysisConfig>): Observable<SelfAnalysisConfig> {
+    return this.api.patch<SelfAnalysisConfig>('/settings/self-analysis', config);
   }
 }

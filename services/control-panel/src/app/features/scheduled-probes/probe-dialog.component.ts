@@ -232,16 +232,18 @@ const COMMON_TIMEZONES = [
         </mat-form-field>
       }
 
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Category</mat-label>
-        <mat-select [(ngModel)]="category">
-          <mat-option [value]="null">None</mat-option>
-          @for (cat of data.categories; track cat.value) {
-            <mat-option [value]="cat.value">{{ cat.label }}</mat-option>
-          }
-        </mat-select>
-        <mat-hint>Category assigned to tickets created by this probe.</mat-hint>
-      </mat-form-field>
+      @if (action !== 'email_direct') {
+        <mat-form-field appearance="outline" class="full-width">
+          <mat-label>Category</mat-label>
+          <mat-select [(ngModel)]="category">
+            <mat-option [value]="null">None</mat-option>
+            @for (cat of data.categories; track cat.value) {
+              <mat-option [value]="cat.value">{{ cat.label }}</mat-option>
+            }
+          </mat-select>
+          <mat-hint>Category assigned to tickets created by this probe.</mat-hint>
+        </mat-form-field>
+      }
 
       @if (isEdit) {
         <div class="retention-section">

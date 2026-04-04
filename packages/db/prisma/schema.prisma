@@ -134,6 +134,7 @@ model Client {
   billingPeriod        String   @default("disabled") @map("billing_period")
   billingAnchorDay     Int      @default(1) @map("billing_anchor_day")
   slackChannelId       String?  @map("slack_channel_id")
+  isInternal           Boolean  @default(false) @map("is_internal")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
@@ -885,9 +886,10 @@ model PromptKeyword {
 
 model SystemAnalysis {
   id              String               @id @default(uuid()) @db.Uuid
-  ticketId        String               @map("ticket_id") @db.Uuid
+  ticketId        String?              @map("ticket_id") @db.Uuid
   clientId        String               @map("client_id") @db.Uuid
   status          SystemAnalysisStatus @default(PENDING)
+  triggerType     SystemAnalysisTriggerType @default(TICKET_CLOSE) @map("trigger_type")
   analysis        String               // AI-generated analysis of the ticket lifecycle
   suggestions     String               // AI-suggested system improvements
   rejectionReason String?              @map("rejection_reason")
@@ -896,7 +898,7 @@ model SystemAnalysis {
   createdAt       DateTime             @default(now()) @map("created_at")
   updatedAt       DateTime             @updatedAt @map("updated_at")
 
-  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticket Ticket? @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   client Client @relation(fields: [clientId], references: [id])
 
   @@index([status])
@@ -914,6 +916,14 @@ enum SystemAnalysisStatus {
   REJECTED
 
   @@map("system_analysis_status")
+}
+
+enum SystemAnalysisTriggerType {
+  TICKET_CLOSE
+  POST_ANALYSIS
+  SCHEDULED
+
+  @@map("system_analysis_trigger_type")
 }
 
 enum LogLevel {
@@ -1255,6 +1265,7 @@ enum RouteStepType {
   SUGGEST_NEXT_STEPS
   UPDATE_TICKET_SUMMARY
   LOAD_CLIENT_CONTEXT
+  LOAD_ENVIRONMENT_CONTEXT
   NOTIFY_OPERATOR
   DISPATCH_TO_ROUTE
   ADD_FOLLOWER

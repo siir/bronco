@@ -26,7 +26,7 @@ import {
   SettingsService,
   TicketStatusConfig,
   TicketCategoryConfig,
-  OperationalAlertConfig,
+  SelfAnalysisConfig,
 } from '../../core/services/settings.service';
 import { ExternalServiceDialogComponent } from './external-service-dialog.component';
 import { StatusConfigDialogComponent } from './status-config-dialog.component';
@@ -294,126 +294,6 @@ import { CategoryConfigDialogComponent } from './category-config-dialog.componen
         </div>
       </mat-tab>
 
-      <!-- Operational Alerts tab -->
-      <mat-tab label="Operational Alerts">
-        <div class="tab-content">
-          @if (alertsLoading()) {
-            <div class="empty-state">
-              <mat-icon>hourglass_empty</mat-icon>
-              <p>Loading alert configuration...</p>
-            </div>
-          } @else if (alertsError()) {
-            <div class="empty-state">
-              <mat-icon>error_outline</mat-icon>
-              <p>Failed to load alert configuration.</p>
-              <button mat-button color="primary" (click)="loadAlertConfig()">Retry</button>
-            </div>
-          } @else {
-            <mat-card>
-              <mat-card-header>
-                <mat-card-title>Alert Notifications</mat-card-title>
-              </mat-card-header>
-              <mat-card-content>
-                <p class="hint">
-                  Get email notifications when background processes fail silently.
-                  Requires an active EMAIL notification channel configured under Notification Channels.
-                </p>
-
-                <div class="alert-toggle-row">
-                  <mat-slide-toggle
-                    [checked]="alertConfig().enabled"
-                    (change)="setAlertEnabled($event.checked)">
-                    Enable operational alerts
-                  </mat-slide-toggle>
-                </div>
-
-                <mat-form-field class="full-width">
-                  <mat-label>Recipient Email</mat-label>
-                  <input matInput type="email"
-                    [ngModel]="alertConfig().recipientEmail"
-                    (ngModelChange)="setAlertRecipientEmail($event)"
-                    placeholder="operator@example.com">
-                </mat-form-field>
-
-                <mat-form-field class="full-width">
-                  <mat-label>Throttle (minutes between repeat alerts)</mat-label>
-                  <mat-select
-                    [ngModel]="alertConfig().throttleMinutes"
-                    (ngModelChange)="setAlertThrottleMinutes($event)">
-                    <mat-option [value]="15">15 minutes</mat-option>
-                    <mat-option [value]="30">30 minutes</mat-option>
-                    <mat-option [value]="60">1 hour</mat-option>
-                    <mat-option [value]="120">2 hours</mat-option>
-                  </mat-select>
-                </mat-form-field>
-
-                <h3>Alert Types</h3>
-
-                <div class="alert-toggles">
-                  <div class="alert-toggle-row">
-                    <mat-slide-toggle
-                      [checked]="alertConfig().alerts.failedJobs"
-                      (change)="setAlertType('failedJobs', $event.checked)">
-                      Failed BullMQ jobs
-                    </mat-slide-toggle>
-                    <span class="alert-desc">Alert when background job queues have failed jobs</span>
-                  </div>
-
-                  <div class="alert-toggle-row">
-                    <mat-slide-toggle
-                      [checked]="alertConfig().alerts.probeMisses"
-                      (change)="setAlertType('probeMisses', $event.checked)">
-                      Missed probe schedules
-                    </mat-slide-toggle>
-                    <span class="alert-desc">Alert when scheduled probes miss their expected run window</span>
-                  </div>
-
-                  <div class="alert-toggle-row">
-                    <mat-slide-toggle
-                      [checked]="alertConfig().alerts.aiProviderDown"
-                      (change)="setAlertType('aiProviderDown', $event.checked)">
-                      AI provider outages
-                    </mat-slide-toggle>
-                    <span class="alert-desc">Alert when Ollama or cloud AI providers are unreachable or failing</span>
-                  </div>
-
-                  <div class="alert-toggle-row">
-                    <mat-slide-toggle
-                      [checked]="alertConfig().alerts.devopsSyncStale"
-                      (change)="setAlertType('devopsSyncStale', $event.checked)">
-                      DevOps sync staleness
-                    </mat-slide-toggle>
-                    <span class="alert-desc">Alert when Azure DevOps sync stops (PAT expired, rate limit, etc)</span>
-                  </div>
-
-                  <div class="alert-toggle-row">
-                    <mat-slide-toggle
-                      [checked]="alertConfig().alerts.summarizationStale"
-                      (change)="setAlertType('summarizationStale', $event.checked)">
-                      Log summarization staleness
-                    </mat-slide-toggle>
-                    <span class="alert-desc">Alert when log summarization hasn't run in over 2 hours</span>
-                  </div>
-                </div>
-              </mat-card-content>
-              <mat-card-actions>
-                <button mat-raised-button color="primary" (click)="saveAlertConfig()" [disabled]="alertsSaving()">
-                  @if (alertsSaving()) {
-                    <mat-spinner diameter="18" class="inline-spinner"></mat-spinner>
-                  }
-                  Save
-                </button>
-                <button mat-button (click)="testAlert()" [disabled]="alertsTesting()">
-                  @if (alertsTesting()) {
-                    <mat-spinner diameter="18" class="inline-spinner"></mat-spinner>
-                  }
-                  Test Alert
-                </button>
-              </mat-card-actions>
-            </mat-card>
-          }
-        </div>
-      </mat-tab>
       <!-- External Services tab -->
       <mat-tab label="External Services">
         <div class="tab-content">
@@ -610,6 +490,69 @@ import { CategoryConfigDialogComponent } from './category-config-dialog.componen
           </mat-card>
         </div>
       </mat-tab>
+      <!-- Self Analysis tab -->
+      <mat-tab label="Self Analysis">
+        <div class="tab-content">
+          <mat-card>
+            <mat-card-header>
+              <mat-card-title>Self Analysis</mat-card-title>
+            </mat-card-header>
+            <mat-card-content>
+              <p class="hint">
+                Configure triggers for Bronco to analyze its own operations and suggest improvements.
+                Results appear on the System Analysis page.
+              </p>
+
+              @if (selfAnalysisLoading()) {
+                <mat-spinner diameter="24"></mat-spinner>
+              } @else {
+                <div class="self-analysis-toggles">
+                  <mat-slide-toggle
+                    color="primary"
+                    [checked]="selfAnalysisPostAnalysis()"
+                    (change)="updateSelfAnalysis({ postAnalysisTrigger: $event.checked })"
+                  >
+                    Post-analysis trigger
+                  </mat-slide-toggle>
+                  <p class="alert-desc">After each ticket analysis pipeline completes, review the run for token usage, model selection, and route efficiency.</p>
+
+                  <mat-slide-toggle
+                    color="primary"
+                    [checked]="selfAnalysisTicketClose()"
+                    (change)="updateSelfAnalysis({ ticketCloseTrigger: $event.checked })"
+                  >
+                    Ticket close trigger
+                  </mat-slide-toggle>
+                  <p class="alert-desc">When a ticket is closed, analyze its lifecycle for process improvements and knowledge gaps.</p>
+
+                  <mat-slide-toggle
+                    color="primary"
+                    [checked]="selfAnalysisScheduled()"
+                    (change)="updateSelfAnalysis({ scheduledEnabled: $event.checked })"
+                  >
+                    Scheduled analysis
+                  </mat-slide-toggle>
+                  <p class="alert-desc">Run a periodic health analysis of the entire platform (ticket patterns, AI usage, error logs).</p>
+                </div>
+
+                @if (selfAnalysisScheduled()) {
+                  <mat-form-field class="full-width" style="margin-top: 16px;">
+                    <mat-label>Cron Expression</mat-label>
+                    <input matInput [value]="selfAnalysisCron()" (blur)="updateSelfAnalysis({ scheduledCron: $any($event.target).value })">
+                    <mat-hint>Standard cron (e.g., "0 9 * * 1" = Monday 9am UTC)</mat-hint>
+                  </mat-form-field>
+
+                  <mat-form-field class="full-width">
+                    <mat-label>Repository URL</mat-label>
+                    <input matInput [value]="selfAnalysisRepoUrl()" (blur)="updateSelfAnalysis({ repoUrl: $any($event.target).value })">
+                    <mat-hint>Git repo URL for code-aware analysis via mcp-repo</mat-hint>
+                  </mat-form-field>
+                }
+              }
+            </mat-card-content>
+          </mat-card>
+        </div>
+      </mat-tab>
     </mat-tab-group>
   `,
   styles: [`
@@ -714,6 +657,11 @@ import { CategoryConfigDialogComponent } from './category-config-dialog.componen
       font-weight: 500;
     }
     .action-safety-table { margin-bottom: 16px; }
+    .self-analysis-toggles {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
   `],
 })
 export class SettingsComponent implements OnInit {
@@ -750,24 +698,6 @@ export class SettingsComponent implements OnInit {
   categoriesError = signal(false);
   catColumns = ['catColor', 'catValue', 'catDisplayName', 'catDescription', 'catSortOrder', 'catActive', 'catActions'];
 
-  // Operational Alerts tab
-  alertConfig = signal<OperationalAlertConfig>({
-    enabled: false,
-    recipientEmail: '',
-    throttleMinutes: 60,
-    alerts: {
-      failedJobs: true,
-      probeMisses: true,
-      aiProviderDown: true,
-      devopsSyncStale: true,
-      summarizationStale: true,
-    },
-  });
-  alertsLoading = signal(true);
-  alertsError = signal(false);
-  alertsSaving = signal(false);
-  alertsTesting = signal(false);
-
   // Action Safety tab
   actionSafetyConfig = signal<Record<string, 'auto' | 'approval'>>({});
   actionSafetyLoading = signal(true);
@@ -781,22 +711,30 @@ export class SettingsComponent implements OnInit {
   analysisStrategyLoading = signal(true);
   analysisStrategySaving = signal(false);
 
+  // Self Analysis tab
+  selfAnalysisLoading = signal(true);
+  selfAnalysisPostAnalysis = signal(false);
+  selfAnalysisTicketClose = signal(true);
+  selfAnalysisScheduled = signal(false);
+  selfAnalysisCron = signal('0 9 * * 1');
+  selfAnalysisRepoUrl = signal('https://github.com/siir/bronco');
+
   selectedTab = signal(0);
 
   ngOnInit(): void {
     const tabParam = this.route.snapshot.queryParamMap.get('tab');
     if (tabParam !== null) {
       const tab = Number(tabParam);
-      if (Number.isInteger(tab) && tab >= 0 && tab <= 6) this.selectedTab.set(tab);
+      if (Number.isInteger(tab) && tab >= 0 && tab <= 7) this.selectedTab.set(tab);
     }
     this.loadUsers();
     this.loadSuperAdmin();
     this.loadServices();
     this.loadStatuses();
     this.loadCategories();
-    this.loadAlertConfig();
     this.loadActionSafety();
     this.loadAnalysisStrategy();
+    this.loadSelfAnalysis();
   }
 
   onTabChange(index: number): void {
@@ -991,74 +929,6 @@ export class SettingsComponent implements OnInit {
     });
   }
 
-  // ─── Operational Alerts tab ───
-
-  loadAlertConfig(): void {
-    this.alertsLoading.set(true);
-    this.alertsError.set(false);
-    this.settingsSvc.getOperationalAlerts().subscribe({
-      next: (config) => {
-        this.alertConfig.set(config);
-        this.alertsLoading.set(false);
-      },
-      error: () => {
-        this.alertsLoading.set(false);
-        this.alertsError.set(true);
-        this.snackBar.open('Failed to load alert configuration', 'OK', { duration: 5000 });
-      },
-    });
-  }
-
-  setAlertEnabled(value: boolean): void {
-    this.alertConfig.update(c => ({ ...c, enabled: value }));
-  }
-
-  setAlertRecipientEmail(value: string): void {
-    this.alertConfig.update(c => ({ ...c, recipientEmail: value }));
-  }
-
-  setAlertThrottleMinutes(value: number): void {
-    this.alertConfig.update(c => ({ ...c, throttleMinutes: value }));
-  }
-
-  setAlertType(key: keyof OperationalAlertConfig['alerts'], value: boolean): void {
-    this.alertConfig.update(c => ({ ...c, alerts: { ...c.alerts, [key]: value } }));
-  }
-
-  saveAlertConfig(): void {
-    this.alertsSaving.set(true);
-    this.settingsSvc.updateOperationalAlerts(this.alertConfig()).subscribe({
-      next: (saved) => {
-        this.alertConfig.set(saved);
-        this.alertsSaving.set(false);
-        this.snackBar.open('Alert configuration saved', 'OK', { duration: 3000, panelClass: 'success-snackbar' });
-      },
-      error: () => {
-        this.alertsSaving.set(false);
-        this.snackBar.open('Failed to save alert configuration', 'OK', { duration: 5000 });
-      },
-    });
-  }
-
-  testAlert(): void {
-    this.alertsTesting.set(true);
-    this.settingsSvc.testOperationalAlert().subscribe({
-      next: (result) => {
-        this.alertsTesting.set(false);
-        if (result.success) {
-          this.snackBar.open(result.message ?? 'Test alert sent', 'OK', { duration: 5000, panelClass: 'success-snackbar' });
-        } else {
-          this.snackBar.open(`Test failed: ${result.error}`, 'OK', { duration: 8000 });
-        }
-      },
-      error: (err) => {
-        this.alertsTesting.set(false);
-        const msg = err?.error?.error ?? 'Failed to send test alert';
-        this.snackBar.open(msg, 'OK', { duration: 8000 });
-      },
-    });
-  }
-
   truncate(value: string, max: number): string {
     return value.length > max ? value.slice(0, max - 3) + '...' : value;
   }
@@ -1162,6 +1032,50 @@ export class SettingsComponent implements OnInit {
       error: () => {
         this.analysisStrategySaving.set(false);
         this.snackBar.open('Failed to save analysis strategy', 'OK', { duration: 5000 });
+      },
+    });
+  }
+
+  // ─── Self Analysis ───
+
+  loadSelfAnalysis(): void {
+    this.selfAnalysisLoading.set(true);
+    this.settingsSvc.getSelfAnalysis().subscribe({
+      next: (config) => {
+        this.selfAnalysisPostAnalysis.set(config.postAnalysisTrigger);
+        this.selfAnalysisTicketClose.set(config.ticketCloseTrigger);
+        this.selfAnalysisScheduled.set(config.scheduledEnabled);
+        this.selfAnalysisCron.set(config.scheduledCron);
+        this.selfAnalysisRepoUrl.set(config.repoUrl);
+        this.selfAnalysisLoading.set(false);
+      },
+      error: () => {
+        this.selfAnalysisLoading.set(false);
+        this.snackBar.open('Failed to load self-analysis config', 'OK', { duration: 5000 });
+      },
+    });
+  }
+
+  updateSelfAnalysis(partial: Partial<SelfAnalysisConfig>): void {
+    // Optimistically update local state
+    if (partial.postAnalysisTrigger !== undefined) this.selfAnalysisPostAnalysis.set(partial.postAnalysisTrigger);
+    if (partial.ticketCloseTrigger !== undefined) this.selfAnalysisTicketClose.set(partial.ticketCloseTrigger);
+    if (partial.scheduledEnabled !== undefined) this.selfAnalysisScheduled.set(partial.scheduledEnabled);
+    if (partial.scheduledCron !== undefined) this.selfAnalysisCron.set(partial.scheduledCron);
+    if (partial.repoUrl !== undefined) this.selfAnalysisRepoUrl.set(partial.repoUrl);
+
+    this.settingsSvc.saveSelfAnalysis(partial).subscribe({
+      next: (saved) => {
+        this.selfAnalysisPostAnalysis.set(saved.postAnalysisTrigger);
+        this.selfAnalysisTicketClose.set(saved.ticketCloseTrigger);
+        this.selfAnalysisScheduled.set(saved.scheduledEnabled);
+        this.selfAnalysisCron.set(saved.scheduledCron);
+        this.selfAnalysisRepoUrl.set(saved.repoUrl);
+        this.snackBar.open('Self-analysis config saved', 'OK', { duration: 2000, panelClass: 'success-snackbar' });
+      },
+      error: () => {
+        this.snackBar.open('Failed to save self-analysis config', 'OK', { duration: 5000 });
+        this.loadSelfAnalysis(); // Revert on failure
       },
     });
   }

@@ -32,6 +32,8 @@ export const TaskType = {
   CHANGE_CODEBASE_LARGE: 'CHANGE_CODEBASE_LARGE',
   // Post-closure ticket analysis — system improvement suggestions
   ANALYZE_TICKET_CLOSURE: 'ANALYZE_TICKET_CLOSURE',
+  // Client learning extraction from resolved tickets
+  EXTRACT_CLIENT_LEARNINGS: 'EXTRACT_CLIENT_LEARNINGS',
   // Release notes generation
   GENERATE_RELEASE_NOTE: 'GENERATE_RELEASE_NOTE',
   // Custom AI query (configurable per route step)
@@ -39,6 +41,8 @@ export const TaskType = {
   // Ticket routing tasks (local LLM)
   SUMMARIZE_ROUTE: 'SUMMARIZE_ROUTE',
   SELECT_ROUTE: 'SELECT_ROUTE',
+  // Self-analysis (scheduled app health)
+  ANALYZE_APP_HEALTH: 'ANALYZE_APP_HEALTH',
 } as const;
 export type TaskType = (typeof TaskType)[keyof typeof TaskType];
 
@@ -96,6 +100,7 @@ export const TASK_APP_SCOPE: Record<TaskType, AppScope> = {
   [TaskType.CHANGE_CODEBASE_SMALL]: AppScope.CORE,
   [TaskType.CHANGE_CODEBASE_LARGE]: AppScope.CORE,
   [TaskType.ANALYZE_TICKET_CLOSURE]: AppScope.CORE,
+  [TaskType.EXTRACT_CLIENT_LEARNINGS]: AppScope.CORE,
 
   // Custom AI query
   [TaskType.CUSTOM_AI_QUERY]: AppScope.CORE,
@@ -103,6 +108,9 @@ export const TASK_APP_SCOPE: Record<TaskType, AppScope> = {
   // Ticket routing tasks
   [TaskType.SUMMARIZE_ROUTE]: AppScope.CORE,
   [TaskType.SELECT_ROUTE]: AppScope.CORE,
+
+  // Self-analysis
+  [TaskType.ANALYZE_APP_HEALTH]: AppScope.CORE,
 
 } satisfies Record<TaskType, AppScope>;
 

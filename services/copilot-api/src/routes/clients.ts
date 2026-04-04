@@ -19,6 +19,7 @@ function validateDomainMappings(domains: string[] | undefined): string[] | undef
 export async function clientRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get('/api/clients', async () => {
     return fastify.db.client.findMany({
+      where: { isInternal: false },
       include: { _count: { select: { tickets: true, systems: true } } },
       orderBy: { name: 'asc' },
     });

@@ -42,6 +42,8 @@ export const TASK_CAPABILITY_REQUIREMENTS: Record<string, string> = {
   [TaskType.RESOLVE_ISSUE]: CapabilityLevel.DEEP_ADVANCED,
   [TaskType.CHANGE_CODEBASE_LARGE]: CapabilityLevel.DEEP_ADVANCED,
   [TaskType.ANALYZE_TICKET_CLOSURE]: CapabilityLevel.DEEP_ADVANCED,
+  [TaskType.ANALYZE_APP_HEALTH]: CapabilityLevel.DEEP_ADVANCED,
+  [TaskType.EXTRACT_CLIENT_LEARNINGS]: CapabilityLevel.DEEP_ADVANCED,
 
   // Custom AI query (route step — default ADVANCED, overridable via taskTypeOverride)
   [TaskType.CUSTOM_AI_QUERY]: CapabilityLevel.ADVANCED,

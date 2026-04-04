@@ -26,6 +26,7 @@ export async function buildApp(config: Config) {
   const probeQueue = createQueue('probe-execution', config.REDIS_URL);
   const ticketCreatedQueue = createQueue<TicketCreatedJob>('ticket-created', config.REDIS_URL);
   const ingestQueue = createQueue<IngestionJob>('ticket-ingest', config.REDIS_URL);
+  const clientLearningQueue = createQueue('client-learning', config.REDIS_URL);
 
   // Additional Queue clients for queues owned by other services, used for cross-service
   // failed-job management (including retry/delete and other mutations)
@@ -46,6 +47,7 @@ export async function buildApp(config: Config) {
     ['mcp-discovery', mcpDiscoveryQueue],
     ['model-catalog-refresh', modelCatalogQueue],
     ['system-analysis', systemAnalysisQueue],
+    ['client-learning', clientLearningQueue],
     ['probe-execution', probeQueue],
     ['prompt-retention', promptRetentionQueue],
   ]);
@@ -63,7 +65,7 @@ export async function buildApp(config: Config) {
 
   await app.register(authPlugin, { apiKey: config.API_KEY, jwtSecret: config.JWT_SECRET, portalJwtSecret: config.PORTAL_JWT_SECRET });
 
-  await registerRoutes(app, { config, issueResolveQueue, logSummarizeQueue, systemAnalysisQueue, mcpDiscoveryQueue, probeQueue, ticketCreatedQueue, ingestQueue, queueMap, ai, clientMemoryResolver, modelConfigResolver, providerConfigResolver, onSlackIntegrationChange: () => { logger.info('Slack integration changed — slack-worker will pick up changes on next periodic refresh (every 5 minutes)'); } });
+  await registerRoutes(app, { config, issueResolveQueue, logSummarizeQueue, systemAnalysisQueue, clientLearningQueue, mcpDiscoveryQueue, probeQueue, ticketCreatedQueue, ingestQueue, queueMap, ai, clientMemoryResolver, modelConfigResolver, providerConfigResolver, onSlackIntegrationChange: () => { logger.info('Slack integration changed — slack-worker will pick up changes on next periodic refresh (every 5 minutes)'); } });
 
   // Wire up database log writer after Prisma is ready
   const logWriter = createPrismaLogWriter(app.db);
@@ -117,6 +119,7 @@ export async function buildApp(config: Config) {
     await ticketAnalysisQueue.close();
     await devopsSyncQueue.close();
     await promptRetentionQueue.close();
+    await clientLearningQueue.close();
   });
 
   return app;

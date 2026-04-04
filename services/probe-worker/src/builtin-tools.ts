@@ -1,5 +1,7 @@
 import type { PrismaClient } from '@bronco/db';
-import { createLogger } from '@bronco/shared-utils';
+import type { AIRouter } from '@bronco/ai-provider';
+import { TaskType, SELF_CLIENT_ID, SystemAnalysisTriggerType } from '@bronco/shared-types';
+import { createLogger, callMcpToolViaSdk, decrypt, looksEncrypted } from '@bronco/shared-utils';
 
 const logger = createLogger('probe-worker:builtin-tools');
 
@@ -8,6 +10,9 @@ const MAX_OUTPUT_CHARS = 8000;
 
 export interface BuiltinToolDeps {
   db: PrismaClient;
+  ai?: AIRouter;
+  mcpRepoUrl?: string;
+  encryptionKey?: string;
 }
 
 /**
@@ -20,6 +25,7 @@ export const BUILTIN_TOOLS: Record<
   (params: Record<string, unknown>, deps: BuiltinToolDeps) => Promise<string>
 > = {
   scan_app_logs: executeLogScan,
+  analyze_app_health: executeAppHealthAnalysis,
 };
 
 // ---------------------------------------------------------------------------
@@ -200,4 +206,176 @@ async function executeLogScan(
   }
 
   return report;
+}
+
+// ---------------------------------------------------------------------------
+// analyze_app_health implementation
+// ---------------------------------------------------------------------------
+
+async function executeAppHealthAnalysis(
+  params: Record<string, unknown>,
+  deps: BuiltinToolDeps,
+): Promise<string> {
+  const { db, ai, mcpRepoUrl } = deps;
+
+  if (!ai) {
+    return 'Error: AI router not available — cannot run app health analysis.';
+  }
+
+  const lookbackDays = typeof params['lookbackDays'] === 'number' ? Math.max(1, Math.min(90, params['lookbackDays'])) : 7;
+  const repoUrl = typeof params['repoUrl'] === 'string' ? params['repoUrl'] : undefined;
+  const paramMcpRepoUrl = typeof params['mcpRepoUrl'] === 'string' ? params['mcpRepoUrl'] : undefined;
+  const effectiveMcpRepoUrl = paramMcpRepoUrl || mcpRepoUrl;
+
+  const cutoff = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
+
+  logger.info({ lookbackDays, repoUrl }, 'Executing analyze_app_health');
+
+  // 1. Gather ticket stats
+  const [ticketsByCategory, ticketsByStatus, ticketCount] = await Promise.all([
+    db.ticket.groupBy({
+      by: ['category'],
+      where: { createdAt: { gte: cutoff } },
+      _count: true,
+    }),
+    db.ticket.groupBy({
+      by: ['status'],
+      where: { createdAt: { gte: cutoff } },
+      _count: true,
+    }),
+    db.ticket.count({ where: { createdAt: { gte: cutoff } } }),
+  ]);
+
+  const ticketStats =
+    `Total tickets (last ${lookbackDays}d): ${ticketCount}\n` +
+    `By category: ${ticketsByCategory.map((g) => `${g.category}: ${g._count}`).join(', ') || 'none'}\n` +
+    `By status: ${ticketsByStatus.map((g) => `${g.status}: ${g._count}`).join(', ') || 'none'}`;
+
+  // 2. Gather AI usage trends
+  const aiUsage = await db.aiUsageLog.groupBy({
+    by: ['taskType'],
+    where: { createdAt: { gte: cutoff } },
+    _sum: { inputTokens: true, outputTokens: true, costUsd: true },
+    _count: true,
+  });
+
+  const aiUsageSummary = aiUsage.length > 0
+    ? aiUsage.map((g: { taskType: string; _count: number; _sum: { inputTokens: number | null; outputTokens: number | null; costUsd: number | null } }) =>
+      `${g.taskType}: ${g._count} calls, ${(g._sum.inputTokens ?? 0) + (g._sum.outputTokens ?? 0)} tokens, $${(g._sum.costUsd ?? 0).toFixed(4)}`,
+    ).join('\n')
+    : 'No AI usage in this period.';
+
+  // 3. Gather error summary via executeLogScan
+  const errorReport = await executeLogScan(
+    { hours: lookbackDays * 24, minLevel: 'ERROR' },
+    deps,
+  );
+
+  // 4. Fetch open GitHub issues (if configured)
+  let issuesSummary = 'GitHub not configured — skipping open issues.';
+  try {
+    const ghSetting = await db.appSetting.findUnique({ where: { key: 'system-config-github' } });
+    const ghConfig = ghSetting?.value as Record<string, unknown> | undefined;
+    const ghTokenRaw = typeof ghConfig?.['token'] === 'string' ? ghConfig['token'] : undefined;
+    const ghRepo = typeof ghConfig?.['repo'] === 'string' ? ghConfig['repo'] : undefined;
+
+    if (ghTokenRaw && ghRepo) {
+      // The token may be AES-256-GCM encrypted in the DB — decrypt if needed
+      const ghToken = (deps.encryptionKey && looksEncrypted(ghTokenRaw))
+        ? decrypt(ghTokenRaw, deps.encryptionKey)
+        : ghTokenRaw;
+      const res = await fetch(`https://api.github.com/repos/${ghRepo}/issues?state=open&per_page=50`, {
+        headers: {
+          Authorization: `Bearer ${ghToken}`,
+          Accept: 'application/vnd.github+json',
+        },
+      });
+      if (res.ok) {
+        const issues = (await res.json()) as Array<{ number: number; title: string }>;
+        issuesSummary = issues.length > 0
+          ? issues.map((i) => `#${i.number}: ${i.title}`).join('\n')
+          : 'No open issues.';
+      } else {
+        issuesSummary = `GitHub API returned ${res.status} — skipping.`;
+      }
+    }
+  } catch (err) {
+    logger.warn({ err }, 'Failed to fetch GitHub issues for app health analysis');
+    issuesSummary = 'Failed to fetch GitHub issues.';
+  }
+
+  // 5. Gather code context via mcp-repo (optional)
+  let codeContext = '';
+  if (effectiveMcpRepoUrl && repoUrl) {
+    try {
+      const searchResult = await callMcpToolViaSdk(
+        effectiveMcpRepoUrl,
+        undefined,
+        'search_code',
+        { repo_url: repoUrl, query: 'TaskType prompt definition route step', max_results: 20 },
+      );
+      codeContext = `## Code Search Results\n${searchResult.slice(0, 4000)}`;
+    } catch (err) {
+      logger.warn({ err }, 'Failed to search code via mcp-repo');
+      codeContext = '(Code search unavailable)';
+    }
+  }
+
+  // 6. Call AI
+  const userPrompt =
+    `## Ticket Statistics (last ${lookbackDays} days)\n${ticketStats}\n\n` +
+    `## AI Usage Trends\n${aiUsageSummary}\n\n` +
+    `## Error Log Summary\n${errorReport.slice(0, 4000)}\n\n` +
+    `## Open GitHub Issues\n${issuesSummary}\n\n` +
+    (codeContext ? `${codeContext}\n\n` : '');
+
+  const response = await ai.generate({
+    taskType: TaskType.ANALYZE_APP_HEALTH,
+    prompt: userPrompt,
+    promptKey: 'system-analysis.app-health.system',
+    context: { entityType: 'system' },
+  });
+
+  // 7. Parse and store
+  const content = response.content;
+  const suggestionsIdx = content.indexOf('## Suggestions');
+  const analysisIdx = content.indexOf('## Analysis');
+
+  let analysis: string;
+  let suggestions: string;
+
+  if (analysisIdx !== -1 && suggestionsIdx !== -1) {
+    const analysisStart = analysisIdx + '## Analysis'.length;
+    const suggestionsStart = suggestionsIdx + '## Suggestions'.length;
+    if (analysisIdx < suggestionsIdx) {
+      analysis = content.substring(analysisStart, suggestionsIdx).trim();
+      suggestions = content.substring(suggestionsStart).trim();
+    } else {
+      suggestions = content.substring(suggestionsStart, analysisIdx).trim();
+      analysis = content.substring(analysisStart).trim();
+    }
+  } else if (analysisIdx !== -1) {
+    analysis = content.substring(analysisIdx + '## Analysis'.length).trim();
+    suggestions = '';
+  } else {
+    analysis = content.trim();
+    suggestions = '';
+  }
+
+  await db.systemAnalysis.create({
+    data: {
+      clientId: SELF_CLIENT_ID,
+      ticketId: null,
+      triggerType: SystemAnalysisTriggerType.SCHEDULED,
+      analysis,
+      suggestions,
+      aiModel: response.model,
+      aiProvider: response.provider,
+    },
+  });
+
+  const suggestionLines = suggestions.split('\n').filter((l) => l.trim().length > 0);
+  const topSuggestion = suggestionLines[0] ?? 'No suggestions.';
+
+  return `Created system analysis with ${suggestionLines.length} suggestion(s). Top suggestion: ${topSuggestion.slice(0, 200)}`;
 }

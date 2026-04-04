@@ -45,6 +45,7 @@ interface ProbeWorkerDeps {
   mailer: Mailer | null;
   encryptionKey: string;
   artifactStoragePath: string;
+  mcpRepoUrl?: string;
   /** Optional BullMQ queue for ticket-created events — legacy path, used when no ingestion route is configured. */
   ticketCreatedQueue?: Queue<TicketCreatedJob>;
   /** BullMQ queue for the ingestion engine — probe results are submitted here for route-driven processing. */
@@ -253,7 +254,7 @@ async function executeProbe(
         // Built-in tool: execute locally, no MCP integration needed.
         const stepId = await tracker.startStep('Execute built-in tool');
         try {
-          toolResult = await builtinHandler(probe.toolParams, { db });
+          toolResult = await builtinHandler(probe.toolParams, { db, ai, encryptionKey, mcpRepoUrl: deps.mcpRepoUrl });
           await tracker.completeStep(stepId, toolResult.slice(0, 4000));
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);

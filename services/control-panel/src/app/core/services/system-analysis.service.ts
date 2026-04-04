@@ -57,4 +57,12 @@ export class SystemAnalysisService {
   regenerate(id: string): Observable<{ message: string }> {
     return this.api.post<{ message: string }>(`/system-analyses/${id}/regenerate`, {});
   }
+
+  reopen(id: string): Observable<SystemAnalysis> {
+    return this.api.patch<SystemAnalysis>(`/system-analyses/${id}/reopen`, {});
+  }
+
+  delete(id: string): Observable<void> {
+    return this.api.delete<void>(`/system-analyses/${id}`);
+  }
 }

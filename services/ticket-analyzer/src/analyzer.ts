@@ -8,7 +8,7 @@ import type { PrismaClient } from '@bronco/db';
 import type { TicketCategory, Priority, TicketStatus, TicketSource, AnalysisJob } from '@bronco/shared-types';
 import { AIRouter } from '@bronco/ai-provider';
 import { TaskType, RouteStepType, isClosedStatus, AnalysisStatus, SufficiencyStatus, SufficiencyConfidence } from '@bronco/shared-types';
-import { createLogger, AppLogger, createPrismaLogWriter, decrypt, looksEncrypted, MCP_TOOL_TIMEOUT_MS, mcpUrl, callMcpToolViaSdk, notifyOperators as notifyOperatorsFn } from '@bronco/shared-utils';
+import { createLogger, AppLogger, createPrismaLogWriter, decrypt, looksEncrypted, MCP_TOOL_TIMEOUT_MS, mcpUrl, callMcpToolViaSdk, notifyOperators as notifyOperatorsFn, getSelfAnalysisConfig } from '@bronco/shared-utils';
 import type { AIToolDefinition, AIMessage, AIToolUseBlock, AITextBlock, AIToolResponse, AIToolResultBlock } from '@bronco/shared-types';
 import type { Mailer, ReplyOptions } from '@bronco/shared-utils';
 import { executeRecommendations } from './recommendation-executor.js';
@@ -320,6 +320,8 @@ export interface AnalyzerDeps {
   apiKey?: string;
   /** MCP auth token for authenticating to mcp-repo (Bearer header, takes precedence over apiKey). */
   mcpAuthToken?: string;
+  /** Optional BullMQ queue for self-analysis triggers (post-pipeline analysis). */
+  selfAnalysisQueue?: import('bullmq').Queue;
 }
 
 // ---------------------------------------------------------------------------
@@ -1952,6 +1954,7 @@ async function executeOrchestratedSubTask(
   clientId: string,
   category: string,
   clientContext: string,
+  environmentContext: string,
   task: { prompt: string; tools: string[]; model: string },
   agenticTools: AIToolDefinition[],
   mcpIntegrations: Map<string, McpIntegrationInfo>,
@@ -1964,11 +1967,12 @@ async function executeOrchestratedSubTask(
   let inputTokens = 0;
   let outputTokens = 0;
 
-  // If client context was already injected into the strategist prompt, skip AIRouter
+  // If client/environment context was already injected into the strategist prompt, skip AIRouter
   // re-injection for sub-tasks to avoid duplicating it in every sub-task system prompt.
   const skipClientMemory = !!clientContext;
-  const subTaskSystemPrompt = clientContext
-    ? `Execute the requested investigation step. Call the relevant tools, analyze the results, and return a structured summary of your findings.\n\n${clientContext}`
+  const combinedContext = [clientContext, environmentContext].filter(Boolean).join('\n\n');
+  const subTaskSystemPrompt = combinedContext
+    ? `Execute the requested investigation step. Call the relevant tools, analyze the results, and return a structured summary of your findings.\n\n${combinedContext}`
     : 'Execute the requested investigation step. Call the relevant tools, analyze the results, and return a structured summary of your findings.';
 
   // Resolve tools using ranked matching (exact → base name → substring → fuzzy)
@@ -2210,6 +2214,7 @@ interface PipelineInitialState {
     keywords?: string[];
   };
   clientContext?: string;
+  environmentContext?: string;
 }
 
 /**
@@ -2255,6 +2260,7 @@ async function executeRoutePipeline(
     keywords?: string[];
   } = initialState?.facts ?? {};
   let clientContext = initialState?.clientContext ?? '';
+  let environmentContext = initialState?.environmentContext ?? '';
   let codeContext: string[] = [];
   let dbContext = '';
   let analysis = '';
@@ -2530,6 +2536,29 @@ async function executeRoutePipeline(
         break;
       }
 
+      case RouteStepType.LOAD_ENVIRONMENT_CONTEXT: {
+        if (!ticket?.environmentId) {
+          appLog.info('No environment on ticket, skipping environment context load', { ticketId }, ticketId, 'ticket');
+          stepsSkipped++;
+          break;
+        }
+        const environment = await db.clientEnvironment.findFirst({
+          where: { id: ticket.environmentId, clientId },
+          select: { name: true, tag: true, operationalInstructions: true },
+        });
+        if (environment?.operationalInstructions?.trim()) {
+          const label = environment.tag ? `${environment.name} (${environment.tag})` : environment.name;
+          environmentContext = `## Environment: ${label}\n\n${environment.operationalInstructions.trim()}`;
+          appLog.info(
+            `Loaded environment context for "${environment.name}"`,
+            { ticketId, environmentId: ticket.environmentId },
+            ticketId, 'ticket',
+          );
+        }
+        stepsSucceeded++;
+        break;
+      }
+
       case RouteStepType.EXTRACT_FACTS: {
         const promptKey = step.promptKeyOverride ?? 'imap.extract-facts.system';
         const taskType = (step.taskTypeOverride ?? TaskType.EXTRACT_FACTS) as TaskType;
@@ -2715,6 +2744,7 @@ async function executeRoutePipeline(
           'Analyze this support issue and provide a clear diagnosis and recommended fix.',
           '', '## Issue', `Subject: ${emailSubject}`, `Category: ${category}`, `Priority: ${priority}`, '', emailBody, '',
           ...(clientContext ? [clientContext, ''] : []),
+          ...(environmentContext ? [environmentContext, ''] : []),
           ...(codeContext.length > 0 ? ['## Relevant Source Code', '', ...codeContext, ''] : []),
           ...(dbContext ? ['## Database Information', '', dbContext, ''] : []),
           '', '## Instructions', 'Provide:',
@@ -2834,6 +2864,7 @@ async function executeRoutePipeline(
           const contextParts: string[] = [ticketContext];
           if (summary) contextParts.push(`\n## Summary\n${summary}`);
           if (clientContext) contextParts.push(`\n${clientContext}`);
+          if (environmentContext) contextParts.push(`\n${environmentContext}`);
           if (facts.keywords?.length) contextParts.push(`\n## Key Terms\n${facts.keywords.join(', ')}`);
           if (dbContext) contextParts.push(`\n## DB Context\n${dbContext}`);
           if (codeContext.length > 0) contextParts.push(`\n## Code Context\n${codeContext.join('\n')}`);
@@ -2906,7 +2937,7 @@ async function executeRoutePipeline(
             const taskBatches = chunkArray(plan.tasks, maxParallelTasks);
             for (const batch of taskBatches) {
               const results = await Promise.allSettled(
-                batch.map(task => executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, task, agenticTools, mcpIntegrations, repoIdByPrefix)),
+                batch.map(task => executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, environmentContext, task, agenticTools, mcpIntegrations, repoIdByPrefix)),
               );
 
               for (let j = 0; j < results.length; j++) {
@@ -2920,7 +2951,7 @@ async function executeRoutePipeline(
                 } else {
                   // Retry once on failure
                   try {
-                    const retryResult = await executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, task, agenticTools, mcpIntegrations, repoIdByPrefix);
+                    const retryResult = await executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, environmentContext, task, agenticTools, mcpIntegrations, repoIdByPrefix);
                     knowledgeDoc += `\n\n#### ${task.prompt} (retry)\n${retryResult.content}`;
                     orchTotalInputTokens += retryResult.inputTokens;
                     orchTotalOutputTokens += retryResult.outputTokens;
@@ -3046,6 +3077,7 @@ async function executeRoutePipeline(
 
         if (summary) systemParts.push('', `## Summary`, summary);
         if (clientContext) systemParts.push('', clientContext);
+        if (environmentContext) systemParts.push('', environmentContext);
         if (facts.keywords?.length) systemParts.push('', `## Key Terms`, facts.keywords.join(', '));
         if (codeContext.length > 0) systemParts.push('', '## Previously Gathered Code Context', ...codeContext);
         if (dbContext) systemParts.push('', '## Previously Gathered DB Context', dbContext);
@@ -3078,7 +3110,7 @@ async function executeRoutePipeline(
               systemPrompt: agenticSystemPrompt,
               tools: agenticTools,
               messages,
-              context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!clientContext },
+              context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!(clientContext || environmentContext) },
               maxTokens: 4096,
             });
           } catch (error) {
@@ -3290,6 +3322,7 @@ async function executeRoutePipeline(
 
         // Include accumulated pipeline context if available
         if (clientContext) updatePromptParts.push('', clientContext);
+        if (environmentContext) updatePromptParts.push('', environmentContext);
         if (summary) updatePromptParts.push('', '## Ticket Summary', summary);
 
         // Add sufficiency evaluation instructions so the update also signals readiness
@@ -3303,7 +3336,7 @@ async function executeRoutePipeline(
             entityId: ticketId,
             entityType: 'ticket',
             ticketCategory: category,
-            skipClientMemory: !!clientContext,
+            skipClientMemory: !!(clientContext || environmentContext),
           },
           prompt: updatePromptParts.join('\n'),
           systemPrompt: 'You are reviewing a prior analysis in light of new information from the user. Focus on what has changed — do not repeat the full analysis. Be concise and specific.',
@@ -3405,6 +3438,7 @@ async function executeRoutePipeline(
           includeContext?: {
             ticket?: boolean;
             clientContext?: boolean;
+            environmentContext?: boolean;
             codeContext?: boolean;
             dbContext?: boolean;
             facts?: boolean;
@@ -3429,6 +3463,9 @@ async function executeRoutePipeline(
         }
         if (inc.clientContext && clientContext) {
           promptParts.push(clientContext, '');
+        }
+        if ((inc.environmentContext ?? inc.clientContext) && environmentContext) {
+          promptParts.push(environmentContext, '');
         }
         if (inc.codeContext && codeContext.length > 0) {
           promptParts.push('## Code Context', '', ...codeContext, '');
@@ -3904,7 +3941,7 @@ async function executeRoutePipeline(
             ctx,
             dispatchedRoute,
             bullmqJobId,
-            { summary, category, priority, facts, clientContext },
+            { summary, category, priority, facts, clientContext, environmentContext },
             dispatchDepth + 1,
             reanalysisCtx,
           );
@@ -4331,6 +4368,22 @@ export function createAnalysisProcessor(deps: AnalyzerDeps) {
         ticketId,
         'ticket',
       );
+
+      // Post-analysis self-analysis trigger
+      if (deps.selfAnalysisQueue) {
+        try {
+          const selfCfg = await getSelfAnalysisConfig(deps.db);
+          if (selfCfg.postAnalysisTrigger && ticketId) {
+            await deps.selfAnalysisQueue.add(
+              'analyze-post-pipeline',
+              { ticketId, triggerType: 'POST_ANALYSIS' },
+              { jobId: `post-pipeline-${ticketId}-${Date.now()}` },
+            );
+          }
+        } catch (triggerErr) {
+          appLog.error('Failed to enqueue post-analysis self-analysis', { err: triggerErr, ticketId }, ticketId, 'ticket');
+        }
+      }
     } catch (err) {
       const rawMsg = err instanceof Error ? err.message : String(err);
       const analysisError = redactUrls(rawMsg).slice(0, 1000);

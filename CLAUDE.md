@@ -11,7 +11,7 @@ AI-augmented database and software architecture operations platform. Single-oper
 - **Client databases**: Azure SQL Managed Instances (primary, SQL cred auth), on-prem SQL Server (future clients). Connected via MCP database server (Node.js/Express) running on Hugo in Docker Compose. The MCP server reads system configs directly from the control plane Postgres `System` table and decrypts passwords using `ENCRYPTION_KEY`.
 - **MCP Platform Server**: Exposes all Bronco platform operations (tickets, clients, contacts, probes, AI usage, etc.) as MCP tools. Uses Prisma directly (no HTTP hop to copilot-api). Runs on Hugo in Docker Compose (port 3110).
 - **AI routing**: Local Ollama for triage/categorize/summarize/extract; Claude API for deep analysis, code review, architecture review, bug analysis, schema review, feature analysis.
-- **Hugo** (control plane VM): Ubuntu 24.04 LTS on ESXi NUC. Runs copilot-api (Fastify), imap-worker, ticket-analyzer, devops-worker, issue-resolver, status-monitor, slack-worker, scheduler-worker, mcp-database, mcp-platform, Postgres, Redis, Caddy via Docker Compose.
+- **Hugo** (control plane VM): Ubuntu 24.04 LTS on ESXi NUC. Runs copilot-api (Fastify), imap-worker, ticket-analyzer, devops-worker, issue-resolver, status-monitor, slack-worker, scheduler-worker, mcp-database, mcp-platform, mcp-repo, Postgres, Redis, Caddy via Docker Compose.
 - **Mac mini (siiriaplex)**: Runs Ollama for local LLM inference.
 - **CI/CD**: GitHub Actions — CI runs on push to `staging` (typecheck + build), not on every PR update. Feature branches PR into `staging`; staging PRs into `master`. Pushes to `master` that change app-relevant paths (packages/, services/, mcp-servers/, docker-compose.yml, lockfile) auto-tag a semver release (`tag-release.yml`), which triggers deploy-hugo (GHCR + SSH via Tailscale). Docs-only or workflow-only changes do not trigger a release or deploy. To bump major/minor, push a tag manually before merging staging → master.
 
@@ -137,8 +137,10 @@ System prompts for each task are registered in `packages/ai-provider/src/prompts
 - `CHANGE_CODEBASE_SMALL` — Small-scope codebase modifications
 - `CHANGE_CODEBASE_LARGE` — Large-scope codebase modifications
 - `ANALYZE_TICKET_CLOSURE` — Post-closure analysis for system improvement suggestions
+- `EXTRACT_CLIENT_LEARNINGS` — Extract client-specific knowledge from resolved tickets into client memory
 - `GENERATE_RESOLUTION_PLAN` — Generate a resolution plan for operator review before code execution
 - `CUSTOM_AI_QUERY` — Flexible configurable AI query within a route pipeline (task type and model overridable per step)
+- `ANALYZE_APP_HEALTH` — Scheduled platform health analysis — ticket patterns, AI usage trends, error logs, and codebase review
 
 ### Task Type Discipline (CRITICAL)
 
@@ -196,28 +198,37 @@ Ticket routes define configurable analysis pipelines executed when tickets are p
 
 | Phase | Steps | Description |
 |-------|-------|-------------|
-| **Phase 1: Triage** | SUMMARIZE_EMAIL, CATEGORIZE, TRIAGE_PRIORITY, DRAFT_RECEIPT, GENERATE_TITLE | Fast initial processing |
-| **Context Loading** | LOAD_CLIENT_CONTEXT | Inject per-client memories and playbooks |
-| **Phase 2: Analysis** | EXTRACT_FACTS, GATHER_REPO_CONTEXT, GATHER_DB_CONTEXT, DEEP_ANALYSIS, DRAFT_FINDINGS_EMAIL, SUGGEST_NEXT_STEPS, UPDATE_TICKET_SUMMARY, CUSTOM_AI_QUERY | Comprehensive AI analysis with full context |
+| **Ingestion** | RESOLVE_THREAD, SUMMARIZE_EMAIL, CATEGORIZE, TRIAGE_PRIORITY, DRAFT_RECEIPT, GENERATE_TITLE, CREATE_TICKET | Source-specific ticket enrichment and creation |
+| **Context Loading** | LOAD_CLIENT_CONTEXT, LOAD_ENVIRONMENT_CONTEXT | Inject per-client memories, playbooks, and environment instructions |
+| **Analysis** | EXTRACT_FACTS, GATHER_REPO_CONTEXT, GATHER_DB_CONTEXT, DEEP_ANALYSIS, AGENTIC_ANALYSIS, UPDATE_ANALYSIS, DRAFT_FINDINGS_EMAIL, SUGGEST_NEXT_STEPS, UPDATE_TICKET_SUMMARY, CUSTOM_AI_QUERY | Comprehensive AI analysis with full context |
+| **Dispatch** | NOTIFY_OPERATOR, DISPATCH_TO_ROUTE, ADD_FOLLOWER | Notification, routing, and follow-up actions |
 
 ### Step Type Reference
 
 | Step Type | Phase | AI Task | Description |
 |-----------|-------|---------|-------------|
-| `SUMMARIZE_EMAIL` | Triage | SUMMARIZE | Condense email threads |
-| `CATEGORIZE` | Triage | CATEGORIZE | Classify into TicketCategory |
-| `TRIAGE_PRIORITY` | Triage | TRIAGE | Set priority level |
-| `DRAFT_RECEIPT` | Triage | DRAFT_EMAIL | Generate auto-reply |
-| `GENERATE_TITLE` | Triage | GENERATE_TITLE | Create ticket title |
+| `RESOLVE_THREAD` | Ingestion | — | Email threading (Message-ID + subject fallback, client-scoped) |
+| `SUMMARIZE_EMAIL` | Ingestion | SUMMARIZE | Condense email threads |
+| `CATEGORIZE` | Ingestion | CATEGORIZE | Classify into TicketCategory |
+| `TRIAGE_PRIORITY` | Ingestion | TRIAGE | Set priority level |
+| `DRAFT_RECEIPT` | Ingestion | DRAFT_EMAIL | Generate auto-reply |
+| `GENERATE_TITLE` | Ingestion | GENERATE_TITLE | Create ticket title |
+| `CREATE_TICKET` | Ingestion | — | Create ticket with requester linking and deduplication |
 | `LOAD_CLIENT_CONTEXT` | Context | — | Inject client memories |
+| `LOAD_ENVIRONMENT_CONTEXT` | Context | — | Loads the ticket's environment `operationalInstructions` and injects them into the pipeline context for downstream analysis steps |
 | `EXTRACT_FACTS` | Analysis | EXTRACT_FACTS | Pull structured data |
 | `GATHER_REPO_CONTEXT` | Analysis | — | Load code from repos via MCP |
 | `GATHER_DB_CONTEXT` | Analysis | — | Load DB schema/metrics via MCP |
 | `DEEP_ANALYSIS` | Analysis | DEEP_ANALYSIS | Comprehensive Claude analysis |
+| `AGENTIC_ANALYSIS` | Analysis | DEEP_ANALYSIS | Claude analysis with MCP tool loops (agentic) |
+| `UPDATE_ANALYSIS` | Analysis | DEEP_ANALYSIS | Incremental analysis for reply handling (delta, not full re-run) |
 | `DRAFT_FINDINGS_EMAIL` | Analysis | DRAFT_EMAIL | Compose findings email |
 | `SUGGEST_NEXT_STEPS` | Analysis | SUGGEST_NEXT_STEPS | Recommend actions |
 | `UPDATE_TICKET_SUMMARY` | Analysis | — | Finalize ticket summary |
 | `CUSTOM_AI_QUERY` | Analysis | CUSTOM_AI_QUERY | Configurable AI query with selectable context sources and optional fresh MCP/repo searches |
+| `NOTIFY_OPERATOR` | Dispatch | — | Send notification to operator |
+| `DISPATCH_TO_ROUTE` | Dispatch | — | Dispatch ticket to another route for further processing |
+| `ADD_FOLLOWER` | Dispatch | — | Add a follower to the ticket |
 
 Routes are managed via `POST/PATCH/DELETE /api/ticket-routes` and configured per-client in the control panel. Each route can target a specific `TicketCategory` or apply to all categories.
 
@@ -353,13 +364,17 @@ pnpm dev:portal           # Start ticket portal (Angular, port 4201)
 | `services/copilot-api/src/routes/email-logs.ts` | Email processing log API: list/filter logs, stats summary, retry and reclassify endpoints. |
 | `services/slack-worker/src/index.ts` | Slack worker entry: system + per-client Slack Socket Mode connections, interaction handlers. |
 | `services/scheduler-worker/src/index.ts` | Scheduler worker entry: BullMQ cron workers (log-summarize, system-analysis, mcp-discovery, model-catalog-refresh, prompt-retention), auto-invoicing, operational alerts. |
+| `services/scheduler-worker/src/system-analyzer.ts` | System analysis dispatcher (TICKET_CLOSE, POST_ANALYSIS, SCHEDULED trigger types). |
+| `services/ticket-analyzer/src/client-learning-worker.ts` | Client learning extraction from resolved tickets → client memory. |
+| `services/ticket-analyzer/src/recommendation-executor.ts` | Executes system analysis recommendations (operational tasks). |
+| `services/probe-worker/src/builtin-tools.ts` | Built-in probe tool definitions (scan_app_logs, analyze_app_health). |
 
 ## Adding a New Service or Worker
 
 Every new service or worker **must** integrate with the operational infrastructure before it ships. Follow this checklist:
 
 ### Health & Monitoring
-1. **Health endpoint** — Use `createHealthServer(name, port, { getDetails })` from shared-utils. Pick the next available `HEALTH_PORT` (current: imap-worker=3101, devops-worker=3102, issue-resolver=3103, status-monitor=3105, ticket-analyzer=3106, probe-worker=3107, slack-worker=3108, scheduler-worker=3109, mcp-platform=3110). Note: copilot-api uses port 3000 for its API server with a `/api/health` route, not a separate health port. MCP servers use their main Express port for `/health`.
+1. **Health endpoint** — Use `createHealthServer(name, port, { getDetails })` from shared-utils. Pick the next available `HEALTH_PORT` (current: imap-worker=3101, devops-worker=3102, issue-resolver=3103, status-monitor=3105, ticket-analyzer=3106, probe-worker=3107, slack-worker=3108, scheduler-worker=3109, mcp-platform=3110, mcp-repo=3111). Note: copilot-api uses port 3000 for its API server with a `/api/health` route, not a separate health port. MCP servers use their main Express port for `/health`.
 2. **Structured logging** — Use `createLogger(name)` from shared-utils (Pino, writes to stderr).
 3. **Zod config** — Validate all env vars via `loadConfig(schema)` from shared-utils.
 
