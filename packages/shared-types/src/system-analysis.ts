@@ -16,8 +16,9 @@ export type SystemAnalysisTriggerType =
 
 export interface SystemAnalysis {
   id: string;
-  ticketId: string;
+  ticketId: string | null;
   clientId: string;
+  triggerType: SystemAnalysisTriggerType;
   status: SystemAnalysisStatus;
   analysis: string;
   suggestions: string;

@@ -1,7 +1,7 @@
 import { getDb, disconnectDb } from '@bronco/db';
 import { Prisma } from '@bronco/db';
 import { createAIRouter } from '@bronco/ai-provider';
-import { IntegrationType } from '@bronco/shared-types';
+import { IntegrationType, SystemAnalysisTriggerType } from '@bronco/shared-types';
 import { createLogger, createQueue, createWorker, AppLogger, createPrismaLogWriter, setGlobalLogWriter, createHealthServer, createGracefulShutdown, decrypt } from '@bronco/shared-utils';
 import { z } from 'zod';
 import { join } from 'node:path';
@@ -66,7 +66,7 @@ async function main(): Promise<void> {
   );
 
   // System analysis worker (ticket-close + post-analysis triggers)
-  const systemAnalysisWorker = createWorker<{ ticketId?: string; triggerType?: string }>(
+  const systemAnalysisWorker = createWorker<{ ticketId?: string; triggerType?: SystemAnalysisTriggerType }>(
     'system-analysis',
     config.REDIS_URL,
     async (job) => {

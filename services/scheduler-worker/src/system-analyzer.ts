@@ -15,7 +15,7 @@ const MAX_DEDUP_ENTRY_LENGTH = 300;
 export async function runSystemAnalysis(
   db: PrismaClient,
   ai: AIRouter,
-  job: { ticketId?: string; triggerType?: string },
+  job: { ticketId?: string; triggerType?: SystemAnalysisTriggerType },
 ): Promise<void> {
   const triggerType = job.triggerType ?? SystemAnalysisTriggerType.TICKET_CLOSE;
   if (triggerType === SystemAnalysisTriggerType.POST_ANALYSIS && job.ticketId) {
