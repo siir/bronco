@@ -1,6 +1,6 @@
 import type { PrismaClient } from '@bronco/db';
 import type { AIRouter } from '@bronco/ai-provider';
-import { TaskType } from '@bronco/shared-types';
+import { TaskType, SELF_CLIENT_ID } from '@bronco/shared-types';
 import { createLogger } from '@bronco/shared-utils';
 
 const logger = createLogger('system-analyzer');
@@ -8,6 +8,22 @@ const logger = createLogger('system-analyzer');
 const MAX_EVENTS = 50;
 const MAX_EVENT_CONTENT = 500;
 const MAX_DEDUP_ENTRY_LENGTH = 300;
+
+/**
+ * Dispatches system analysis based on trigger type.
+ */
+export async function runSystemAnalysis(
+  db: PrismaClient,
+  ai: AIRouter,
+  job: { ticketId?: string; triggerType?: string },
+): Promise<void> {
+  const triggerType = job.triggerType ?? 'TICKET_CLOSE';
+  if (triggerType === 'POST_ANALYSIS' && job.ticketId) {
+    await analyzePostPipeline(db, ai, job.ticketId);
+  } else if (job.ticketId) {
+    await analyzeTicketClosure(db, ai, job.ticketId);
+  }
+}
 
 /**
  * Analyzes a closed ticket and generates system improvement suggestions.
@@ -162,4 +178,141 @@ export async function analyzeTicketClosure(
     logger.error({ err, ticketId }, 'Failed to analyze ticket closure');
     throw err;
   }
+}
+
+/**
+ * Analyzes a completed ticket analysis pipeline for efficiency.
+ * Queries AI usage records and ingestion run steps to identify cost/quality improvements.
+ */
+async function analyzePostPipeline(
+  db: PrismaClient,
+  ai: AIRouter,
+  ticketId: string,
+): Promise<void> {
+  const ticket = await db.ticket.findUnique({
+    where: { id: ticketId },
+    include: {
+      client: { select: { id: true, name: true, shortCode: true } },
+    },
+  });
+
+  if (!ticket) {
+    logger.warn({ ticketId }, 'Ticket not found for post-pipeline analysis');
+    return;
+  }
+
+  // Fetch AI usage records for this ticket
+  const aiUsage = await db.aiUsageLog.findMany({
+    where: { entityId: ticketId, entityType: 'ticket' },
+    orderBy: { createdAt: 'asc' },
+    select: {
+      taskType: true,
+      model: true,
+      provider: true,
+      inputTokens: true,
+      outputTokens: true,
+      costUsd: true,
+      durationMs: true,
+      createdAt: true,
+    },
+  });
+
+  // Fetch ingestion run steps for this ticket
+  const ingestionRuns = await db.ingestionRun.findMany({
+    where: { ticketId },
+    include: {
+      steps: { orderBy: { stepOrder: 'asc' } },
+    },
+    orderBy: { startedAt: 'desc' },
+    take: 1,
+  });
+
+  const latestRun = ingestionRuns[0];
+  const stepsLog = latestRun?.steps
+    ? latestRun.steps.map((s: { stepOrder: number; stepName: string; stepType: string; status: string; durationMs: number | null }) =>
+        `Step ${s.stepOrder}: ${s.stepName} (${s.stepType}) — ${s.status}${s.durationMs ? ` (${s.durationMs}ms)` : ''}`,
+      ).join('\n')
+    : 'No ingestion run found';
+
+  const aiUsageLog = aiUsage.map((u) =>
+    `${u.taskType} (${u.provider}/${u.model}): ${u.inputTokens ?? 0}+${u.outputTokens ?? 0} tokens, ${u.durationMs ?? 0}ms, $${(u.costUsd ?? 0).toFixed(4)}`,
+  ).join('\n') || 'No AI usage records found';
+
+  const totalTokens = aiUsage.reduce((sum, u) => sum + (u.inputTokens ?? 0) + (u.outputTokens ?? 0), 0);
+  const totalCost = aiUsage.reduce((sum, u) => sum + (u.costUsd ?? 0), 0);
+
+  const userPrompt =
+    `## Ticket\n` +
+    `- **Subject**: ${ticket.subject}\n` +
+    `- **Category**: ${ticket.category ?? 'N/A'}\n` +
+    `- **Client**: ${ticket.client.name} (${ticket.client.shortCode})\n\n` +
+    `## Pipeline Steps\n${stepsLog}\n\n` +
+    `## AI Usage (${aiUsage.length} calls, ${totalTokens} total tokens, $${totalCost.toFixed(4)} total cost)\n${aiUsageLog}`;
+
+  try {
+    const response = await ai.generate({
+      taskType: TaskType.ANALYZE_TICKET_CLOSURE,
+      prompt: userPrompt,
+      promptKey: 'system-analysis.post-analysis.system',
+      context: { entityId: ticketId, entityType: 'ticket', clientId: ticket.clientId },
+    });
+
+    const content = response.content;
+    const { analysis, suggestions } = parseSections(content);
+
+    await db.systemAnalysis.create({
+      data: {
+        ticketId,
+        clientId: ticket.clientId,
+        triggerType: 'POST_ANALYSIS',
+        analysis,
+        suggestions,
+        aiModel: response.model,
+        aiProvider: response.provider,
+      },
+    });
+
+    logger.info(
+      { ticketId, provider: response.provider, model: response.model },
+      'Post-pipeline analysis completed',
+    );
+  } catch (err) {
+    logger.error({ err, ticketId }, 'Failed to analyze post-pipeline');
+    throw err;
+  }
+}
+
+/** Parse ## Analysis and ## Suggestions sections from AI response. */
+function parseSections(content: string): { analysis: string; suggestions: string } {
+  const suggestionsIdx = content.indexOf('## Suggestions');
+  const analysisIdx = content.indexOf('## Analysis');
+
+  if (analysisIdx !== -1 && suggestionsIdx !== -1) {
+    const analysisStart = analysisIdx + '## Analysis'.length;
+    const suggestionsStart = suggestionsIdx + '## Suggestions'.length;
+
+    if (analysisIdx < suggestionsIdx) {
+      return {
+        analysis: content.substring(analysisStart, suggestionsIdx).trim(),
+        suggestions: content.substring(suggestionsStart).trim(),
+      };
+    } else {
+      return {
+        suggestions: content.substring(suggestionsStart, analysisIdx).trim(),
+        analysis: content.substring(analysisStart).trim(),
+      };
+    }
+  } else if (analysisIdx !== -1) {
+    return {
+      analysis: content.substring(analysisIdx + '## Analysis'.length).trim(),
+      suggestions: '',
+    };
+  } else if (suggestionsIdx !== -1) {
+    const before = content.substring(0, suggestionsIdx).trim();
+    return {
+      suggestions: content.substring(suggestionsIdx + '## Suggestions'.length).trim(),
+      analysis: before || content.trim(),
+    };
+  }
+  return { analysis: content.trim(), suggestions: '' };
 }

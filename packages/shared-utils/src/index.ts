@@ -18,5 +18,7 @@ export type { OperatorRecord, NotifyOperatorsOpts, NotifyOperatorsResult, SlackS
 export { loadSmtpFromDb } from './smtp-loader.js';
 export { loadImapFromDb } from './imap-loader.js';
 export type { ImapDbConfig } from './imap-loader.js';
+export { getSelfAnalysisConfig } from './self-analysis-config.js';
+export type { SelfAnalysisConfig } from './self-analysis-config.js';
 export { SlackClient } from './slack-client.js';
 export type { SlackClientOpts, SlackMessageResult, SlackBlockAction, SlackThreadMessage, SlackMentionEvent, SlackDirectMessageEvent, BlockActionHandler, ThreadMessageHandler, MentionHandler, DirectMessageHandler } from './slack-client.js';

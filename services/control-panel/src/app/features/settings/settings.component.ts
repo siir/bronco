@@ -26,6 +26,7 @@ import {
   SettingsService,
   TicketStatusConfig,
   TicketCategoryConfig,
+  SelfAnalysisConfig,
 } from '../../core/services/settings.service';
 import { ExternalServiceDialogComponent } from './external-service-dialog.component';
 import { StatusConfigDialogComponent } from './status-config-dialog.component';
@@ -489,6 +490,69 @@ import { CategoryConfigDialogComponent } from './category-config-dialog.componen
           </mat-card>
         </div>
       </mat-tab>
+      <!-- Self Analysis tab -->
+      <mat-tab label="Self Analysis">
+        <div class="tab-content">
+          <mat-card>
+            <mat-card-header>
+              <mat-card-title>Self Analysis</mat-card-title>
+            </mat-card-header>
+            <mat-card-content>
+              <p class="hint">
+                Configure triggers for Bronco to analyze its own operations and suggest improvements.
+                Results appear on the System Analysis page.
+              </p>
+
+              @if (selfAnalysisLoading()) {
+                <mat-spinner diameter="24"></mat-spinner>
+              } @else {
+                <div class="self-analysis-toggles">
+                  <mat-slide-toggle
+                    color="primary"
+                    [checked]="selfAnalysisPostAnalysis()"
+                    (change)="updateSelfAnalysis({ postAnalysisTrigger: $event.checked })"
+                  >
+                    Post-analysis trigger
+                  </mat-slide-toggle>
+                  <p class="alert-desc">After each ticket analysis pipeline completes, review the run for token usage, model selection, and route efficiency.</p>
+
+                  <mat-slide-toggle
+                    color="primary"
+                    [checked]="selfAnalysisTicketClose()"
+                    (change)="updateSelfAnalysis({ ticketCloseTrigger: $event.checked })"
+                  >
+                    Ticket close trigger
+                  </mat-slide-toggle>
+                  <p class="alert-desc">When a ticket is closed, analyze its lifecycle for process improvements and knowledge gaps.</p>
+
+                  <mat-slide-toggle
+                    color="primary"
+                    [checked]="selfAnalysisScheduled()"
+                    (change)="updateSelfAnalysis({ scheduledEnabled: $event.checked })"
+                  >
+                    Scheduled analysis
+                  </mat-slide-toggle>
+                  <p class="alert-desc">Run a periodic health analysis of the entire platform (ticket patterns, AI usage, error logs).</p>
+                </div>
+
+                @if (selfAnalysisScheduled()) {
+                  <mat-form-field class="full-width" style="margin-top: 16px;">
+                    <mat-label>Cron Expression</mat-label>
+                    <input matInput [value]="selfAnalysisCron()" (blur)="updateSelfAnalysis({ scheduledCron: $any($event.target).value })">
+                    <mat-hint>Standard cron (e.g., "0 9 * * 1" = Monday 9am UTC)</mat-hint>
+                  </mat-form-field>
+
+                  <mat-form-field class="full-width">
+                    <mat-label>Repository URL</mat-label>
+                    <input matInput [value]="selfAnalysisRepoUrl()" (blur)="updateSelfAnalysis({ repoUrl: $any($event.target).value })">
+                    <mat-hint>Git repo URL for code-aware analysis via mcp-repo</mat-hint>
+                  </mat-form-field>
+                }
+              }
+            </mat-card-content>
+          </mat-card>
+        </div>
+      </mat-tab>
     </mat-tab-group>
   `,
   styles: [`
@@ -593,6 +657,11 @@ import { CategoryConfigDialogComponent } from './category-config-dialog.componen
       font-weight: 500;
     }
     .action-safety-table { margin-bottom: 16px; }
+    .self-analysis-toggles {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
   `],
 })
 export class SettingsComponent implements OnInit {
@@ -642,13 +711,21 @@ export class SettingsComponent implements OnInit {
   analysisStrategyLoading = signal(true);
   analysisStrategySaving = signal(false);
 
+  // Self Analysis tab
+  selfAnalysisLoading = signal(true);
+  selfAnalysisPostAnalysis = signal(false);
+  selfAnalysisTicketClose = signal(true);
+  selfAnalysisScheduled = signal(false);
+  selfAnalysisCron = signal('0 9 * * 1');
+  selfAnalysisRepoUrl = signal('https://github.com/siir/bronco');
+
   selectedTab = signal(0);
 
   ngOnInit(): void {
     const tabParam = this.route.snapshot.queryParamMap.get('tab');
     if (tabParam !== null) {
       const tab = Number(tabParam);
-      if (Number.isInteger(tab) && tab >= 0 && tab <= 6) this.selectedTab.set(tab);
+      if (Number.isInteger(tab) && tab >= 0 && tab <= 7) this.selectedTab.set(tab);
     }
     this.loadUsers();
     this.loadSuperAdmin();
@@ -657,6 +734,7 @@ export class SettingsComponent implements OnInit {
     this.loadCategories();
     this.loadActionSafety();
     this.loadAnalysisStrategy();
+    this.loadSelfAnalysis();
   }
 
   onTabChange(index: number): void {
@@ -954,6 +1032,50 @@ export class SettingsComponent implements OnInit {
       error: () => {
         this.analysisStrategySaving.set(false);
         this.snackBar.open('Failed to save analysis strategy', 'OK', { duration: 5000 });
+      },
+    });
+  }
+
+  // ─── Self Analysis ───
+
+  loadSelfAnalysis(): void {
+    this.selfAnalysisLoading.set(true);
+    this.settingsSvc.getSelfAnalysis().subscribe({
+      next: (config) => {
+        this.selfAnalysisPostAnalysis.set(config.postAnalysisTrigger);
+        this.selfAnalysisTicketClose.set(config.ticketCloseTrigger);
+        this.selfAnalysisScheduled.set(config.scheduledEnabled);
+        this.selfAnalysisCron.set(config.scheduledCron);
+        this.selfAnalysisRepoUrl.set(config.repoUrl);
+        this.selfAnalysisLoading.set(false);
+      },
+      error: () => {
+        this.selfAnalysisLoading.set(false);
+        this.snackBar.open('Failed to load self-analysis config', 'OK', { duration: 5000 });
+      },
+    });
+  }
+
+  updateSelfAnalysis(partial: Partial<SelfAnalysisConfig>): void {
+    // Optimistically update local state
+    if (partial.postAnalysisTrigger !== undefined) this.selfAnalysisPostAnalysis.set(partial.postAnalysisTrigger);
+    if (partial.ticketCloseTrigger !== undefined) this.selfAnalysisTicketClose.set(partial.ticketCloseTrigger);
+    if (partial.scheduledEnabled !== undefined) this.selfAnalysisScheduled.set(partial.scheduledEnabled);
+    if (partial.scheduledCron !== undefined) this.selfAnalysisCron.set(partial.scheduledCron);
+    if (partial.repoUrl !== undefined) this.selfAnalysisRepoUrl.set(partial.repoUrl);
+
+    this.settingsSvc.saveSelfAnalysis(partial).subscribe({
+      next: (saved) => {
+        this.selfAnalysisPostAnalysis.set(saved.postAnalysisTrigger);
+        this.selfAnalysisTicketClose.set(saved.ticketCloseTrigger);
+        this.selfAnalysisScheduled.set(saved.scheduledEnabled);
+        this.selfAnalysisCron.set(saved.scheduledCron);
+        this.selfAnalysisRepoUrl.set(saved.repoUrl);
+        this.snackBar.open('Self-analysis config saved', 'OK', { duration: 2000, panelClass: 'success-snackbar' });
+      },
+      error: () => {
+        this.snackBar.open('Failed to save self-analysis config', 'OK', { duration: 5000 });
+        this.loadSelfAnalysis(); // Revert on failure
       },
     });
   }

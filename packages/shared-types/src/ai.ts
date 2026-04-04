@@ -41,6 +41,8 @@ export const TaskType = {
   // Ticket routing tasks (local LLM)
   SUMMARIZE_ROUTE: 'SUMMARIZE_ROUTE',
   SELECT_ROUTE: 'SELECT_ROUTE',
+  // Self-analysis (scheduled app health)
+  ANALYZE_APP_HEALTH: 'ANALYZE_APP_HEALTH',
 } as const;
 export type TaskType = (typeof TaskType)[keyof typeof TaskType];
 
@@ -106,6 +108,9 @@ export const TASK_APP_SCOPE: Record<TaskType, AppScope> = {
   // Ticket routing tasks
   [TaskType.SUMMARIZE_ROUTE]: AppScope.CORE,
   [TaskType.SELECT_ROUTE]: AppScope.CORE,
+
+  // Self-analysis
+  [TaskType.ANALYZE_APP_HEALTH]: AppScope.CORE,
 
 } satisfies Record<TaskType, AppScope>;
 

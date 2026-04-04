@@ -3,6 +3,7 @@ import type { Queue } from 'bullmq';
 import type { AIRouter } from '@bronco/ai-provider';
 import { ensureClientUser, Prisma } from '@bronco/db';
 import { TicketStatus, TicketCategory, TicketEventType, Priority, TicketSource, TaskType, isClosedStatus, AnalysisStatus, SufficiencyStatus, LogLevel } from '@bronco/shared-types';
+import { getSelfAnalysisConfig } from '@bronco/shared-utils';
 import type { TicketCreatedJob, IngestionJob } from '@bronco/shared-types';
 
 interface TicketRouteOpts {
@@ -391,11 +392,14 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
       // Trigger system analysis when ticket transitions to a closed status from a non-closed status
       const statusChanged = request.body.status && request.body.status !== existing?.status;
       if (statusChanged && existing && !isClosedStatus(existing.status) && isClosedStatus(request.body.status!) && opts?.systemAnalysisQueue) {
-        await opts.systemAnalysisQueue.add(
-          'analyze-ticket-closure',
-          { ticketId: request.params.id },
-          { jobId: `closure-${request.params.id}-${Date.now()}` },
-        );
+        const selfAnalysisCfg = await getSelfAnalysisConfig(fastify.db);
+        if (selfAnalysisCfg.ticketCloseTrigger) {
+          await opts.systemAnalysisQueue.add(
+            'analyze-ticket-closure',
+            { ticketId: request.params.id, triggerType: 'TICKET_CLOSE' },
+            { jobId: `closure-${request.params.id}-${Date.now()}` },
+          );
+        }
       }
 
       // Trigger client learning extraction when ticket transitions to closed

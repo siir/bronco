@@ -143,6 +143,14 @@ export interface AnalysisStrategyConfig {
   maxParallelTasks: number;
 }
 
+export interface SelfAnalysisConfig {
+  postAnalysisTrigger: boolean;
+  ticketCloseTrigger: boolean;
+  scheduledEnabled: boolean;
+  scheduledCron: string;
+  repoUrl: string;
+}
+
 export interface TestResult {
   success: boolean;
   message?: string;
@@ -275,5 +283,13 @@ export class SettingsService {
   }
   saveAnalysisStrategy(config: AnalysisStrategyConfig): Observable<AnalysisStrategyConfig> {
     return this.api.put<AnalysisStrategyConfig>('/settings/analysis-strategy', config);
+  }
+
+  // --- Self Analysis ---
+  getSelfAnalysis(): Observable<SelfAnalysisConfig> {
+    return this.api.get<SelfAnalysisConfig>('/settings/self-analysis');
+  }
+  saveSelfAnalysis(config: Partial<SelfAnalysisConfig>): Observable<SelfAnalysisConfig> {
+    return this.api.patch<SelfAnalysisConfig>('/settings/self-analysis', config);
   }
 }

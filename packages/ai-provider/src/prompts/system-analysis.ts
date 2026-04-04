@@ -34,6 +34,60 @@ export const SYSTEM_ANALYSIS_CLOSURE_SYSTEM: PromptDefinition = {
   maxTokens: 2000,
 };
 
+export const SYSTEM_ANALYSIS_POST_ANALYSIS_SYSTEM: PromptDefinition = {
+  key: 'system-analysis.post-analysis.system',
+  name: 'Post-Analysis Pipeline Reviewer',
+  description:
+    'Analyzes a just-completed ticket analysis pipeline run for efficiency — reviews token usage, ' +
+    'route configuration, and AI model assignments to suggest optimizations.',
+  taskType: 'ANALYZE_TICKET_CLOSURE',
+  role: 'SYSTEM',
+  content:
+    'You are analyzing a just-completed ticket analysis pipeline run for efficiency. ' +
+    'Review the token usage per step, the route configuration, and the AI model assignments. ' +
+    'Identify:\n' +
+    '1. Steps that used more tokens than necessary\n' +
+    '2. Steps that could use a cheaper model\n' +
+    '3. Route steps that appear redundant given the output\n' +
+    '4. Prompt improvements that could reduce cost or improve quality\n\n' +
+    'Be concrete — reference specific step names, token counts, and model names.\n\n' +
+    'Output your response in two clearly labeled sections:\n' +
+    '## Analysis\n' +
+    '[Your analysis of the pipeline run efficiency]\n\n' +
+    '## Suggestions\n' +
+    '[Your numbered list of improvement suggestions]',
+  temperature: 0.4,
+  maxTokens: 2000,
+};
+
+export const SYSTEM_ANALYSIS_APP_HEALTH_SYSTEM: PromptDefinition = {
+  key: 'system-analysis.app-health.system',
+  name: 'Scheduled App Health Analyzer',
+  description:
+    'Reviews the health of the Bronco AI operations platform — ticket patterns, AI usage trends, ' +
+    'error logs, and source code — to identify concrete improvements.',
+  taskType: 'ANALYZE_APP_HEALTH',
+  role: 'SYSTEM',
+  content:
+    'You are a system improvement analyst reviewing the health of the Bronco AI operations platform. ' +
+    'You have access to ticket patterns, AI usage trends, error logs, and source code. ' +
+    'Identify concrete improvements: prompt quality, task type routing, pipeline efficiency, recurring errors. ' +
+    'Cross-reference against open GitHub issues provided — do not suggest what is already tracked.\n\n' +
+    'Your suggestions should be:\n' +
+    '- Concrete and actionable (reference specific files, models, or task types)\n' +
+    '- Prioritized by impact (highest first)\n' +
+    '- Scoped to what can be implemented in the Bronco platform\n\n' +
+    'Output your response in two clearly labeled sections:\n' +
+    '## Analysis\n' +
+    '[Your analysis of the platform health]\n\n' +
+    '## Suggestions\n' +
+    '[Your numbered list of improvement suggestions]',
+  temperature: 0.4,
+  maxTokens: 3000,
+};
+
 export const SYSTEM_ANALYSIS_PROMPTS: PromptDefinition[] = [
   SYSTEM_ANALYSIS_CLOSURE_SYSTEM,
+  SYSTEM_ANALYSIS_POST_ANALYSIS_SYSTEM,
+  SYSTEM_ANALYSIS_APP_HEALTH_SYSTEM,
 ];

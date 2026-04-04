@@ -1,6 +1,6 @@
 import { getDb, disconnectDb } from '@bronco/db';
 import { createAIRouter } from '@bronco/ai-provider';
-import { createLogger, createQueue, createWorker, Mailer, AppLogger, createPrismaLogWriter, setGlobalLogWriter, createHealthServer, createGracefulShutdown, loadSmtpFromDb } from '@bronco/shared-utils';
+import { createLogger, createQueue, createWorker, Mailer, AppLogger, createPrismaLogWriter, setGlobalLogWriter, createHealthServer, createGracefulShutdown, loadSmtpFromDb, getSelfAnalysisConfig } from '@bronco/shared-utils';
 import type { TicketCreatedJob, IngestionJob } from '@bronco/shared-types';
 import { getConfig } from './config.js';
 import { createAnalysisProcessor, initAnalyzerLogger, cleanupStaleRepos } from './analyzer.js';
@@ -54,6 +54,7 @@ async function main(): Promise<void> {
 
   // --- Queues ---
   const analysisQueue = createQueue<AnalysisJob>('ticket-analysis', config.REDIS_URL);
+  const selfAnalysisQueue = createQueue('system-analysis', config.REDIS_URL);
 
   // --- Analysis worker ---
   const analysisProcessor = createAnalysisProcessor({
@@ -67,6 +68,7 @@ async function main(): Promise<void> {
     mcpRepoUrl: config.MCP_REPO_URL,
     apiKey: config.API_KEY,
     mcpAuthToken: config.MCP_AUTH_TOKEN,
+    selfAnalysisQueue,
   });
   const analysisWorker = createWorker<AnalysisJob>(
     'ticket-analysis',
@@ -178,6 +180,7 @@ async function main(): Promise<void> {
     ticketCreatedQueue,
     analysisWorker,
     analysisQueue,
+    selfAnalysisQueue,
     ...(mailer ? [mailer] : []),
     { fn: disconnectDb },
   ]);

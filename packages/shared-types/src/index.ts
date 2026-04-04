@@ -26,3 +26,4 @@ export * from './email-log.js';
 export * from './system-config.js';
 export * from './operator.js';
 export * from './action-safety.js';
+export * from './self-client.js';
