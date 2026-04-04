@@ -21,7 +21,9 @@ The control panel is a single-page Angular app that communicates with the copilo
 - **Prompts** — AI prompt management (system prompts, overrides, model config)
 - **AI Usage** — AI provider usage analytics
 - **Logs** — Application log viewer
+- **Slack Conversations** — Slack conversation history viewer
 - **System Status** — Service health monitoring dashboard
+- **Notification Preferences** — Per-operator notification preference management
 - **Settings** — Application configuration
 
 ## Development
@@ -70,12 +72,14 @@ src/app/
     ├── login/                # Authentication
     ├── logs/                 # System logs viewer
     ├── notification-channels/ # Notification channel config
+    ├── notification-preferences/ # Per-operator notification preferences
     ├── profile/              # User profile
     ├── prompts/              # AI prompt management
     ├── release-notes/        # Release notes viewer
     ├── repos/                # Code repository management
     ├── scheduled-probes/     # Scheduled probe management
     ├── settings/             # Configuration settings
+    ├── slack-conversations/  # Slack conversation viewer
     ├── system-analysis/      # System closure analysis
     ├── system-issues/        # System issue tracking
     ├── system-settings/      # System-level settings

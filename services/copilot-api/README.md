@@ -42,6 +42,8 @@ All routes (except health and auth) require JWT authentication or `x-api-key` he
 | `integrations.ts` | `/api/integrations` | Client integration configs (IMAP, DevOps) |
 | `external-services.ts` | `/api/external-services` | External service health monitoring |
 | `notification-channels.ts` | `/api/notification-channels` | Notification channel management |
+| `notification-preferences.ts` | `/api/notification-preferences` | Per-operator notification preference management |
+| `slack-conversations.ts` | `/api/slack-conversations` | Slack conversation history and thread management |
 
 ### Operations & Analysis
 | Route file | Prefix | Description |
@@ -51,8 +53,9 @@ All routes (except health and auth) require JWT authentication or `x-api-key` he
 | `operational-tasks.ts` | `/api/operational-tasks` | Operational task management |
 | `system-analyses.ts` | `/api/system-analyses` | System analysis job management |
 | `system-issues.ts` | `/api/system-issues` | System issue tracking |
-| `settings.ts` | `/api/settings` | Application settings |
+| `settings.ts` | `/api/settings` | Application settings (including self-analysis config) |
 | `release-notes.ts` | `/api/release-notes` | Release note generation and management |
+| `pending-actions.ts` | `/api/pending-actions` | Pending operator action management |
 
 ### Ingest & Probes
 | Route file | Prefix | Description |
@@ -153,6 +156,11 @@ Caddy sits in front as a reverse proxy, providing HTTPS. The API listens on port
 | `TICKET_ANALYZER_HEALTH_URL` | No | http://ticket-analyzer:3106 | ticket-analyzer health endpoint |
 | `PROBE_WORKER_HEALTH_URL` | No | http://probe-worker:3107 | probe-worker health endpoint |
 | `STATUS_MONITOR_HEALTH_URL` | No | http://status-monitor:3105 | status-monitor health endpoint |
+| `MCP_DATABASE_HEALTH_URL` | No | http://mcp-database:3100 | MCP database server health endpoint |
+| `SLACK_WORKER_HEALTH_URL` | No | http://slack-worker:3108 | slack-worker health endpoint |
+| `SCHEDULER_WORKER_HEALTH_URL` | No | http://scheduler-worker:3109 | scheduler-worker health endpoint |
+| `MCP_PLATFORM_HEALTH_URL` | No | http://mcp-platform:3110 | MCP platform server health endpoint |
+| `MCP_REPO_HEALTH_URL` | No | http://mcp-repo:3111 | MCP repo server health endpoint |
 
 AI provider configuration (API keys, model selection) is managed through the database via `AiProviderConfig` and `AiModelConfig` tables, not env vars.
 
@@ -203,10 +211,13 @@ src/
     ├── ticket-routes.ts      # Configurable analysis pipelines
     ├── client-memory.ts      # Per-client AI memory
     ├── notification-channels.ts  # Notification channels
+    ├── notification-preferences.ts # Per-operator notification preferences
     ├── operational-tasks.ts  # Operational tasks
+    ├── pending-actions.ts    # Pending operator actions
     ├── system-analyses.ts    # System analysis jobs
     ├── system-issues.ts      # System issues
-    ├── settings.ts           # App settings
+    ├── settings.ts           # App settings (including self-analysis config)
     ├── release-notes.ts      # Release notes
+    ├── slack-conversations.ts # Slack conversation history
     └── operators.ts          # Operator CRUD (multi-operator support)
 ```

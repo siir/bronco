@@ -17,6 +17,12 @@ Background worker service that executes scheduled monitoring probes against clie
 
 Also handles one-off probe execution triggered via the `probe-execution` BullMQ queue (from the API).
 
+### Built-in Probe Tools
+
+In addition to calling MCP server tools, the probe worker includes built-in tools that execute locally:
+- `scan_app_logs` — Scans application log entries for errors/warnings (configurable by service, level, time window)
+- `analyze_app_health` — AI-powered platform health analysis using the `ANALYZE_APP_HEALTH` task type
+
 ## Development
 
 ```bash
@@ -30,12 +36,13 @@ pnpm dev:analyzer  # probe-worker runs alongside ticket-analyzer
 | `DATABASE_URL` | Yes | — | PostgreSQL connection string |
 | `REDIS_URL` | Yes | — | Redis connection string |
 | `ENCRYPTION_KEY` | Yes | — | 64-char hex for credential encryption |
-| `SMTP_HOST` | Yes | — | SMTP server hostname for notifications |
+| `SMTP_HOST` | No | *(empty)* | SMTP server hostname (DB config takes priority) |
 | `SMTP_PORT` | No | 587 | SMTP server port |
-| `SMTP_USER` | Yes | — | SMTP username |
-| `SMTP_PASSWORD` | Yes | — | SMTP password |
-| `SMTP_FROM` | Yes | — | Sender email address |
+| `SMTP_USER` | No | *(empty)* | SMTP username (DB config takes priority) |
+| `SMTP_PASSWORD` | No | *(empty)* | SMTP password (DB config takes priority) |
+| `SMTP_FROM` | No | *(empty)* | Sender email address (DB config takes priority) |
 | `EMAIL_SENDER_NAME` | No | Support Team | Display name for outbound emails |
+| `MCP_REPO_URL` | No | — | MCP repo server URL (for code repository access in built-in tools) |
 | `ARTIFACT_STORAGE_PATH` | No | /var/lib/bronco/artifacts | File storage for probe result artifacts |
 | `HEALTH_PORT` | No | 3107 | Health server port |
 
