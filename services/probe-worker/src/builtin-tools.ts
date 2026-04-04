@@ -1,7 +1,7 @@
 import type { PrismaClient } from '@bronco/db';
 import type { AIRouter } from '@bronco/ai-provider';
 import { TaskType, SELF_CLIENT_ID } from '@bronco/shared-types';
-import { createLogger, callMcpToolViaSdk } from '@bronco/shared-utils';
+import { createLogger, callMcpToolViaSdk, decrypt, looksEncrypted } from '@bronco/shared-utils';
 
 const logger = createLogger('probe-worker:builtin-tools');
 
@@ -12,6 +12,7 @@ export interface BuiltinToolDeps {
   db: PrismaClient;
   ai?: AIRouter;
   mcpRepoUrl?: string;
+  encryptionKey?: string;
 }
 
 /**
@@ -275,10 +276,14 @@ async function executeAppHealthAnalysis(
   try {
     const ghSetting = await db.appSetting.findUnique({ where: { key: 'system-config-github' } });
     const ghConfig = ghSetting?.value as Record<string, unknown> | undefined;
-    const ghToken = typeof ghConfig?.['token'] === 'string' ? ghConfig['token'] : undefined;
+    const ghTokenRaw = typeof ghConfig?.['token'] === 'string' ? ghConfig['token'] : undefined;
     const ghRepo = typeof ghConfig?.['repo'] === 'string' ? ghConfig['repo'] : undefined;
 
-    if (ghToken && ghRepo) {
+    if (ghTokenRaw && ghRepo) {
+      // The token may be AES-256-GCM encrypted in the DB — decrypt if needed
+      const ghToken = (deps.encryptionKey && looksEncrypted(ghTokenRaw))
+        ? decrypt(ghTokenRaw, deps.encryptionKey)
+        : ghTokenRaw;
       const res = await fetch(`https://api.github.com/repos/${ghRepo}/issues?state=open&per_page=50`, {
         headers: {
           Authorization: `Bearer ${ghToken}`,

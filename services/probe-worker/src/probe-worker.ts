@@ -253,7 +253,7 @@ async function executeProbe(
         // Built-in tool: execute locally, no MCP integration needed.
         const stepId = await tracker.startStep('Execute built-in tool');
         try {
-          toolResult = await builtinHandler(probe.toolParams, { db, ai });
+          toolResult = await builtinHandler(probe.toolParams, { db, ai, encryptionKey });
           await tracker.completeStep(stepId, toolResult.slice(0, 4000));
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
