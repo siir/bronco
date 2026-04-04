@@ -27,7 +27,6 @@ pnpm dev:status-monitor
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `DATABASE_URL` | Yes | — | PostgreSQL connection string |
-| `REDIS_URL` | Yes | — | Redis connection string |
 | `ENCRYPTION_KEY` | Yes | — | 64+ char hex for decrypting stored credentials |
 | `STATUS_API_URL` | No | `http://copilot-api:3000/api/system-status` | Copilot API status endpoint |
 | `API_KEY` | Yes | — | Auth header for status endpoint |

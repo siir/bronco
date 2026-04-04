@@ -35,12 +35,10 @@ pnpm dev:worker
 | `DATABASE_URL` | Yes | — | PostgreSQL connection string |
 | `REDIS_URL` | Yes | — | Redis connection string |
 | `ENCRYPTION_KEY` | Yes | — | 64-char hex for credential encryption |
-| `IMAP_HOST` | No | *(empty)* | Global IMAP server hostname (optional with per-client integrations) |
-| `IMAP_PORT` | No | 993 | IMAP server port |
-| `IMAP_USER` | No | *(empty)* | IMAP username (optional with per-client integrations) |
-| `IMAP_PASSWORD` | No | *(empty)* | IMAP password (optional with per-client integrations) |
 | `POLL_INTERVAL_SECONDS` | No | 60 | Seconds between IMAP polls |
 | `HEALTH_PORT` | No | 3101 | Health server port |
+
+IMAP connection settings (host, port, user, password) are managed per-client via integrations in the database, not env vars.
 
 ## Source Layout
 

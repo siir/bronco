@@ -69,10 +69,11 @@ docker compose logs -f devops-worker
 
 ```
 src/
-├── index.ts          # Worker bootstrap: config, queue, polling loop, health server
-├── config.ts         # Zod-validated env config
-├── client.ts         # Azure DevOps REST API client (PAT auth, WIQL queries, comments)
-├── poller.ts         # Incremental work item polling
-├── processor.ts      # Work item → ticket sync, comment sync, linked item context
-└── workflow.ts       # Conversational AI workflow engine (state machine)
+├── index.ts              # Worker bootstrap: config, queue, polling loop, health server
+├── config.ts             # Zod-validated env config
+├── client.ts             # Azure DevOps REST API client (PAT auth, WIQL queries, comments)
+├── poller.ts             # Incremental work item polling
+├── processor.ts          # Work item → ticket sync, comment sync, linked item context
+├── workflow.ts           # Conversational AI workflow engine (state machine)
+└── workflow-target.ts    # Workflow target resolution (determines which work items to process)
 ```
