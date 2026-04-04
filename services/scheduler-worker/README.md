@@ -37,9 +37,9 @@ pnpm dev:scheduler
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `DATABASE_URL` | Yes | -- | PostgreSQL connection string |
-| `REDIS_URL` | Yes | -- | Redis connection string |
-| `ENCRYPTION_KEY` | Yes | -- | 64-char hex for credential encryption |
+| `DATABASE_URL` | Yes | — | PostgreSQL connection string |
+| `REDIS_URL` | Yes | — | Redis connection string |
+| `ENCRYPTION_KEY` | Yes | — | 64-char hex for credential encryption |
 | `HEALTH_PORT` | No | 3109 | Health server port |
 | `INVOICE_STORAGE_PATH` | No | /var/lib/scheduler/invoices | File storage path for generated invoice PDFs |
 
