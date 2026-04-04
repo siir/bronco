@@ -140,6 +140,7 @@ System prompts for each task are registered in `packages/ai-provider/src/prompts
 - `EXTRACT_CLIENT_LEARNINGS` — Extract client-specific knowledge from resolved tickets into client memory
 - `GENERATE_RESOLUTION_PLAN` — Generate a resolution plan for operator review before code execution
 - `CUSTOM_AI_QUERY` — Flexible configurable AI query within a route pipeline (task type and model overridable per step)
+- `ANALYZE_APP_HEALTH` — Scheduled platform health analysis — ticket patterns, AI usage trends, error logs, and codebase review
 
 ### Task Type Discipline (CRITICAL)
 
@@ -198,7 +199,7 @@ Ticket routes define configurable analysis pipelines executed when tickets are p
 | Phase | Steps | Description |
 |-------|-------|-------------|
 | **Phase 1: Triage** | SUMMARIZE_EMAIL, CATEGORIZE, TRIAGE_PRIORITY, DRAFT_RECEIPT, GENERATE_TITLE | Fast initial processing |
-| **Context Loading** | LOAD_CLIENT_CONTEXT | Inject per-client memories and playbooks |
+| **Context Loading** | LOAD_CLIENT_CONTEXT, LOAD_ENVIRONMENT_CONTEXT | Inject per-client memories and playbooks |
 | **Phase 2: Analysis** | EXTRACT_FACTS, GATHER_REPO_CONTEXT, GATHER_DB_CONTEXT, DEEP_ANALYSIS, DRAFT_FINDINGS_EMAIL, SUGGEST_NEXT_STEPS, UPDATE_TICKET_SUMMARY, CUSTOM_AI_QUERY | Comprehensive AI analysis with full context |
 
 ### Step Type Reference
@@ -211,6 +212,7 @@ Ticket routes define configurable analysis pipelines executed when tickets are p
 | `DRAFT_RECEIPT` | Triage | DRAFT_EMAIL | Generate auto-reply |
 | `GENERATE_TITLE` | Triage | GENERATE_TITLE | Create ticket title |
 | `LOAD_CLIENT_CONTEXT` | Context | — | Inject client memories |
+| `LOAD_ENVIRONMENT_CONTEXT` | Context | — | Loads the ticket's environment `operationalInstructions` and injects them into the pipeline context for downstream analysis steps |
 | `EXTRACT_FACTS` | Analysis | EXTRACT_FACTS | Pull structured data |
 | `GATHER_REPO_CONTEXT` | Analysis | — | Load code from repos via MCP |
 | `GATHER_DB_CONTEXT` | Analysis | — | Load DB schema/metrics via MCP |

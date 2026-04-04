@@ -12,6 +12,7 @@ const configSchema = z.object({
   SMTP_PASSWORD: z.string().optional().default(''),
   SMTP_FROM: z.string().optional().default(''),
   EMAIL_SENDER_NAME: z.string().optional().default('Support Team'),
+  MCP_REPO_URL: z.string().url().optional(),
   HEALTH_PORT: z.coerce.number().default(3107),
   ARTIFACT_STORAGE_PATH: z.string().default('/var/lib/bronco/artifacts'),
 });

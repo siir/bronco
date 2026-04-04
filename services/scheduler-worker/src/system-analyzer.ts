@@ -1,6 +1,6 @@
 import type { PrismaClient } from '@bronco/db';
 import type { AIRouter } from '@bronco/ai-provider';
-import { TaskType } from '@bronco/shared-types';
+import { TaskType, SystemAnalysisTriggerType } from '@bronco/shared-types';
 import { createLogger } from '@bronco/shared-utils';
 
 const logger = createLogger('system-analyzer');
@@ -17,8 +17,8 @@ export async function runSystemAnalysis(
   ai: AIRouter,
   job: { ticketId?: string; triggerType?: string },
 ): Promise<void> {
-  const triggerType = job.triggerType ?? 'TICKET_CLOSE';
-  if (triggerType === 'POST_ANALYSIS' && job.ticketId) {
+  const triggerType = job.triggerType ?? SystemAnalysisTriggerType.TICKET_CLOSE;
+  if (triggerType === SystemAnalysisTriggerType.POST_ANALYSIS && job.ticketId) {
     await analyzePostPipeline(db, ai, job.ticketId);
   } else if (job.ticketId) {
     await analyzeTicketClosure(db, ai, job.ticketId);
@@ -264,7 +264,7 @@ async function analyzePostPipeline(
       data: {
         ticketId,
         clientId: ticket.clientId,
-        triggerType: 'POST_ANALYSIS',
+        triggerType: SystemAnalysisTriggerType.POST_ANALYSIS,
         analysis,
         suggestions,
         aiModel: response.model,

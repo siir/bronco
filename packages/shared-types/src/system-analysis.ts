@@ -6,6 +6,14 @@ export const SystemAnalysisStatus = {
 export type SystemAnalysisStatus =
   (typeof SystemAnalysisStatus)[keyof typeof SystemAnalysisStatus];
 
+export const SystemAnalysisTriggerType = {
+  TICKET_CLOSE: 'TICKET_CLOSE',
+  POST_ANALYSIS: 'POST_ANALYSIS',
+  SCHEDULED: 'SCHEDULED',
+} as const;
+export type SystemAnalysisTriggerType =
+  (typeof SystemAnalysisTriggerType)[keyof typeof SystemAnalysisTriggerType];
+
 export interface SystemAnalysis {
   id: string;
   ticketId: string;
