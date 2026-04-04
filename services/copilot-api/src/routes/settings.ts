@@ -42,6 +42,7 @@ const SETTINGS_KEY_SLACK = 'system-config-slack';
 const SETTINGS_KEY_PROMPT_RETENTION = 'system-config-prompt-retention';
 const SETTINGS_KEY_ACTION_SAFETY = 'system-config-action-safety';
 const SETTINGS_KEY_ANALYSIS_STRATEGY = 'system-config-analysis-strategy';
+const SETTINGS_KEY_SELF_ANALYSIS = 'self_analysis_config';
 
 const REDACTED = '••••••••';
 
@@ -1030,5 +1031,70 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     });
 
     return row.value as AnalysisStrategyConfig;
+  });
+
+  // ---------------------------------------------------------------------------
+  // Self-Analysis Config
+  // ---------------------------------------------------------------------------
+
+  const selfAnalysisConfigSchema = z.object({
+    postAnalysisTrigger: z.boolean().default(false),
+    ticketCloseTrigger: z.boolean().default(true),
+    scheduledEnabled: z.boolean().default(false),
+    scheduledCron: z.string().default('0 9 * * 1'),
+    repoUrl: z.string().default('https://github.com/siir/bronco'),
+  });
+
+  type SelfAnalysisConfig = z.output<typeof selfAnalysisConfigSchema>;
+
+  const DEFAULT_SELF_ANALYSIS_CONFIG: SelfAnalysisConfig = {
+    postAnalysisTrigger: false,
+    ticketCloseTrigger: true,
+    scheduledEnabled: false,
+    scheduledCron: '0 9 * * 1',
+    repoUrl: 'https://github.com/siir/bronco',
+  };
+
+  // GET /api/settings/self-analysis
+  fastify.get('/api/settings/self-analysis', async () => {
+    const row = await fastify.db.appSetting.findUnique({ where: { key: SETTINGS_KEY_SELF_ANALYSIS } });
+    if (!row) return DEFAULT_SELF_ANALYSIS_CONFIG;
+
+    const parsed = selfAnalysisConfigSchema.safeParse(row.value);
+    if (!parsed.success) {
+      logger.warn({ key: SETTINGS_KEY_SELF_ANALYSIS, errors: parsed.error.issues }, 'Stored self-analysis config is malformed — resetting to defaults');
+      await fastify.db.appSetting.update({
+        where: { key: SETTINGS_KEY_SELF_ANALYSIS },
+        data: { value: DEFAULT_SELF_ANALYSIS_CONFIG as unknown as object },
+      });
+      return DEFAULT_SELF_ANALYSIS_CONFIG;
+    }
+
+    return parsed.data;
+  });
+
+  // PATCH /api/settings/self-analysis
+  fastify.patch<{ Body: Record<string, unknown> }>('/api/settings/self-analysis', async (request) => {
+    // Load existing config and merge with incoming partial update
+    const existing = await fastify.db.appSetting.findUnique({ where: { key: SETTINGS_KEY_SELF_ANALYSIS } });
+    const existingParsed = existing ? selfAnalysisConfigSchema.safeParse(existing.value) : null;
+    const current = existingParsed?.success ? existingParsed.data : DEFAULT_SELF_ANALYSIS_CONFIG;
+    const merged = { ...current, ...request.body };
+
+    const parsed = selfAnalysisConfigSchema.safeParse(merged);
+    if (!parsed.success) {
+      const msg = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+      return fastify.httpErrors.badRequest(`Invalid self-analysis config: ${msg}`);
+    }
+
+    const config = parsed.data;
+
+    const row = await fastify.db.appSetting.upsert({
+      where: { key: SETTINGS_KEY_SELF_ANALYSIS },
+      update: { value: config as unknown as object },
+      create: { key: SETTINGS_KEY_SELF_ANALYSIS, value: config as unknown as object },
+    });
+
+    return row.value as SelfAnalysisConfig;
   });
 }

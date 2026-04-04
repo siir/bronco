@@ -8,7 +8,7 @@ import type { PrismaClient } from '@bronco/db';
 import type { TicketCategory, Priority, TicketStatus, TicketSource, AnalysisJob } from '@bronco/shared-types';
 import { AIRouter } from '@bronco/ai-provider';
 import { TaskType, RouteStepType, isClosedStatus, AnalysisStatus, SufficiencyStatus, SufficiencyConfidence } from '@bronco/shared-types';
-import { createLogger, AppLogger, createPrismaLogWriter, decrypt, looksEncrypted, MCP_TOOL_TIMEOUT_MS, mcpUrl, callMcpToolViaSdk, notifyOperators as notifyOperatorsFn } from '@bronco/shared-utils';
+import { createLogger, AppLogger, createPrismaLogWriter, decrypt, looksEncrypted, MCP_TOOL_TIMEOUT_MS, mcpUrl, callMcpToolViaSdk, notifyOperators as notifyOperatorsFn, getSelfAnalysisConfig } from '@bronco/shared-utils';
 import type { AIToolDefinition, AIMessage, AIToolUseBlock, AITextBlock, AIToolResponse, AIToolResultBlock } from '@bronco/shared-types';
 import type { Mailer, ReplyOptions } from '@bronco/shared-utils';
 import { executeRecommendations } from './recommendation-executor.js';
@@ -320,6 +320,8 @@ export interface AnalyzerDeps {
   apiKey?: string;
   /** MCP auth token for authenticating to mcp-repo (Bearer header, takes precedence over apiKey). */
   mcpAuthToken?: string;
+  /** Optional BullMQ queue for self-analysis triggers (post-pipeline analysis). */
+  selfAnalysisQueue?: import('bullmq').Queue;
 }
 
 // ---------------------------------------------------------------------------
@@ -4366,6 +4368,22 @@ export function createAnalysisProcessor(deps: AnalyzerDeps) {
         ticketId,
         'ticket',
       );
+
+      // Post-analysis self-analysis trigger
+      if (deps.selfAnalysisQueue) {
+        try {
+          const selfCfg = await getSelfAnalysisConfig(deps.db);
+          if (selfCfg.postAnalysisTrigger && ticketId) {
+            await deps.selfAnalysisQueue.add(
+              'analyze-post-pipeline',
+              { ticketId, triggerType: 'POST_ANALYSIS' },
+              { jobId: `post-pipeline-${ticketId}-${Date.now()}` },
+            );
+          }
+        } catch (triggerErr) {
+          appLog.error('Failed to enqueue post-analysis self-analysis', { err: triggerErr, ticketId }, ticketId, 'ticket');
+        }
+      }
     } catch (err) {
       const rawMsg = err instanceof Error ? err.message : String(err);
       const analysisError = redactUrls(rawMsg).slice(0, 1000);

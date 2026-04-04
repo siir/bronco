@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { unlink } from 'node:fs/promises';
 import { getConfig } from './config.js';
 import { summarizeTicketLogs, runSummarizationPass } from './log-summarizer.js';
-import { analyzeTicketClosure } from './system-analyzer.js';
+import { runSystemAnalysis } from './system-analyzer.js';
 import { discoverMcpServer } from './mcp-discovery.js';
 import { refreshModelCatalog } from './model-catalog-refresher.js';
 import { aggregateDailyUsage, generateInvoicePdf, nextInvoiceNumber, ensureInvoiceDir, computeNextPeriodEnd } from './invoice-generator.js';
@@ -65,12 +65,12 @@ async function main(): Promise<void> {
     { data: {} },
   );
 
-  // Ticket closure analysis worker
-  const systemAnalysisWorker = createWorker<{ ticketId: string }>(
+  // System analysis worker (ticket-close + post-analysis triggers)
+  const systemAnalysisWorker = createWorker<{ ticketId?: string; triggerType?: string }>(
     'system-analysis',
     config.REDIS_URL,
     async (job) => {
-      await analyzeTicketClosure(db, ai, job.data.ticketId);
+      await runSystemAnalysis(db, ai, job.data);
     },
   );
 
