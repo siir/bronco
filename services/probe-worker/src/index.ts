@@ -50,7 +50,7 @@ async function main(): Promise<void> {
   const ingestQueue = createQueue<IngestionJob>('ticket-ingest', config.REDIS_URL);
 
   // --- Scheduled probe scheduler ---
-  const probeScheduler = new ProbeScheduler({ db, ai, mailer, encryptionKey: config.ENCRYPTION_KEY, artifactStoragePath: config.ARTIFACT_STORAGE_PATH, ticketCreatedQueue, ingestQueue });
+  const probeScheduler = new ProbeScheduler({ db, ai, mailer, encryptionKey: config.ENCRYPTION_KEY, artifactStoragePath: config.ARTIFACT_STORAGE_PATH, mcpRepoUrl: config.MCP_REPO_URL, ticketCreatedQueue, ingestQueue });
   await probeScheduler.start();
 
   // BullMQ worker for one-off probe executions (triggered from API)

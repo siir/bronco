@@ -1,6 +1,6 @@
 import type { PrismaClient } from '@bronco/db';
 import type { AIRouter } from '@bronco/ai-provider';
-import { TaskType, SELF_CLIENT_ID } from '@bronco/shared-types';
+import { TaskType, SELF_CLIENT_ID, SystemAnalysisTriggerType } from '@bronco/shared-types';
 import { createLogger, callMcpToolViaSdk, decrypt, looksEncrypted } from '@bronco/shared-utils';
 
 const logger = createLogger('probe-worker:builtin-tools');
@@ -366,7 +366,7 @@ async function executeAppHealthAnalysis(
     data: {
       clientId: SELF_CLIENT_ID,
       ticketId: null,
-      triggerType: 'SCHEDULED',
+      triggerType: SystemAnalysisTriggerType.SCHEDULED,
       analysis,
       suggestions,
       aiModel: response.model,
