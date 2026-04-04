@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "route_step_type" ADD VALUE 'LOAD_ENVIRONMENT_CONTEXT';
