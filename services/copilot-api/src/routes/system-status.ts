@@ -349,7 +349,7 @@ async function getBullMQQueueStats(redisUrl: string): Promise<Record<string, unk
     const host = url.hostname;
     const port = parseInt(url.port || '6379', 10);
 
-    const queues = ['issue-resolve', 'log-summarize', 'email-ingestion', 'ticket-analysis', 'ticket-created', 'ticket-ingest', 'devops-sync', 'mcp-discovery', 'model-catalog-refresh', 'system-analysis', 'probe-execution'];
+    const queues = ['issue-resolve', 'log-summarize', 'email-ingestion', 'ticket-analysis', 'ticket-created', 'ticket-ingest', 'devops-sync', 'mcp-discovery', 'model-catalog-refresh', 'system-analysis', 'probe-execution', 'client-learning'];
     const commands = queues.flatMap(q => [
       `LLEN bull:${q}:wait`,
       `LLEN bull:${q}:active`,
