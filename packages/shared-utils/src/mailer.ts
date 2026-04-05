@@ -27,15 +27,25 @@ export interface ReplyOptions {
 export class Mailer {
   private transport: Transporter;
   private from: string | { name: string; address: string };
+  private configLoader?: () => Promise<SmtpConfig | null>;
+  private configCacheUntil = 0;
+  private static readonly CONFIG_TTL_MS = 60_000;
 
-  constructor(config: SmtpConfig) {
+  constructor(config: SmtpConfig, configLoader?: () => Promise<SmtpConfig | null>) {
+    this.configLoader = configLoader;
+    this.applyConfig(config);
+    this.transport = this.buildTransport(config);
+  }
+
+  private applyConfig(config: SmtpConfig): void {
     this.from = config.fromName
       ? { name: config.fromName, address: config.from }
       : config.from;
+  }
 
+  private buildTransport(config: SmtpConfig): Transporter {
     const secure = config.secure ?? config.port === 465;
-
-    this.transport = createTransport({
+    return createTransport({
       host: config.host,
       port: config.port,
       secure,
@@ -47,11 +57,27 @@ export class Mailer {
     });
   }
 
+  private async reloadIfStale(): Promise<void> {
+    if (!this.configLoader || Date.now() < this.configCacheUntil) return;
+    try {
+      const fresh = await this.configLoader();
+      if (fresh) {
+        this.applyConfig(fresh);
+        this.transport = this.buildTransport(fresh);
+        logger.debug('SMTP config reloaded from DB');
+      }
+    } catch (err) {
+      logger.warn({ err }, 'Failed to reload SMTP config — using cached');
+    }
+    this.configCacheUntil = Date.now() + Mailer.CONFIG_TTL_MS;
+  }
+
   /**
    * Send a reply email with proper threading headers so the recipient's
    * mail client groups it with the original conversation.
    */
   async sendReply(opts: ReplyOptions): Promise<string | undefined> {
+    await this.reloadIfStale();
     const headers: Record<string, string> = {};
     if (opts.inReplyTo) {
       headers['In-Reply-To'] = opts.inReplyTo;
@@ -78,6 +104,7 @@ export class Mailer {
 
   /** Send a plain outbound email (not a reply — no Re: prefix or threading headers). */
   async send(opts: { to: string; subject: string; body: string }): Promise<string | undefined> {
+    await this.reloadIfStale();
     const info = await this.transport.sendMail({
       from: this.from,
       to: opts.to,
