@@ -178,20 +178,23 @@ export async function refreshModelCatalog(db: PrismaClient, appLog?: AppLogger):
     throw new Error('Model catalog refresh failed: no models fetched from any source');
   }
 
-  // 3. Upsert
+  // 3. Update existing model costs only — do not create new records
   let updated = 0;
   let skipped = 0;
-  let newModels = 0;
+  const newModels = 0;
   for (const m of models) {
     if (!m.provider || !m.model || !Number.isFinite(m.inputCostPer1m) || !Number.isFinite(m.outputCostPer1m)) continue;
     if (customKeys.has(`${m.provider}:${m.model}`)) {
       skipped++;
       continue;
     }
-    const isNew = !existingKeys.has(`${m.provider}:${m.model}`);
-    await db.aiModelCost.upsert({
+    if (!existingKeys.has(`${m.provider}:${m.model}`)) {
+      skipped++;
+      continue;
+    }
+    await db.aiModelCost.update({
       where: { provider_model: { provider: m.provider, model: m.model } },
-      update: {
+      data: {
         displayName: m.displayName ?? null,
         description: m.description ?? undefined,
         inputCostPer1m: m.inputCostPer1m,
@@ -201,20 +204,8 @@ export async function refreshModelCatalog(db: PrismaClient, appLog?: AppLogger):
         modality: m.modality ?? undefined,
         isActive: true,
       },
-      create: {
-        provider: m.provider,
-        model: m.model,
-        displayName: m.displayName ?? null,
-        description: m.description ?? null,
-        inputCostPer1m: m.inputCostPer1m,
-        outputCostPer1m: m.outputCostPer1m,
-        contextLength: m.contextLength ?? null,
-        maxCompletionTokens: m.maxCompletionTokens ?? null,
-        modality: m.modality ?? null,
-      },
     });
     updated++;
-    if (isNew) newModels++;
   }
 
   const durationMs = Date.now() - start;
