@@ -796,17 +796,6 @@ interface FlowNode {
                     </div>
                   }
                 }
-                @if (recommendationActions(event); as actions) {
-                  <div class="recommendation-actions">
-                    @for (action of actions; track $index) {
-                      <div class="recommendation-row" [class.action-applied]="action.applied">
-                        <mat-icon class="action-status-icon">{{ action.applied ? 'check_circle' : 'radio_button_unchecked' }}</mat-icon>
-                        <span class="action-label">{{ action.action }}</span>
-                        @if (action.detail) { <span class="action-detail">{{ action.detail }}</span> }
-                      </div>
-                    }
-                  </div>
-                }
               }
               @if (event.content) {
                 @if (event.eventType === 'SYSTEM_NOTE' && isJsonContent(event.content)) {
@@ -821,7 +810,18 @@ interface FlowNode {
                     }
                   </div>
                 } @else if (event.eventType === 'AI_RECOMMENDATION' && hasActionsMeta(event)) {
-                  <!-- AI Recommendation with actions — human-readable list -->
+                  <!-- AI Recommendation summary above action cards -->
+                  @if (event.content && event.content.length > 0) {
+                    <div class="event-content markdown-content" [class.collapsed]="!expandedEvents[event.id + '-raw'] && event.content.length > 300">
+                      <div [innerHTML]="event.content | markdown"></div>
+                    </div>
+                    @if (event.content.length > 300) {
+                      <button mat-button class="show-more-btn" (click)="expandedEvents[event.id + '-raw'] = !expandedEvents[event.id + '-raw']">
+                        {{ expandedEvents[event.id + '-raw'] ? 'Hide details' : 'Show details' }}
+                      </button>
+                    }
+                  }
+                  <!-- AI Recommendation action cards -->
                   <div class="recommendation-actions">
                     @for (act of getEventActions(event); track $index) {
                       <div class="rec-action-row">
@@ -843,16 +843,6 @@ interface FlowNode {
                       </div>
                     }
                   </div>
-                  @if (event.content && event.content.length > 0) {
-                    <div class="event-content markdown-content" [class.collapsed]="!expandedEvents[event.id + '-raw'] && event.content.length > 300">
-                      <div [innerHTML]="event.content | markdown"></div>
-                    </div>
-                    @if (event.content.length > 300) {
-                      <button mat-button class="show-more-btn" (click)="expandedEvents[event.id + '-raw'] = !expandedEvents[event.id + '-raw']">
-                        {{ expandedEvents[event.id + '-raw'] ? 'Hide details' : 'Show details' }}
-                      </button>
-                    }
-                  }
                 } @else if (isMarkdownEvent(event.eventType)) {
                   <div class="event-content markdown-content" [class.collapsed]="!expandedEvents[event.id] && event.content.length > 300">
                     <div [innerHTML]="event.content | markdown"></div>
@@ -1329,6 +1319,8 @@ export class TicketDetailComponent implements OnInit {
 
   filteredEvents = computed(() => {
     let evts = this.events();
+    // Hide COMMENT events auto-created by AI recommendation execution — they duplicate the action cards
+    evts = evts.filter(e => !(e.eventType === 'COMMENT' && this.isAiTriggered(e)));
     if (this.timelineFilter()) {
       evts = evts.filter(e => e.eventType === this.timelineFilter());
     }
