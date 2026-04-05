@@ -810,12 +810,12 @@ interface FlowNode {
                     }
                   </div>
                 } @else if (event.eventType === 'AI_RECOMMENDATION' && hasActionsMeta(event)) {
-                  <!-- AI Recommendation summary above action cards -->
-                  @if (event.content && event.content.length > 0) {
-                    <div class="event-content markdown-content" [class.collapsed]="!expandedEvents[event.id + '-raw'] && event.content.length > 300">
-                      <div [innerHTML]="event.content | markdown"></div>
+                  <!-- AI Recommendation summary above action cards (action bullets stripped) -->
+                  @if (recSummaryContent(event); as summary) {
+                    <div class="event-content markdown-content" [class.collapsed]="!expandedEvents[event.id + '-raw'] && summary.length > 300">
+                      <div [innerHTML]="summary | markdown"></div>
                     </div>
-                    @if (event.content.length > 300) {
+                    @if (summary.length > 300) {
                       <button mat-button class="show-more-btn" (click)="expandedEvents[event.id + '-raw'] = !expandedEvents[event.id + '-raw']">
                         {{ expandedEvents[event.id + '-raw'] ? 'Hide details' : 'Show details' }}
                       </button>
@@ -1850,6 +1850,17 @@ export class TicketDetailComponent implements OnInit {
 
   isMarkdownEvent(eventType: string): boolean {
     return eventType === 'AI_ANALYSIS' || eventType === 'AI_RECOMMENDATION' || eventType === 'COMMENT';
+  }
+
+  recSummaryContent(event: TicketEvent): string {
+    if (!event.content) return '';
+    const actionPrefixes = /^[-•]\s*(Auto-executed|Pending approval|Skipped):/i;
+    const headerPrefixes = /^\*\*(Auto-executed|Pending approval|Skipped):\*\*$/i;
+    return event.content
+      .split('\n')
+      .filter(line => !actionPrefixes.test(line.trim()) && !headerPrefixes.test(line.trim()))
+      .join('\n')
+      .trim();
   }
 
   formatEventType(type: string): string {
