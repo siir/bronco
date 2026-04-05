@@ -1832,11 +1832,22 @@ interface SubTaskResult {
   toolCalls: Array<{ tool: string; system?: string; input: Record<string, unknown>; output: string; durationMs: number }>;
 }
 
-const ORCHESTRATED_MODEL_MAP: Record<string, string> = {
-  haiku: 'claude-haiku-4-5-20251001',
-  sonnet: 'claude-sonnet-4-6',
-  opus: 'claude-opus-4-6',
-};
+/** Resolve the orchestrated model map from active Claude provider models.
+ *  Maps short names (haiku/sonnet/opus) to the actual model IDs configured in the DB. */
+async function resolveOrchestratedModelMap(db: PrismaClient): Promise<Record<string, string>> {
+  const models = await db.aiProviderModel.findMany({
+    where: { isActive: true, provider: { provider: 'CLAUDE' } },
+    select: { model: true },
+  });
+  const map: Record<string, string> = {};
+  for (const { model } of models) {
+    const lower = model.toLowerCase();
+    if (lower.includes('haiku') && !map.haiku) map.haiku = model;
+    else if (lower.includes('sonnet') && !map.sonnet) map.sonnet = model;
+    else if (lower.includes('opus') && !map.opus) map.opus = model;
+  }
+  return map;
+}
 
 // ---------------------------------------------------------------------------
 // Tool resolution: exact → base-name → substring → fuzzy
@@ -1960,9 +1971,11 @@ async function executeOrchestratedSubTask(
   mcpIntegrations: Map<string, McpIntegrationInfo>,
   repoIdByPrefix: Map<string, string>,
   orchestration?: { id: string; iteration: number },
+  modelMap?: Record<string, string>,
 ): Promise<SubTaskResult> {
   const { ai } = deps;
-  const model = ORCHESTRATED_MODEL_MAP[task.model] ?? ORCHESTRATED_MODEL_MAP.sonnet;
+  const map = modelMap ?? {};
+  const model = map[task.model] ?? map.sonnet ?? 'claude-sonnet-4-6';
 
   const toolCalls: SubTaskResult['toolCalls'] = [];
   let inputTokens = 0;
@@ -2840,6 +2853,7 @@ async function executeRoutePipeline(
               maxParallelTasks = Math.min(10, Math.max(1, Math.trunc(coerced)));
             }
           }
+          const orchModelMap = await resolveOrchestratedModelMap(db);
           const orchMaxIterations = maxIterations;
           const existingDoc = ticket.knowledgeDoc ?? '';
           const runTimestamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
@@ -2941,7 +2955,7 @@ async function executeRoutePipeline(
             const taskBatches = chunkArray(plan.tasks, maxParallelTasks);
             for (const batch of taskBatches) {
               const results = await Promise.allSettled(
-                batch.map(task => executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, environmentContext, task, agenticTools, mcpIntegrations, repoIdByPrefix, { id: orchestrationId, iteration: i + 1 })),
+                batch.map(task => executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, environmentContext, task, agenticTools, mcpIntegrations, repoIdByPrefix, { id: orchestrationId, iteration: i + 1 }, orchModelMap)),
               );
 
               for (let j = 0; j < results.length; j++) {
