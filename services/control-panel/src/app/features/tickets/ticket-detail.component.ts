@@ -824,21 +824,30 @@ interface FlowNode {
                   <!-- AI Recommendation action cards -->
                   <div class="recommendation-actions">
                     @for (act of getEventActions(event); track $index) {
-                      <div class="rec-action-row">
-                        <mat-icon class="rec-icon">{{ recActionIcon(act.action) }}</mat-icon>
-                        <div class="rec-action-detail">
+                      <div class="rec-action-row" [class.rec-resolved]="getActionOutcome(act) !== 'pending_approval'">
+                        <div class="rec-action-header" (click)="getActionOutcome(act) !== 'pending_approval' ? expandedEvents[event.id + '-act-' + $index] = !expandedEvents[event.id + '-act-' + $index] : null">
+                          <mat-icon class="rec-icon">{{ recActionIcon(act.action) }}</mat-icon>
                           <span class="rec-action-type">{{ formatRecActionType(act.action) }}</span>
-                          @if (act.value) {
-                            <span class="rec-action-value">{{ act.value }}</span>
+                          <span class="rec-status-badge" [class]="'rec-badge-' + getActionOutcome(act)">
+                            {{ getActionOutcomeLabel(act) }}
+                          </span>
+                          @if (getActionOutcome(act) !== 'pending_approval') {
+                            <mat-icon class="rec-expand-icon">{{ expandedEvents[event.id + '-act-' + $index] ? 'expand_less' : 'expand_more' }}</mat-icon>
                           }
-                          <span class="rec-action-reason">{{ act.reason }}</span>
                         </div>
-                        <span class="rec-status-badge" [class]="'rec-badge-' + getActionOutcome(act)">
-                          {{ getActionOutcomeLabel(act) }}
-                        </span>
+                        @if (getActionOutcome(act) === 'pending_approval' || expandedEvents[event.id + '-act-' + $index]) {
+                          <div class="rec-action-detail">
+                            @if (act.value) {
+                              <span class="rec-action-value">{{ act.value }}</span>
+                            }
+                            <span class="rec-action-reason">{{ act.reason }}</span>
+                          </div>
+                        }
                         @if (getActionOutcome(act) === 'pending_approval') {
-                          <button mat-stroked-button color="primary" class="rec-approve-btn" (click)="approvePendingAction(act.pendingActionId)">Approve</button>
-                          <button mat-stroked-button class="rec-dismiss-btn" (click)="dismissPendingAction(act.pendingActionId)">Dismiss</button>
+                          <div class="rec-action-buttons">
+                            <button mat-stroked-button color="primary" class="rec-approve-btn" (click)="approvePendingAction(act.pendingActionId)">Approve</button>
+                            <button mat-stroked-button class="rec-dismiss-btn" (click)="dismissPendingAction(act.pendingActionId)">Dismiss</button>
+                          </div>
                         }
                       </div>
                     }
@@ -1102,13 +1111,17 @@ interface FlowNode {
     .probe-data-code { background: #263238; color: #eeffff; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 12px; max-height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; }
     /* AI Recommendation action list */
     .recommendation-actions { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
-    .rec-action-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: #fafafa; border-radius: 6px; border: 1px solid #eee; }
+    .rec-action-row { display: flex; flex-direction: column; gap: 4px; padding: 6px 10px; background: #fafafa; border-radius: 6px; border: 1px solid #eee; }
+    .rec-action-header { display: flex; align-items: center; gap: 8px; }
+    .rec-resolved .rec-action-header { cursor: pointer; }
+    .rec-expand-icon { font-size: 16px; width: 16px; height: 16px; color: #999; }
     .rec-icon { font-size: 18px; width: 18px; height: 18px; color: #666; flex-shrink: 0; }
-    .rec-action-detail { flex: 1; display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; }
+    .rec-action-detail { display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; padding-left: 26px; }
+    .rec-action-buttons { display: flex; gap: 6px; padding-left: 26px; }
     .rec-action-type { font-weight: 600; font-size: 13px; }
     .rec-action-value { font-family: monospace; font-size: 12px; background: #e8eaf6; padding: 1px 6px; border-radius: 3px; color: #283593; }
     .rec-action-reason { font-size: 12px; color: #666; }
-    .rec-status-badge { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+    .rec-status-badge { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px; white-space: nowrap; margin-left: auto; }
     .rec-badge-auto_executed { background: #e8f5e9; color: #2e7d32; }
     .rec-badge-pending_approval { background: #fff3e0; color: #e65100; }
     .rec-badge-skipped { background: #f5f5f5; color: #999; }
@@ -1319,8 +1332,6 @@ export class TicketDetailComponent implements OnInit {
 
   filteredEvents = computed(() => {
     let evts = this.events();
-    // Hide COMMENT events auto-created by AI recommendation execution — they duplicate the action cards
-    evts = evts.filter(e => !(e.eventType === 'COMMENT' && this.isAiTriggered(e)));
     if (this.timelineFilter()) {
       evts = evts.filter(e => e.eventType === this.timelineFilter());
     }
