@@ -1350,6 +1350,7 @@ export class TicketDetailComponent implements OnInit {
   logsSearchFilter = signal('');
   expandedLogs: Record<string, boolean> = {};
   costSummary = signal<TicketCostSummary | null>(null);
+  pendingActionMap = signal<Record<string, string>>({});
   stepGroups = signal<StepGroup[]>([]);
   ungroupedEntries = signal<UnifiedLogEntry[]>([]);
   conversationEntries = signal<UnifiedLogEntry[]>([]);
@@ -1481,7 +1482,18 @@ export class TicketDetailComponent implements OnInit {
     this.loadUnifiedLogs();
     this.loadCostSummary();
     this.loadTicketAiUsage();
+    this.loadPendingActions();
     this.destroyRef.onDestroy(() => this.stopPolling());
+  }
+
+  loadPendingActions(): void {
+    this.ticketService.getPendingActions(this.id()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (actions) => {
+        const map: Record<string, string> = {};
+        for (const a of actions) map[a.id] = a.status;
+        this.pendingActionMap.set(map);
+      },
+    });
   }
 
   load(): void {
@@ -1973,7 +1985,14 @@ export class TicketDetailComponent implements OnInit {
     });
   }
 
-  getActionOutcome(act: { outcome?: string; applied?: boolean }): string {
+  getActionOutcome(act: { outcome?: string; applied?: boolean; pendingActionId?: string }): string {
+    // Check live pending action status first (reflects approve/dismiss without reload)
+    if (act.pendingActionId) {
+      const liveStatus = this.pendingActionMap()[act.pendingActionId];
+      if (liveStatus === 'approved') return 'approved';
+      if (liveStatus === 'dismissed') return 'dismissed';
+      if (liveStatus === 'pending') return 'pending_approval';
+    }
     if (act.outcome) return act.outcome;
     if (act.applied === true) return 'auto_executed';
     return 'skipped';
@@ -2028,6 +2047,7 @@ export class TicketDetailComponent implements OnInit {
     this.ticketService.approvePendingAction(ticketId, actionId).subscribe({
       next: () => {
         this.snackBar.open('Action approved', 'OK', { duration: 3000, panelClass: 'success-snackbar' });
+        this.loadPendingActions();
         this.load();
       },
       error: () => this.snackBar.open('Failed to approve action', 'OK', { duration: 5000 }),
@@ -2041,6 +2061,7 @@ export class TicketDetailComponent implements OnInit {
     this.ticketService.dismissPendingAction(ticketId, actionId).subscribe({
       next: () => {
         this.snackBar.open('Action dismissed', 'OK', { duration: 3000 });
+        this.loadPendingActions();
         this.load();
       },
       error: () => this.snackBar.open('Failed to dismiss action', 'OK', { duration: 5000 }),
