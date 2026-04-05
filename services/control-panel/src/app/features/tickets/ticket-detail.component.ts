@@ -399,7 +399,7 @@ interface FlowNode {
                       {{ group.stepName }}
                     </div>
                     @for (entry of group.entries; track entry.id) {
-                      @if (entry.type === 'ai') {
+                      @if (entry.type === 'ai' && !isSubTask(entry)) {
                         <div class="conv-ai-block">
                           <div class="conv-ai-header">
                             <span class="conv-task-type">{{ entry.taskType }}</span>
@@ -441,6 +441,44 @@ interface FlowNode {
                                 </button>
                               }
                             </div>
+                          }
+                          <!-- Nested sub-tasks -->
+                          @if (getOrchestrationId(entry)) {
+                            @for (sub of getSubTasks(group.entries, getOrchestrationId(entry)!); track sub.id) {
+                              <div class="conv-subtask">
+                                <div class="conv-ai-header">
+                                  <mat-icon class="subtask-icon">subdirectory_arrow_right</mat-icon>
+                                  <span class="conv-task-type">{{ sub.taskType }}</span>
+                                  <span class="conv-model">{{ sub.model }}</span>
+                                  <span class="conv-tokens">{{ sub.inputTokens | number }}in / {{ sub.outputTokens | number }}out</span>
+                                  @if (sub.costUsd != null) { <span class="conv-cost">\${{ sub.costUsd | number:'1.4-4' }}</span> }
+                                </div>
+                                @if (sub.archive?.fullPrompt || sub.promptText) {
+                                  <div class="conv-final-response conv-prompt-block">
+                                    <span class="conv-final-label">Prompt</span>
+                                    <pre class="conv-response-text" [class.clamped]="!convPromptExpanded[sub.id]">{{ convPromptText(sub) }}</pre>
+                                    @if (isMultilineConvPrompt(sub)) {
+                                      <button mat-button class="inline-expand-btn" (click)="convPromptExpanded[sub.id] = !convPromptExpanded[sub.id]">
+                                        {{ convPromptExpanded[sub.id] ? 'less' : 'more' }}
+                                        <mat-icon>{{ convPromptExpanded[sub.id] ? 'keyboard_double_arrow_up' : 'keyboard_double_arrow_down' }}</mat-icon>
+                                      </button>
+                                    }
+                                  </div>
+                                }
+                                @if (sub.archive?.fullResponse || sub.responseText) {
+                                  <div class="conv-final-response">
+                                    <span class="conv-final-label">Response</span>
+                                    <pre class="conv-response-text" [class.clamped]="!convExpanded[sub.id]">{{ convResponseText(sub) }}</pre>
+                                    @if (isMultilineConv(sub)) {
+                                      <button mat-button class="inline-expand-btn" (click)="convExpanded[sub.id] = !convExpanded[sub.id]">
+                                        {{ convExpanded[sub.id] ? 'less' : 'more' }}
+                                        <mat-icon>{{ convExpanded[sub.id] ? 'keyboard_double_arrow_up' : 'keyboard_double_arrow_down' }}</mat-icon>
+                                      </button>
+                                    }
+                                  </div>
+                                }
+                              </div>
+                            }
                           }
                         </div>
                       }
@@ -1249,6 +1287,8 @@ interface FlowNode {
     .conv-step-label { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #888; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 4px; }
     .conv-step-icon { font-size: 14px; width: 14px; height: 14px; color: #aaa; }
     .conv-ai-block { border-left: 3px solid #7c4dff; background: #fafafa; border-radius: 0 6px 6px 0; padding: 8px 12px; margin-bottom: 10px; }
+    .conv-subtask { margin-left: 20px; border-left: 2px solid #b39ddb; background: #f5f3ff; border-radius: 0 6px 6px 0; padding: 6px 10px; margin-top: 6px; }
+    .subtask-icon { font-size: 16px; width: 16px; height: 16px; color: #9575cd; }
     .conv-ai-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
     .conv-task-type { font-size: 12px; font-weight: 700; background: #e8f5e9; color: #2e7d32; padding: 1px 7px; border-radius: 10px; }
     .conv-model { font-size: 11px; color: #888; font-family: monospace; }
@@ -1692,6 +1732,20 @@ export class TicketDetailComponent implements OnInit {
     if (event.tab.textLabel === 'Conversation') {
       this.loadConversationEntries();
     }
+  }
+
+  isSubTask(entry: UnifiedLogEntry): boolean {
+    return !!(entry.conversationMetadata as Record<string, unknown> | null)?.['isSubTask'];
+  }
+
+  getOrchestrationId(entry: UnifiedLogEntry): string | null {
+    return ((entry.conversationMetadata as Record<string, unknown> | null)?.['orchestrationId'] as string) ?? null;
+  }
+
+  getSubTasks(entries: UnifiedLogEntry[], orchestrationId: string): UnifiedLogEntry[] {
+    return entries.filter(e =>
+      e.type === 'ai' && this.isSubTask(e) && this.getOrchestrationId(e) === orchestrationId
+    );
   }
 
   convMessages(entry: UnifiedLogEntry): Array<{ role: string; tokenCount?: number; toolName?: string }> {

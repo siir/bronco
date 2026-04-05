@@ -214,6 +214,9 @@ export class AIRouter {
       messageCount: 1,
       totalContextTokens: inputTokens,
       messages: [{ role: 'user', tokenCount: inputTokens }],
+      ...(request.context?.orchestrationId ? { orchestrationId: request.context.orchestrationId as string } : {}),
+      ...(request.context?.orchestrationIteration != null ? { orchestrationIteration: request.context.orchestrationIteration as number } : {}),
+      ...(request.context?.isSubTask ? { isSubTask: true } : {}),
     };
 
     // Persist usage to database (fire-and-forget)
@@ -369,6 +372,9 @@ export class AIRouter {
       messageCount: convMessages.length || 1,
       totalContextTokens: inputTokens,
       messages: convMessages.length > 0 ? convMessages : [{ role: 'user', tokenCount: inputTokens }],
+      ...(request.context?.orchestrationId ? { orchestrationId: request.context.orchestrationId as string } : {}),
+      ...(request.context?.orchestrationIteration != null ? { orchestrationIteration: request.context.orchestrationIteration as number } : {}),
+      ...(request.context?.isSubTask ? { isSubTask: true } : {}),
     };
 
     if (this.usageWriter) {

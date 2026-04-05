@@ -1959,6 +1959,7 @@ async function executeOrchestratedSubTask(
   agenticTools: AIToolDefinition[],
   mcpIntegrations: Map<string, McpIntegrationInfo>,
   repoIdByPrefix: Map<string, string>,
+  orchestration?: { id: string; iteration: number },
 ): Promise<SubTaskResult> {
   const { ai } = deps;
   const model = ORCHESTRATED_MODEL_MAP[task.model] ?? ORCHESTRATED_MODEL_MAP.sonnet;
@@ -2021,9 +2022,10 @@ async function executeOrchestratedSubTask(
     let hasToolError = false;
 
     if (tools.length > 0) {
+      const orchCtx = orchestration ? { orchestrationId: orchestration.id, orchestrationIteration: orchestration.iteration, isSubTask: true } : {};
       const response = await ai.generateWithTools({
         taskType: TaskType.DEEP_ANALYSIS,
-        context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory },
+        context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, ...orchCtx },
         messages: [{ role: 'user', content: task.prompt }],
         tools,
         systemPrompt: subTaskSystemPrompt,
@@ -2064,7 +2066,7 @@ async function executeOrchestratedSubTask(
 
         const summaryResponse = await ai.generateWithTools({
           taskType: TaskType.DEEP_ANALYSIS,
-          context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory },
+          context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, ...orchCtx },
           messages: [
             { role: 'user', content: task.prompt },
             { role: 'assistant', content: response.contentBlocks },
@@ -2110,9 +2112,10 @@ async function executeOrchestratedSubTask(
     }
 
     // No tools — pure analysis
+    const orchCtx = orchestration ? { orchestrationId: orchestration.id, orchestrationIteration: orchestration.iteration, isSubTask: true } : {};
     const response = await ai.generate({
       taskType: TaskType.DEEP_ANALYSIS,
-      context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory },
+      context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, ...orchCtx },
       prompt: task.prompt,
       providerOverride: 'CLAUDE',
       modelOverride: model,
@@ -2883,7 +2886,8 @@ async function executeRoutePipeline(
 
           for (let i = 0; i < orchMaxIterations; i++) {
             orchIterationsRun = i + 1;
-            appLog.info(`Orchestrated analysis iteration ${i + 1}/${orchMaxIterations}`, { ticketId, iteration: i + 1 }, ticketId, 'ticket');
+            const orchestrationId = randomUUID();
+            appLog.info(`Orchestrated analysis iteration ${i + 1}/${orchMaxIterations}`, { ticketId, iteration: i + 1, orchestrationId }, ticketId, 'ticket');
 
             // Extract only the current run content (after the run header) for the strategist
             const currentRunStart = knowledgeDoc.lastIndexOf(currentRunHeader);
@@ -2903,7 +2907,7 @@ async function executeRoutePipeline(
 
             const strategistResponse = await ai.generate({
               taskType: (step.taskTypeOverride ?? TaskType.DEEP_ANALYSIS) as TaskType,
-              context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!clientContext },
+              context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!clientContext, orchestrationId, orchestrationIteration: i + 1 },
               prompt: strategistPrompt,
               systemPrompt: ORCHESTRATED_SYSTEM_PROMPT,
               providerOverride: 'CLAUDE',
@@ -2937,7 +2941,7 @@ async function executeRoutePipeline(
             const taskBatches = chunkArray(plan.tasks, maxParallelTasks);
             for (const batch of taskBatches) {
               const results = await Promise.allSettled(
-                batch.map(task => executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, environmentContext, task, agenticTools, mcpIntegrations, repoIdByPrefix)),
+                batch.map(task => executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, environmentContext, task, agenticTools, mcpIntegrations, repoIdByPrefix, { id: orchestrationId, iteration: i + 1 })),
               );
 
               for (let j = 0; j < results.length; j++) {
