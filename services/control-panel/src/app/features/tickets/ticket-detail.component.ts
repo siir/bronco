@@ -418,6 +418,18 @@ interface FlowNode {
                               }
                             </div>
                           }
+                          @if (entry.archive?.fullPrompt || entry.promptText) {
+                            <div class="conv-final-response conv-prompt-block">
+                              <span class="conv-final-label">Prompt</span>
+                              <pre class="conv-response-text" [class.clamped]="!convPromptExpanded[entry.id]">{{ convPromptText(entry) }}</pre>
+                              @if (isMultilineConvPrompt(entry)) {
+                                <button mat-button class="inline-expand-btn" (click)="convPromptExpanded[entry.id] = !convPromptExpanded[entry.id]">
+                                  {{ convPromptExpanded[entry.id] ? 'less' : 'more' }}
+                                  <mat-icon>{{ convPromptExpanded[entry.id] ? 'keyboard_double_arrow_up' : 'keyboard_double_arrow_down' }}</mat-icon>
+                                </button>
+                              }
+                            </div>
+                          }
                           @if (entry.archive?.fullResponse || entry.responseText) {
                             <div class="conv-final-response">
                               <span class="conv-final-label">Response</span>
@@ -452,6 +464,18 @@ interface FlowNode {
                               @if (turn.toolName) { <span class="conv-tool-call">🔧 {{ turn.toolName }}</span> }
                               @if (turn.tokenCount) { <span class="conv-token-count">{{ turn.tokenCount | number }} tokens</span> }
                             </div>
+                          }
+                        </div>
+                      }
+                      @if (entry.archive?.fullPrompt || entry.promptText) {
+                        <div class="conv-final-response conv-prompt-block">
+                          <span class="conv-final-label">Prompt</span>
+                          <pre class="conv-response-text" [class.clamped]="!convPromptExpanded[entry.id]">{{ convPromptText(entry) }}</pre>
+                          @if (isMultilineConvPrompt(entry)) {
+                            <button mat-button class="inline-expand-btn" (click)="convPromptExpanded[entry.id] = !convPromptExpanded[entry.id]">
+                              {{ convPromptExpanded[entry.id] ? 'less' : 'more' }}
+                              <mat-icon>{{ convPromptExpanded[entry.id] ? 'keyboard_double_arrow_up' : 'keyboard_double_arrow_down' }}</mat-icon>
+                            </button>
                           }
                         </div>
                       }
@@ -1237,6 +1261,7 @@ interface FlowNode {
     .conv-final-label { font-size: 10px; font-weight: 700; color: #999; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 2px; }
     .conv-final-response { margin-top: 6px; }
     .conv-response-text { font-size: 12px; font-family: monospace; color: #333; margin: 0; white-space: pre-wrap; word-break: break-word; background: #f7f7f7; padding: 6px 8px; border-radius: 4px; border-left: 2px solid #7c4dff; }
+    .conv-prompt-block .conv-response-text { border-left-color: #ff9800; background: #fffdf5; }
     .conv-response-text.clamped { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
     .conv-empty { padding: 24px; text-align: center; color: #888; }
     .inline-expand-btn { font-size: 11px; color: #666; padding: 0; min-width: auto; margin-top: 2px; }
@@ -1290,6 +1315,7 @@ export class TicketDetailComponent implements OnInit {
   convStepGroups = signal<StepGroup[]>([]);
   convUngrouped = signal<UnifiedLogEntry[]>([]);
   convExpanded: Record<string, boolean> = {};
+  convPromptExpanded: Record<string, boolean> = {};
 
   // Legacy — still used by loadTicketAiUsage for the existing AI Cost card
   ticketLogs = signal<TicketAppLog[]>([]);
@@ -1670,8 +1696,17 @@ export class TicketDetailComponent implements OnInit {
     return meta?.messages ?? [];
   }
 
+  convPromptText(entry: UnifiedLogEntry): string {
+    return entry.archive?.fullPrompt ?? entry.promptText ?? '';
+  }
+
   convResponseText(entry: UnifiedLogEntry): string {
     return entry.archive?.fullResponse ?? entry.responseText ?? '';
+  }
+
+  isMultilineConvPrompt(entry: UnifiedLogEntry): boolean {
+    const text = this.convPromptText(entry);
+    return text.split('\n').filter(l => l.trim().length > 0).length > 2;
   }
 
   isMultilineConv(entry: UnifiedLogEntry): boolean {
