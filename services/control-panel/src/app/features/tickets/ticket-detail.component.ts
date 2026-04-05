@@ -1849,7 +1849,7 @@ export class TicketDetailComponent implements OnInit {
   }
 
   isMarkdownEvent(eventType: string): boolean {
-    return eventType === 'AI_ANALYSIS' || eventType === 'AI_RECOMMENDATION';
+    return eventType === 'AI_ANALYSIS' || eventType === 'AI_RECOMMENDATION' || eventType === 'COMMENT';
   }
 
   formatEventType(type: string): string {
