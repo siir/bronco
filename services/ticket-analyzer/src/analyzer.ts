@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { readdir, rm, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { join, relative, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Job } from 'bullmq';
 import { Prisma } from '@bronco/db';
@@ -322,6 +322,8 @@ export interface AnalyzerDeps {
   mcpAuthToken?: string;
   /** Optional BullMQ queue for self-analysis triggers (post-pipeline analysis). */
   selfAnalysisQueue?: import('bullmq').Queue;
+  /** Optional path for storing full MCP tool result artifacts on disk. */
+  artifactStoragePath?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -1969,6 +1971,57 @@ function resolveTaskTools(
   return { resolved, fuzzy, unmatched };
 }
 
+/**
+ * Sanitize a string to be safe for use as a filename component.
+ * Only allows alphanumerics, dots, hyphens, and underscores; replaces all
+ * other characters (including path separators) with underscores and trims
+ * to 64 characters to prevent path traversal or excessively long filenames.
+ */
+function sanitizeFilenameSegment(value: string): string {
+  return value.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 64);
+}
+
+async function saveMcpToolArtifact(
+  db: PrismaClient,
+  ticketId: string,
+  toolName: string,
+  rawResult: string,
+  storagePath: string,
+): Promise<void> {
+  try {
+    let isJson = false;
+    try { JSON.parse(rawResult); isJson = true; } catch { /* not JSON */ }
+    const mimeType = isJson ? 'application/json' : 'text/plain';
+    const ext = isJson ? 'json' : 'txt';
+    const safeToolName = sanitizeFilenameSegment(toolName || 'unknown');
+    const filename = `mcp-${safeToolName}-${Date.now()}-${randomUUID()}.${ext}`;
+    const resolvedStorage = resolve(storagePath);
+    const ticketDir = resolve(resolvedStorage, 'tickets', ticketId);
+    const rel = relative(resolvedStorage, ticketDir);
+    if (rel.startsWith('..') || rel === '') {
+      logger.warn({ ticketId, ticketDir, resolvedStorage }, 'MCP artifact path escaped storage root — skipping');
+      return;
+    }
+    const fullPath = join(ticketDir, filename);
+    await mkdir(ticketDir, { recursive: true });
+    await writeFile(fullPath, rawResult, 'utf-8');
+    const relativePath = `tickets/${ticketId}/${filename}`;
+    await db.artifact.create({
+      data: {
+        ticketId,
+        filename,
+        mimeType,
+        sizeBytes: Buffer.byteLength(rawResult, 'utf-8'),
+        storagePath: relativePath,
+        description: `Raw MCP tool output from agentic analysis (${toolName})`,
+      },
+    });
+    logger.info({ ticketId, filename }, 'MCP tool artifact saved');
+  } catch (err) {
+    logger.warn({ err, ticketId }, 'Failed to save MCP tool artifact — continuing');
+  }
+}
+
 // Signals indicating a sub-task result may be irrelevant (checked in first 500 chars)
 const IRRELEVANT_SIGNALS = [
   'not relevant', 'unable to', 'cannot access', 'i cannot', "i don't have",
@@ -2091,6 +2144,15 @@ async function executeOrchestratedSubTask(
             content: result.result,
             ...(result.isError ? { is_error: true } : {}),
           });
+          if (deps.artifactStoragePath && !result.isError) {
+            void saveMcpToolArtifact(deps.db, ticketId, toolUse.name, result.result, deps.artifactStoragePath).catch(error => {
+              logger.warn({
+                err: error,
+                ticketId,
+                toolName: toolUse.name,
+              }, 'Failed to persist MCP tool artifact');
+            });
+          }
           if (result.isError) hasToolError = true;
         }
 
@@ -3222,6 +3284,15 @@ async function executeRoutePipeline(
               content: result.result,
               ...(result.isError ? { is_error: true } : {}),
             });
+            if (deps.artifactStoragePath && !result.isError) {
+              void saveMcpToolArtifact(deps.db, ticketId, toolUse.name, result.result, deps.artifactStoragePath).catch(error => {
+                logger.warn({
+                  err: error,
+                  ticketId,
+                  toolName: toolUse.name,
+                }, 'Failed to persist MCP tool artifact');
+              });
+            }
             appLog.info(
               `Agentic tool call: ${toolUse.name} (${elapsed}ms)`,
               {

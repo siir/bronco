@@ -70,6 +70,7 @@ async function main(): Promise<void> {
     apiKey: config.API_KEY,
     mcpAuthToken: config.MCP_AUTH_TOKEN,
     selfAnalysisQueue,
+    artifactStoragePath: config.ARTIFACT_STORAGE_PATH,
   });
   const analysisWorker = createWorker<AnalysisJob>(
     'ticket-analysis',
