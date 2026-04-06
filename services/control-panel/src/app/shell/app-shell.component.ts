@@ -86,6 +86,7 @@ export class AppShellComponent implements OnInit {
     this.detailPanel.restoreFromUrl({
       detail: params['detail'],
       type: params['type'],
+      mode: params['mode'],
     });
     this.updateTitle();
     this.router.events.subscribe(event => {
