@@ -1,27 +1,24 @@
-import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, DestroyRef, HostListener, inject, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Subject, debounceTime } from 'rxjs';
-import { MatCardModule } from '@angular/material/card';
-import { MatTableModule } from '@angular/material/table';
-import { MatButtonModule } from '@angular/material/button';
-import { MatCheckboxModule } from '@angular/material/checkbox';
-import { MatIconModule } from '@angular/material/icon';
-import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
-import { MatTooltipModule } from '@angular/material/tooltip';
-import { MatTabsModule } from '@angular/material/tabs';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatSelectModule } from '@angular/material/select';
-import { MatInputModule } from '@angular/material/input';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import {
   AiUsageService, AiUsageSummary, AiModelCost, AiUsageLogEntry, AiUsageLogDetail,
 } from '../../core/services/ai-usage.service';
 import { ModelCostDialogComponent } from './model-cost-dialog.component';
+import {
+  BroncoButtonComponent,
+  SelectComponent,
+  TabComponent,
+  TabGroupComponent,
+  DataTableComponent,
+  DataTableColumnComponent,
+} from '../../shared/components/index.js';
 
 interface DatePreset {
   label: string;
@@ -29,7 +26,7 @@ interface DatePreset {
   hours: number;
 }
 
-/** Tab indexes — keep in sync with the mat-tab-group order in the template. */
+/** Tab indexes — keep in sync with the tab-group order in the template. */
 const TAB_INDEX = {
   USAGE_SUMMARY: 0,
   MODEL_COSTS: 1,
@@ -65,532 +62,814 @@ const DATE_PRESETS: DatePreset[] = [
   imports: [
     CommonModule,
     FormsModule,
-    MatCardModule,
-    MatTableModule,
-    MatButtonModule,
-    MatCheckboxModule,
-    MatIconModule,
-    MatProgressSpinnerModule,
-    MatTooltipModule,
-    MatTabsModule,
     MatDialogModule,
-    MatFormFieldModule,
-    MatSelectModule,
-    MatInputModule,
     MatPaginatorModule,
+    BroncoButtonComponent,
+    SelectComponent,
+    TabComponent,
+    TabGroupComponent,
+    DataTableComponent,
+    DataTableColumnComponent,
   ],
   template: `
-    <div class="page-header">
-      <h1>AI Usage & Costs</h1>
-      <div class="header-actions">
-        <button mat-raised-button (click)="loadAll()">
-          <mat-icon>refresh</mat-icon> Refresh
-        </button>
+    <div class="page-wrapper">
+      <div class="page-header">
+        <h1>AI Usage & Costs</h1>
+        <app-bronco-button variant="secondary" (click)="loadAll()">
+          ↻ Refresh
+        </app-bronco-button>
       </div>
-    </div>
 
-    <mat-tab-group [selectedIndex]="selectedTab()" (selectedTabChange)="onTabChange($event.index)">
-      <!-- Usage Summary Tab -->
-      <mat-tab label="Usage Summary">
-        <div class="tab-content">
-          <div class="filters">
-            <mat-form-field>
-              <mat-label>Provider</mat-label>
-              <mat-select [(ngModel)]="summaryProviderFilter" (ngModelChange)="loadSummary()">
-                <mat-option value="">All Providers</mat-option>
-                @for (p of providers(); track p) {
-                  <mat-option [value]="p">{{ p }}</mat-option>
+      <app-tab-group [selectedIndex]="selectedTab()" (selectedIndexChange)="onTabChange($event)">
+
+        <!-- ═══ Usage Summary Tab ═══ -->
+        <app-tab label="Usage Summary">
+          <div class="tab-content">
+            <div class="filters">
+              <app-select
+                [value]="summaryProviderFilter"
+                [options]="providerSelectOptions()"
+                placeholder=""
+                (valueChange)="summaryProviderFilter = $event; loadSummary()">
+              </app-select>
+
+              <input class="text-input search-input" type="text"
+                     [(ngModel)]="summaryModelFilter" (keyup.enter)="loadSummary()"
+                     placeholder="Filter model...">
+
+              <div class="date-presets">
+                <span class="date-label">Range:</span>
+                @for (preset of datePresets; track preset.value) {
+                  <button class="preset-btn" [class.active]="summaryDatePreset === preset.value"
+                          (click)="setSummaryDatePreset(preset.value)">
+                    {{ preset.label }}
+                  </button>
                 }
-              </mat-select>
-            </mat-form-field>
-
-            <mat-form-field class="search-field">
-              <mat-label>Model name</mat-label>
-              <input matInput [(ngModel)]="summaryModelFilter" (keyup.enter)="loadSummary()" placeholder="Filter model...">
-            </mat-form-field>
-
-            <div class="date-presets">
-              <span class="date-label">Range:</span>
-              @for (preset of datePresets; track preset.value) {
-                <button mat-stroked-button
-                        [class.active-preset]="summaryDatePreset === preset.value"
-                        (click)="setSummaryDatePreset(preset.value)">
-                  {{ preset.label }}
+                <button class="preset-btn" [class.active]="summaryDatePreset === 'all'"
+                        (click)="setSummaryDatePreset('all')">
+                  All
                 </button>
-              }
-              <button mat-stroked-button
-                      [class.active-preset]="summaryDatePreset === 'all'"
-                      (click)="setSummaryDatePreset('all')">
-                All
-              </button>
+              </div>
             </div>
+
+            <div class="stats-row">
+              <div class="stat-card">
+                <div class="stat-label">Total Cost</div>
+                <div class="stat-value cost">\${{ grandTotalCost() | number:'1.4-4' }}</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Total Calls</div>
+                <div class="stat-value">{{ grandTotalCalls() | number }}</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Total Tokens</div>
+                <div class="stat-value">{{ grandTotalTokens() | number }}</div>
+              </div>
+            </div>
+
+            <app-data-table [data]="usageSummary()" [trackBy]="trackByUsage" [rowClickable]="false"
+                            emptyMessage="No AI usage data recorded yet.">
+              <app-data-column key="provider" header="Provider" [sortable]="false">
+                <ng-template #cell let-row>
+                  <span class="provider-chip provider-{{ row.provider.toLowerCase() }}">{{ row.provider }}</span>
+                </ng-template>
+              </app-data-column>
+              <app-data-column key="model" header="Model" [sortable]="false">
+                <ng-template #cell let-row>
+                  <span class="mono">{{ row.model }}</span>
+                </ng-template>
+              </app-data-column>
+              <app-data-column key="calls" header="Calls" [sortable]="false">
+                <ng-template #cell let-row>{{ row.callCount | number }}</ng-template>
+              </app-data-column>
+              <app-data-column key="inputTokens" header="Input Tokens" [sortable]="false">
+                <ng-template #cell let-row>
+                  <span class="mono">{{ row.totalInputTokens | number }}</span>
+                </ng-template>
+              </app-data-column>
+              <app-data-column key="outputTokens" header="Output Tokens" [sortable]="false">
+                <ng-template #cell let-row>
+                  <span class="mono">{{ row.totalOutputTokens | number }}</span>
+                </ng-template>
+              </app-data-column>
+              <app-data-column key="cost" header="Cost (USD)" [sortable]="false">
+                <ng-template #cell let-row>
+                  <span class="mono cost-cell">\${{ row.totalCostUsd | number:'1.4-4' }}</span>
+                </ng-template>
+              </app-data-column>
+            </app-data-table>
           </div>
+        </app-tab>
 
-          <div class="stats-cards">
-            <mat-card class="stat-card">
-              <div class="stat-label">Total Cost</div>
-              <div class="stat-value cost">\${{ grandTotalCost() | number:'1.4-4' }}</div>
-            </mat-card>
-            <mat-card class="stat-card">
-              <div class="stat-label">Total Calls</div>
-              <div class="stat-value">{{ grandTotalCalls() | number }}</div>
-            </mat-card>
-            <mat-card class="stat-card">
-              <div class="stat-label">Total Tokens</div>
-              <div class="stat-value">{{ grandTotalTokens() | number }}</div>
-            </mat-card>
-          </div>
+        <!-- ═══ Model Costs Tab ═══ -->
+        <app-tab label="Model Costs">
+          <div class="tab-content">
+            <div class="toolbar-row">
+              <app-bronco-button variant="primary" (click)="refreshCosts()" [disabled]="loading()"
+                                 title="Fetch latest models and pricing from OpenRouter + Ollama">
+                ⟳ Refresh Costs
+              </app-bronco-button>
+              <app-bronco-button variant="secondary" (click)="addModel()">
+                + Add Model
+              </app-bronco-button>
+              @if (loading()) {
+                <span class="loading-text">Loading...</span>
+              }
+            </div>
 
-          <mat-card>
-            <h3>Usage by Provider & Model</h3>
-            @if (usageSummary().length === 0) {
-              <p class="empty">No AI usage data recorded yet.</p>
-            } @else {
-              <table mat-table [dataSource]="usageSummary()" class="full-width">
-                <ng-container matColumnDef="provider">
-                  <th mat-header-cell *matHeaderCellDef>Provider</th>
-                  <td mat-cell *matCellDef="let row">
-                    <span class="provider-chip provider-{{ row.provider.toLowerCase() }}">{{ row.provider }}</span>
-                  </td>
-                </ng-container>
-                <ng-container matColumnDef="model">
-                  <th mat-header-cell *matHeaderCellDef>Model</th>
-                  <td mat-cell *matCellDef="let row" class="mono">{{ row.model }}</td>
-                </ng-container>
-                <ng-container matColumnDef="calls">
-                  <th mat-header-cell *matHeaderCellDef>Calls</th>
-                  <td mat-cell *matCellDef="let row">{{ row.callCount | number }}</td>
-                </ng-container>
-                <ng-container matColumnDef="inputTokens">
-                  <th mat-header-cell *matHeaderCellDef>Input Tokens</th>
-                  <td mat-cell *matCellDef="let row" class="mono">{{ row.totalInputTokens | number }}</td>
-                </ng-container>
-                <ng-container matColumnDef="outputTokens">
-                  <th mat-header-cell *matHeaderCellDef>Output Tokens</th>
-                  <td mat-cell *matCellDef="let row" class="mono">{{ row.totalOutputTokens | number }}</td>
-                </ng-container>
-                <ng-container matColumnDef="cost">
-                  <th mat-header-cell *matHeaderCellDef>Cost (USD)</th>
-                  <td mat-cell *matCellDef="let row" class="mono cost-cell">\${{ row.totalCostUsd | number:'1.4-4' }}</td>
-                </ng-container>
-                <tr mat-header-row *matHeaderRowDef="usageColumns"></tr>
-                <tr mat-row *matRowDef="let row; columns: usageColumns;"></tr>
-              </table>
-            }
-          </mat-card>
-        </div>
-      </mat-tab>
-
-      <!-- Model Costs Tab -->
-      <mat-tab label="Model Costs">
-        <div class="tab-content">
-          <div class="cost-actions">
-            <button mat-raised-button color="accent" (click)="refreshCosts()" [disabled]="loading()"
-                    matTooltip="Fetch latest models and pricing from OpenRouter + Ollama">
-              <mat-icon>sync</mat-icon> Refresh Costs
-            </button>
-            <button mat-raised-button color="primary" (click)="addModel()">
-              <mat-icon>add</mat-icon> Add Model
-            </button>
-            @if (loading()) {
-              <mat-spinner diameter="24"></mat-spinner>
-            }
-          </div>
-
-          <mat-card>
-            @if (costs().length === 0) {
-              <p class="empty">No model costs configured. Click "Refresh Costs" to fetch latest pricing or "Add Model" to add manually.</p>
-            } @else {
-              <table mat-table [dataSource]="costs()" class="full-width">
-                <ng-container matColumnDef="provider">
-                  <th mat-header-cell *matHeaderCellDef>Provider</th>
-                  <td mat-cell *matCellDef="let row">
-                    <span class="provider-chip provider-{{ row.provider.toLowerCase() }}">{{ row.provider }}</span>
-                  </td>
-                </ng-container>
-                <ng-container matColumnDef="model">
-                  <th mat-header-cell *matHeaderCellDef>Model</th>
-                  <td mat-cell *matCellDef="let row" class="mono">
-                    {{ row.model }}
+            <app-data-table [data]="costs()" [trackBy]="trackByCost" [rowClickable]="false"
+                            emptyMessage="No model costs configured. Click 'Refresh Costs' to fetch latest pricing or 'Add Model' to add manually.">
+              <app-data-column key="provider" header="Provider" [sortable]="false">
+                <ng-template #cell let-row>
+                  <span class="provider-chip provider-{{ row.provider.toLowerCase() }}">{{ row.provider }}</span>
+                </ng-template>
+              </app-data-column>
+              <app-data-column key="model" header="Model" [sortable]="false">
+                <ng-template #cell let-row>
+                  <span class="mono">{{ row.model }}</span>
+                  @if (row.isCustomCost) {
+                    <span class="custom-badge" title="Custom pricing — protected from refresh updates">*</span>
+                  }
+                </ng-template>
+              </app-data-column>
+              <app-data-column key="displayName" header="Display Name" [sortable]="false">
+                <ng-template #cell let-row>{{ row.displayName ?? '—' }}</ng-template>
+              </app-data-column>
+              <app-data-column key="inputCost" header="Input ($/1M)" [sortable]="false">
+                <ng-template #cell let-row>
+                  <span class="mono">\${{ row.inputCostPer1m | number:'1.2-2' }}</span>
+                </ng-template>
+              </app-data-column>
+              <app-data-column key="outputCost" header="Output ($/1M)" [sortable]="false">
+                <ng-template #cell let-row>
+                  <span class="mono">\${{ row.outputCostPer1m | number:'1.2-2' }}</span>
+                </ng-template>
+              </app-data-column>
+              <app-data-column key="updatedAt" header="Updated" [sortable]="false">
+                <ng-template #cell let-row>
+                  <span class="time-cell">{{ formatDate(row.updatedAt) }}</span>
+                </ng-template>
+              </app-data-column>
+              <app-data-column key="actions" header="" [sortable]="false" width="160px">
+                <ng-template #cell let-row>
+                  <div class="action-btns">
+                    <app-bronco-button variant="ghost" size="sm" title="Edit" (click)="editModel(row)">Edit</app-bronco-button>
                     @if (row.isCustomCost) {
-                      <span class="custom-badge" matTooltip="Custom pricing — protected from refresh updates">*</span>
+                      <app-bronco-button variant="ghost" size="sm" title="Clear custom cost" (click)="clearCustomCost(row)">Reset</app-bronco-button>
                     }
-                  </td>
-                </ng-container>
-                <ng-container matColumnDef="displayName">
-                  <th mat-header-cell *matHeaderCellDef>Display Name</th>
-                  <td mat-cell *matCellDef="let row">{{ row.displayName ?? '—' }}</td>
-                </ng-container>
-                <ng-container matColumnDef="inputCost">
-                  <th mat-header-cell *matHeaderCellDef>Input ($/1M)</th>
-                  <td mat-cell *matCellDef="let row" class="mono">\${{ row.inputCostPer1m | number:'1.2-2' }}</td>
-                </ng-container>
-                <ng-container matColumnDef="outputCost">
-                  <th mat-header-cell *matHeaderCellDef>Output ($/1M)</th>
-                  <td mat-cell *matCellDef="let row" class="mono">\${{ row.outputCostPer1m | number:'1.2-2' }}</td>
-                </ng-container>
-                <ng-container matColumnDef="updatedAt">
-                  <th mat-header-cell *matHeaderCellDef>Updated</th>
-                  <td mat-cell *matCellDef="let row" class="time-cell">{{ formatDate(row.updatedAt) }}</td>
-                </ng-container>
-                <ng-container matColumnDef="actions">
-                  <th mat-header-cell *matHeaderCellDef></th>
-                  <td mat-cell *matCellDef="let row">
-                    <button mat-icon-button matTooltip="Edit" (click)="editModel(row)">
-                      <mat-icon>edit</mat-icon>
-                    </button>
-                    @if (row.isCustomCost) {
-                      <button mat-icon-button matTooltip="Clear custom cost" (click)="clearCustomCost(row)">
-                        <mat-icon>lock_open</mat-icon>
-                      </button>
+                    <app-bronco-button variant="ghost" size="sm" title="Delete" (click)="deleteModel(row)">
+                      <span class="destructive-text">Delete</span>
+                    </app-bronco-button>
+                  </div>
+                </ng-template>
+              </app-data-column>
+            </app-data-table>
+          </div>
+        </app-tab>
+
+        <!-- ═══ Prompt Log Tab ═══ -->
+        <app-tab label="Prompt Log">
+          <div class="tab-content">
+            <!-- Filter row 1: multi-selects + model input -->
+            <div class="filters">
+              <div class="filter-dropdown" (click)="$event.stopPropagation()">
+                <button class="filter-trigger" [class.has-selection]="logProviderFilters.length > 0"
+                        (click)="toggleDropdown('provider')">
+                  Provider @if (logProviderFilters.length) { ({{ logProviderFilters.length }}) }
+                  <span class="chevron">▾</span>
+                </button>
+                @if (activeDropdown() === 'provider') {
+                  <div class="filter-panel">
+                    @for (p of providers(); track p) {
+                      <label class="filter-option">
+                        <input type="checkbox" [checked]="logProviderFilters.includes(p)"
+                               (change)="toggleFilterItem('provider', p)">
+                        <span>{{ p }}</span>
+                      </label>
                     }
-                    <button mat-icon-button color="warn" matTooltip="Delete" (click)="deleteModel(row)">
-                      <mat-icon>delete</mat-icon>
-                    </button>
-                  </td>
-                </ng-container>
-                <tr mat-header-row *matHeaderRowDef="costColumns"></tr>
-                <tr mat-row *matRowDef="let row; columns: costColumns;" [class.custom-row]="row.isCustomCost"></tr>
-              </table>
+                  </div>
+                }
+                @if (logProviderFilters.length > 0) {
+                  <button class="filter-clear" (click)="logProviderFilters = []; resetAndLoadLogs(); $event.stopPropagation()">×</button>
+                }
+              </div>
+
+              <input class="text-input search-input" type="text"
+                     [(ngModel)]="logModelFilter" (ngModelChange)="modelFilter$.next($event)"
+                     (keyup.enter)="resetAndLoadLogs()" placeholder="Filter model...">
+
+              <div class="filter-dropdown" (click)="$event.stopPropagation()">
+                <button class="filter-trigger" [class.has-selection]="logTaskTypeFilters.length > 0"
+                        (click)="toggleDropdown('taskType')">
+                  Task Type @if (logTaskTypeFilters.length) { ({{ logTaskTypeFilters.length }}) }
+                  <span class="chevron">▾</span>
+                </button>
+                @if (activeDropdown() === 'taskType') {
+                  <div class="filter-panel">
+                    @for (t of allTaskTypes; track t) {
+                      <label class="filter-option">
+                        <input type="checkbox" [checked]="logTaskTypeFilters.includes(t)"
+                               (change)="toggleFilterItem('taskType', t)">
+                        <span>{{ t }}</span>
+                      </label>
+                    }
+                  </div>
+                }
+                @if (logTaskTypeFilters.length > 0) {
+                  <button class="filter-clear" (click)="logTaskTypeFilters = []; resetAndLoadLogs(); $event.stopPropagation()">×</button>
+                }
+              </div>
+
+              <div class="filter-dropdown" (click)="$event.stopPropagation()">
+                <button class="filter-trigger" [class.has-selection]="logPromptKeyFilters.length > 0"
+                        (click)="toggleDropdown('promptKey')">
+                  Prompt Key @if (logPromptKeyFilters.length) { ({{ logPromptKeyFilters.length }}) }
+                  <span class="chevron">▾</span>
+                </button>
+                @if (activeDropdown() === 'promptKey') {
+                  <div class="filter-panel">
+                    @for (k of promptKeys(); track k) {
+                      <label class="filter-option">
+                        <input type="checkbox" [checked]="logPromptKeyFilters.includes(k)"
+                               (change)="toggleFilterItem('promptKey', k)">
+                        <span>{{ k }}</span>
+                      </label>
+                    }
+                  </div>
+                }
+                @if (logPromptKeyFilters.length > 0) {
+                  <button class="filter-clear" (click)="logPromptKeyFilters = []; resetAndLoadLogs(); $event.stopPropagation()">×</button>
+                }
+              </div>
+            </div>
+
+            <!-- Filter row 2: context, tokens, dates, actions -->
+            <div class="filters">
+              <input class="text-input search-input" type="text"
+                     [(ngModel)]="logContextFilter" (ngModelChange)="contextFilter$.next($event)"
+                     (keyup.enter)="resetAndLoadLogs()" placeholder="Search entity type/ID...">
+
+              <input class="text-input token-input" type="number"
+                     [(ngModel)]="logMinTokens" (ngModelChange)="tokenFilter$.next()"
+                     (keyup.enter)="resetAndLoadLogs()" placeholder="Min tokens">
+
+              <input class="text-input token-input" type="number"
+                     [(ngModel)]="logMaxTokens" (ngModelChange)="tokenFilter$.next()"
+                     (keyup.enter)="resetAndLoadLogs()" placeholder="Max tokens">
+
+              <div class="date-presets">
+                <span class="date-label">Range:</span>
+                @for (preset of datePresets; track preset.value) {
+                  <button class="preset-btn" [class.active]="logDatePreset === preset.value"
+                          (click)="setLogDatePreset(preset.value)">
+                    {{ preset.label }}
+                  </button>
+                }
+                <button class="preset-btn" [class.active]="logDatePreset === 'all'"
+                        (click)="setLogDatePreset('all')">
+                  All
+                </button>
+              </div>
+
+              <div class="log-actions">
+                <app-bronco-button variant="destructive" size="sm"
+                                   [disabled]="selectedLogIds().size === 0 && !allMatchingSelected()"
+                                   (click)="deleteSelectedLogs()">
+                  Delete Selected
+                </app-bronco-button>
+                <app-bronco-button variant="secondary" size="sm" (click)="refreshLogCosts()" [disabled]="logLoading()"
+                                   title="Recalculate costs for log entries missing prices">
+                  $ Refresh Costs
+                </app-bronco-button>
+                @if (logLoading()) {
+                  <span class="loading-text">Loading...</span>
+                }
+              </div>
+            </div>
+
+            <!-- Select-all banners -->
+            @if (isAllPageSelected() && !allMatchingSelected()) {
+              <div class="select-banner">
+                All {{ logs().length }} rows on this page are selected.
+                <button class="select-banner-link" (click)="allMatchingSelected.set(true)">
+                  Select all {{ logTotal() }} rows matching current filters?
+                </button>
+              </div>
             }
-          </mat-card>
-        </div>
-      </mat-tab>
+            @if (allMatchingSelected()) {
+              <div class="select-banner">
+                All {{ logTotal() }} rows matching current filters are selected.
+                <button class="select-banner-link" (click)="clearSelection()">Clear selection</button>
+              </div>
+            }
 
-      <!-- Prompt Log Tab -->
-      <mat-tab label="Prompt Log">
-        <div class="tab-content">
-          <div class="filters">
-            <mat-form-field>
-              <mat-label>Provider</mat-label>
-              <mat-select [(ngModel)]="logProviderFilters" multiple (ngModelChange)="resetAndLoadLogs()">
-                <mat-select-trigger>
-                  @if (logProviderFilters.length <= 2) {
-                    {{ logProviderFilters.join(', ') }}
-                  } @else {
-                    {{ logProviderFilters.length }} selected
-                  }
-                </mat-select-trigger>
-                @for (p of providers(); track p) {
-                  <mat-option [value]="p">{{ p }}</mat-option>
-                }
-              </mat-select>
-              @if (logProviderFilters.length > 0) {
-                <button matSuffix mat-icon-button class="clear-btn" aria-label="Clear" (click)="logProviderFilters = []; resetAndLoadLogs(); $event.stopPropagation()">
-                  <mat-icon>close</mat-icon>
-                </button>
-              }
-            </mat-form-field>
-
-            <mat-form-field class="search-field">
-              <mat-label>Model name</mat-label>
-              <input matInput [(ngModel)]="logModelFilter" (ngModelChange)="modelFilter$.next($event)" (keyup.enter)="resetAndLoadLogs()" placeholder="Filter model...">
-            </mat-form-field>
-
-            <mat-form-field>
-              <mat-label>Task Type</mat-label>
-              <mat-select [(ngModel)]="logTaskTypeFilters" multiple (ngModelChange)="resetAndLoadLogs()">
-                <mat-select-trigger>
-                  @if (logTaskTypeFilters.length <= 2) {
-                    {{ logTaskTypeFilters.join(', ') }}
-                  } @else {
-                    {{ logTaskTypeFilters.length }} selected
-                  }
-                </mat-select-trigger>
-                @for (t of allTaskTypes; track t) {
-                  <mat-option [value]="t">{{ t }}</mat-option>
-                }
-              </mat-select>
-              @if (logTaskTypeFilters.length > 0) {
-                <button matSuffix mat-icon-button class="clear-btn" aria-label="Clear" (click)="logTaskTypeFilters = []; resetAndLoadLogs(); $event.stopPropagation()">
-                  <mat-icon>close</mat-icon>
-                </button>
-              }
-            </mat-form-field>
-
-            <mat-form-field>
-              <mat-label>Prompt Key</mat-label>
-              <mat-select [(ngModel)]="logPromptKeyFilters" multiple (ngModelChange)="resetAndLoadLogs()">
-                <mat-select-trigger>
-                  @if (logPromptKeyFilters.length <= 2) {
-                    {{ logPromptKeyFilters.join(', ') }}
-                  } @else {
-                    {{ logPromptKeyFilters.length }} selected
-                  }
-                </mat-select-trigger>
-                @for (k of promptKeys(); track k) {
-                  <mat-option [value]="k">{{ k }}</mat-option>
-                }
-              </mat-select>
-              @if (logPromptKeyFilters.length > 0) {
-                <button matSuffix mat-icon-button class="clear-btn" aria-label="Clear" (click)="logPromptKeyFilters = []; resetAndLoadLogs(); $event.stopPropagation()">
-                  <mat-icon>close</mat-icon>
-                </button>
-              }
-            </mat-form-field>
-          </div>
-
-          <div class="filters">
-            <mat-form-field class="search-field">
-              <mat-label>Context</mat-label>
-              <input matInput [(ngModel)]="logContextFilter" (ngModelChange)="contextFilter$.next($event)" (keyup.enter)="resetAndLoadLogs()" placeholder="Search entity type/ID...">
-            </mat-form-field>
-
-            <mat-form-field class="token-field">
-              <mat-label>Min tokens</mat-label>
-              <input matInput type="number" [(ngModel)]="logMinTokens" (ngModelChange)="tokenFilter$.next()" (keyup.enter)="resetAndLoadLogs()">
-            </mat-form-field>
-
-            <mat-form-field class="token-field">
-              <mat-label>Max tokens</mat-label>
-              <input matInput type="number" [(ngModel)]="logMaxTokens" (ngModelChange)="tokenFilter$.next()" (keyup.enter)="resetAndLoadLogs()">
-            </mat-form-field>
-
-            <div class="date-presets">
-              <span class="date-label">Range:</span>
-              @for (preset of datePresets; track preset.value) {
-                <button mat-stroked-button
-                        [class.active-preset]="logDatePreset === preset.value"
-                        (click)="setLogDatePreset(preset.value)">
-                  {{ preset.label }}
-                </button>
-              }
-              <button mat-stroked-button
-                      [class.active-preset]="logDatePreset === 'all'"
-                      (click)="setLogDatePreset('all')">
-                All
-              </button>
-            </div>
-
-            <div class="log-actions">
-              <button mat-raised-button color="warn"
-                      [disabled]="selectedLogIds().size === 0 && !allMatchingSelected()"
-                      (click)="deleteSelectedLogs()">
-                <mat-icon>delete</mat-icon> Delete Selected
-              </button>
-              <button mat-raised-button color="accent" (click)="refreshLogCosts()" [disabled]="logLoading()"
-                      matTooltip="Recalculate costs for log entries missing prices">
-                <mat-icon>attach_money</mat-icon> Refresh Costs
-              </button>
-              @if (logLoading()) {
-                <mat-spinner diameter="24"></mat-spinner>
-              }
-            </div>
-          </div>
-
-          @if (isAllPageSelected() && !allMatchingSelected()) {
-            <div class="select-all-banner">
-              All {{ logs().length }} rows on this page are selected.
-              <button type="button" class="select-all-link" (click)="allMatchingSelected.set(true)">Select all {{ logTotal() }} rows matching current filters?</button>
-            </div>
-          }
-          @if (allMatchingSelected()) {
-            <div class="select-all-banner">
-              All {{ logTotal() }} rows matching current filters are selected.
-              <button type="button" class="select-all-link" (click)="clearSelection()">Clear selection</button>
-            </div>
-          }
-
-          <mat-card>
-            @if (logs().length === 0) {
-              <p class="empty">No prompt logs match the current filters.</p>
-            } @else {
-              <table mat-table [dataSource]="logs()" multiTemplateDataRows class="full-width log-table">
-                <ng-container matColumnDef="select">
-                  <th mat-header-cell *matHeaderCellDef>
-                    <mat-checkbox
-                      [checked]="isAllPageSelected()"
-                      [indeterminate]="selectedLogIds().size > 0 && !isAllPageSelected()"
-                      (change)="togglePageSelection($event.checked)"
-                      (click)="$event.stopPropagation()">
-                    </mat-checkbox>
-                  </th>
-                  <td mat-cell *matCellDef="let row">
-                    <mat-checkbox
-                      [checked]="selectedLogIds().has(row.id)"
-                      (change)="toggleRowSelection(row.id, $event.checked)"
-                      (click)="$event.stopPropagation()">
-                    </mat-checkbox>
-                  </td>
-                </ng-container>
-                <ng-container matColumnDef="expand">
-                  <th mat-header-cell *matHeaderCellDef></th>
-                  <td mat-cell *matCellDef="let row">
-                    <button mat-icon-button
-                            [matTooltip]="expandedLogIds().has(row.id) ? 'Collapse' : 'Show prompt/response'"
-                            [attr.aria-label]="expandedLogIds().has(row.id) ? 'Collapse' : 'Show prompt/response'"
-                            (click)="toggleLog(row); $event.stopPropagation()">
-                      <mat-icon>{{ expandedLogIds().has(row.id) ? 'expand_less' : 'expand_more' }}</mat-icon>
-                    </button>
-                  </td>
-                </ng-container>
-                <ng-container matColumnDef="time">
-                  <th mat-header-cell *matHeaderCellDef>Time</th>
-                  <td mat-cell *matCellDef="let row" class="time-cell">{{ formatTime(row.createdAt) }}</td>
-                </ng-container>
-                <ng-container matColumnDef="provider">
-                  <th mat-header-cell *matHeaderCellDef>Provider</th>
-                  <td mat-cell *matCellDef="let row">
-                    <span class="provider-chip provider-{{ row.provider.toLowerCase() }}">{{ row.provider }}</span>
-                  </td>
-                </ng-container>
-                <ng-container matColumnDef="model">
-                  <th mat-header-cell *matHeaderCellDef>Model</th>
-                  <td mat-cell *matCellDef="let row" class="mono">{{ row.model }}</td>
-                </ng-container>
-                <ng-container matColumnDef="taskType">
-                  <th mat-header-cell *matHeaderCellDef>Task Type</th>
-                  <td mat-cell *matCellDef="let row">
-                    <span class="task-chip">{{ row.taskType }}</span>
-                  </td>
-                </ng-container>
-                <ng-container matColumnDef="context">
-                  <th mat-header-cell *matHeaderCellDef>Context</th>
-                  <td mat-cell *matCellDef="let row">
-                    @if (row.ticketSubject) {
-                      <span class="ticket-ref" [matTooltip]="row.entityId">{{ row.ticketSubject | slice:0:50 }}{{ row.ticketSubject.length > 50 ? '...' : '' }}</span>
-                    } @else if (row.promptKey) {
-                      <span class="prompt-key-ref">{{ row.promptKey }}</span>
-                    } @else {
-                      <span class="text-muted">—</span>
-                    }
-                  </td>
-                </ng-container>
-                <ng-container matColumnDef="tokens">
-                  <th mat-header-cell *matHeaderCellDef>Tokens</th>
-                  <td mat-cell *matCellDef="let row" class="mono">
-                    <span class="token-in" matTooltip="Input tokens">{{ row.inputTokens | number }}</span>
-                    /
-                    <span class="token-out" matTooltip="Output tokens">{{ row.outputTokens | number }}</span>
-                  </td>
-                </ng-container>
-                <ng-container matColumnDef="cost">
-                  <th mat-header-cell *matHeaderCellDef>Cost</th>
-                  <td mat-cell *matCellDef="let row" class="mono cost-cell">
-                    @if (row.costUsd !== null) {
-                      \${{ row.costUsd | number:'1.4-4' }}
-                    } @else {
-                      <span class="text-muted">—</span>
-                    }
-                  </td>
-                </ng-container>
-                <ng-container matColumnDef="duration">
-                  <th mat-header-cell *matHeaderCellDef>Duration</th>
-                  <td mat-cell *matCellDef="let row" class="mono time-cell">
-                    @if (row.durationMs !== null) {
-                      {{ row.durationMs | number }}ms
-                    } @else {
-                      —
-                    }
-                  </td>
-                </ng-container>
-
-                <!-- Expandable detail row -->
-                <ng-container matColumnDef="expandedDetail">
-                  <td mat-cell *matCellDef="let row" [attr.colspan]="logColumns.length">
-                    @if (expandedLogIds().has(row.id)) {
-                      <div class="log-detail-panel">
-                        @if (detailLoading().get(row.id)) {
-                          <mat-spinner diameter="20"></mat-spinner>
-                        } @else {
-                          @if (expandedLogDetails().get(row.id); as detail) {
-                            @if (detail.systemPrompt) {
-                              <div class="log-detail-section">
-                                <div class="log-detail-label">System Prompt</div>
-                                <pre class="log-detail-text">{{ detail.systemPrompt }}</pre>
-                              </div>
-                            }
-                            <div class="log-detail-section">
-                              <div class="log-detail-label">Prompt</div>
-                              <pre class="log-detail-text">{{ detail.promptText ?? '(not stored)' }}</pre>
-                            </div>
-                            <div class="log-detail-section">
-                              <div class="log-detail-label">Response</div>
-                              <pre class="log-detail-text">{{ detail.responseText ?? '(not stored)' }}</pre>
-                            </div>
+            <!-- Prompt Log Table -->
+            <div class="table-card">
+              @if (logs().length === 0) {
+                <div class="table-empty">No prompt logs match the current filters.</div>
+              } @else {
+                <table class="log-table">
+                  <thead>
+                    <tr>
+                      <th class="col-checkbox">
+                        <input type="checkbox"
+                               [checked]="isAllPageSelected()"
+                               [indeterminate]="selectedLogIds().size > 0 && !isAllPageSelected()"
+                               (change)="togglePageSelection($any($event.target).checked)"
+                               (click)="$event.stopPropagation()">
+                      </th>
+                      <th class="col-expand"></th>
+                      <th>Time</th>
+                      <th>Provider</th>
+                      <th>Model</th>
+                      <th>Task Type</th>
+                      <th>Context</th>
+                      <th>Tokens</th>
+                      <th>Cost</th>
+                      <th>Duration</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (row of logs(); track row.id) {
+                      <tr class="log-row" [class.expanded-row]="expandedLogIds().has(row.id)"
+                          (click)="toggleLog(row)">
+                        <td class="col-checkbox" (click)="$event.stopPropagation()">
+                          <input type="checkbox"
+                                 [checked]="selectedLogIds().has(row.id)"
+                                 (change)="toggleRowSelection(row.id, $any($event.target).checked)">
+                        </td>
+                        <td class="col-expand">
+                          <button class="expand-btn"
+                                  [title]="expandedLogIds().has(row.id) ? 'Collapse' : 'Show prompt/response'"
+                                  (click)="toggleLog(row); $event.stopPropagation()">
+                            {{ expandedLogIds().has(row.id) ? '▴' : '▾' }}
+                          </button>
+                        </td>
+                        <td class="time-cell">{{ formatTime(row.createdAt) }}</td>
+                        <td>
+                          <span class="provider-chip provider-{{ row.provider.toLowerCase() }}">{{ row.provider }}</span>
+                        </td>
+                        <td class="mono">{{ row.model }}</td>
+                        <td>
+                          <span class="task-chip">{{ row.taskType }}</span>
+                        </td>
+                        <td>
+                          @if (row.ticketSubject) {
+                            <span class="ticket-ref" [title]="row.entityId">{{ row.ticketSubject | slice:0:50 }}{{ row.ticketSubject.length > 50 ? '...' : '' }}</span>
+                          } @else if (row.promptKey) {
+                            <span class="prompt-key-ref">{{ row.promptKey }}</span>
                           } @else {
-                            <p class="log-detail-error">Failed to load details.</p>
+                            <span class="muted">—</span>
                           }
-                        }
-                      </div>
+                        </td>
+                        <td class="mono">
+                          <span class="token-in" title="Input tokens">{{ row.inputTokens | number }}</span>
+                          /
+                          <span class="token-out" title="Output tokens">{{ row.outputTokens | number }}</span>
+                        </td>
+                        <td class="mono cost-cell">
+                          @if (row.costUsd !== null) {
+                            \${{ row.costUsd | number:'1.4-4' }}
+                          } @else {
+                            <span class="muted">—</span>
+                          }
+                        </td>
+                        <td class="mono time-cell">
+                          @if (row.durationMs !== null) {
+                            {{ row.durationMs | number }}ms
+                          } @else {
+                            —
+                          }
+                        </td>
+                      </tr>
+                      @if (expandedLogIds().has(row.id)) {
+                        <tr class="detail-row">
+                          <td colspan="10">
+                            <div class="log-detail-panel">
+                              @if (detailLoading().get(row.id)) {
+                                <span class="loading-text">Loading...</span>
+                              } @else {
+                                @if (expandedLogDetails().get(row.id); as detail) {
+                                  @if (detail.systemPrompt) {
+                                    <div class="log-detail-section">
+                                      <div class="log-detail-label">System Prompt</div>
+                                      <pre class="log-detail-text">{{ detail.systemPrompt }}</pre>
+                                    </div>
+                                  }
+                                  <div class="log-detail-section">
+                                    <div class="log-detail-label">Prompt</div>
+                                    <pre class="log-detail-text">{{ detail.promptText ?? '(not stored)' }}</pre>
+                                  </div>
+                                  <div class="log-detail-section">
+                                    <div class="log-detail-label">Response</div>
+                                    <pre class="log-detail-text">{{ detail.responseText ?? '(not stored)' }}</pre>
+                                  </div>
+                                } @else {
+                                  <p class="detail-error">Failed to load details.</p>
+                                }
+                              }
+                            </div>
+                          </td>
+                        </tr>
+                      }
                     }
-                  </td>
-                </ng-container>
+                  </tbody>
+                </table>
+              }
 
-                <tr mat-header-row *matHeaderRowDef="logColumns"></tr>
-                <tr mat-row *matRowDef="let row; columns: logColumns;" class="log-row"
-                    [class.expanded-row]="expandedLogIds().has(row.id)"
-                    (click)="toggleLog(row)"></tr>
-                <tr mat-row *matRowDef="let row; columns: ['expandedDetail']" class="detail-row"></tr>
-              </table>
-            }
+              <mat-paginator
+                [length]="logTotal()"
+                [pageSize]="logPageSize"
+                [pageIndex]="logPageIndex"
+                [pageSizeOptions]="[50, 100, 200]"
+                (page)="onLogPage($event)"
+                showFirstLastButtons>
+              </mat-paginator>
+            </div>
+          </div>
+        </app-tab>
 
-            <mat-paginator
-              [length]="logTotal()"
-              [pageSize]="logPageSize"
-              [pageIndex]="logPageIndex"
-              [pageSizeOptions]="[50, 100, 200]"
-              (page)="onLogPage($event)"
-              showFirstLastButtons>
-            </mat-paginator>
-          </mat-card>
-        </div>
-      </mat-tab>
-    </mat-tab-group>
+      </app-tab-group>
+    </div>
   `,
   styles: [`
-    .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-    .page-header h1 { margin: 0; }
-    .header-actions { display: flex; gap: 8px; align-items: center; }
-    .tab-content { padding: 16px 0; }
-    .filters { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
-    .search-field { min-width: 200px; }
+    .page-wrapper { max-width: 1200px; }
+
+    .page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+    .page-header h1 {
+      margin: 0;
+      font-size: 28px;
+      font-weight: 600;
+      font-family: var(--font-primary);
+      color: var(--text-primary);
+      letter-spacing: -0.28px;
+      line-height: 1.14;
+    }
+
+    .tab-content { padding: 0; }
+
+    /* ── Filters ── */
+    .filters {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .text-input {
+      background: var(--bg-card);
+      border: 1px solid var(--border-medium);
+      border-radius: var(--radius-md);
+      padding: 8px 12px;
+      font-family: var(--font-primary);
+      font-size: 14px;
+      color: var(--text-primary);
+      outline: none;
+      transition: border-color 120ms ease, box-shadow 120ms ease;
+    }
+    .text-input::placeholder { color: var(--text-tertiary); }
+    .text-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--focus-ring);
+    }
+    .search-input { min-width: 180px; }
+    .token-input { max-width: 110px; }
+
+    /* ── Date preset pills ── */
     .date-presets { display: flex; gap: 4px; align-items: center; }
-    .date-label { font-size: 12px; color: #666; margin-right: 4px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
-    .date-presets button { min-width: 0; padding: 0 10px; font-size: 12px; line-height: 28px; }
-    .active-preset { background: #e3f2fd !important; color: #1565c0 !important; border-color: #1565c0 !important; font-weight: 600; }
-    .log-actions { display: flex; gap: 8px; align-items: center; margin-left: auto; }
-    .stats-cards { display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
-    .stat-card { flex: 1; min-width: 180px; text-align: center; padding: 20px; }
-    .stat-label { font-size: 12px; text-transform: uppercase; color: #666; letter-spacing: 0.5px; margin-bottom: 4px; }
-    .stat-value { font-size: 28px; font-weight: 700; color: #222; font-family: monospace; }
-    .stat-value.cost { color: #2e7d32; }
-    .full-width { width: 100%; }
+    .date-label {
+      font-family: var(--font-primary);
+      font-size: 11px;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 600;
+      margin-right: 4px;
+    }
+    .preset-btn {
+      padding: 4px 10px;
+      font-family: var(--font-primary);
+      font-size: 12px;
+      font-weight: 500;
+      background: var(--bg-card);
+      border: 1px solid var(--border-medium);
+      border-radius: var(--radius-pill);
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 120ms ease;
+    }
+    .preset-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .preset-btn.active {
+      background: var(--bg-active);
+      border-color: var(--accent);
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    /* ── Stats cards ── */
+    .stats-row {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    .stat-card {
+      flex: 1;
+      min-width: 180px;
+      text-align: center;
+      padding: 20px;
+      background: var(--bg-card);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-card);
+    }
+    .stat-label {
+      font-family: var(--font-primary);
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+    .stat-value {
+      font-family: var(--font-primary);
+      font-size: 28px;
+      font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: -0.5px;
+    }
+    .stat-value.cost { color: var(--color-success); }
+
+    /* ── Shared table styles ── */
     .mono { font-family: monospace; font-size: 13px; }
-    .time-cell { font-family: monospace; font-size: 12px; color: #666; white-space: nowrap; }
-    .cost-cell { color: #2e7d32; font-weight: 600; }
-    .provider-chip { font-size: 11px; padding: 2px 8px; border-radius: 4px; font-family: monospace; font-weight: 600; }
-    .provider-claude { background: #f3e5f5; color: #6a1b9a; }
-    .provider-local { background: #e8f5e9; color: #2e7d32; }
-    .provider-openai { background: #e3f2fd; color: #1565c0; }
-    .provider-grok { background: #fff3e0; color: #e65100; }
-    .provider-google { background: #e8f5e9; color: #1b5e20; }
-    .task-chip { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: #e8eaf6; color: #3f51b5; font-family: monospace; font-weight: 500; }
-    .ticket-ref { font-size: 12px; color: #e65100; cursor: help; }
-    .prompt-key-ref { font-size: 12px; color: #6a1b9a; font-family: monospace; }
-    .text-muted { color: #999; }
-    .token-in { color: #1565c0; }
-    .token-out { color: #2e7d32; }
-    .cost-actions { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; }
-    .empty { color: #999; padding: 16px; text-align: center; }
-    h3 { margin: 0 0 12px 0; padding: 16px 16px 0; }
-    .custom-badge { color: #e65100; font-weight: 700; font-size: 14px; margin-left: 4px; cursor: help; }
-    .custom-row { background: #fff8e1; }
-    .log-table { font-size: 13px; }
-    .log-row { cursor: pointer; }
-    .log-row:hover { background: #f5f5f5; }
-    .expanded-row { background: #e8f0fe !important; }
-    .detail-row { height: 0; }
-    .detail-row td { padding: 0 !important; border-bottom: none; }
+    .time-cell {
+      font-family: monospace;
+      font-size: 12px;
+      color: var(--text-tertiary);
+      white-space: nowrap;
+    }
+    .cost-cell { color: var(--color-success); font-weight: 600; }
+    .muted { color: var(--text-tertiary); }
+
+    /* ── Provider chips ── */
+    .provider-chip {
+      display: inline-block;
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: var(--radius-sm);
+      font-family: monospace;
+      font-weight: 600;
+    }
+    .provider-claude { background: rgba(106, 27, 154, 0.08); color: #6a1b9a; }
+    .provider-local { background: rgba(52, 199, 89, 0.08); color: var(--color-success); }
+    .provider-openai { background: rgba(0, 113, 227, 0.08); color: var(--accent); }
+    .provider-grok { background: rgba(255, 149, 0, 0.08); color: var(--color-warning); }
+    .provider-google { background: rgba(52, 199, 89, 0.08); color: var(--color-success); }
+
+    /* ── Task chips ── */
+    .task-chip {
+      display: inline-block;
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: var(--radius-sm);
+      background: var(--bg-active);
+      color: var(--accent);
+      font-family: monospace;
+      font-weight: 500;
+    }
+
+    /* ── Model Costs toolbar ── */
+    .toolbar-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .action-btns {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+    }
+    .destructive-text { color: var(--color-error); }
+    .custom-badge {
+      color: var(--color-warning);
+      font-weight: 700;
+      font-size: 14px;
+      margin-left: 4px;
+      cursor: help;
+    }
+
+    /* ── Loading ── */
+    .loading-text {
+      font-family: var(--font-primary);
+      font-size: 13px;
+      color: var(--text-tertiary);
+    }
+
+    /* ── Prompt Log actions ── */
+    .log-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-left: auto;
+    }
+
+    /* ── Multi-select dropdown ── */
+    .filter-dropdown {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+    }
+    .filter-trigger {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 8px 12px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-medium);
+      border-radius: var(--radius-md);
+      font-family: var(--font-primary);
+      font-size: 14px;
+      color: var(--text-primary);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: border-color 120ms ease;
+    }
+    .filter-trigger:hover { border-color: var(--accent); }
+    .filter-trigger.has-selection {
+      border-color: var(--accent);
+      background: var(--bg-active);
+    }
+    .chevron { font-size: 10px; color: var(--text-tertiary); margin-left: 2px; }
+    .filter-panel {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      z-index: 100;
+      min-width: 220px;
+      max-height: 260px;
+      overflow-y: auto;
+      background: var(--bg-card);
+      border: 1px solid var(--border-medium);
+      border-radius: var(--radius-md);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+      padding: 4px 0;
+      margin-top: 4px;
+    }
+    .filter-option {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      font-family: var(--font-primary);
+      font-size: 13px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: background 80ms ease;
+    }
+    .filter-option:hover { background: var(--bg-hover); }
+    .filter-option input[type="checkbox"] { accent-color: var(--accent); }
+    .filter-clear {
+      background: none;
+      border: none;
+      color: var(--text-tertiary);
+      cursor: pointer;
+      padding: 2px 6px;
+      font-size: 16px;
+      line-height: 1;
+      transition: color 80ms ease;
+    }
+    .filter-clear:hover { color: var(--text-primary); }
+
+    /* ── Select-all banner ── */
+    .select-banner {
+      background: var(--bg-active);
+      padding: 8px 16px;
+      text-align: center;
+      font-family: var(--font-primary);
+      font-size: 13px;
+      color: var(--text-secondary);
+      border-radius: var(--radius-md);
+      margin-bottom: 8px;
+    }
+    .select-banner-link {
+      color: var(--accent-link);
+      cursor: pointer;
+      text-decoration: underline;
+      background: none;
+      border: none;
+      padding: 0;
+      font-family: inherit;
+      font-size: inherit;
+    }
+
+    /* ── Custom log table ── */
+    .table-card {
+      background: var(--bg-card);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-card);
+      overflow: hidden;
+    }
+    .table-empty {
+      padding: 48px 24px;
+      text-align: center;
+      font-family: var(--font-primary);
+      font-size: 14px;
+      color: var(--text-tertiary);
+    }
+    .log-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .log-table thead th {
+      text-align: left;
+      padding: 10px 12px;
+      font-family: var(--font-primary);
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-tertiary);
+      border-bottom: 1px solid var(--border-light);
+      user-select: none;
+    }
+    .log-table tbody td {
+      padding: 10px 12px;
+      font-family: var(--font-primary);
+      font-size: 13px;
+      color: var(--text-secondary);
+      border-bottom: 1px solid var(--border-light);
+    }
+    .col-checkbox { width: 32px; text-align: center; }
+    .col-checkbox input[type="checkbox"] { accent-color: var(--accent); }
+    .col-expand { width: 32px; }
+    .expand-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--text-tertiary);
+      font-size: 14px;
+      padding: 2px 6px;
+      border-radius: var(--radius-sm);
+      transition: background 80ms ease;
+    }
+    .expand-btn:hover { background: var(--bg-hover); }
+    .log-row {
+      cursor: pointer;
+      transition: background 80ms ease;
+    }
+    .log-row:hover { background: var(--bg-hover); }
+    .expanded-row { background: var(--bg-active) !important; }
+    .detail-row td {
+      padding: 0 !important;
+      border-bottom: none;
+    }
     .log-detail-panel { padding: 12px 16px 16px; overflow: hidden; }
     .log-detail-section { margin-bottom: 12px; }
-    .log-detail-label { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #666; letter-spacing: 0.5px; margin-bottom: 4px; }
-    .log-detail-text { margin: 0; padding: 8px; background: #fafafa; border: 1px solid #e0e0e0; border-radius: 4px; font-size: 12px; font-family: monospace; white-space: pre-wrap; word-break: break-word; max-height: 300px; overflow-y: auto; min-width: 250px; }
-    .select-all-banner { background: #e3f2fd; padding: 8px 16px; text-align: center; font-size: 13px; border-radius: 4px; margin-bottom: 8px; }
-    .select-all-link { color: #1565c0; cursor: pointer; text-decoration: underline; background: none; border: none; padding: 0; font-size: inherit; }
-    .token-field { max-width: 120px; }
-    .clear-btn { width: 24px; height: 24px; line-height: 24px; }
-    .clear-btn mat-icon { font-size: 16px; width: 16px; height: 16px; }
+    .log-detail-label {
+      font-family: var(--font-primary);
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      color: var(--text-tertiary);
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+    .log-detail-text {
+      margin: 0;
+      padding: 8px;
+      background: var(--bg-page);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-md);
+      font-size: 12px;
+      font-family: monospace;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 300px;
+      overflow-y: auto;
+      min-width: 250px;
+    }
+    .detail-error {
+      font-family: var(--font-primary);
+      font-size: 13px;
+      color: var(--color-error);
+      margin: 0;
+    }
+
+    /* ── Ticket/prompt references ── */
+    .ticket-ref { font-size: 12px; color: var(--color-warning); cursor: help; }
+    .prompt-key-ref { font-size: 12px; color: #6a1b9a; font-family: monospace; }
+    .token-in { color: var(--accent); }
+    .token-out { color: var(--color-success); }
   `],
 })
 export class AiUsageComponent implements OnInit {
@@ -650,9 +929,24 @@ export class AiUsageComponent implements OnInit {
   providers = signal<string[]>([]);
   selectedTab = signal(0);
   datePresets = DATE_PRESETS;
-  usageColumns = ['provider', 'model', 'calls', 'inputTokens', 'outputTokens', 'cost'];
-  costColumns = ['provider', 'model', 'displayName', 'inputCost', 'outputCost', 'updatedAt', 'actions'];
-  logColumns = ['select', 'expand', 'time', 'provider', 'model', 'taskType', 'context', 'tokens', 'cost', 'duration'];
+
+  // --- Multi-select dropdown state ---
+  activeDropdown = signal<string | null>(null);
+
+  // --- DataTable track-by functions ---
+  trackByUsage = (row: AiUsageSummary) => `${row.provider}-${row.model}`;
+  trackByCost = (row: AiModelCost) => row.id;
+
+  // --- Provider select options (Usage Summary tab) ---
+  providerSelectOptions = computed(() => [
+    { value: '', label: 'All Providers' },
+    ...this.providers().map(p => ({ value: p, label: p }))
+  ]);
+
+  @HostListener('document:click')
+  closeDropdowns(): void {
+    this.activeDropdown.set(null);
+  }
 
   ngOnInit(): void {
     const tabParam = this.route.snapshot.queryParamMap.get('tab');
@@ -971,6 +1265,26 @@ export class AiUsageComponent implements OnInit {
     if (index === TAB_INDEX.PROMPT_LOG && this.logs().length === 0) {
       this.loadLogs();
     }
+  }
+
+  // --- Multi-select dropdown helpers ---
+
+  toggleDropdown(name: string): void {
+    this.activeDropdown.set(this.activeDropdown() === name ? null : name);
+  }
+
+  toggleFilterItem(type: string, value: string): void {
+    let arr: string[];
+    switch (type) {
+      case 'provider': arr = this.logProviderFilters; break;
+      case 'taskType': arr = this.logTaskTypeFilters; break;
+      case 'promptKey': arr = this.logPromptKeyFilters; break;
+      default: return;
+    }
+    const idx = arr.indexOf(value);
+    if (idx >= 0) arr.splice(idx, 1);
+    else arr.push(value);
+    this.resetAndLoadLogs();
   }
 
   // --- Helpers ---
