@@ -43,9 +43,9 @@ const ALL_QUEUES = [
       <div class="summary-queues">
         @for (entry of queueFailedEntries(); track entry[0]) {
           @if (entry[1] > 0) {
-            <span class="queue-chip has-failures" (click)="selectedQueue.set(entry[0]); refresh()">
+            <button type="button" class="queue-chip has-failures" (click)="selectedQueue.set(entry[0]); refresh()">
               {{ entry[0] }}: {{ entry[1] }}
-            </span>
+            </button>
           }
         }
       </div>
@@ -56,7 +56,7 @@ const ALL_QUEUES = [
       <app-select
         [value]="selectedQueue()"
         [options]="queueOptions"
-        placeholder="All Queues"
+        placeholder=""
         (valueChange)="onQueueFilter($event)" />
       @if (selectedQueue()) {
         <app-bronco-button variant="secondary" size="sm" (click)="retryAll()" [disabled]="acting()">
@@ -96,10 +96,10 @@ const ALL_QUEUES = [
                 <span class="job-time">{{ formatTime(job.finishedOn || job.timestamp) }}</span>
               </div>
               <div class="job-actions" (click)="$event.stopPropagation()">
-                <app-bronco-button variant="icon" title="Retry" (click)="retry(job)" [disabled]="acting()">
+                <app-bronco-button variant="icon" aria-label="Retry" (click)="retry(job)" [disabled]="acting()">
                   ↻
                 </app-bronco-button>
-                <app-bronco-button variant="icon" title="Discard" (click)="discard(job)" [disabled]="acting()">
+                <app-bronco-button variant="icon" aria-label="Discard" (click)="discard(job)" [disabled]="acting()">
                   ✕
                 </app-bronco-button>
               </div>
@@ -167,6 +167,8 @@ const ALL_QUEUES = [
       border-radius: var(--radius-pill);
       cursor: pointer;
       transition: all 120ms ease;
+      border: none;
+      background: none;
     }
     .queue-chip.has-failures {
       background: rgba(255,59,48,0.08);
