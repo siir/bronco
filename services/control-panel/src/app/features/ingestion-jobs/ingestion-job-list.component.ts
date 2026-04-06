@@ -1,13 +1,6 @@
-import { Component, inject, OnInit, OnDestroy, signal } from '@angular/core';
+import { Component, inject, OnInit, OnDestroy, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { MatCardModule } from '@angular/material/card';
-import { MatTableModule } from '@angular/material/table';
-import { MatButtonModule } from '@angular/material/button';
-import { MatIconModule } from '@angular/material/icon';
-import { MatSelectModule } from '@angular/material/select';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { DatePipe } from '@angular/common';
 import {
   IngestionService,
@@ -15,32 +8,28 @@ import {
   IngestionRunDetail,
 } from '../../core/services/ingestion.service';
 import { ClientService, Client } from '../../core/services/client.service';
+import { BroncoButtonComponent, SelectComponent } from '../../shared/components/index.js';
 
 @Component({
   standalone: true,
   imports: [
     FormsModule,
     RouterLink,
-    MatCardModule,
-    MatTableModule,
-    MatButtonModule,
-    MatIconModule,
-    MatSelectModule,
-    MatFormFieldModule,
-    MatProgressSpinnerModule,
     DatePipe,
+    BroncoButtonComponent,
+    SelectComponent,
   ],
   template: `
-    <div class="page-header">
-      <h1>Ingestion Jobs</h1>
-    </div>
+    <div class="page-wrapper">
+      <div class="page-header">
+        <h1 class="page-title">Ingestion Jobs</h1>
+      </div>
 
-    <!-- Live status banner -->
-    @if (processingRun()) {
-      <mat-card class="live-banner">
-        <mat-card-content>
+      <!-- Live status banner -->
+      @if (processingRun()) {
+        <div class="live-banner">
           <div class="live-header">
-            <mat-progress-spinner diameter="20" mode="indeterminate"></mat-progress-spinner>
+            <span class="live-pulse" aria-hidden="true"></span>
             <span class="live-title">Processing</span>
             <span class="live-meta">{{ processingRun()!.client.shortCode }} &middot; {{ processingRun()!.routeName ?? 'Unknown route' }}</span>
             <span class="live-elapsed">{{ getElapsed(processingRun()!) }}</span>
@@ -49,250 +38,264 @@ import { ClientService, Client } from '../../core/services/client.service';
             @for (step of processingRun()!.steps; track step.id) {
               <div class="step-item" [class]="'step-' + step.status">
                 @if (step.status === 'success') {
-                  <mat-icon class="step-icon done">check_circle</mat-icon>
+                  <span class="step-icon done">&#10003;</span>
                 } @else if (step.status === 'processing') {
-                  <mat-icon class="step-icon running">sync</mat-icon>
+                  <span class="step-icon running">&#9697;</span>
                 } @else if (step.status === 'error') {
-                  <mat-icon class="step-icon error">error</mat-icon>
+                  <span class="step-icon error">&#10005;</span>
                 } @else if (step.status === 'skipped') {
-                  <mat-icon class="step-icon skipped">skip_next</mat-icon>
+                  <span class="step-icon skipped">&#8640;</span>
                 } @else {
-                  <mat-icon class="step-icon pending">radio_button_unchecked</mat-icon>
+                  <span class="step-icon pending">&#9675;</span>
                 }
                 <span class="step-name">{{ step.stepName }}</span>
                 @if (step.status === 'processing') {
-                  <mat-progress-spinner diameter="14" mode="indeterminate" class="step-spinner"></mat-progress-spinner>
+                  <span class="step-spinner" aria-hidden="true"></span>
                 }
               </div>
             }
           </div>
-        </mat-card-content>
-      </mat-card>
-    }
-
-    <!-- Filters -->
-    <div class="filters">
-      <mat-form-field appearance="outline" class="filter-field">
-        <mat-label>Status</mat-label>
-        <mat-select [(ngModel)]="filterStatus" (selectionChange)="page = 0; loadRuns()">
-          <mat-option value="">All</mat-option>
-          <mat-option value="processing">Processing</mat-option>
-          <mat-option value="success">Success</mat-option>
-          <mat-option value="error">Error</mat-option>
-          <mat-option value="no_route">No Route</mat-option>
-        </mat-select>
-      </mat-form-field>
-      <mat-form-field appearance="outline" class="filter-field">
-        <mat-label>Client</mat-label>
-        <mat-select [(ngModel)]="filterClientId" (selectionChange)="page = 0; loadRuns()">
-          <mat-option value="">All Clients</mat-option>
-          @for (c of clients(); track c.id) {
-            <mat-option [value]="c.id">{{ c.shortCode }}</mat-option>
-          }
-        </mat-select>
-      </mat-form-field>
-      <span class="total-count">{{ total() }} runs total</span>
-    </div>
-
-    <!-- Runs table -->
-    @if (runs().length === 0) {
-      <mat-card class="empty-card">
-        <p class="empty">No ingestion runs found.</p>
-      </mat-card>
-    } @else {
-      <table mat-table [dataSource]="runs()" class="full-width runs-table" multiTemplateDataRows>
-        <ng-container matColumnDef="status">
-          <th mat-header-cell *matHeaderCellDef>Status</th>
-          <td mat-cell *matCellDef="let r">
-            <span class="badge" [class]="'badge-status-' + r.status">{{ r.status }}</span>
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="source">
-          <th mat-header-cell *matHeaderCellDef>Source</th>
-          <td mat-cell *matCellDef="let r">
-            <span class="badge badge-source">{{ r.source }}</span>
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="client">
-          <th mat-header-cell *matHeaderCellDef>Client</th>
-          <td mat-cell *matCellDef="let r">{{ r.client.shortCode }}</td>
-        </ng-container>
-
-        <ng-container matColumnDef="route">
-          <th mat-header-cell *matHeaderCellDef>Route</th>
-          <td mat-cell *matCellDef="let r">{{ r.routeName ?? '—' }}</td>
-        </ng-container>
-
-        <ng-container matColumnDef="ticket">
-          <th mat-header-cell *matHeaderCellDef>Ticket</th>
-          <td mat-cell *matCellDef="let r">
-            @if (r.ticketId) {
-              <a [routerLink]="['/tickets', r.ticketId]" class="ticket-link">View</a>
-            } @else {
-              <span class="muted">—</span>
-            }
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="startedAt">
-          <th mat-header-cell *matHeaderCellDef>Started</th>
-          <td mat-cell *matCellDef="let r">{{ r.startedAt | date:'short' }}</td>
-        </ng-container>
-
-        <ng-container matColumnDef="duration">
-          <th mat-header-cell *matHeaderCellDef>Duration</th>
-          <td mat-cell *matCellDef="let r">{{ getDuration(r) }}</td>
-        </ng-container>
-
-        <ng-container matColumnDef="steps">
-          <th mat-header-cell *matHeaderCellDef>Steps</th>
-          <td mat-cell *matCellDef="let r">{{ r.steps?.length ?? 0 }}</td>
-        </ng-container>
-
-        <ng-container matColumnDef="expand">
-          <th mat-header-cell *matHeaderCellDef></th>
-          <td mat-cell *matCellDef="let r">
-            <button mat-icon-button (click)="toggleExpand(r); $event.stopPropagation()"
-              [attr.aria-label]="expandedRunId === r.id ? 'Collapse run details' : 'Expand run details'"
-              [attr.aria-expanded]="expandedRunId === r.id">
-              <mat-icon>{{ expandedRunId === r.id ? 'expand_less' : 'expand_more' }}</mat-icon>
-            </button>
-          </td>
-        </ng-container>
-
-        <!-- Expanded detail row -->
-        <ng-container matColumnDef="expandedDetail">
-          <td mat-cell *matCellDef="let r" [attr.colspan]="columns.length">
-            @if (expandedRunId === r.id && expandedRun()) {
-              <div class="expanded-detail">
-                @if (expandedRun()!.error) {
-                  <div class="run-error">{{ expandedRun()!.error }}</div>
-                }
-                @for (step of expandedRun()!.steps; track step.id) {
-                  <div class="detail-step" [class]="'detail-step-' + step.status"
-                    [class.step-highlight]="recentlyChanged().has(step.id)">
-                    <div class="detail-step-header">
-                      <span class="detail-step-order">{{ step.stepOrder }}.</span>
-                      <span class="detail-step-name">{{ step.stepName }}</span>
-                      <span class="badge small" [class]="'badge-status-' + step.status">{{ step.status }}</span>
-                      @if (step.status === 'processing') {
-                        <span class="pulse-dot" aria-hidden="true"></span>
-                      }
-                      <span class="badge small badge-step-type">{{ step.stepType }}</span>
-                      @if (step.durationMs != null) {
-                        <span class="detail-step-duration">{{ formatDuration(step.durationMs) }}</span>
-                      }
-                    </div>
-                    @if (step.error) {
-                      <div class="detail-step-error">{{ step.error }}</div>
-                    }
-                    @if (step.output) {
-                      <details class="detail-step-output">
-                        <summary>Output</summary>
-                        <pre class="detail-pre">{{ step.output }}</pre>
-                      </details>
-                    }
-                  </div>
-                }
-              </div>
-            }
-          </td>
-        </ng-container>
-
-        <tr mat-header-row *matHeaderRowDef="columns"></tr>
-        <tr mat-row *matRowDef="let row; columns: columns;"
-            class="run-row"
-            [class.expanded-row]="expandedRunId === row.id"
-            (click)="toggleExpand(row)"></tr>
-        <tr mat-row *matRowDef="let row; columns: ['expandedDetail']"
-            class="detail-row"
-            [class.detail-row-visible]="expandedRunId === row.id"></tr>
-      </table>
-
-      <!-- Pagination -->
-      @if (total() > pageSize) {
-        <div class="pagination">
-          <button mat-button [disabled]="page === 0" (click)="page = page - 1; loadRuns()">Previous</button>
-          <span>Page {{ page + 1 }} of {{ totalPages() }}</span>
-          <button mat-button [disabled]="page >= totalPages() - 1" (click)="page = page + 1; loadRuns()">Next</button>
         </div>
       }
-    }
+
+      <!-- Filters -->
+      <div class="filters">
+        <app-select
+          [value]="filterStatus"
+          [options]="statusOptions"
+          [placeholder]="''"
+          (valueChange)="filterStatus = $event; page = 0; loadRuns()">
+        </app-select>
+        <app-select
+          [value]="filterClientId"
+          [options]="clientOptions()"
+          [placeholder]="''"
+          (valueChange)="filterClientId = $event; page = 0; loadRuns()">
+        </app-select>
+        <span class="total-count">{{ total() }} runs total</span>
+      </div>
+
+      <!-- Runs table -->
+      @if (runs().length === 0) {
+        <div class="card empty-card">
+          <p class="empty">No ingestion runs found.</p>
+        </div>
+      } @else {
+        <div class="table-card">
+          <table class="runs-table">
+            <thead>
+              <tr>
+                <th>Status</th>
+                <th>Source</th>
+                <th>Client</th>
+                <th>Route</th>
+                <th>Ticket</th>
+                <th>Started</th>
+                <th>Duration</th>
+                <th>Steps</th>
+                <th class="col-expand"></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (r of runs(); track r.id) {
+                <tr class="run-row" [class.expanded-row]="expandedRunId === r.id" (click)="toggleExpand(r)">
+                  <td><span class="badge" [class]="'badge-status-' + r.status">{{ r.status }}</span></td>
+                  <td><span class="badge badge-source">{{ r.source }}</span></td>
+                  <td>{{ r.client.shortCode }}</td>
+                  <td>{{ r.routeName ?? '—' }}</td>
+                  <td>
+                    @if (r.ticketId) {
+                      <a [routerLink]="['/tickets', r.ticketId]" class="ticket-link" (click)="$event.stopPropagation()">View</a>
+                    } @else {
+                      <span class="muted">—</span>
+                    }
+                  </td>
+                  <td>{{ r.startedAt | date:'short' }}</td>
+                  <td>{{ getDuration(r) }}</td>
+                  <td>{{ r.steps.length }}</td>
+                  <td class="col-expand">
+                    <button type="button" class="expand-btn"
+                      (click)="toggleExpand(r); $event.stopPropagation()"
+                      [attr.aria-label]="expandedRunId === r.id ? 'Collapse run details' : 'Expand run details'"
+                      [attr.aria-expanded]="expandedRunId === r.id">
+                      {{ expandedRunId === r.id ? '▲' : '▼' }}
+                    </button>
+                  </td>
+                </tr>
+                @if (expandedRunId === r.id && expandedRun()) {
+                  <tr class="detail-row-visible">
+                    <td colspan="9">
+                      <div class="expanded-detail">
+                        @if (expandedRun()!.error) {
+                          <div class="run-error">{{ expandedRun()!.error }}</div>
+                        }
+                        @for (step of expandedRun()!.steps; track step.id) {
+                          <div class="detail-step" [class]="'detail-step-' + step.status"
+                            [class.step-highlight]="recentlyChanged().has(step.id)">
+                            <div class="detail-step-header">
+                              <span class="detail-step-order">{{ step.stepOrder }}.</span>
+                              <span class="detail-step-name">{{ step.stepName }}</span>
+                              <span class="badge small" [class]="'badge-status-' + step.status">{{ step.status }}</span>
+                              @if (step.status === 'processing') {
+                                <span class="pulse-dot" aria-hidden="true"></span>
+                              }
+                              <span class="badge small badge-step-type">{{ step.stepType }}</span>
+                              @if (step.durationMs != null) {
+                                <span class="detail-step-duration">{{ formatDuration(step.durationMs) }}</span>
+                              }
+                            </div>
+                            @if (step.error) {
+                              <div class="detail-step-error">{{ step.error }}</div>
+                            }
+                            @if (step.output) {
+                              <details class="detail-step-output">
+                                <summary>Output</summary>
+                                <pre class="detail-pre">{{ step.output }}</pre>
+                              </details>
+                            }
+                          </div>
+                        }
+                      </div>
+                    </td>
+                  </tr>
+                }
+              }
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination -->
+        @if (total() > pageSize) {
+          <div class="pagination">
+            <app-bronco-button variant="ghost" [disabled]="page === 0" (click)="page = page - 1; loadRuns()">Previous</app-bronco-button>
+            <span class="page-info">Page {{ page + 1 }} of {{ totalPages() }}</span>
+            <app-bronco-button variant="ghost" [disabled]="page >= totalPages() - 1" (click)="page = page + 1; loadRuns()">Next</app-bronco-button>
+          </div>
+        }
+      }
+    </div>
   `,
   styles: [`
+    .page-wrapper { max-width: 1200px; }
     .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-    .page-header h1 { margin: 0; }
+    .page-title { font-family: var(--font-primary); font-size: 20px; font-weight: 600; color: var(--text-primary); margin: 0; }
 
-    .live-banner { margin-bottom: 16px; background: #e3f2fd; border-left: 4px solid #1565c0; }
+    .live-banner {
+      margin-bottom: 16px;
+      background: var(--color-info-subtle);
+      border-left: 4px solid var(--accent);
+      border-radius: var(--radius-md);
+      padding: 16px;
+    }
     .live-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-    .live-title { font-weight: 600; color: #1565c0; }
-    .live-meta { color: #555; font-size: 13px; }
-    .live-elapsed { color: #777; font-size: 13px; margin-left: auto; }
+    .live-pulse {
+      width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    .live-title { font-family: var(--font-primary); font-weight: 600; color: var(--accent); }
+    .live-meta { color: var(--text-tertiary); font-size: 13px; }
+    .live-elapsed { color: var(--text-tertiary); font-size: 13px; margin-left: auto; }
     .step-list { display: flex; flex-direction: column; gap: 4px; }
-    .step-item { display: flex; align-items: center; gap: 6px; font-size: 13px; }
-    .step-icon { font-size: 18px; width: 18px; height: 18px; }
-    .step-icon.done { color: #2e7d32; }
-    .step-icon.running { color: #1565c0; animation: spin 1s linear infinite; }
-    .step-icon.error { color: #c62828; }
-    .step-icon.skipped { color: #e65100; }
-    .step-icon.pending { color: #999; }
-    .step-spinner { margin-left: 4px; }
+    .step-item { display: flex; align-items: center; gap: 6px; font-family: var(--font-primary); font-size: 13px; color: var(--text-secondary); }
+    .step-icon { font-size: 14px; width: 18px; text-align: center; }
+    .step-icon.done { color: var(--color-success); }
+    .step-icon.running { color: var(--accent); animation: spin 1s linear infinite; }
+    .step-icon.error { color: var(--color-error); }
+    .step-icon.skipped { color: var(--color-warning); }
+    .step-icon.pending { color: var(--text-tertiary); }
+    .step-spinner {
+      width: 12px; height: 12px; border: 2px solid var(--border-light);
+      border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite;
+    }
+    .step-name { font-family: var(--font-primary); }
     @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-
-    .filters { display: flex; gap: 16px; align-items: center; margin-bottom: 16px; }
-    .filter-field { min-width: 160px; }
-    .total-count { color: #666; font-size: 13px; }
-
-    .runs-table { width: 100%; }
-    .run-row { cursor: pointer; }
-    .run-row:hover { background: #f5f5f5; }
-    .expanded-row { background: #fafafa; }
-    .detail-row { height: 0; overflow: hidden; }
-    .detail-row td { padding: 0 !important; border-bottom: none; }
-    .detail-row-visible { height: auto; overflow: visible; }
-    .detail-row-visible td { padding: 8px 16px !important; border-bottom: 1px solid #e0e0e0; }
-
-    .badge { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; white-space: nowrap; }
-    .badge.small { font-size: 10px; padding: 1px 6px; }
-    .badge-status-success { background: #e8f5e9; color: #2e7d32; }
-    .badge-status-error { background: #ffebee; color: #c62828; }
-    .badge-status-no_route { background: #f5f5f5; color: #777; }
-    .badge-status-processing { background: #e3f2fd; color: #1565c0; }
-    .badge-status-pending { background: #f5f5f5; color: #777; }
-    .badge-status-skipped { background: #fff3e0; color: #e65100; }
-    .badge-source { background: #f3e5f5; color: #7b1fa2; }
-    .badge-step-type { background: #e8eaf6; color: #3f51b5; }
-
-    .ticket-link { color: #1565c0; text-decoration: none; font-weight: 500; }
-    .ticket-link:hover { text-decoration: underline; }
-    .muted { color: #999; }
-
-    .run-error { padding: 8px 12px; background: #ffebee; color: #c62828; border-radius: 4px; margin-bottom: 8px; font-size: 13px; }
-
-    .expanded-detail { padding: 8px 0; }
-    .detail-step { padding: 6px 0; border-bottom: 1px solid #f0f0f0; }
-    .detail-step:last-child { border-bottom: none; }
-    .detail-step-header { display: flex; align-items: center; gap: 8px; }
-    .detail-step-order { font-weight: 600; color: #999; min-width: 20px; }
-    .detail-step-name { font-weight: 500; }
-    .detail-step-duration { font-size: 12px; color: #777; }
-    .detail-step-error { margin-top: 4px; padding: 6px 8px; background: #ffebee; color: #c62828; border-radius: 4px; font-size: 13px; }
-    .detail-step-output { margin-top: 4px; }
-    .pulse-dot { width: 8px; height: 8px; border-radius: 50%; background: #1565c0; animation: pulse 1.5s ease-in-out infinite; }
     @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(1.3); } }
 
-    .step-highlight { animation: highlight-fade 1.5s ease-out; }
-    @keyframes highlight-fade { from { background: #c8e6c9; } to { background: transparent; } }
+    .filters { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; }
+    .filters app-select { min-width: 160px; }
+    .total-count { color: var(--text-tertiary); font-family: var(--font-primary); font-size: 13px; margin-left: auto; }
 
-    .detail-step-output summary { cursor: pointer; color: #1565c0; font-size: 12px; }
-    .detail-pre { background: #263238; color: #eeffff; padding: 8px 12px; border-radius: 4px; font-size: 12px; overflow-x: auto; max-height: 300px; white-space: pre-wrap; word-break: break-word; }
+    .table-card {
+      background: var(--bg-card); border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-card); overflow: hidden; margin-bottom: 16px;
+    }
+    .runs-table { width: 100%; border-collapse: collapse; }
+    .runs-table thead th {
+      text-align: left; padding: 10px 16px; font-family: var(--font-primary);
+      font-size: 12px; font-weight: 500; color: var(--text-tertiary);
+      border-bottom: 1px solid var(--border-light); user-select: none;
+    }
+    .runs-table tbody td {
+      padding: 12px 16px; font-family: var(--font-primary); font-size: 14px;
+      color: var(--text-secondary); border-bottom: 1px solid var(--border-light);
+    }
+    .col-expand { width: 48px; text-align: center; }
+    .expand-btn {
+      background: none; border: none; cursor: pointer; padding: 4px 8px;
+      font-size: 14px; color: var(--text-secondary); border-radius: var(--radius-sm);
+    }
+    .expand-btn:hover { background: var(--bg-hover); }
+
+    .run-row { cursor: pointer; transition: background 120ms ease; }
+    .run-row:hover { background: var(--bg-hover); }
+    .expanded-row { background: var(--bg-active); }
+
+    .badge {
+      font-family: var(--font-primary); font-size: 11px; font-weight: 600;
+      padding: 2px 8px; border-radius: var(--radius-sm); white-space: nowrap;
+    }
+    .badge.small { font-size: 10px; padding: 1px 6px; }
+    .badge-status-success { background: rgba(52, 199, 89, 0.12); color: var(--color-success); }
+    .badge-status-error { background: rgba(255, 59, 48, 0.1); color: var(--color-error); }
+    .badge-status-no_route { background: var(--bg-muted); color: var(--text-tertiary); }
+    .badge-status-processing { background: var(--color-info-subtle); color: var(--accent); }
+    .badge-status-pending { background: var(--bg-muted); color: var(--text-tertiary); }
+    .badge-status-skipped { background: rgba(255, 149, 0, 0.1); color: var(--color-warning); }
+    .badge-source { background: rgba(0, 113, 227, 0.08); color: var(--accent); }
+    .badge-step-type { background: var(--bg-muted); color: var(--text-tertiary); }
+
+    .ticket-link { color: var(--accent-link); text-decoration: none; font-family: var(--font-primary); font-weight: 500; }
+    .ticket-link:hover { text-decoration: underline; }
+    .muted { color: var(--text-tertiary); }
+
+    .detail-row-visible td { padding: 8px 16px !important; border-bottom: 1px solid var(--border-light); background: var(--bg-page); }
+
+    .run-error {
+      padding: 8px 12px; background: rgba(255, 59, 48, 0.08); color: var(--color-error);
+      border-radius: var(--radius-sm); margin-bottom: 8px; font-family: var(--font-primary); font-size: 13px;
+    }
+    .expanded-detail { padding: 8px 0; }
+    .detail-step { padding: 6px 0; border-bottom: 1px solid var(--border-light); }
+    .detail-step:last-child { border-bottom: none; }
+    .detail-step-header { display: flex; align-items: center; gap: 8px; }
+    .detail-step-order { font-family: var(--font-primary); font-weight: 600; color: var(--text-tertiary); min-width: 20px; }
+    .detail-step-name { font-family: var(--font-primary); font-weight: 500; color: var(--text-primary); }
+    .detail-step-duration { font-family: var(--font-primary); font-size: 12px; color: var(--text-tertiary); }
+    .detail-step-error {
+      margin-top: 4px; padding: 6px 8px; background: rgba(255, 59, 48, 0.08);
+      color: var(--color-error); border-radius: var(--radius-sm); font-family: var(--font-primary); font-size: 13px;
+    }
+    .detail-step-output { margin-top: 4px; }
+    .pulse-dot {
+      width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    .step-highlight { animation: highlight-fade 1.5s ease-out; }
+    @keyframes highlight-fade { from { background: rgba(52, 199, 89, 0.15); } to { background: transparent; } }
+    .detail-step-output summary { cursor: pointer; color: var(--accent-link); font-family: var(--font-primary); font-size: 12px; }
+    .detail-pre {
+      background: #1d1d1f; color: #f5f5f7; padding: 8px 12px; border-radius: var(--radius-sm);
+      font-size: 12px; overflow-x: auto; max-height: 300px; white-space: pre-wrap; word-break: break-word;
+    }
 
     .pagination { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 16px 0; }
-    .empty { color: #999; text-align: center; padding: 24px 16px; margin: 0; }
+    .page-info { font-family: var(--font-primary); font-size: 13px; color: var(--text-tertiary); }
+    .empty { color: var(--text-tertiary); text-align: center; padding: 24px 16px; margin: 0; font-family: var(--font-primary); }
     .empty-card { margin-bottom: 16px; }
-    .full-width { width: 100%; }
+    .card {
+      background: var(--bg-card); border-radius: var(--radius-lg);
+      padding: 16px; box-shadow: var(--shadow-card);
+    }
   `],
 })
 export class IngestionJobListComponent implements OnInit, OnDestroy {
@@ -311,7 +314,18 @@ export class IngestionJobListComponent implements OnInit, OnDestroy {
   page = 0;
   pageSize = 20;
 
-  columns = ['status', 'source', 'client', 'route', 'ticket', 'startedAt', 'duration', 'steps', 'expand'];
+  statusOptions = [
+    { value: '', label: 'All Statuses' },
+    { value: 'processing', label: 'Processing' },
+    { value: 'success', label: 'Success' },
+    { value: 'error', label: 'Error' },
+    { value: 'no_route', label: 'No Route' },
+  ];
+
+  clientOptions = computed(() => [
+    { value: '', label: 'All Clients' },
+    ...this.clients().map(c => ({ value: c.id, label: c.shortCode })),
+  ]);
 
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private detailPollTimer: ReturnType<typeof setTimeout> | null = null;

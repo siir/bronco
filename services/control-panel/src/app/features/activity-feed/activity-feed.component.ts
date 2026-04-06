@@ -2,23 +2,16 @@ import { Component, OnInit, OnDestroy, inject, signal } from '@angular/core';
 import { NgClass } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { MatCardModule } from '@angular/material/card';
-import { MatButtonModule } from '@angular/material/button';
-import { MatIconModule } from '@angular/material/icon';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatSelectModule } from '@angular/material/select';
-import { MatChipsModule } from '@angular/material/chips';
 import { MatPaginatorModule, type PageEvent } from '@angular/material/paginator';
-import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
-import { MatTooltipModule } from '@angular/material/tooltip';
 import { LogSummaryService, type LogSummary, type LogSummaryType, type AttentionLevel } from '../../core/services/log-summary.service';
+import { BroncoButtonComponent, SelectComponent } from '../../shared/components/index.js';
 
-const TYPE_META: Record<LogSummaryType, { icon: string; label: string; color: string }> = {
-  TICKET: { icon: 'confirmation_number', label: 'Ticket', color: '#3f51b5' },
-  ORPHAN: { icon: 'warning_amber', label: 'Orphaned Ticket', color: '#ff9800' },
-  SERVICE: { icon: 'dns', label: 'Service Activity', color: '#9e9e9e' },
-  UNCATEGORIZED: { icon: 'help_outline', label: 'Uncategorized', color: '#607d8b' },
+const TYPE_META: Record<LogSummaryType, { label: string; color: string }> = {
+  TICKET: { label: 'Ticket', color: 'var(--accent)' },
+  ORPHAN: { label: 'Orphaned Ticket', color: 'var(--color-warning)' },
+  SERVICE: { label: 'Service Activity', color: 'var(--text-tertiary)' },
+  UNCATEGORIZED: { label: 'Uncategorized', color: 'var(--text-tertiary)' },
 };
 
 @Component({
@@ -27,54 +20,42 @@ const TYPE_META: Record<LogSummaryType, { icon: string; label: string; color: st
     NgClass,
     FormsModule,
     RouterLink,
-    MatCardModule,
-    MatButtonModule,
-    MatIconModule,
-    MatFormFieldModule,
-    MatSelectModule,
-    MatChipsModule,
     MatPaginatorModule,
-    MatProgressBarModule,
     MatSnackBarModule,
-    MatTooltipModule,
+    BroncoButtonComponent,
+    SelectComponent,
   ],
   template: `
-    <div class="page-header">
-      <h1>Activity Feed</h1>
-      <div class="header-actions">
-        <button mat-raised-button (click)="generateAll()" [disabled]="generating()">
-          <mat-icon>auto_awesome</mat-icon>
-          {{ generating() ? 'Summarizing...' : 'Summarize All' }}
-        </button>
-        <button mat-raised-button (click)="load()">
-          <mat-icon>refresh</mat-icon> Refresh
-        </button>
+    <div class="page-wrapper">
+      <div class="page-header">
+        <h1 class="page-title">Activity Feed</h1>
+        <div class="header-actions">
+          <app-bronco-button variant="primary" (click)="generateAll()" [disabled]="generating()">
+            {{ generating() ? 'Summarizing...' : 'Summarize All' }}
+          </app-bronco-button>
+          <app-bronco-button variant="secondary" (click)="load()">
+            Refresh
+          </app-bronco-button>
+        </div>
       </div>
-    </div>
 
-    @if (generating()) {
-      <mat-progress-bar mode="indeterminate"></mat-progress-bar>
-    }
+      @if (generating()) {
+        <div class="loading-state">Generating summaries...</div>
+      }
 
-    <div class="filters">
-      <mat-form-field>
-        <mat-label>Filter</mat-label>
-        <mat-select [(ngModel)]="typeFilter" (ngModelChange)="resetAndLoad()">
-          <mat-option value="all">All Summaries</mat-option>
-          <mat-option value="ticket">Ticket Summaries</mat-option>
-          <mat-option value="orphan">Orphan Summaries</mat-option>
-          <mat-option value="service">Service Summaries</mat-option>
-          <mat-option value="uncategorized">Uncategorized</mat-option>
-        </mat-select>
-      </mat-form-field>
-    </div>
+      <div class="filters">
+        <app-select
+          [value]="typeFilter"
+          [options]="typeFilterOptions"
+          [placeholder]="''"
+          (valueChange)="typeFilter = $event; resetAndLoad()">
+        </app-select>
+      </div>
 
-    <div class="feed">
-      @for (s of summaries(); track s.id) {
-        <mat-card [class]="'summary-card ' + attentionClass(s.attentionLevel)" [style.border-left-color]="typeColor(s.summaryType)">
-          <mat-card-content>
+      <div class="feed">
+        @for (s of summaries(); track s.id) {
+          <div [class]="'summary-card ' + attentionClass(s.attentionLevel)" [style.border-left-color]="typeColor(s.summaryType)">
             <div class="summary-header">
-              <mat-icon class="type-icon">{{ typeIcon(s.summaryType) }}</mat-icon>
               <div class="summary-meta">
                 @if (s.ticketId) {
                   <a [routerLink]="['/tickets', s.ticketId]" class="ticket-link">
@@ -93,7 +74,7 @@ const TYPE_META: Record<LogSummaryType, { icon: string; label: string; color: st
                     {{ s.attentionLevel === 'HIGH' ? 'Needs Attention' : 'Review' }}
                   </span>
                 }
-                <span class="log-count" [matTooltip]="s.logCount + ' log entries'">
+                <span class="log-count" [title]="s.logCount + ' log entries'">
                   {{ s.logCount }} logs
                 </span>
               </div>
@@ -104,141 +85,94 @@ const TYPE_META: Record<LogSummaryType, { icon: string; label: string; color: st
                 <span class="service-chip">{{ svc }}</span>
               }
             </div>
-          </mat-card-content>
-        </mat-card>
-      } @empty {
-        @if (!generating()) {
-          <p class="empty">No log summaries yet. Click "Summarize All" to generate summaries from existing logs.</p>
+          </div>
+        } @empty {
+          @if (!generating()) {
+            <p class="empty">No log summaries yet. Click "Summarize All" to generate summaries from existing logs.</p>
+          }
         }
-      }
-    </div>
+      </div>
 
-    <mat-paginator
-      [length]="total()"
-      [pageSize]="pageSize"
-      [pageIndex]="pageIndex"
-      [pageSizeOptions]="[20, 50, 100]"
-      (page)="onPage($event)"
-      showFirstLastButtons>
-    </mat-paginator>
+      <mat-paginator
+        [length]="total()"
+        [pageSize]="pageSize"
+        [pageIndex]="pageIndex"
+        [pageSizeOptions]="[20, 50, 100]"
+        (page)="onPage($event)"
+        showFirstLastButtons>
+      </mat-paginator>
+    </div>
   `,
   styles: [`
-    .page-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 16px;
+    .page-wrapper { max-width: 1200px; }
+    .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .page-title { font-family: var(--font-primary); font-size: 20px; font-weight: 600; color: var(--text-primary); margin: 0; }
+    .header-actions { display: flex; gap: 8px; }
+
+    .loading-state {
+      font-family: var(--font-primary); font-size: 13px; color: var(--accent);
+      padding: 8px 0; margin-bottom: 8px;
     }
-    .header-actions {
-      display: flex;
-      gap: 8px;
-    }
-    .filters {
-      margin-bottom: 16px;
-    }
-    .feed {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      margin-bottom: 16px;
-    }
+
+    .filters { margin-bottom: 16px; }
+    .filters app-select { min-width: 200px; }
+
+    .feed { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+
     .summary-card {
-      border-left: 4px solid #3f51b5;
+      background: var(--bg-card); border-radius: var(--radius-lg); padding: 16px;
+      box-shadow: var(--shadow-card); border-left: 4px solid var(--accent);
       transition: background-color 0.2s;
     }
     .attention-high {
-      background-color: rgba(244, 67, 54, 0.08);
-      border-left-color: #f44336 !important;
+      background-color: rgba(255, 59, 48, 0.04);
+      border-left-color: var(--color-error) !important;
     }
     .attention-medium {
-      background-color: rgba(255, 152, 0, 0.08);
-      border-left-color: #ff9800 !important;
+      background-color: rgba(255, 149, 0, 0.04);
+      border-left-color: var(--color-warning) !important;
     }
+
     .attention-badge {
-      font-size: 11px;
-      font-weight: 600;
-      padding: 2px 8px;
-      border-radius: 12px;
-      margin-right: 8px;
+      font-family: var(--font-primary); font-size: 11px; font-weight: 600;
+      padding: 2px 8px; border-radius: var(--radius-pill); margin-right: 8px;
     }
     .attention-badge.attention-high {
-      background: rgba(244, 67, 54, 0.15);
-      color: #d32f2f;
+      background: rgba(255, 59, 48, 0.1); color: var(--color-error);
     }
     .attention-badge.attention-medium {
-      background: rgba(255, 152, 0, 0.15);
-      color: #e65100;
+      background: rgba(255, 149, 0, 0.1); color: var(--color-warning);
     }
-    .summary-header {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 8px;
-    }
-    .type-icon {
-      color: #666;
-      font-size: 20px;
-      width: 20px;
-      height: 20px;
-    }
-    .summary-meta {
-      display: flex;
-      flex-direction: column;
-      flex: 1;
-    }
+
+    .summary-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+    .summary-meta { display: flex; flex-direction: column; flex: 1; }
     .ticket-link {
-      color: #3f51b5;
-      text-decoration: none;
-      font-weight: 500;
+      color: var(--accent-link); text-decoration: none; font-family: var(--font-primary); font-weight: 500;
     }
-    .ticket-link:hover {
-      text-decoration: underline;
-    }
-    .type-label {
-      font-weight: 500;
-      color: #666;
-    }
-    .time-range {
-      font-size: 12px;
-      color: #999;
-    }
-    .summary-stats {
-      text-align: right;
-    }
+    .ticket-link:hover { text-decoration: underline; }
+    .type-label { font-family: var(--font-primary); font-weight: 500; color: var(--text-tertiary); }
+    .time-range { font-family: var(--font-primary); font-size: 12px; color: var(--text-tertiary); }
+    .summary-stats { text-align: right; }
     .log-count {
-      font-size: 12px;
-      color: #666;
-      background: #f0f0f0;
-      padding: 2px 8px;
-      border-radius: 12px;
+      font-family: var(--font-primary); font-size: 12px; color: var(--text-tertiary);
+      background: var(--bg-muted); padding: 2px 8px; border-radius: var(--radius-pill);
     }
     .summary-text {
-      margin: 8px 0;
-      line-height: 1.5;
-      color: #333;
+      margin: 8px 0; line-height: 1.5; font-family: var(--font-primary);
+      font-size: 14px; color: var(--text-secondary);
     }
-    .attention-high .summary-text {
-      color: #c62828;
-    }
-    .attention-medium .summary-text {
-      color: #bf360c;
-    }
-    .service-chips {
-      display: flex;
-      gap: 6px;
-      flex-wrap: wrap;
-    }
+    .attention-high .summary-text { color: var(--color-error); }
+    .attention-medium .summary-text { color: var(--color-warning); }
+
+    .service-chips { display: flex; gap: 6px; flex-wrap: wrap; }
     .service-chip {
-      font-size: 11px;
-      padding: 2px 8px;
-      border-radius: 12px;
-      background: #e8eaf6;
-      color: #3f51b5;
+      font-family: var(--font-primary); font-size: 11px; padding: 2px 8px;
+      border-radius: var(--radius-pill); background: var(--color-info-subtle);
+      color: var(--accent);
     }
     .empty {
-      text-align: center;
-      color: #999;
-      padding: 48px 0;
+      text-align: center; color: var(--text-tertiary); padding: 48px 0;
+      font-family: var(--font-primary);
     }
   `],
 })
@@ -254,6 +188,14 @@ export class ActivityFeedComponent implements OnInit, OnDestroy {
   typeFilter = 'all';
   pageSize = 20;
   pageIndex = 0;
+
+  typeFilterOptions = [
+    { value: 'all', label: 'All Summaries' },
+    { value: 'ticket', label: 'Ticket Summaries' },
+    { value: 'orphan', label: 'Orphan Summaries' },
+    { value: 'service', label: 'Service Summaries' },
+    { value: 'uncategorized', label: 'Uncategorized' },
+  ];
 
   ngOnInit(): void {
     this.load();
@@ -312,16 +254,12 @@ export class ActivityFeedComponent implements OnInit, OnDestroy {
     });
   }
 
-  typeIcon(summaryType: LogSummaryType): string {
-    return TYPE_META[summaryType]?.icon ?? 'help_outline';
-  }
-
   typeLabel(summaryType: LogSummaryType): string {
     return TYPE_META[summaryType]?.label ?? 'Unknown';
   }
 
   typeColor(summaryType: LogSummaryType): string {
-    return TYPE_META[summaryType]?.color ?? '#9e9e9e';
+    return TYPE_META[summaryType]?.color ?? 'var(--text-tertiary)';
   }
 
   attentionClass(level: AttentionLevel): string {
