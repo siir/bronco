@@ -1,9 +1,35 @@
-import { Component, inject, OnInit } from '@angular/core';
-import { RouterOutlet, ActivatedRoute } from '@angular/router';
+import { Component, inject, OnInit, signal } from '@angular/core';
+import { RouterOutlet, ActivatedRoute, Router, NavigationEnd } from '@angular/router';
 import { SidebarComponent } from './sidebar.component';
 import { HeaderBarComponent } from './header-bar.component';
 import { DetailPanelComponent } from './detail-panel.component';
 import { DetailPanelService } from '../core/services/detail-panel.service';
+
+const ROUTE_TITLE_MAP: Record<string, string> = {
+  dashboard: 'Dashboard',
+  clients: 'Clients',
+  tickets: 'Tickets',
+  prompts: 'Prompts',
+  logs: 'Logs',
+  'email-logs': 'Email Logs',
+  'slack-conversations': 'Slack',
+  'ai-usage': 'AI Usage',
+  'ai-providers': 'AI Providers',
+  activity: 'Activity',
+  profile: 'Profile',
+  'system-status': 'System Status',
+  'failed-jobs': 'Failed Jobs',
+  'system-issues': 'System Issues',
+  'system-analysis': 'System Analysis',
+  'notification-preferences': 'Notifications',
+  'system-settings': 'System Settings',
+  settings: 'Settings',
+  'release-notes': 'Release Notes',
+  'ticket-routes': 'Ticket Routes',
+  'ingestion-jobs': 'Ingestion Jobs',
+  'scheduled-probes': 'Scheduled Probes',
+  users: 'Users',
+};
 
 @Component({
   selector: 'app-shell',
@@ -13,7 +39,7 @@ import { DetailPanelService } from '../core/services/detail-panel.service';
     <div class="shell">
       <app-sidebar />
       <div class="shell-main">
-        <app-header-bar />
+        <app-header-bar [title]="pageTitle()" />
         <main class="shell-content">
           <router-outlet />
         </main>
@@ -49,6 +75,8 @@ import { DetailPanelService } from '../core/services/detail-panel.service';
 export class AppShellComponent implements OnInit {
   readonly detailPanel = inject(DetailPanelService);
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  readonly pageTitle = signal('Dashboard');
 
   ngOnInit(): void {
     const params = this.route.snapshot.queryParams;
@@ -56,5 +84,14 @@ export class AppShellComponent implements OnInit {
       detail: params['detail'],
       type: params['type'],
     });
+    this.updateTitle();
+    this.router.events.subscribe(event => {
+      if (event instanceof NavigationEnd) this.updateTitle();
+    });
+  }
+
+  private updateTitle(): void {
+    const segment = this.router.url.split('/').filter(Boolean)[0]?.split('?')[0] ?? 'dashboard';
+    this.pageTitle.set(ROUTE_TITLE_MAP[segment] ?? 'Dashboard');
   }
 }
