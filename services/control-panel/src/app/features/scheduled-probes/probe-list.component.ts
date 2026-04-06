@@ -1,18 +1,16 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
-import { FormsModule } from '@angular/forms';
-import { MatCardModule } from '@angular/material/card';
-import { MatTableModule } from '@angular/material/table';
-import { MatButtonModule } from '@angular/material/button';
-import { MatIconModule } from '@angular/material/icon';
-import { MatSlideToggleModule } from '@angular/material/slide-toggle';
-import { MatTooltipModule } from '@angular/material/tooltip';
-import { MatSelectModule } from '@angular/material/select';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatChipsModule } from '@angular/material/chips';
+import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatSnackBar } from '@angular/material/snack-bar';
-import { DatePipe, SlicePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
+import {
+  DataTableComponent,
+  DataTableColumnComponent,
+  BroncoButtonComponent,
+  ToolbarComponent,
+  SelectComponent,
+  ToggleSwitchComponent,
+} from '../../shared/components/index.js';
+import { DetailPanelService } from '../../core/services/detail-panel.service.js';
 import { ScheduledProbeService, ScheduledProbe } from '../../core/services/scheduled-probe.service';
 import { ClientService, Client } from '../../core/services/client.service';
 import { CATEGORY_OPTIONS } from '../../core/services/client-memory.service';
@@ -29,168 +27,126 @@ const ACTION_LABELS: Record<string, string> = {
 @Component({
   standalone: true,
   imports: [
-    FormsModule,
-    MatCardModule,
-    MatTableModule,
-    MatButtonModule,
-    MatIconModule,
-    MatSlideToggleModule,
-    MatTooltipModule,
-    MatSelectModule,
-    MatFormFieldModule,
-    MatChipsModule,
     MatDialogModule,
     RouterLink,
-    DatePipe,
-    SlicePipe,
+    DataTableComponent,
+    DataTableColumnComponent,
+    BroncoButtonComponent,
+    ToolbarComponent,
+    SelectComponent,
+    ToggleSwitchComponent,
   ],
   template: `
-    <div class="page-header">
-      <h1>Scheduled Probes</h1>
-      <button mat-raised-button color="primary" (click)="addProbe()">
-        <mat-icon>add</mat-icon> Add Probe
-      </button>
-    </div>
+    <div class="probe-list-page">
+      <div class="page-header">
+        <h1 class="page-title">Scheduled Probes</h1>
+        <app-bronco-button variant="primary" (click)="addProbe()">+ New Probe</app-bronco-button>
+      </div>
 
-    <div class="filters">
-      <mat-form-field appearance="outline" class="filter-field">
-        <mat-label>Client</mat-label>
-        <mat-select [(ngModel)]="filterClientId" (selectionChange)="loadProbes()">
-          <mat-option value="">All Clients</mat-option>
-          @for (c of clients(); track c.id) {
-            <mat-option [value]="c.id">{{ c.name }} ({{ c.shortCode }})</mat-option>
-          }
-        </mat-select>
-      </mat-form-field>
-    </div>
+      <app-toolbar>
+        <app-select
+          [value]="filterClientId()"
+          [options]="clientOptions()"
+          placeholder="All Clients"
+          (valueChange)="onClientFilter($event)" />
+      </app-toolbar>
 
-    @if (probes().length === 0) {
-      <mat-card class="empty-card">
-        <p class="empty">No scheduled probes found. Create a probe to run MCP tools on a schedule.</p>
-      </mat-card>
-    } @else {
-      <table mat-table [dataSource]="probes()" class="full-width probe-table">
-        <ng-container matColumnDef="name">
-          <th mat-header-cell *matHeaderCellDef>Name</th>
-          <td mat-cell *matCellDef="let p">
-            <a class="probe-name" [routerLink]="['/scheduled-probes', p.id, 'runs']">{{ p.name }}</a>
-            @if (p.description) {
-              <div class="probe-desc">{{ p.description }}</div>
-            }
-          </td>
-        </ng-container>
+      <app-data-table
+        [data]="filteredProbes()"
+        [trackBy]="trackById"
+        (rowClick)="onProbeClick($event)"
+        emptyMessage="No scheduled probes found">
 
-        <ng-container matColumnDef="client">
-          <th mat-header-cell *matHeaderCellDef>Client</th>
-          <td mat-cell *matCellDef="let p">
-            @if (p.client) {
-              <span class="badge badge-client">{{ p.client.shortCode }}</span>
-            }
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="tool">
-          <th mat-header-cell *matHeaderCellDef>Tool</th>
-          <td mat-cell *matCellDef="let p">
-            @if (isBuiltinTool(p.toolName)) {
-              <span class="badge badge-builtin">Built-in</span>
-            }
-            <span class="tool-chip">{{ p.toolName }}</span>
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="schedule">
-          <th mat-header-cell *matHeaderCellDef>Schedule</th>
-          <td mat-cell *matCellDef="let p">
-            <span class="cron-text" [matTooltip]="p.cronExpression">{{ describeSchedule(p) }}</span>
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="action">
-          <th mat-header-cell *matHeaderCellDef>Action</th>
-          <td mat-cell *matCellDef="let p">
-            <span class="badge" [class]="'badge-' + p.action">{{ actionLabel(p.action) }}</span>
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="lastRun">
-          <th mat-header-cell *matHeaderCellDef>Last Run</th>
-          <td mat-cell *matCellDef="let p">
-            @if (p.lastRunAt) {
-              <div class="last-run">
-                <span class="run-time">{{ p.lastRunAt | date:'short' }}</span>
-                <span class="badge" [class]="'badge-status-' + p.lastRunStatus">{{ p.lastRunStatus }}</span>
-              </div>
-              @if (p.lastRunResult) {
-                <div class="run-result" [matTooltip]="p.lastRunResult">{{ p.lastRunResult | slice:0:80 }}</div>
+        <app-data-column key="name" header="Name" [sortable]="false">
+          <ng-template #cell let-row>
+            <div>
+              <span style="font-weight: 500; color: var(--text-primary);">{{ row.name }}</span>
+              @if (row.description) {
+                <div style="font-size: 12px; color: var(--text-tertiary); margin-top: 2px;">{{ row.description }}</div>
               }
-            } @else {
-              <span class="muted">Never</span>
+            </div>
+          </ng-template>
+        </app-data-column>
+
+        <app-data-column key="client" header="Client" width="100px" [sortable]="false">
+          <ng-template #cell let-row>
+            <span style="font-size: 12px; padding: 2px 8px; background: var(--bg-active); border-radius: var(--radius-sm); color: var(--accent); font-family: ui-monospace, monospace;">
+              {{ row.client?.shortCode ?? '—' }}
+            </span>
+          </ng-template>
+        </app-data-column>
+
+        <app-data-column key="tool" header="Tool" width="160px" [sortable]="false">
+          <ng-template #cell let-row>
+            @if (isBuiltinTool(row.toolName)) {
+              <span style="font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: var(--radius-sm); background: rgba(0,113,227,0.08); color: var(--accent);">Built-in</span>
             }
-          </td>
-        </ng-container>
+            <span style="font-size: 12px; padding: 2px 6px; background: var(--bg-muted); border-radius: var(--radius-sm); font-family: ui-monospace, monospace; color: var(--text-secondary);">
+              {{ row.toolName }}
+            </span>
+          </ng-template>
+        </app-data-column>
 
-        <ng-container matColumnDef="active">
-          <th mat-header-cell *matHeaderCellDef>Active</th>
-          <td mat-cell *matCellDef="let p">
-            <mat-slide-toggle
-              [checked]="p.isActive"
-              (change)="toggleActive(p)"
-              color="primary">
-            </mat-slide-toggle>
-          </td>
-        </ng-container>
+        <app-data-column key="schedule" header="Schedule" width="180px" [sortable]="false">
+          <ng-template #cell let-row>
+            <span style="font-size: 13px; color: var(--text-secondary);" [title]="row.cronExpression">
+              {{ humanReadableSchedule(row) }}
+            </span>
+          </ng-template>
+        </app-data-column>
 
-        <ng-container matColumnDef="actions">
-          <th mat-header-cell *matHeaderCellDef></th>
-          <td mat-cell *matCellDef="let p">
-            <a mat-icon-button matTooltip="History" aria-label="View run history" [routerLink]="['/scheduled-probes', p.id, 'runs']">
-              <mat-icon>history</mat-icon>
-            </a>
-            <button mat-icon-button matTooltip="Run now" (click)="runNow(p)">
-              <mat-icon>play_arrow</mat-icon>
-            </button>
-            <button mat-icon-button matTooltip="Edit" (click)="editProbe(p)">
-              <mat-icon>edit</mat-icon>
-            </button>
-            <button mat-icon-button color="warn" matTooltip="Delete" (click)="deleteProbe(p)">
-              <mat-icon>delete</mat-icon>
-            </button>
-          </td>
-        </ng-container>
+        <app-data-column key="action" header="Action" width="110px" [sortable]="false">
+          <ng-template #cell let-row>
+            <span class="action-badge" [class]="'action-' + row.action">{{ formatAction(row.action) }}</span>
+          </ng-template>
+        </app-data-column>
 
-        <tr mat-header-row *matHeaderRowDef="columns"></tr>
-        <tr mat-row *matRowDef="let row; columns: columns;"></tr>
-      </table>
-    }
+        <app-data-column key="lastRun" header="Last Run" width="140px" [sortable]="false">
+          <ng-template #cell let-row>
+            @if (row.lastRunAt) {
+              <div style="font-size: 12px; color: var(--text-secondary);">{{ formatDate(row.lastRunAt) }}</div>
+              <span class="run-status" [class]="'run-' + row.lastRunStatus">{{ row.lastRunStatus }}</span>
+            } @else {
+              <span style="font-size: 12px; color: var(--text-tertiary);">Never</span>
+            }
+          </ng-template>
+        </app-data-column>
+
+        <app-data-column key="active" header="Active" width="70px" [sortable]="false">
+          <ng-template #cell let-row>
+            <app-toggle-switch
+              [checked]="row.isActive"
+              (checkedChange)="toggleActive(row, $event)"
+              (click)="$event.stopPropagation()" />
+          </ng-template>
+        </app-data-column>
+
+        <app-data-column key="actions" header="" width="120px" [sortable]="false">
+          <ng-template #cell let-row>
+            <div style="display: flex; gap: 2px;" (click)="$event.stopPropagation()">
+              <app-bronco-button variant="icon" size="sm" [routerLink]="['/scheduled-probes', row.id, 'runs']" title="Run history">&#x1F4CB;</app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" (click)="runNow(row)" title="Run now">&#x25B6;</app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" (click)="editProbe(row)" title="Edit">&#x270E;</app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" (click)="deleteProbe(row)" title="Delete">&#x2715;</app-bronco-button>
+            </div>
+          </ng-template>
+        </app-data-column>
+
+      </app-data-table>
+    </div>
   `,
   styles: [`
+    .probe-list-page { max-width: 1200px; }
     .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-    .page-header h1 { margin: 0; }
-    .filters { display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
-    .filter-field { min-width: 200px; }
-    .probe-table { width: 100%; }
-    .probe-name { font-weight: 500; color: #1565c0; text-decoration: none; }
-    .probe-name:hover { text-decoration: underline; }
-    .probe-desc { font-size: 12px; color: #666; margin-top: 2px; }
-    .tool-chip { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; background: #e8eaf6; color: #3f51b5; font-family: monospace; }
-    .cron-text { font-family: monospace; font-size: 13px; }
-    .badge { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; white-space: nowrap; }
-    .badge-client { background: #fff3e0; color: #e65100; }
-    .badge-create_ticket { background: #e8f5e9; color: #2e7d32; }
-    .badge-email_direct { background: #e3f2fd; color: #1565c0; }
-    .badge-silent { background: #f5f5f5; color: #777; }
-    .badge-builtin { background: #ede7f6; color: #6a1b9a; margin-right: 4px; }
-    .badge-status-success { background: #e8f5e9; color: #2e7d32; }
-    .badge-status-error { background: #ffebee; color: #c62828; }
-    .badge-status-skipped { background: #fff3e0; color: #e65100; }
-    .last-run { display: flex; align-items: center; gap: 6px; }
-    .run-time { font-size: 12px; color: #555; }
-    .run-result { font-size: 11px; color: #888; margin-top: 2px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .muted { color: #999; }
-    .empty { color: #999; text-align: center; padding: 24px 16px; margin: 0; }
-    .empty-card { margin-bottom: 16px; }
-    .full-width { width: 100%; }
+    .page-title { font-family: var(--font-primary); font-size: 20px; font-weight: 600; color: var(--text-primary); margin: 0; }
+    .action-badge { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: var(--radius-sm); }
+    .action-create_ticket { background: rgba(0,122,255,0.08); color: var(--color-info); }
+    .action-email_direct { background: rgba(255,149,0,0.08); color: var(--color-warning); }
+    .action-silent { background: var(--bg-muted); color: var(--text-tertiary); }
+    .run-status { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: var(--radius-sm); }
+    .run-success { background: rgba(52,199,89,0.08); color: var(--color-success); }
+    .run-error { background: rgba(255,59,48,0.08); color: var(--color-error); }
+    .run-skipped { background: var(--bg-muted); color: var(--text-tertiary); }
   `],
 })
 export class ProbeListComponent implements OnInit {
@@ -198,13 +154,25 @@ export class ProbeListComponent implements OnInit {
   private clientService = inject(ClientService);
   private dialog = inject(MatDialog);
   private snackBar = inject(MatSnackBar);
+  private detailPanel = inject(DetailPanelService);
 
   probes = signal<ScheduledProbe[]>([]);
   clients = signal<Client[]>([]);
   private builtinToolNames = new Set<string>();
 
-  filterClientId = '';
-  columns = ['name', 'client', 'tool', 'schedule', 'action', 'lastRun', 'active', 'actions'];
+  filterClientId = signal('');
+
+  trackById = (item: any) => item.id;
+
+  clientOptions = computed(() => [
+    { value: '', label: 'All Clients' },
+    ...this.clients().map(c => ({ value: c.id, label: `${c.name} (${c.shortCode})` })),
+  ]);
+
+  filteredProbes = computed(() => {
+    const cid = this.filterClientId();
+    return cid ? this.probes().filter(p => p.clientId === cid) : this.probes();
+  });
 
   ngOnInit(): void {
     this.clientService.getClients().subscribe((c) => this.clients.set(c));
@@ -215,20 +183,31 @@ export class ProbeListComponent implements OnInit {
   }
 
   loadProbes(): void {
-    const filters: Record<string, string> = {};
-    if (this.filterClientId) filters['clientId'] = this.filterClientId;
-    this.probeService.getProbes(filters).subscribe((probes) => this.probes.set(probes));
+    this.probeService.getProbes({}).subscribe((probes) => this.probes.set(probes));
   }
 
-  actionLabel(action: string): string {
+  onClientFilter(value: string): void {
+    this.filterClientId.set(value);
+  }
+
+  onProbeClick(probe: any): void {
+    this.detailPanel.open('probe', probe.id);
+  }
+
+  formatAction(action: string): string {
     return ACTION_LABELS[action] ?? action;
+  }
+
+  formatDate(dateStr: string): string {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   }
 
   isBuiltinTool(toolName: string): boolean {
     return this.builtinToolNames.has(toolName);
   }
 
-  describeSchedule(probe: ScheduledProbe): string {
+  humanReadableSchedule(probe: ScheduledProbe): string {
     if (probe.scheduleTimezone && probe.scheduleHour !== null) {
       return formatTimezoneSchedule(probe.scheduleHour, probe.scheduleMinute ?? 0, probe.scheduleDaysOfWeek, probe.scheduleTimezone);
     }
@@ -269,10 +248,10 @@ export class ProbeListComponent implements OnInit {
     });
   }
 
-  toggleActive(probe: ScheduledProbe): void {
-    this.probeService.updateProbe(probe.id, { isActive: !probe.isActive }).subscribe({
+  toggleActive(probe: ScheduledProbe, isActive: boolean): void {
+    this.probeService.updateProbe(probe.id, { isActive }).subscribe({
       next: () => {
-        this.snackBar.open(`Probe ${probe.isActive ? 'deactivated' : 'activated'}`, 'OK', { duration: 3000 });
+        this.snackBar.open(`Probe ${isActive ? 'activated' : 'deactivated'}`, 'OK', { duration: 3000 });
         this.loadProbes();
       },
       error: () => this.snackBar.open('Failed to update probe', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
