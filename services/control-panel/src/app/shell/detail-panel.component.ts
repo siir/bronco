@@ -2,14 +2,17 @@ import { Component, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { DetailPanelService, DetailEntityType } from '../core/services/detail-panel.service';
 
-const ENTITY_ROUTE_MAP: Record<DetailEntityType, string> = {
-  ticket: '/tickets',
-  client: '/clients',
-  probe: '/scheduled-probes',
-  system: '/system-status',
-  analysis: '/system-analysis',
-  job: '/ingestion-jobs',
-};
+/** Returns the route segments for a given entity type and id. */
+function entityRoute(type: DetailEntityType, id: string): string[] {
+  switch (type) {
+    case 'ticket': return ['/tickets', id];
+    case 'client': return ['/clients', id];
+    case 'probe': return ['/scheduled-probes', id, 'runs'];
+    case 'system': return ['/system-status'];
+    case 'analysis': return ['/system-analysis'];
+    case 'job': return ['/ingestion-jobs'];
+  }
+}
 
 @Component({
   selector: 'app-detail-panel',
@@ -22,10 +25,10 @@ const ENTITY_ROUTE_MAP: Record<DetailEntityType, string> = {
           <span class="entity-id">{{ detailPanel.entityId() }}</span>
         </div>
         <div class="panel-actions">
-          <button class="panel-btn" (click)="expandToFullPage()" title="Open full page">
+          <button class="panel-btn" (click)="expandToFullPage()" title="Open full page" aria-label="Open full page">
             <span class="expand-icon">&#x2197;</span>
           </button>
-          <button class="panel-btn" (click)="detailPanel.close()" title="Close panel">
+          <button class="panel-btn" (click)="detailPanel.close()" title="Close panel" aria-label="Close panel">
             <span class="close-icon">&times;</span>
           </button>
         </div>
@@ -134,9 +137,8 @@ export class DetailPanelComponent {
     const type = this.detailPanel.entityType();
     const id = this.detailPanel.entityId();
     if (type && id) {
-      const basePath = ENTITY_ROUTE_MAP[type] ?? '/dashboard';
       this.detailPanel.close();
-      this.router.navigate([basePath, id]);
+      this.router.navigate(entityRoute(type, id));
     }
   }
 }

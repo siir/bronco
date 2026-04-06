@@ -6,10 +6,10 @@ import { Component } from '@angular/core';
   template: `
     <header class="header-bar">
       <span class="page-title">Dashboard</span>
-      <div class="search-trigger">
+      <button class="search-trigger" type="button" aria-label="Search">
         <span class="search-text">Search...</span>
         <kbd class="search-kbd">&#x2318;K</kbd>
-      </div>
+      </button>
     </header>
   `,
   styles: [`
@@ -37,8 +37,10 @@ import { Component } from '@angular/core';
       gap: 8px;
       padding: 6px 12px;
       background: var(--bg-muted);
+      border: none;
       border-radius: var(--radius-pill);
       cursor: pointer;
+      font-family: var(--font-primary);
       transition: background 120ms ease;
     }
     .search-trigger:hover {

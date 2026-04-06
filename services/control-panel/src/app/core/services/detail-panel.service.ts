@@ -1,12 +1,14 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
-import { Location } from '@angular/common';
 import { Router } from '@angular/router';
 
 export type DetailEntityType = 'ticket' | 'client' | 'probe' | 'system' | 'analysis' | 'job';
 
+const VALID_ENTITY_TYPES: ReadonlySet<string> = new Set<DetailEntityType>([
+  'ticket', 'client', 'probe', 'system', 'analysis', 'job',
+]);
+
 @Injectable({ providedIn: 'root' })
 export class DetailPanelService {
-  private readonly location = inject(Location);
   private readonly router = inject(Router);
 
   readonly entityType = signal<DetailEntityType | null>(null);
@@ -16,21 +18,28 @@ export class DetailPanelService {
   open(type: DetailEntityType, id: string): void {
     this.entityType.set(type);
     this.entityId.set(id);
-    const url = this.router.url.split('?')[0];
-    this.location.replaceState(url, `detail=${id}`);
+    this.router.navigate([], {
+      queryParams: { detail: id, type },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
   }
 
   close(): void {
     this.entityType.set(null);
     this.entityId.set(null);
-    const url = this.router.url.split('?')[0];
-    this.location.replaceState(url);
+    this.router.navigate([], {
+      queryParams: { detail: null, type: null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
   }
 
   /** Call from shell on init to restore panel from query param */
   restoreFromUrl(params: { detail?: string; type?: string }): void {
     if (params.detail) {
-      this.entityType.set((params.type as DetailEntityType) ?? 'ticket');
+      const type = VALID_ENTITY_TYPES.has(params.type ?? '') ? (params.type as DetailEntityType) : 'ticket';
+      this.entityType.set(type);
       this.entityId.set(params.detail);
     }
   }
