@@ -25,7 +25,7 @@ import { TabComponent } from './tab.component.js';
       </div>
     </div>
   `,
-  styles: `
+  styles: [`
     .tab-bar {
       display: flex;
       gap: 0;
@@ -59,7 +59,7 @@ import { TabComponent } from './tab.component.js';
     .tab-content {
       padding: 16px 0 0;
     }
-  `,
+  `],
 })
 export class TabGroupComponent {
   selectedIndex = input<number>(0);

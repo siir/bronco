@@ -36,7 +36,9 @@ import { DataTableColumnComponent } from './data-table-column.component.js';
             @for (row of data(); track trackBy()(row)) {
               <tr
                 [class.clickable]="rowClickable()"
-                (click)="rowClickable() ? rowClick.emit(row) : null">
+                [attr.tabindex]="rowClickable() ? 0 : null"
+                (click)="rowClickable() ? rowClick.emit(row) : null"
+                (keydown.enter)="rowClickable() ? rowClick.emit(row) : null">
                 @for (col of columns(); track col.key()) {
                   <td [style.width]="col.width()">
                     <ng-container [ngTemplateOutlet]="col.cellTpl()" [ngTemplateOutletContext]="{ $implicit: row }" />
@@ -49,7 +51,7 @@ import { DataTableColumnComponent } from './data-table-column.component.js';
       }
     </div>
   `,
-  styles: `
+  styles: [`
     .table-container {
       background: var(--bg-card);
       border-radius: var(--radius-lg);
@@ -119,7 +121,7 @@ import { DataTableColumnComponent } from './data-table-column.component.js';
       font-size: 14px;
       color: var(--text-tertiary);
     }
-  `,
+  `],
 })
 export class DataTableComponent<T = unknown> {
   data = input.required<T[]>();

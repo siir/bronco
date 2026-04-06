@@ -6,7 +6,7 @@ import { Component, input } from '@angular/core';
   template: `
     <span class="chip">{{ category() }}</span>
   `,
-  styles: `
+  styles: [`
     .chip {
       display: inline-block;
       padding: 2px 8px;
@@ -18,7 +18,7 @@ import { Component, input } from '@angular/core';
       color: var(--text-secondary);
       white-space: nowrap;
     }
-  `,
+  `],
 })
 export class CategoryChipComponent {
   category = input.required<string>();

@@ -5,11 +5,11 @@ import { Component, computed, input } from '@angular/core';
   standalone: true,
   template: `
     <span class="status-badge">
-      <span class="status-dot" [class]="'dot-' + status()"></span>
+      <span [class]="'status-dot dot-' + status()"></span>
       <span class="status-label">{{ displayLabel() }}</span>
     </span>
   `,
-  styles: `
+  styles: [`
     .status-badge {
       display: inline-flex;
       align-items: center;
@@ -35,7 +35,7 @@ import { Component, computed, input } from '@angular/core';
       font-weight: 500;
       color: var(--text-secondary);
     }
-  `,
+  `],
 })
 export class StatusBadgeComponent {
   status = input.required<'open' | 'in_progress' | 'analyzing' | 'resolved' | 'closed'>();

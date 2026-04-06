@@ -6,9 +6,11 @@ import { Component, input, output } from '@angular/core';
   template: `
     <label class="toggle-wrapper" [class.disabled]="disabled()">
       <button
+        type="button"
         class="toggle-track"
         role="switch"
         [attr.aria-checked]="checked()"
+        [attr.aria-label]="label() || 'Toggle'"
         [class.active]="checked()"
         [disabled]="disabled()"
         (click)="toggle()">
@@ -19,7 +21,7 @@ import { Component, input, output } from '@angular/core';
       }
     </label>
   `,
-  styles: `
+  styles: [`
     .toggle-wrapper {
       display: inline-flex;
       align-items: center;
@@ -69,7 +71,7 @@ import { Component, input, output } from '@angular/core';
       font-size: 13px;
       color: var(--text-secondary);
     }
-  `,
+  `],
 })
 export class ToggleSwitchComponent {
   checked = input<boolean>(false);

@@ -14,7 +14,7 @@ import { Component, input, output } from '@angular/core';
       (input)="onInput($event)"
     ></textarea>
   `,
-  styles: `
+  styles: [`
     .textarea-input {
       width: 100%;
       box-sizing: border-box;
@@ -37,14 +37,14 @@ import { Component, input, output } from '@angular/core';
 
     .textarea-input:focus {
       border-color: var(--accent);
-      box-shadow: 0 0 0 2px rgba(0, 113, 227, 0.15);
+      box-shadow: 0 0 0 2px var(--focus-ring, rgba(0, 113, 227, 0.15));
     }
 
     .textarea-input:disabled {
       opacity: 0.5;
       cursor: not-allowed;
     }
-  `,
+  `],
 })
 export class TextareaComponent {
   value = input<string>('');

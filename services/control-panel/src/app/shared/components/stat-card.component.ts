@@ -8,11 +8,11 @@ import { Component, input } from '@angular/core';
       <div class="stat-label">{{ label() }}</div>
       <div class="stat-value">{{ value() }}</div>
       @if (change()) {
-        <div class="stat-change" [class]="'change-' + changeType()">{{ change() }}</div>
+        <div [class]="'stat-change change-' + changeType()">{{ change() }}</div>
       }
     </div>
   `,
-  styles: `
+  styles: [`
     .stat-card {
       background: var(--bg-card);
       border-radius: var(--radius-lg);
@@ -46,7 +46,7 @@ import { Component, input } from '@angular/core';
     .change-positive { color: var(--color-success); }
     .change-negative { color: var(--color-error); }
     .change-neutral { color: var(--text-tertiary); }
-  `,
+  `],
 })
 export class StatCardComponent {
   label = input.required<string>();

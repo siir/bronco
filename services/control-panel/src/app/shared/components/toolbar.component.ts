@@ -8,7 +8,7 @@ import { Component } from '@angular/core';
       <ng-content />
     </div>
   `,
-  styles: `
+  styles: [`
     :host { display: block; }
 
     .toolbar {
@@ -22,6 +22,6 @@ import { Component } from '@angular/core';
     :host ::ng-deep .toolbar-spacer {
       flex: 1 1 auto;
     }
-  `,
+  `],
 })
 export class ToolbarComponent {}
