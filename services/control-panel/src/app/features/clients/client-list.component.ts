@@ -49,7 +49,7 @@ import { DataTableComponent, DataTableColumnComponent, BroncoButtonComponent } f
 
         <app-data-column key="status" header="Status" width="100px" [sortable]="false">
           <ng-template #cell let-row>
-            @if ((row._count?.systems ?? 0) > 0 || (row._count?.tickets ?? 0) > 0) {
+            @if (row.isActive) {
               <span style="font-size: 12px; font-weight: 500; color: var(--color-success);">Active</span>
             } @else {
               <span style="font-size: 12px; color: var(--text-tertiary);">Inactive</span>
