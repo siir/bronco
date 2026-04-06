@@ -25,6 +25,15 @@ function entityRoute(type: DetailEntityType, id: string): string[] {
   }
 }
 
+const VALID_PRIORITIES = new Set(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']);
+const STATUS_MAP: Record<string, 'open' | 'in_progress' | 'analyzing' | 'resolved' | 'closed'> = {
+  OPEN: 'open',
+  IN_PROGRESS: 'in_progress',
+  ANALYZING: 'analyzing',
+  RESOLVED: 'resolved',
+  CLOSED: 'closed',
+};
+
 @Component({
   selector: 'app-detail-panel',
   standalone: true,
@@ -564,20 +573,12 @@ export class DetailPanelComponent {
   }
 
   mapPriority(priority: string): 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' {
-    const valid = new Set(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']);
-    return valid.has(priority) ? priority as 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' : 'MEDIUM';
+    return VALID_PRIORITIES.has(priority) ? priority as 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' : 'MEDIUM';
   }
 
   /** Map API ticket status strings to StatusBadge values */
   mapStatus(status: string): 'open' | 'in_progress' | 'analyzing' | 'resolved' | 'closed' {
-    const map: Record<string, 'open' | 'in_progress' | 'analyzing' | 'resolved' | 'closed'> = {
-      OPEN: 'open',
-      IN_PROGRESS: 'in_progress',
-      ANALYZING: 'analyzing',
-      RESOLVED: 'resolved',
-      CLOSED: 'closed',
-    };
-    return map[status] ?? 'open';
+    return STATUS_MAP[status] ?? 'open';
   }
 
 }
