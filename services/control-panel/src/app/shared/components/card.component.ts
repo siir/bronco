@@ -1,12 +1,10 @@
 import { Component, input } from '@angular/core';
-import { NgClass } from '@angular/common';
 
 @Component({
   selector: 'app-card',
   standalone: true,
-  imports: [NgClass],
   template: `
-    <div [ngClass]="['card', 'pad-' + padding(), !shadow() ? 'no-shadow' : '']">
+    <div [class]="'card pad-' + padding()" [class.no-shadow]="!shadow()">
       <ng-content />
     </div>
   `,

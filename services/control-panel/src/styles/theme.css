@@ -30,6 +30,13 @@
   --border-light: rgba(0, 0, 0, 0.08);
   --border-medium: rgba(0, 0, 0, 0.12);
 
+  /* Status variants */
+  --color-info-subtle: rgba(0, 122, 255, 0.08);
+  --color-info-border: rgba(0, 122, 255, 0.3);
+
+  /* Focus */
+  --focus-ring: rgba(0, 113, 227, 0.15);
+
   /* Shadows */
   --shadow-card: rgba(0, 0, 0, 0.08) 0px 2px 12px 0px;
 
