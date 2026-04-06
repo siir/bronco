@@ -6,12 +6,12 @@ import { Component, input, output } from '@angular/core';
   template: `
     @if (open()) {
       <div class="dialog-backdrop" (click)="close()">
-        <div class="dialog-panel" [style.max-width]="maxWidth()" (click)="$event.stopPropagation()">
+        <div class="dialog-panel" role="dialog" aria-modal="true" [attr.aria-label]="title() || 'Dialog'" [style.max-width]="maxWidth()" (click)="$event.stopPropagation()">
           <div class="dialog-header">
             @if (title()) {
               <h2 class="dialog-title">{{ title() }}</h2>
             }
-            <button class="dialog-close" (click)="close()">&times;</button>
+            <button class="dialog-close" aria-label="Close dialog" (click)="close()">&times;</button>
           </div>
           <div class="dialog-body">
             <ng-content />

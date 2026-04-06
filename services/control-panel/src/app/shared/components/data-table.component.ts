@@ -1,6 +1,6 @@
 import { Component, contentChildren, input, output } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
-import { DataTableColumnComponent } from './data-table-column.component.js';
+import { DataTableColumnComponent } from './data-table-column.component';
 
 @Component({
   selector: 'app-data-table',
@@ -19,7 +19,11 @@ import { DataTableColumnComponent } from './data-table-column.component.js';
                   [style.width]="col.width()"
                   [class.sortable]="col.sortable()"
                   [class.sorted]="sortColumn() === col.key()"
-                  (click)="col.sortable() ? onSort(col.key()) : null">
+                  [attr.tabindex]="col.sortable() ? 0 : null"
+                  [attr.aria-sort]="sortColumn() === col.key() ? (sortDirection() === 'asc' ? 'ascending' : 'descending') : null"
+                  (click)="col.sortable() ? onSort(col.key()) : null"
+                  (keydown.enter)="col.sortable() ? onSort(col.key()) : null"
+                  (keydown.space)="col.sortable() ? onSort(col.key()) : null">
                   @if (col.headerTpl()) {
                     <ng-container [ngTemplateOutlet]="col.headerTpl()!" />
                   } @else {

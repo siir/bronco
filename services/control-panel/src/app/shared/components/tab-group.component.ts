@@ -1,6 +1,6 @@
 import { Component, computed, contentChildren, input, output } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
-import { TabComponent } from './tab.component.js';
+import { TabComponent } from './tab.component';
 
 @Component({
   selector: 'app-tab-group',
@@ -8,17 +8,20 @@ import { TabComponent } from './tab.component.js';
   imports: [NgTemplateOutlet],
   template: `
     <div class="tab-group">
-      <div class="tab-bar">
+      <div class="tab-bar" role="tablist">
         @for (tab of tabs(); track $index) {
           <button
             class="tab-btn"
+            role="tab"
+            [attr.aria-selected]="$index === selectedIndex()"
+            [attr.tabindex]="$index === selectedIndex() ? 0 : -1"
             [class.active]="$index === selectedIndex()"
             (click)="selectTab($index)">
             {{ tab.label() }}
           </button>
         }
       </div>
-      <div class="tab-content">
+      <div class="tab-content" role="tabpanel">
         @if (activeTab()) {
           <ng-container [ngTemplateOutlet]="activeTab()!.contentTpl()" />
         }
