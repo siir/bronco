@@ -1838,13 +1838,30 @@ async function resolveOrchestratedModelMap(db: PrismaClient): Promise<Record<str
   const models = await db.aiProviderModel.findMany({
     where: { isActive: true, provider: { provider: 'CLAUDE' } },
     select: { model: true },
+    orderBy: [{ model: 'asc' }],
   });
-  const map: Record<string, string> = {};
+  const matches: Record<'haiku' | 'sonnet' | 'opus', string[]> = {
+    haiku: [],
+    sonnet: [],
+    opus: [],
+  };
   for (const { model } of models) {
     const lower = model.toLowerCase();
-    if (lower.includes('haiku') && !map.haiku) map.haiku = model;
-    else if (lower.includes('sonnet') && !map.sonnet) map.sonnet = model;
-    else if (lower.includes('opus') && !map.opus) map.opus = model;
+    if (lower.includes('haiku')) matches.haiku.push(model);
+    else if (lower.includes('sonnet')) matches.sonnet.push(model);
+    else if (lower.includes('opus')) matches.opus.push(model);
+  }
+  const map: Record<string, string> = {};
+  for (const shortName of ['haiku', 'sonnet', 'opus'] as const) {
+    const candidates = matches[shortName];
+    if (candidates.length === 0) continue;
+    if (candidates.length > 1) {
+      logger.warn(
+        { shortName, candidates },
+        'Multiple active Claude models matched orchestrated short name; using first from deterministic ordering',
+      );
+    }
+    map[shortName] = candidates[0];
   }
   return map;
 }

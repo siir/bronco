@@ -26,7 +26,7 @@ export interface ReplyOptions {
 
 export class Mailer {
   private transport: Transporter;
-  private from: string | { name: string; address: string };
+  private from!: string | { name: string; address: string };
   private configLoader?: () => Promise<SmtpConfig | null>;
   private configCacheUntil = 0;
   private static readonly CONFIG_TTL_MS = 60_000;

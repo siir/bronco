@@ -443,8 +443,8 @@ interface FlowNode {
                             </div>
                           }
                           <!-- Nested sub-tasks -->
-                          @if (getOrchestrationId(entry)) {
-                            @for (sub of getSubTasks(group.entries, getOrchestrationId(entry)!); track sub.id) {
+                          @if (getOrchestrationId(entry); as orchestrationId) {
+                            @for (sub of getSubTasks(group.entries, orchestrationId); track sub.id) {
                               <div class="conv-subtask">
                                 <div class="conv-ai-header">
                                   <mat-icon class="subtask-icon">subdirectory_arrow_right</mat-icon>
