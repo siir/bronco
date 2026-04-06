@@ -1,18 +1,10 @@
 import { Component, inject, OnInit, OnDestroy, signal, computed } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
-import { FormsModule } from '@angular/forms';
-import { MatCardModule } from '@angular/material/card';
-import { MatIconModule } from '@angular/material/icon';
-import { MatButtonModule } from '@angular/material/button';
-import { MatSelectModule } from '@angular/material/select';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatTooltipModule } from '@angular/material/tooltip';
-import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar } from '@angular/material/snack-bar';
-import { MatChipsModule } from '@angular/material/chips';
 import type { Subscription } from 'rxjs';
 import { FailedJobsService, FailedJob } from '../../core/services/failed-jobs.service';
 import { SystemStatusService, QueueStats } from '../../core/services/system-status.service';
+import { BroncoButtonComponent, ToolbarComponent, SelectComponent, CardComponent } from '../../shared/components/index.js';
 
 const ALL_QUEUES = [
   'issue-resolve', 'log-summarize', 'email-ingestion', 'ticket-analysis',
@@ -23,15 +15,10 @@ const ALL_QUEUES = [
 @Component({
   standalone: true,
   imports: [
-    FormsModule,
-    MatCardModule,
-    MatIconModule,
-    MatButtonModule,
-    MatSelectModule,
-    MatFormFieldModule,
-    MatTooltipModule,
-    MatProgressSpinnerModule,
-    MatChipsModule,
+    BroncoButtonComponent,
+    ToolbarComponent,
+    SelectComponent,
+    CardComponent,
   ],
   template: `
     <div class="page-header">
@@ -40,217 +27,246 @@ const ALL_QUEUES = [
         @if (lastRefresh()) {
           <span class="last-refresh">Updated {{ lastRefresh() }}</span>
         }
-        <button mat-raised-button (click)="refresh()" [disabled]="loading()">
-          <mat-icon>refresh</mat-icon> Refresh
-        </button>
+        <app-bronco-button variant="secondary" size="sm" (click)="refresh()" [disabled]="loading()">
+          ↻ Refresh
+        </app-bronco-button>
       </div>
     </div>
 
     <!-- Summary bar -->
-    <mat-card class="summary-bar">
-      <mat-card-content>
-        <div class="summary-content">
-          <div class="summary-total">
-            <mat-icon [class.has-failures]="totalFailed() > 0">error_outline</mat-icon>
-            <span class="summary-count" [class.has-failures]="totalFailed() > 0">{{ totalFailed() }}</span>
-            <span class="summary-label">total failed</span>
-          </div>
-          <div class="summary-queues">
-            @for (entry of queueFailedEntries(); track entry[0]) {
-              @if (entry[1] > 0) {
-                <span class="queue-chip" (click)="selectedQueue.set(entry[0]); refresh()">
-                  {{ entry[0] }}: {{ entry[1] }}
-                </span>
-              }
-            }
-          </div>
-        </div>
-      </mat-card-content>
-    </mat-card>
-
-    <!-- Filters -->
-    <div class="filters">
-      <mat-form-field appearance="outline" class="queue-filter">
-        <mat-label>Filter by Queue</mat-label>
-        <mat-select [value]="selectedQueue()" (selectionChange)="selectedQueue.set($event.value); refresh()">
-          <mat-option value="">All Queues</mat-option>
-          @for (q of allQueues; track q) {
-            <mat-option [value]="q">{{ q }}</mat-option>
+    <div class="summary-bar">
+      <div class="summary-total">
+        <span class="summary-icon" [class.has-failures]="totalFailed() > 0">{{ totalFailed() > 0 ? '⚠' : '✓' }}</span>
+        <span class="summary-count" [class.has-failures]="totalFailed() > 0">{{ totalFailed() }}</span>
+        <span class="summary-label">total failed</span>
+      </div>
+      <div class="summary-queues">
+        @for (entry of queueFailedEntries(); track entry[0]) {
+          @if (entry[1] > 0) {
+            <span class="queue-chip has-failures" (click)="selectedQueue.set(entry[0]); refresh()">
+              {{ entry[0] }}: {{ entry[1] }}
+            </span>
           }
-        </mat-select>
-      </mat-form-field>
-
-      @if (selectedQueue()) {
-        <button mat-stroked-button color="primary" (click)="retryAll()" [disabled]="acting()">
-          <mat-icon>replay</mat-icon> Retry All in {{ selectedQueue() }}
-        </button>
-        <button mat-stroked-button color="warn" (click)="discardAll()" [disabled]="acting()">
-          <mat-icon>delete_sweep</mat-icon> Discard All in {{ selectedQueue() }}
-        </button>
-      }
+        }
+      </div>
     </div>
 
+    <!-- Filters -->
+    <app-toolbar>
+      <app-select
+        [value]="selectedQueue()"
+        [options]="queueOptions"
+        placeholder="All Queues"
+        (valueChange)="onQueueFilter($event)" />
+      @if (selectedQueue()) {
+        <app-bronco-button variant="secondary" size="sm" (click)="retryAll()" [disabled]="acting()">
+          Retry All in {{ selectedQueue() }}
+        </app-bronco-button>
+        <app-bronco-button variant="destructive" size="sm" (click)="discardAll()" [disabled]="acting()">
+          Discard All in {{ selectedQueue() }}
+        </app-bronco-button>
+      }
+    </app-toolbar>
+
     @if (loading() && jobs().length === 0) {
-      <div class="loading-container">
-        <mat-spinner diameter="40"></mat-spinner>
-        <p>Loading failed jobs...</p>
-      </div>
+      <div class="loading-state">Loading failed jobs...</div>
     }
 
     @if (!loading() && jobs().length === 0) {
-      <mat-card class="empty-state">
-        <mat-card-content>
-          <mat-icon class="empty-icon">check_circle</mat-icon>
+      <app-card>
+        <div class="empty-state">
+          <span class="empty-icon">✓</span>
           <p>No failed jobs{{ selectedQueue() ? ' in ' + selectedQueue() : '' }}</p>
-        </mat-card-content>
-      </mat-card>
+        </div>
+      </app-card>
     }
 
     @if (jobs().length > 0) {
       <div class="job-list">
         @for (job of jobs(); track job.id + job.queue) {
-          <mat-card class="job-card" [class.expanded]="expandedJob() === job.id + ':' + job.queue">
-            <mat-card-content>
-              <div class="job-header" (click)="toggleExpand(job)">
-                <div class="job-main">
-                  <span class="job-queue">{{ job.queue }}</span>
-                  <span class="job-name">{{ job.name }}</span>
-                  <span class="job-id">{{ job.id }}</span>
-                </div>
-                <div class="job-meta">
-                  <span class="job-attempts">{{ job.attemptsMade }}/{{ job.maxAttempts || '?' }} attempts</span>
-                  <span class="job-time">{{ formatTime(job.finishedOn || job.timestamp) }}</span>
-                </div>
-                <div class="job-actions" (click)="$event.stopPropagation()">
-                  <button mat-icon-button matTooltip="Retry" (click)="retry(job)" [disabled]="acting()">
-                    <mat-icon>replay</mat-icon>
-                  </button>
-                  <button mat-icon-button matTooltip="Discard" color="warn" (click)="discard(job)" [disabled]="acting()">
-                    <mat-icon>delete</mat-icon>
-                  </button>
-                </div>
+          <div class="job-card" [class.expanded]="expandedJob() === job.id + ':' + job.queue">
+            <div class="job-header" (click)="toggleExpand(job)">
+              <div class="job-main">
+                <span class="job-queue-badge">{{ job.queue }}</span>
+                <span class="job-name">{{ job.name }}</span>
+                <span class="job-id">{{ job.id }}</span>
               </div>
+              <div class="job-meta">
+                <span class="job-attempts">{{ job.attemptsMade }}/{{ job.maxAttempts || '?' }} attempts</span>
+                <span class="job-time">{{ formatTime(job.finishedOn || job.timestamp) }}</span>
+              </div>
+              <div class="job-actions" (click)="$event.stopPropagation()">
+                <app-bronco-button variant="icon" title="Retry" (click)="retry(job)" [disabled]="acting()">
+                  ↻
+                </app-bronco-button>
+                <app-bronco-button variant="icon" title="Discard" (click)="discard(job)" [disabled]="acting()">
+                  ✕
+                </app-bronco-button>
+              </div>
+            </div>
 
-              <div class="job-reason">{{ truncate(job.failedReason, 200) }}</div>
+            <div class="job-reason">{{ truncate(job.failedReason, 200) }}</div>
 
-              @if (expandedJob() === job.id + ':' + job.queue) {
-                <div class="job-detail">
-                  <h4>Job Data</h4>
-                  <pre class="json-block">{{ formatJson(job.data) }}</pre>
+            @if (expandedJob() === job.id + ':' + job.queue) {
+              <div class="job-detail">
+                <h4>Job Data</h4>
+                <pre class="json-block">{{ formatJson(job.data) }}</pre>
 
-                  @if (job.failedReason) {
-                    <h4>Error</h4>
-                    <pre class="error-block">{{ job.failedReason }}</pre>
-                  }
+                @if (job.failedReason) {
+                  <h4>Error</h4>
+                  <pre class="error-block">{{ job.failedReason }}</pre>
+                }
 
-                  @if (job.stacktrace && job.stacktrace.length > 0) {
-                    <h4>Stack Trace</h4>
-                    <pre class="error-block">{{ job.stacktrace.join('\\n') }}</pre>
-                  }
-                </div>
-              }
-            </mat-card-content>
-          </mat-card>
+                @if (job.stacktrace && job.stacktrace.length > 0) {
+                  <h4>Stack Trace</h4>
+                  <pre class="error-block">{{ job.stacktrace.join('\\n') }}</pre>
+                }
+              </div>
+            }
+          </div>
         }
       </div>
 
       @if (total() > jobs().length) {
         <div class="load-more">
-          <button mat-stroked-button (click)="loadMore()" [disabled]="loading()">
+          <app-bronco-button variant="secondary" (click)="loadMore()" [disabled]="loading()">
             Load More ({{ jobs().length }} of {{ total() }})
-          </button>
+          </app-bronco-button>
         </div>
       }
     }
   `,
   styles: [`
     .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-    .page-header h1 { margin: 0; }
+    .page-header h1 { margin: 0; font-size: 21px; font-weight: 600; color: var(--text-primary); }
     .header-actions { display: flex; align-items: center; gap: 12px; }
-    .last-refresh { font-size: 12px; color: #888; }
+    .last-refresh { font-size: 12px; color: var(--text-tertiary); }
 
-    .summary-bar { margin-bottom: 16px; }
-    .summary-content { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+    .summary-bar {
+      background: var(--bg-card);
+      border-radius: var(--radius-lg);
+      padding: 16px 20px;
+      box-shadow: var(--shadow-card);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
     .summary-total { display: flex; align-items: center; gap: 8px; }
-    .summary-total mat-icon { color: #4caf50; font-size: 28px; width: 28px; height: 28px; }
-    .summary-total mat-icon.has-failures { color: #c62828; }
-    .summary-count { font-size: 24px; font-weight: 600; font-family: monospace; }
-    .summary-count.has-failures { color: #c62828; }
-    .summary-label { color: #888; font-size: 14px; }
+    .summary-icon { font-size: 22px; color: var(--color-success); }
+    .summary-icon.has-failures { color: var(--color-error); }
+    .summary-count { font-size: 24px; font-weight: 600; font-family: ui-monospace, monospace; color: var(--text-primary); }
+    .summary-count.has-failures { color: var(--color-error); }
+    .summary-label { color: var(--text-tertiary); font-size: 14px; }
     .summary-queues { display: flex; gap: 8px; flex-wrap: wrap; }
     .queue-chip {
       font-size: 12px;
-      padding: 4px 10px;
-      border-radius: 12px;
-      background: #ffebee;
-      color: #c62828;
-      font-family: monospace;
+      font-weight: 500;
+      padding: 3px 10px;
+      border-radius: var(--radius-pill);
       cursor: pointer;
+      transition: all 120ms ease;
     }
-    .queue-chip:hover { background: #ffcdd2; }
+    .queue-chip.has-failures {
+      background: rgba(255,59,48,0.08);
+      color: var(--color-error);
+      border: 1px solid rgba(255,59,48,0.2);
+    }
+    .queue-chip:hover { background: rgba(255,59,48,0.14); }
 
-    .filters { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
-    .queue-filter { min-width: 220px; }
+    .loading-state {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 48px;
+      color: var(--text-tertiary);
+      font-size: 14px;
+    }
 
-    .loading-container { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 48px; }
-
-    .empty-state mat-card-content { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 48px; color: #888; }
-    .empty-icon { font-size: 48px; width: 48px; height: 48px; color: #4caf50; }
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      padding: 48px;
+      color: var(--text-tertiary);
+    }
+    .empty-icon { font-size: 40px; color: var(--color-success); }
 
     .job-list { display: flex; flex-direction: column; gap: 8px; }
 
-    .job-card { cursor: pointer; transition: box-shadow 0.15s; }
-    .job-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
+    .job-card {
+      background: var(--bg-card);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-card);
+      margin-bottom: 8px;
+      overflow: hidden;
+    }
 
-    .job-header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .job-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      cursor: pointer;
+      transition: background 120ms ease;
+      flex-wrap: wrap;
+    }
+    .job-header:hover { background: var(--bg-hover); }
+
     .job-main { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
-    .job-queue {
+
+    .job-queue-badge {
       font-size: 11px;
-      font-weight: 600;
+      font-weight: 500;
       padding: 2px 8px;
-      border-radius: 4px;
-      background: #e3f2fd;
-      color: #1565c0;
-      font-family: monospace;
+      background: var(--bg-active);
+      color: var(--accent);
+      border-radius: var(--radius-sm);
+      font-family: ui-monospace, monospace;
       white-space: nowrap;
     }
-    .job-name { font-weight: 500; }
-    .job-id { font-size: 12px; color: #888; font-family: monospace; }
-    .job-meta { display: flex; align-items: center; gap: 12px; font-size: 12px; color: #888; white-space: nowrap; }
-    .job-attempts { font-family: monospace; }
+    .job-name { font-weight: 500; color: var(--text-primary); font-size: 14px; }
+    .job-id { font-size: 12px; color: var(--text-tertiary); font-family: ui-monospace, monospace; }
+    .job-meta { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--text-tertiary); white-space: nowrap; }
+    .job-attempts { font-family: ui-monospace, monospace; }
     .job-actions { display: flex; gap: 4px; }
 
     .job-reason {
-      margin-top: 8px;
-      font-size: 13px;
-      color: #c62828;
-      font-family: monospace;
+      padding: 0 16px 12px;
+      font-size: 12px;
+      color: var(--color-error);
+      font-family: ui-monospace, monospace;
+      line-height: 1.4;
       word-break: break-word;
       white-space: pre-wrap;
     }
 
-    .job-detail { margin-top: 16px; }
-    .job-detail h4 { margin: 12px 0 4px; font-size: 13px; color: #555; }
-    .json-block {
-      background: #f5f5f5;
-      padding: 12px;
-      border-radius: 4px;
+    .job-detail {
+      padding: 12px 16px;
+      border-top: 1px solid var(--border-light);
+    }
+    .job-detail h4 { margin: 12px 0 4px; font-size: 13px; color: var(--text-secondary); }
+
+    .json-block, .error-block {
+      font-family: ui-monospace, monospace;
       font-size: 12px;
+      padding: 12px;
+      border-radius: var(--radius-md);
       overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
       max-height: 300px;
       overflow-y: auto;
     }
+    .json-block {
+      background: var(--bg-muted);
+      color: var(--text-secondary);
+    }
     .error-block {
-      background: #ffebee;
-      padding: 12px;
-      border-radius: 4px;
-      font-size: 12px;
-      color: #c62828;
-      overflow-x: auto;
-      max-height: 300px;
-      overflow-y: auto;
-      white-space: pre-wrap;
-      word-break: break-word;
+      background: rgba(255,59,48,0.05);
+      color: var(--color-error);
     }
 
     .load-more { display: flex; justify-content: center; margin-top: 16px; }
@@ -274,6 +290,11 @@ export class FailedJobListComponent implements OnInit, OnDestroy {
   expandedJob = signal<string | null>(null);
   lastRefresh = signal<string | null>(null);
   queueStats = signal<Record<string, QueueStats>>({});
+
+  queueOptions = [
+    { value: '', label: 'All Queues' },
+    ...ALL_QUEUES.map(q => ({ value: q, label: q })),
+  ];
 
   totalFailed = computed(() => {
     const stats = this.queueStats();
@@ -302,6 +323,11 @@ export class FailedJobListComponent implements OnInit, OnDestroy {
     if (this.refreshInterval) clearInterval(this.refreshInterval);
     this.sub?.unsubscribe();
     this.statusSub?.unsubscribe();
+  }
+
+  onQueueFilter(value: string): void {
+    this.selectedQueue.set(value);
+    this.refresh();
   }
 
   refresh(): void {
