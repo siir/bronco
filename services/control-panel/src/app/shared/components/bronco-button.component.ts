@@ -10,7 +10,7 @@ import { Component, input } from '@angular/core';
       <ng-content />
     </button>
   `,
-  styles: `
+  styles: [`
     :host { display: inline-block; }
 
     .btn {
@@ -56,7 +56,7 @@ import { Component, input } from '@angular/core';
 
     .btn-destructive {
       background: var(--color-error);
-      color: #ffffff;
+      color: var(--text-on-accent);
       border-radius: var(--radius-md);
     }
     .btn-destructive:hover { opacity: 0.85; }
@@ -80,7 +80,7 @@ import { Component, input } from '@angular/core';
     .btn-icon.btn-sm { width: 28px; height: 28px; padding: 0; }
     .btn-icon.btn-md { width: 32px; height: 32px; padding: 0; }
     .btn-icon.btn-lg { width: 36px; height: 36px; padding: 0; }
-  `,
+  `],
 })
 export class BroncoButtonComponent {
   variant = input<'primary' | 'secondary' | 'ghost' | 'destructive' | 'icon'>('secondary');

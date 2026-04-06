@@ -16,7 +16,7 @@ import { Component, input } from '@angular/core';
       }
     </div>
   `,
-  styles: `
+  styles: [`
     .form-field {
       display: block;
     }
@@ -49,7 +49,7 @@ import { Component, input } from '@angular/core';
       color: var(--text-tertiary);
       margin-top: 4px;
     }
-  `,
+  `],
 })
 export class FormFieldComponent {
   label = input.required<string>();

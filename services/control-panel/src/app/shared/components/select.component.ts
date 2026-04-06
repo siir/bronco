@@ -17,7 +17,7 @@ import { Component, input, output } from '@angular/core';
       }
     </select>
   `,
-  styles: `
+  styles: [`
     .select-input {
       width: 100%;
       box-sizing: border-box;
@@ -47,7 +47,7 @@ import { Component, input, output } from '@angular/core';
       opacity: 0.5;
       cursor: not-allowed;
     }
-  `,
+  `],
 })
 export class SelectComponent {
   value = input<string>('');

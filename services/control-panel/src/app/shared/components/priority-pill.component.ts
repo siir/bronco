@@ -6,7 +6,7 @@ import { Component, input } from '@angular/core';
   template: `
     <span [class]="'pill pill-' + priority()">{{ priority() }}</span>
   `,
-  styles: `
+  styles: [`
     .pill {
       display: inline-block;
       padding: 2px 10px;
@@ -19,26 +19,26 @@ import { Component, input } from '@angular/core';
     }
 
     .pill-CRITICAL {
-      color: #ffffff;
+      color: var(--text-on-accent, #ffffff);
       background: var(--color-error);
     }
 
     .pill-HIGH {
-      color: #ffffff;
+      color: var(--text-on-accent, #ffffff);
       background: var(--color-warning);
     }
 
     .pill-MEDIUM {
       color: var(--color-info);
-      background: rgba(0, 122, 255, 0.08);
-      border: 1px solid rgba(0, 122, 255, 0.3);
+      background: var(--color-info-subtle, rgba(0, 122, 255, 0.08));
+      border: 1px solid var(--color-info-border, rgba(0, 122, 255, 0.3));
     }
 
     .pill-LOW {
       color: var(--text-secondary);
       background: var(--bg-muted);
     }
-  `,
+  `],
 })
 export class PriorityPillComponent {
   priority = input.required<'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'>();

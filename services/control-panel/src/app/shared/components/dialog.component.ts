@@ -23,7 +23,7 @@ import { Component, input, output } from '@angular/core';
       </div>
     }
   `,
-  styles: `
+  styles: [`
     .dialog-backdrop {
       position: fixed;
       inset: 0;
@@ -105,7 +105,7 @@ import { Component, input, output } from '@angular/core';
       from { opacity: 0; transform: scale(0.95); }
       to { opacity: 1; transform: scale(1); }
     }
-  `,
+  `],
 })
 export class DialogComponent {
   title = input<string>('');

@@ -1,14 +1,16 @@
 import { Component, input } from '@angular/core';
+import { NgClass } from '@angular/common';
 
 @Component({
   selector: 'app-card',
   standalone: true,
+  imports: [NgClass],
   template: `
-    <div class="card" [class]="'pad-' + padding()" [class.no-shadow]="!shadow()">
+    <div [ngClass]="['card', 'pad-' + padding(), !shadow() ? 'no-shadow' : '']">
       <ng-content />
     </div>
   `,
-  styles: `
+  styles: [`
     .card {
       background: var(--bg-card);
       border-radius: var(--radius-lg);
@@ -24,7 +26,7 @@ import { Component, input } from '@angular/core';
     .pad-sm { padding: 12px; }
     .pad-md { padding: 20px; }
     .pad-lg { padding: 24px; }
-  `,
+  `],
 })
 export class CardComponent {
   padding = input<'none' | 'sm' | 'md' | 'lg'>('md');
