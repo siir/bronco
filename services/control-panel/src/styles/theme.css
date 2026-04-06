@@ -1,0 +1,75 @@
+@import "tailwindcss";
+
+@theme {
+  --color-page: #f5f5f7;
+  --color-card: #ffffff;
+  --color-sidebar: #ffffff;
+  --color-header: rgba(255, 255, 255, 0.72);
+  --color-panel: #ffffff;
+  --color-hover: rgba(0, 0, 0, 0.04);
+  --color-active: rgba(0, 113, 227, 0.08);
+  --color-muted: rgba(0, 0, 0, 0.06);
+  --color-accent: #0071e3;
+  --color-accent-link: #0066cc;
+  --color-accent-hover: #005bb5;
+  --color-success: #34c759;
+  --color-warning: #ff9500;
+  --color-error: #ff3b30;
+  --color-info: #007aff;
+  --shadow-card: rgba(0, 0, 0, 0.08) 0px 2px 12px 0px;
+  --radius-sm: 5px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 980px;
+  --font-primary: -apple-system, 'SF Pro Text', 'SF Pro Display', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+}
+
+:root {
+  /* Surfaces */
+  --bg-page: #f5f5f7;
+  --bg-card: #ffffff;
+  --bg-sidebar: #ffffff;
+  --bg-header: rgba(255, 255, 255, 0.72);
+  --bg-panel: #ffffff;
+  --bg-hover: rgba(0, 0, 0, 0.04);
+  --bg-active: rgba(0, 113, 227, 0.08);
+  --bg-muted: rgba(0, 0, 0, 0.06);
+
+  /* Text */
+  --text-primary: #1d1d1f;
+  --text-secondary: rgba(0, 0, 0, 0.8);
+  --text-tertiary: rgba(0, 0, 0, 0.48);
+  --text-on-accent: #ffffff;
+
+  /* Interactive */
+  --accent: #0071e3;
+  --accent-link: #0066cc;
+  --accent-hover: #005bb5;
+
+  /* Status */
+  --color-status-success: #34c759;
+  --color-status-warning: #ff9500;
+  --color-status-error: #ff3b30;
+  --color-status-info: #007aff;
+
+  /* Borders */
+  --border-light: rgba(0, 0, 0, 0.08);
+  --border-medium: rgba(0, 0, 0, 0.12);
+
+  /* Shadows */
+  --shadow-card: rgba(0, 0, 0, 0.08) 0px 2px 12px 0px;
+
+  /* Radii */
+  --radius-sm: 5px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 980px;
+
+  /* Layout */
+  --sidebar-width: 240px;
+  --header-height: 52px;
+  --detail-panel-width: 380px;
+
+  /* Typography */
+  --font-primary: -apple-system, 'SF Pro Text', 'SF Pro Display', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+}
