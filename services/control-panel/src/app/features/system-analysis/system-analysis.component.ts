@@ -1,26 +1,17 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { MatCardModule } from '@angular/material/card';
-import { MatButtonModule } from '@angular/material/button';
-import { MatIconModule } from '@angular/material/icon';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatSelectModule } from '@angular/material/select';
-import { MatInputModule } from '@angular/material/input';
-import { MatChipsModule } from '@angular/material/chips';
 import { MatPaginatorModule, type PageEvent } from '@angular/material/paginator';
-import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
-import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatDialogModule, MatDialog } from '@angular/material/dialog';
-import { MatDividerModule } from '@angular/material/divider';
 import { SystemAnalysisService, type SystemAnalysis, type SystemAnalysisStats } from '../../core/services/system-analysis.service';
 import { RejectDialogComponent } from './reject-dialog.component';
+import { BroncoButtonComponent, SelectComponent } from '../../shared/components/index.js';
 
-const STATUS_META: Record<string, { icon: string; label: string; color: string }> = {
-  PENDING: { icon: 'pending_actions', label: 'Pending Review', color: '#ff9800' },
-  ACKNOWLEDGED: { icon: 'check_circle', label: 'Acknowledged', color: '#4caf50' },
-  REJECTED: { icon: 'cancel', label: 'Rejected', color: '#f44336' },
+const STATUS_META: Record<string, { label: string; color: string }> = {
+  PENDING: { label: 'Pending Review', color: 'var(--color-warning)' },
+  ACKNOWLEDGED: { label: 'Acknowledged', color: 'var(--color-success)' },
+  REJECTED: { label: 'Rejected', color: 'var(--color-error)' },
 };
 
 @Component({
@@ -28,69 +19,54 @@ const STATUS_META: Record<string, { icon: string; label: string; color: string }
   imports: [
     FormsModule,
     RouterLink,
-    MatCardModule,
-    MatButtonModule,
-    MatIconModule,
-    MatFormFieldModule,
-    MatSelectModule,
-    MatInputModule,
-    MatChipsModule,
     MatPaginatorModule,
-    MatProgressBarModule,
     MatSnackBarModule,
-    MatTooltipModule,
     MatDialogModule,
-    MatDividerModule,
+    BroncoButtonComponent,
+    SelectComponent,
   ],
   template: `
-    <div class="page-header">
-      <h1>System Analysis</h1>
-      <div class="header-actions">
-        <button mat-raised-button (click)="load(); loadStats()">
-          <mat-icon>refresh</mat-icon> Refresh
-        </button>
+    <div class="page-wrapper">
+      <div class="page-header">
+        <h1 class="page-title">System Analysis</h1>
+        <div class="header-actions">
+          <app-bronco-button variant="secondary" (click)="load(); loadStats()">
+            Refresh
+          </app-bronco-button>
+        </div>
       </div>
-    </div>
 
-    @if (loading()) {
-      <mat-progress-bar mode="indeterminate"></mat-progress-bar>
-    }
-
-    <div class="stats-row">
-      @if (stats()) {
-        <div class="stat-chip pending">
-          <mat-icon>pending_actions</mat-icon>
-          <span>{{ pendingCount() }} Pending</span>
-        </div>
-        <div class="stat-chip acknowledged">
-          <mat-icon>check_circle</mat-icon>
-          <span>{{ acknowledgedCount() }} Acknowledged</span>
-        </div>
-        <div class="stat-chip rejected">
-          <mat-icon>cancel</mat-icon>
-          <span>{{ rejectedCount() }} Rejected</span>
-        </div>
+      @if (loading()) {
+        <div class="loading-state">Loading...</div>
       }
-    </div>
 
-    <div class="filters">
-      <mat-form-field>
-        <mat-label>Status Filter</mat-label>
-        <mat-select [(ngModel)]="statusFilter" (ngModelChange)="resetAndLoad()">
-          <mat-option value="">All</mat-option>
-          <mat-option value="PENDING">Pending</mat-option>
-          <mat-option value="ACKNOWLEDGED">Acknowledged</mat-option>
-          <mat-option value="REJECTED">Rejected</mat-option>
-        </mat-select>
-      </mat-form-field>
-    </div>
+      <div class="stats-row">
+        @if (stats()) {
+          <div class="stat-chip pending">
+            <span>{{ pendingCount() }} Pending</span>
+          </div>
+          <div class="stat-chip acknowledged">
+            <span>{{ acknowledgedCount() }} Acknowledged</span>
+          </div>
+          <div class="stat-chip rejected">
+            <span>{{ rejectedCount() }} Rejected</span>
+          </div>
+        }
+      </div>
 
-    <div class="analysis-list">
-      @for (a of analyses(); track a.id) {
-        <mat-card class="analysis-card" [style.border-left-color]="statusColor(a.status)">
-          <mat-card-content>
+      <div class="filters">
+        <app-select
+          [value]="statusFilter"
+          [options]="statusFilterOptions"
+          [placeholder]="''"
+          (valueChange)="statusFilter = $event; resetAndLoad()">
+        </app-select>
+      </div>
+
+      <div class="analysis-list">
+        @for (a of analyses(); track a.id) {
+          <div class="analysis-card" [style.border-left-color]="statusColor(a.status)">
             <div class="analysis-header">
-              <mat-icon class="status-icon" [style.color]="statusColor(a.status)">{{ statusIcon(a.status) }}</mat-icon>
               <div class="analysis-meta">
                 <div class="analysis-title">
                   <a [routerLink]="['/tickets', a.ticketId]" class="ticket-link">
@@ -107,7 +83,7 @@ const STATUS_META: Record<string, { icon: string; label: string; color: string }
               </div>
             </div>
 
-            <mat-divider></mat-divider>
+            <hr class="divider">
 
             <div class="analysis-section">
               <h3>Analysis</h3>
@@ -117,9 +93,11 @@ const STATUS_META: Record<string, { icon: string; label: string; color: string }
             <div class="analysis-section">
               <h3>Suggestions</h3>
               <div class="suggestions-text">{{ a.suggestions }}</div>
-              <button mat-stroked-button class="copy-btn" (click)="copySuggestions(a)" matTooltip="Copy suggestions to clipboard for a new coding session">
-                <mat-icon>content_copy</mat-icon> Copy for Session
-              </button>
+              <app-bronco-button variant="secondary" size="sm" class="copy-btn"
+                title="Copy suggestions to clipboard for a new coding session"
+                (click)="copySuggestions(a)">
+                Copy for Session
+              </app-bronco-button>
             </div>
 
             @if (a.status === 'REJECTED' && a.rejectionReason) {
@@ -131,166 +109,112 @@ const STATUS_META: Record<string, { icon: string; label: string; color: string }
 
             <div class="action-bar">
               @if (a.status === 'PENDING') {
-                <button mat-raised-button color="primary" (click)="acknowledge(a)">
-                  <mat-icon>check</mat-icon> Acknowledge
-                </button>
-                <button mat-raised-button color="warn" (click)="openRejectDialog(a)">
-                  <mat-icon>close</mat-icon> Reject
-                </button>
+                <app-bronco-button variant="primary" (click)="acknowledge(a)">
+                  Acknowledge
+                </app-bronco-button>
+                <app-bronco-button variant="destructive" (click)="openRejectDialog(a)">
+                  Reject
+                </app-bronco-button>
               }
               @if (a.status !== 'PENDING') {
-                <button mat-stroked-button (click)="reopen(a)" matTooltip="Reset to pending for re-review">
-                  <mat-icon>undo</mat-icon> Reopen
-                </button>
+                <app-bronco-button variant="secondary" (click)="reopen(a)" title="Reset to pending for re-review">
+                  Reopen
+                </app-bronco-button>
               }
-              <button mat-icon-button color="warn" (click)="deleteAnalysis(a)" matTooltip="Delete permanently">
-                <mat-icon>delete</mat-icon>
-              </button>
+              <app-bronco-button variant="icon" size="sm" (click)="deleteAnalysis(a)" title="Delete permanently">
+                ✕
+              </app-bronco-button>
             </div>
-          </mat-card-content>
-        </mat-card>
-      } @empty {
-        @if (!loading()) {
-          <p class="empty">No system analyses yet. Analyses are automatically generated when tickets are closed.</p>
+          </div>
+        } @empty {
+          @if (!loading()) {
+            <p class="empty">No system analyses yet. Analyses are automatically generated when tickets are closed.</p>
+          }
         }
-      }
-    </div>
+      </div>
 
-    <mat-paginator
-      [length]="total()"
-      [pageSize]="pageSize"
-      [pageIndex]="pageIndex"
-      [pageSizeOptions]="[10, 25, 50]"
-      (page)="onPage($event)"
-      showFirstLastButtons>
-    </mat-paginator>
+      <mat-paginator
+        [length]="total()"
+        [pageSize]="pageSize"
+        [pageIndex]="pageIndex"
+        [pageSizeOptions]="[10, 25, 50]"
+        (page)="onPage($event)"
+        showFirstLastButtons>
+      </mat-paginator>
+    </div>
   `,
   styles: [`
-    .page-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 16px;
+    .page-wrapper { max-width: 1200px; }
+    .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .page-title { font-family: var(--font-primary); font-size: 20px; font-weight: 600; color: var(--text-primary); margin: 0; }
+    .header-actions { display: flex; gap: 8px; }
+
+    .loading-state {
+      font-family: var(--font-primary); font-size: 13px; color: var(--accent);
+      padding: 8px 0; margin-bottom: 8px;
     }
-    .header-actions {
-      display: flex;
-      gap: 8px;
-    }
-    .stats-row {
-      display: flex;
-      gap: 16px;
-      margin-bottom: 16px;
-    }
+
+    .stats-row { display: flex; gap: 16px; margin-bottom: 16px; }
     .stat-chip {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 8px 16px;
-      border-radius: 8px;
-      font-weight: 500;
-      font-size: 14px;
+      display: flex; align-items: center; gap: 6px; padding: 8px 16px;
+      border-radius: var(--radius-md); font-family: var(--font-primary);
+      font-weight: 500; font-size: 14px;
     }
-    .stat-chip.pending { background: #fff3e0; color: #e65100; }
-    .stat-chip.acknowledged { background: #e8f5e9; color: #2e7d32; }
-    .stat-chip.rejected { background: #ffebee; color: #c62828; }
-    .stat-chip mat-icon { font-size: 18px; width: 18px; height: 18px; }
-    .filters {
-      margin-bottom: 16px;
-    }
-    .analysis-list {
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-      margin-bottom: 16px;
-    }
+    .stat-chip.pending { background: rgba(255, 149, 0, 0.08); color: var(--color-warning); }
+    .stat-chip.acknowledged { background: rgba(52, 199, 89, 0.08); color: var(--color-success); }
+    .stat-chip.rejected { background: rgba(255, 59, 48, 0.08); color: var(--color-error); }
+
+    .filters { margin-bottom: 16px; }
+    .filters app-select { min-width: 180px; }
+
+    .analysis-list { display: flex; flex-direction: column; gap: 16px; margin-bottom: 16px; }
+
     .analysis-card {
-      border-left: 4px solid #ff9800;
+      background: var(--bg-card); border-radius: var(--radius-lg); padding: 16px;
+      box-shadow: var(--shadow-card); border-left: 4px solid var(--color-warning);
     }
-    .analysis-header {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 12px;
-    }
-    .status-icon {
-      font-size: 24px;
-      width: 24px;
-      height: 24px;
-    }
-    .analysis-meta {
-      flex: 1;
-    }
-    .analysis-title {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
+    .analysis-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .analysis-meta { flex: 1; }
+    .analysis-title { display: flex; align-items: center; gap: 8px; }
     .ticket-link {
-      color: #3f51b5;
-      text-decoration: none;
-      font-weight: 500;
-      font-size: 15px;
+      color: var(--accent-link); text-decoration: none;
+      font-family: var(--font-primary); font-weight: 500; font-size: 15px;
     }
-    .ticket-link:hover {
-      text-decoration: underline;
-    }
+    .ticket-link:hover { text-decoration: underline; }
     .status-badge {
-      font-size: 11px;
-      color: white;
-      padding: 2px 8px;
-      border-radius: 12px;
-      font-weight: 500;
+      font-family: var(--font-primary); font-size: 11px; color: var(--text-on-accent);
+      padding: 2px 8px; border-radius: var(--radius-pill); font-weight: 500;
     }
-    .time-info {
-      font-size: 12px;
-      color: #999;
-    }
-    .analysis-section {
-      margin-top: 12px;
-    }
+    .time-info { font-family: var(--font-primary); font-size: 12px; color: var(--text-tertiary); }
+
+    .divider { border: none; border-top: 1px solid var(--border-light); margin: 12px 0; }
+
+    .analysis-section { margin-top: 12px; }
     .analysis-section h3 {
-      margin: 0 0 6px;
-      font-size: 13px;
-      font-weight: 600;
-      color: #666;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
+      margin: 0 0 6px; font-family: var(--font-primary); font-size: 13px; font-weight: 600;
+      color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px;
     }
     .analysis-text, .suggestions-text, .rejection-text {
-      white-space: pre-wrap;
-      line-height: 1.6;
-      color: #333;
-      font-size: 14px;
+      white-space: pre-wrap; line-height: 1.6; font-family: var(--font-primary);
+      color: var(--text-secondary); font-size: 14px;
     }
     .suggestions-text {
-      background: #f5f5f5;
-      padding: 12px;
-      border-radius: 6px;
-      margin-bottom: 8px;
+      background: var(--bg-muted); padding: 12px; border-radius: var(--radius-md); margin-bottom: 8px;
     }
-    .copy-btn {
-      margin-top: 4px;
-    }
+    .copy-btn { margin-top: 4px; }
     .rejection {
-      background: #fff8f8;
-      padding: 12px;
-      border-radius: 6px;
-      border: 1px solid #ffcdd2;
+      background: rgba(255, 59, 48, 0.04); padding: 12px; border-radius: var(--radius-md);
+      border: 1px solid rgba(255, 59, 48, 0.15);
     }
-    .rejection-text {
-      color: #c62828;
-    }
+    .rejection-text { color: var(--color-error); }
+
     .action-bar {
-      display: flex;
-      gap: 8px;
-      margin-top: 16px;
-      padding-top: 12px;
-      border-top: 1px solid #e0e0e0;
+      display: flex; gap: 8px; margin-top: 16px; padding-top: 12px;
+      border-top: 1px solid var(--border-light);
     }
     .empty {
-      text-align: center;
-      color: #999;
-      padding: 48px 0;
+      text-align: center; color: var(--text-tertiary); padding: 48px 0;
+      font-family: var(--font-primary);
     }
   `],
 })
@@ -307,6 +231,13 @@ export class SystemAnalysisComponent implements OnInit {
   statusFilter = '';
   pageSize = 10;
   pageIndex = 0;
+
+  statusFilterOptions = [
+    { value: '', label: 'All' },
+    { value: 'PENDING', label: 'Pending' },
+    { value: 'ACKNOWLEDGED', label: 'Acknowledged' },
+    { value: 'REJECTED', label: 'Rejected' },
+  ];
 
   pendingCount(): number { return this.stats()?.byStatus['PENDING'] ?? 0; }
   acknowledgedCount(): number { return this.stats()?.byStatus['ACKNOWLEDGED'] ?? 0; }
@@ -421,16 +352,12 @@ export class SystemAnalysisComponent implements OnInit {
     }
   }
 
-  statusIcon(status: string): string {
-    return STATUS_META[status]?.icon ?? 'help_outline';
-  }
-
   statusLabel(status: string): string {
     return STATUS_META[status]?.label ?? status;
   }
 
   statusColor(status: string): string {
-    return STATUS_META[status]?.color ?? '#9e9e9e';
+    return STATUS_META[status]?.color ?? 'var(--text-tertiary)';
   }
 
   formatDate(dateStr: string): string {

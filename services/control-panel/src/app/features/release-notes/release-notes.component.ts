@@ -1,132 +1,94 @@
 import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MatCardModule } from '@angular/material/card';
-import { MatButtonModule } from '@angular/material/button';
-import { MatIconModule } from '@angular/material/icon';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatSelectModule } from '@angular/material/select';
-import { MatInputModule } from '@angular/material/input';
-import { MatChipsModule } from '@angular/material/chips';
 import { MatPaginatorModule, type PageEvent } from '@angular/material/paginator';
-import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
-import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatDialogModule, MatDialog } from '@angular/material/dialog';
-import { MatDividerModule } from '@angular/material/divider';
 import { ReleaseNotesService, type ReleaseNote, type ReleaseNoteType } from '../../core/services/release-notes.service';
 import { BackfillDialogComponent } from './backfill-dialog.component';
+import { BroncoButtonComponent, SelectComponent } from '../../shared/components/index.js';
 
-const CHANGE_TYPE_META: Record<ReleaseNoteType, { label: string; color: string; icon: string }> = {
-  FEATURE: { label: 'Feature', color: '#4caf50', icon: 'new_releases' },
-  FIX: { label: 'Fix', color: '#f44336', icon: 'bug_report' },
-  MAINTENANCE: { label: 'Maintenance', color: '#ff9800', icon: 'build' },
-  OTHER: { label: 'Other', color: '#9e9e9e', icon: 'more_horiz' },
+const CHANGE_TYPE_META: Record<ReleaseNoteType, { label: string; color: string }> = {
+  FEATURE: { label: 'Feature', color: 'var(--color-success)' },
+  FIX: { label: 'Fix', color: 'var(--color-error)' },
+  MAINTENANCE: { label: 'Maintenance', color: 'var(--color-warning)' },
+  OTHER: { label: 'Other', color: 'var(--text-tertiary)' },
 };
 
 @Component({
   standalone: true,
   imports: [
     FormsModule,
-    MatCardModule,
-    MatButtonModule,
-    MatIconModule,
-    MatFormFieldModule,
-    MatSelectModule,
-    MatInputModule,
-    MatChipsModule,
     MatPaginatorModule,
-    MatProgressBarModule,
     MatSnackBarModule,
-    MatTooltipModule,
     MatDialogModule,
-    MatDividerModule,
+    BroncoButtonComponent,
+    SelectComponent,
   ],
   template: `
-    <div class="page-header">
-      <h1>Release Notes</h1>
-      <div class="header-actions">
-        <button mat-stroked-button (click)="openBackfillDialog()" [disabled]="ingestLoading()">
-          <mat-icon>history</mat-icon> Sync History
-        </button>
-        <button mat-raised-button (click)="load(); loadServices(); loadTags()">
-          <mat-icon>refresh</mat-icon> Refresh
-        </button>
+    <div class="page-wrapper">
+      <div class="page-header">
+        <h1 class="page-title">Release Notes</h1>
+        <div class="header-actions">
+          <app-bronco-button variant="secondary" (click)="openBackfillDialog()" [disabled]="ingestLoading()">
+            Sync History
+          </app-bronco-button>
+          <app-bronco-button variant="secondary" (click)="load(); loadServices(); loadTags()">
+            Refresh
+          </app-bronco-button>
+        </div>
       </div>
-    </div>
 
-    @if (loading() || ingestLoading()) {
-      <mat-progress-bar mode="indeterminate"></mat-progress-bar>
-    }
-
-    <div class="filters">
-      <mat-form-field>
-        <mat-label>Search</mat-label>
-        <input matInput [(ngModel)]="searchFilter" (keyup.enter)="resetAndLoad()" placeholder="Commit message or summary…">
-        <button mat-icon-button matSuffix (click)="resetAndLoad()" [disabled]="!searchFilter">
-          <mat-icon>search</mat-icon>
-        </button>
-      </mat-form-field>
-
-      <mat-form-field>
-        <mat-label>Service</mat-label>
-        <mat-select [(ngModel)]="serviceFilter" (ngModelChange)="resetAndLoad()">
-          <mat-option value="">All Services</mat-option>
-          @for (s of availableServices(); track s) {
-            <mat-option [value]="s">{{ s }}</mat-option>
-          }
-        </mat-select>
-      </mat-form-field>
-
-      <mat-form-field>
-        <mat-label>Change Type</mat-label>
-        <mat-select [(ngModel)]="typeFilter" (ngModelChange)="resetAndLoad()">
-          <mat-option value="">All Types</mat-option>
-          <mat-option value="FEATURE">Feature</mat-option>
-          <mat-option value="FIX">Fix</mat-option>
-          <mat-option value="MAINTENANCE">Maintenance</mat-option>
-          <mat-option value="OTHER">Other</mat-option>
-        </mat-select>
-      </mat-form-field>
-
-      <mat-form-field>
-        <mat-label>Release</mat-label>
-        <mat-select [(ngModel)]="tagFilter" (ngModelChange)="resetAndLoad()">
-          <mat-option value="">All Releases</mat-option>
-          @for (t of availableTags(); track t) {
-            <mat-option [value]="t">{{ t }}</mat-option>
-          }
-        </mat-select>
-      </mat-form-field>
-
-      <mat-form-field>
-        <mat-label>From</mat-label>
-        <input matInput type="date" [(ngModel)]="fromFilter" (change)="resetAndLoad()">
-      </mat-form-field>
-
-      <mat-form-field>
-        <mat-label>To</mat-label>
-        <input matInput type="date" [(ngModel)]="toFilter" (change)="resetAndLoad()">
-      </mat-form-field>
-    </div>
-
-    <div class="notes-list">
-      @if (notes().length === 0 && !loading()) {
-        <p class="empty">No release notes found. Deploy to production or use "Sync History" to backfill.</p>
+      @if (loading() || ingestLoading()) {
+        <div class="loading-state">Loading...</div>
       }
-      @for (group of groupedNotes(); track group.tag) {
-        <div class="release-group">
-          <div class="release-header">
-            <mat-icon class="release-icon">local_offer</mat-icon>
-            <span class="release-tag">{{ group.tag }}</span>
-            <span class="release-count">{{ group.notes.length }} commit{{ group.notes.length === 1 ? '' : 's' }}</span>
-          </div>
-          @for (note of group.notes; track note.id) {
-            <mat-card class="note-card" [class.hidden-note]="!note.isVisible" [style.border-left-color]="typeColor(note.changeType)">
-              <mat-card-content>
+
+      <div class="filters">
+        <div class="filter-field">
+          <input class="text-input" type="text" [(ngModel)]="searchFilter" (keyup.enter)="resetAndLoad()" placeholder="Search commit messages...">
+        </div>
+        <app-select
+          [value]="serviceFilter"
+          [options]="serviceOptions()"
+          [placeholder]="''"
+          (valueChange)="serviceFilter = $event; resetAndLoad()">
+        </app-select>
+        <app-select
+          [value]="typeFilter"
+          [options]="typeFilterOptions"
+          [placeholder]="''"
+          (valueChange)="typeFilter = $event; resetAndLoad()">
+        </app-select>
+        <app-select
+          [value]="tagFilter"
+          [options]="tagOptions()"
+          [placeholder]="''"
+          (valueChange)="tagFilter = $event; resetAndLoad()">
+        </app-select>
+        <div class="filter-field">
+          <label class="filter-label">From</label>
+          <input class="text-input" type="date" [(ngModel)]="fromFilter" (change)="resetAndLoad()">
+        </div>
+        <div class="filter-field">
+          <label class="filter-label">To</label>
+          <input class="text-input" type="date" [(ngModel)]="toFilter" (change)="resetAndLoad()">
+        </div>
+      </div>
+
+      <div class="notes-list">
+        @if (notes().length === 0 && !loading()) {
+          <p class="empty">No release notes found. Deploy to production or use "Sync History" to backfill.</p>
+        }
+        @for (group of groupedNotes(); track group.tag) {
+          <div class="release-group">
+            <div class="release-header">
+              <span class="release-tag">{{ group.tag }}</span>
+              <span class="release-count">{{ group.notes.length }} commit{{ group.notes.length === 1 ? '' : 's' }}</span>
+            </div>
+            @for (note of group.notes; track note.id) {
+              <div class="note-card" [class.hidden-note]="!note.isVisible" [style.border-left-color]="typeColor(note.changeType)">
                 <div class="note-header">
                   <div class="note-meta">
                     <span class="type-badge" [style.background]="typeColor(note.changeType)">
-                      <mat-icon>{{ typeIcon(note.changeType) }}</mat-icon>
                       {{ typeLabel(note.changeType) }}
                     </span>
                     @for (svc of note.services; track svc) {
@@ -136,15 +98,15 @@ const CHANGE_TYPE_META: Record<ReleaseNoteType, { label: string; color: string; 
                     <code class="commit-sha">{{ note.commitSha.slice(0, 7) }}</code>
                   </div>
                   <div class="note-actions">
-                    <button mat-icon-button
-                      [matTooltip]="note.isVisible ? 'Mark as hidden' : 'Mark as visible'"
+                    <app-bronco-button variant="icon" size="sm"
+                      [title]="note.isVisible ? 'Mark as hidden' : 'Mark as visible'"
                       (click)="toggleVisibility(note)">
-                      <mat-icon>{{ note.isVisible ? 'visibility' : 'visibility_off' }}</mat-icon>
-                    </button>
+                      {{ note.isVisible ? '◉' : '○' }}
+                    </app-bronco-button>
                   </div>
                 </div>
 
-                <mat-divider></mat-divider>
+                <hr class="divider">
 
                 <div class="note-summary">
                   @if (note.summary) {
@@ -160,182 +122,116 @@ const CHANGE_TYPE_META: Record<ReleaseNoteType, { label: string; color: string; 
                   </div>
                 }
 
-                <button mat-button class="toggle-raw-btn" (click)="toggleRaw(note.id)">
-                  <mat-icon>{{ expandedNotes().has(note.id) ? 'expand_less' : 'expand_more' }}</mat-icon>
-                  {{ expandedNotes().has(note.id) ? 'Hide' : 'Show' }} raw commit message
-                </button>
-              </mat-card-content>
-            </mat-card>
-          }
-        </div>
-      }
-    </div>
+                <app-bronco-button variant="ghost" size="sm" class="toggle-raw-btn" (click)="toggleRaw(note.id)">
+                  {{ expandedNotes().has(note.id) ? '▲ Hide' : '▼ Show' }} raw commit message
+                </app-bronco-button>
+              </div>
+            }
+          </div>
+        }
+      </div>
 
-    <mat-paginator
-      [length]="total()"
-      [pageSize]="pageSize"
-      [pageIndex]="pageIndex"
-      [pageSizeOptions]="[25, 50, 100]"
-      (page)="onPage($event)"
-      showFirstLastButtons>
-    </mat-paginator>
+      <mat-paginator
+        [length]="total()"
+        [pageSize]="pageSize"
+        [pageIndex]="pageIndex"
+        [pageSizeOptions]="[25, 50, 100]"
+        (page)="onPage($event)"
+        showFirstLastButtons>
+      </mat-paginator>
+    </div>
   `,
   styles: [`
-    .page-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 16px;
+    .page-wrapper { max-width: 1200px; }
+    .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .page-title { font-family: var(--font-primary); font-size: 20px; font-weight: 600; color: var(--text-primary); margin: 0; }
+    .header-actions { display: flex; gap: 8px; }
+
+    .loading-state {
+      font-family: var(--font-primary); font-size: 13px; color: var(--accent);
+      padding: 8px 0; margin-bottom: 8px;
     }
-    .header-actions {
-      display: flex;
-      gap: 8px;
-    }
+
     .filters {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-      margin-bottom: 16px;
-      align-items: flex-start;
+      display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; align-items: flex-end;
     }
-    .filters mat-form-field {
-      min-width: 160px;
+    .filters app-select { min-width: 160px; }
+    .filter-field { display: flex; flex-direction: column; gap: 4px; }
+    .filter-label { font-family: var(--font-primary); font-size: 12px; color: var(--text-tertiary); }
+    .text-input {
+      background: var(--bg-card); border: 1px solid var(--border-medium);
+      border-radius: var(--radius-md); padding: 8px 12px; font-family: var(--font-primary);
+      font-size: 14px; color: var(--text-primary); outline: none; min-width: 160px;
     }
-    .notes-list {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      margin-bottom: 16px;
-    }
+    .text-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--focus-ring); }
+
+    .notes-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+
     .note-card {
-      border-left: 4px solid #9e9e9e;
+      background: var(--bg-card); border-radius: var(--radius-lg); padding: 16px;
+      box-shadow: var(--shadow-card); border-left: 4px solid var(--text-tertiary);
       transition: opacity 0.2s;
     }
-    .note-card.hidden-note {
-      opacity: 0.5;
-    }
+    .note-card.hidden-note { opacity: 0.5; }
+
     .note-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 8px;
-      flex-wrap: wrap;
-      gap: 8px;
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 8px; flex-wrap: wrap; gap: 8px;
     }
-    .note-meta {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
+    .note-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .type-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      font-size: 11px;
-      font-weight: 600;
-      color: white;
-      padding: 3px 8px;
-      border-radius: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .type-badge mat-icon {
-      font-size: 13px;
-      width: 13px;
-      height: 13px;
+      display: inline-flex; align-items: center; gap: 4px;
+      font-family: var(--font-primary); font-size: 11px; font-weight: 600;
+      color: var(--text-on-accent); padding: 3px 8px; border-radius: var(--radius-pill);
+      text-transform: uppercase; letter-spacing: 0.5px;
     }
     .service-chip {
-      font-size: 11px;
-      background: #e3f2fd;
-      color: #1565c0;
-      padding: 2px 8px;
-      border-radius: 10px;
-      font-weight: 500;
+      font-family: var(--font-primary); font-size: 11px;
+      background: var(--color-info-subtle); color: var(--accent);
+      padding: 2px 8px; border-radius: var(--radius-pill); font-weight: 500;
     }
-    .commit-date {
-      font-size: 12px;
-      color: #999;
-    }
+    .commit-date { font-family: var(--font-primary); font-size: 12px; color: var(--text-tertiary); }
     .commit-sha {
-      font-size: 11px;
-      background: #f5f5f5;
-      padding: 2px 6px;
-      border-radius: 4px;
-      color: #666;
-      font-family: monospace;
+      font-size: 11px; background: var(--bg-muted); padding: 2px 6px;
+      border-radius: var(--radius-sm); color: var(--text-tertiary); font-family: monospace;
     }
-    .note-actions {
-      flex-shrink: 0;
-    }
-    .note-summary {
-      margin: 10px 0 6px;
-    }
+    .note-actions { flex-shrink: 0; }
+
+    .divider { border: none; border-top: 1px solid var(--border-light); margin: 12px 0; }
+
+    .note-summary { margin: 10px 0 6px; }
     .summary-text {
-      margin: 0;
-      line-height: 1.6;
-      font-size: 14px;
-      color: #333;
+      margin: 0; line-height: 1.6; font-family: var(--font-primary);
+      font-size: 14px; color: var(--text-secondary);
     }
     .summary-pending {
-      margin: 0;
-      font-size: 13px;
-      color: #bbb;
-      font-style: italic;
+      margin: 0; font-family: var(--font-primary); font-size: 13px;
+      color: var(--text-tertiary); font-style: italic;
     }
     .raw-message {
-      margin-top: 8px;
-      background: #f5f5f5;
-      border-radius: 4px;
-      padding: 10px 12px;
+      margin-top: 8px; background: var(--bg-muted); border-radius: var(--radius-sm); padding: 10px 12px;
     }
     .raw-message pre {
-      margin: 0;
-      white-space: pre-wrap;
-      font-size: 12px;
-      color: #555;
-      line-height: 1.5;
+      margin: 0; white-space: pre-wrap; font-size: 12px;
+      color: var(--text-tertiary); line-height: 1.5;
     }
-    .toggle-raw-btn {
-      margin-top: 4px;
-      font-size: 12px;
-      color: #999;
-    }
+    .toggle-raw-btn { margin-top: 4px; }
+
     .empty {
-      text-align: center;
-      color: #999;
-      padding: 48px 0;
+      text-align: center; color: var(--text-tertiary); padding: 48px 0;
+      font-family: var(--font-primary);
     }
-    .release-group {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
+
+    .release-group { display: flex; flex-direction: column; gap: 8px; }
     .release-header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 4px;
-      border-bottom: 2px solid #e0e0e0;
-      margin-bottom: 4px;
-    }
-    .release-icon {
-      font-size: 18px;
-      width: 18px;
-      height: 18px;
-      color: #5c6bc0;
+      display: flex; align-items: center; gap: 8px; padding: 6px 4px;
+      border-bottom: 2px solid var(--border-light); margin-bottom: 4px;
     }
     .release-tag {
-      font-size: 15px;
-      font-weight: 700;
-      color: #3949ab;
-      font-family: monospace;
+      font-family: var(--font-primary); font-size: 15px; font-weight: 700;
+      color: var(--accent); font-family: monospace;
     }
-    .release-count {
-      font-size: 12px;
-      color: #999;
-      margin-left: 4px;
-    }
+    .release-count { font-family: var(--font-primary); font-size: 12px; color: var(--text-tertiary); margin-left: 4px; }
   `],
 })
 export class ReleaseNotesComponent implements OnInit {
@@ -368,6 +264,24 @@ export class ReleaseNotesComponent implements OnInit {
     if (groups.has('Untagged')) result.push({ tag: 'Untagged', notes: groups.get('Untagged')! });
     return result;
   });
+
+  serviceOptions = computed(() => [
+    { value: '', label: 'All Services' },
+    ...this.availableServices().map(s => ({ value: s, label: s })),
+  ]);
+
+  tagOptions = computed(() => [
+    { value: '', label: 'All Releases' },
+    ...this.availableTags().map(t => ({ value: t, label: t })),
+  ]);
+
+  typeFilterOptions = [
+    { value: '', label: 'All Types' },
+    { value: 'FEATURE', label: 'Feature' },
+    { value: 'FIX', label: 'Fix' },
+    { value: 'MAINTENANCE', label: 'Maintenance' },
+    { value: 'OTHER', label: 'Other' },
+  ];
 
   searchFilter = '';
   serviceFilter = '';
@@ -475,8 +389,7 @@ export class ReleaseNotesComponent implements OnInit {
   }
 
   typeLabel(t: string): string { return CHANGE_TYPE_META[t as ReleaseNoteType]?.label ?? t; }
-  typeColor(t: string): string { return CHANGE_TYPE_META[t as ReleaseNoteType]?.color ?? '#9e9e9e'; }
-  typeIcon(t: string): string { return CHANGE_TYPE_META[t as ReleaseNoteType]?.icon ?? 'circle'; }
+  typeColor(t: string): string { return CHANGE_TYPE_META[t as ReleaseNoteType]?.color ?? 'var(--text-tertiary)'; }
 
   formatDate(dateStr: string): string {
     const d = new Date(dateStr);
