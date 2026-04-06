@@ -23,16 +23,17 @@ const STORAGE_KEY = 'bronco-theme';
 @Injectable({ providedIn: 'root' })
 export class ThemeService {
   readonly themes: readonly ThemeOption[] = THEMES;
-  readonly currentTheme = signal<ThemeOption>(this.resolveInitial());
+  private readonly _currentTheme = signal<ThemeOption>(this.resolveInitial());
+  readonly currentTheme = this._currentTheme.asReadonly();
 
-  constructor() {
+  init(): void {
     this.applyTheme();
   }
 
   setTheme(id: string): void {
     const theme = THEMES.find(t => t.id === id);
     if (!theme) return;
-    this.currentTheme.set(theme);
+    this._currentTheme.set(theme);
     this.applyTheme();
   }
 

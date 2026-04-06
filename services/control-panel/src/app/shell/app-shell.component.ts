@@ -75,12 +75,13 @@ const ROUTE_TITLE_MAP: Record<string, string> = {
 })
 export class AppShellComponent implements OnInit {
   readonly detailPanel = inject(DetailPanelService);
-  private readonly _theme = inject(ThemeService);
+  private readonly theme = inject(ThemeService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   readonly pageTitle = signal('Dashboard');
 
   ngOnInit(): void {
+    this.theme.init();
     const params = this.route.snapshot.queryParams;
     this.detailPanel.restoreFromUrl({
       detail: params['detail'],
