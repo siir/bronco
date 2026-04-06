@@ -1,84 +1,78 @@
 import { Component, inject, OnInit, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
-import { MatCardModule } from '@angular/material/card';
-import { MatButtonModule } from '@angular/material/button';
-import { MatIconModule } from '@angular/material/icon';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { MatTableModule } from '@angular/material/table';
-import { MatChipsModule } from '@angular/material/chips';
-import { ClientService, Client } from '../../core/services/client.service';
-import { ClientDialogComponent } from './client-dialog.component';
+import { ClientService, Client } from '../../core/services/client.service.js';
+import { ClientDialogComponent } from './client-dialog.component.js';
+import { DetailPanelService } from '../../core/services/detail-panel.service.js';
+import { DataTableComponent, DataTableColumnComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({
   standalone: true,
-  imports: [RouterLink, MatCardModule, MatButtonModule, MatIconModule, MatDialogModule, MatTableModule, MatChipsModule],
+  imports: [MatDialogModule, DataTableComponent, DataTableColumnComponent, BroncoButtonComponent],
   template: `
-    <div class="page-header">
-      <h1>Clients</h1>
-      <button mat-raised-button color="primary" (click)="openDialog()">
-        <mat-icon>add</mat-icon> New Client
-      </button>
+    <div class="client-list-page">
+      <div class="page-header">
+        <h1 class="page-title">Clients</h1>
+        <app-bronco-button variant="primary" (click)="createClient()">+ New Client</app-bronco-button>
+      </div>
+
+      <app-data-table
+        [data]="clients()"
+        [trackBy]="trackById"
+        (rowClick)="onClientClick($event)"
+        emptyMessage="No clients yet">
+
+        <app-data-column key="name" header="Name" [sortable]="false">
+          <ng-template #cell let-row>
+            <span style="font-weight: 500; color: var(--text-primary);">{{ row.name }}</span>
+          </ng-template>
+        </app-data-column>
+
+        <app-data-column key="shortCode" header="Code" width="100px" [sortable]="false">
+          <ng-template #cell let-row>
+            <span style="font-size: 12px; padding: 2px 8px; background: var(--bg-active); border-radius: var(--radius-sm); color: var(--accent); font-family: ui-monospace, monospace;">
+              {{ row.shortCode }}
+            </span>
+          </ng-template>
+        </app-data-column>
+
+        <app-data-column key="systems" header="Systems" width="90px" [sortable]="false">
+          <ng-template #cell let-row>
+            {{ row._count?.systems ?? 0 }}
+          </ng-template>
+        </app-data-column>
+
+        <app-data-column key="tickets" header="Tickets" width="90px" [sortable]="false">
+          <ng-template #cell let-row>
+            {{ row._count?.tickets ?? 0 }}
+          </ng-template>
+        </app-data-column>
+
+        <app-data-column key="status" header="Status" width="100px" [sortable]="false">
+          <ng-template #cell let-row>
+            @if ((row._count?.systems ?? 0) > 0 || (row._count?.tickets ?? 0) > 0) {
+              <span style="font-size: 12px; font-weight: 500; color: var(--color-success);">Active</span>
+            } @else {
+              <span style="font-size: 12px; color: var(--text-tertiary);">Inactive</span>
+            }
+          </ng-template>
+        </app-data-column>
+
+      </app-data-table>
     </div>
-
-    <mat-card>
-      <table mat-table [dataSource]="clients()" class="full-width">
-        <ng-container matColumnDef="name">
-          <th mat-header-cell *matHeaderCellDef>Name</th>
-          <td mat-cell *matCellDef="let client">
-            <a [routerLink]="['/clients', client.id]" class="link">{{ client.name }}</a>
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="shortCode">
-          <th mat-header-cell *matHeaderCellDef>Code</th>
-          <td mat-cell *matCellDef="let client">
-            <span class="code-chip">{{ client.shortCode }}</span>
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="systems">
-          <th mat-header-cell *matHeaderCellDef>Systems</th>
-          <td mat-cell *matCellDef="let client">{{ client._count?.systems ?? 0 }}</td>
-        </ng-container>
-
-        <ng-container matColumnDef="tickets">
-          <th mat-header-cell *matHeaderCellDef>Tickets</th>
-          <td mat-cell *matCellDef="let client">{{ client._count?.tickets ?? 0 }}</td>
-        </ng-container>
-
-        <ng-container matColumnDef="status">
-          <th mat-header-cell *matHeaderCellDef>Status</th>
-          <td mat-cell *matCellDef="let client">
-            <mat-chip [highlighted]="client.isActive" [class.inactive]="!client.isActive">
-              {{ client.isActive ? 'Active' : 'Inactive' }}
-            </mat-chip>
-          </td>
-        </ng-container>
-
-        <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
-        <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
-      </table>
-    </mat-card>
   `,
   styles: [`
+    .client-list-page { max-width: 1200px; }
     .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-    .page-header h1 { margin: 0; }
-    .full-width { width: 100%; }
-    .link { text-decoration: none; color: #3f51b5; font-weight: 500; }
-    .link:hover { text-decoration: underline; }
-    .code-chip {
-      font-size: 12px; padding: 2px 8px; background: #e8eaf6; border-radius: 4px; color: #3f51b5;
-      font-family: monospace;
-    }
-    .inactive { opacity: 0.5; }
+    .page-title { font-family: var(--font-primary); font-size: 20px; font-weight: 600; color: var(--text-primary); margin: 0; }
   `],
 })
 export class ClientListComponent implements OnInit {
   private clientService = inject(ClientService);
   private dialog = inject(MatDialog);
+  private detailPanel = inject(DetailPanelService);
 
   clients = signal<Client[]>([]);
-  displayedColumns = ['name', 'shortCode', 'systems', 'tickets', 'status'];
+  trackById = (item: Client) => item.id;
 
   ngOnInit(): void {
     this.load();
@@ -88,7 +82,11 @@ export class ClientListComponent implements OnInit {
     this.clientService.getClients().subscribe(clients => this.clients.set(clients));
   }
 
-  openDialog(): void {
+  onClientClick(client: Client): void {
+    this.detailPanel.open('client', client.id);
+  }
+
+  createClient(): void {
     const dialogRef = this.dialog.open(ClientDialogComponent, { width: '500px' });
     dialogRef.afterClosed().subscribe(result => {
       if (result) this.load();
