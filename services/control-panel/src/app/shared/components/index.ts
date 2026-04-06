@@ -10,3 +10,8 @@ export { TextInputComponent } from './text-input.component.js';
 export { TextareaComponent } from './textarea.component.js';
 export { SelectComponent } from './select.component.js';
 export { ToggleSwitchComponent } from './toggle-switch.component.js';
+export { CardComponent } from './card.component.js';
+export { TabComponent } from './tab.component.js';
+export { TabGroupComponent } from './tab-group.component.js';
+export { DialogComponent } from './dialog.component.js';
+export { ToolbarComponent } from './toolbar.component.js';
