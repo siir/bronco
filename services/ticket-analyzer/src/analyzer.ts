@@ -1966,7 +1966,7 @@ async function saveMcpToolArtifact(
     const mimeType = isJson ? 'application/json' : 'text/plain';
     const ext = isJson ? 'json' : 'txt';
     const safeToolName = sanitizeFilenameSegment(toolName || 'unknown');
-    const filename = `mcp-${safeToolName}-${Date.now()}.${ext}`;
+    const filename = `mcp-${safeToolName}-${Date.now()}-${randomUUID()}.${ext}`;
     const resolvedStorage = resolve(storagePath);
     const ticketDir = resolve(resolvedStorage, 'tickets', ticketId);
     const rel = relative(resolvedStorage, ticketDir);
@@ -2113,7 +2113,13 @@ async function executeOrchestratedSubTask(
             ...(result.isError ? { is_error: true } : {}),
           });
           if (deps.artifactStoragePath && !result.isError) {
-            await saveMcpToolArtifact(deps.db, ticketId, toolUse.name, result.result, deps.artifactStoragePath);
+            void saveMcpToolArtifact(deps.db, ticketId, toolUse.name, result.result, deps.artifactStoragePath).catch(error => {
+              logger.warn({
+                err: error,
+                ticketId,
+                toolName: toolUse.name,
+              }, 'Failed to persist MCP tool artifact');
+            });
           }
           if (result.isError) hasToolError = true;
         }
@@ -3244,7 +3250,13 @@ async function executeRoutePipeline(
               ...(result.isError ? { is_error: true } : {}),
             });
             if (deps.artifactStoragePath && !result.isError) {
-              await saveMcpToolArtifact(deps.db, ticketId, toolUse.name, result.result, deps.artifactStoragePath);
+              void saveMcpToolArtifact(deps.db, ticketId, toolUse.name, result.result, deps.artifactStoragePath).catch(error => {
+                logger.warn({
+                  err: error,
+                  ticketId,
+                  toolName: toolUse.name,
+                }, 'Failed to persist MCP tool artifact');
+              });
             }
             appLog.info(
               `Agentic tool call: ${toolUse.name} (${elapsed}ms)`,
