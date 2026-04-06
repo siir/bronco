@@ -1,4 +1,5 @@
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
+import { NgClass } from '@angular/common';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { RouterLink } from '@angular/router';
@@ -27,6 +28,7 @@ const ACTION_LABELS: Record<string, string> = {
 @Component({
   standalone: true,
   imports: [
+    NgClass,
     MatDialogModule,
     RouterLink,
     DataTableComponent,
@@ -97,7 +99,7 @@ const ACTION_LABELS: Record<string, string> = {
 
         <app-data-column key="action" header="Action" width="110px" [sortable]="false">
           <ng-template #cell let-row>
-            <span class="action-badge" [class]="'action-' + row.action">{{ formatAction(row.action) }}</span>
+            <span class="action-badge" [ngClass]="'action-' + row.action">{{ formatAction(row.action) }}</span>
           </ng-template>
         </app-data-column>
 
@@ -105,7 +107,7 @@ const ACTION_LABELS: Record<string, string> = {
           <ng-template #cell let-row>
             @if (row.lastRunAt) {
               <div style="font-size: 12px; color: var(--text-secondary);">{{ formatDate(row.lastRunAt) }}</div>
-              <span class="run-status" [class]="'run-' + row.lastRunStatus">{{ row.lastRunStatus }}</span>
+              <span class="run-status" [ngClass]="'run-' + row.lastRunStatus">{{ row.lastRunStatus }}</span>
             } @else {
               <span style="font-size: 12px; color: var(--text-tertiary);">Never</span>
             }
@@ -124,10 +126,10 @@ const ACTION_LABELS: Record<string, string> = {
         <app-data-column key="actions" header="" width="120px" [sortable]="false">
           <ng-template #cell let-row>
             <div style="display: flex; gap: 2px;" (click)="$event.stopPropagation()">
-              <app-bronco-button variant="icon" size="sm" [routerLink]="['/scheduled-probes', row.id, 'runs']" title="Run history">&#x1F4CB;</app-bronco-button>
-              <app-bronco-button variant="icon" size="sm" (click)="runNow(row)" title="Run now">&#x25B6;</app-bronco-button>
-              <app-bronco-button variant="icon" size="sm" (click)="editProbe(row)" title="Edit">&#x270E;</app-bronco-button>
-              <app-bronco-button variant="icon" size="sm" (click)="deleteProbe(row)" title="Delete">&#x2715;</app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" aria-label="Run history" [routerLink]="['/scheduled-probes', row.id, 'runs']" title="Run history">&#x1F4CB;</app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" aria-label="Run now" (click)="runNow(row)" title="Run now">&#x25B6;</app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" aria-label="Edit" (click)="editProbe(row)" title="Edit">&#x270E;</app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" aria-label="Delete" (click)="deleteProbe(row)" title="Delete">&#x2715;</app-bronco-button>
             </div>
           </ng-template>
         </app-data-column>
@@ -199,8 +201,7 @@ export class ProbeListComponent implements OnInit {
   }
 
   formatDate(dateStr: string): string {
-    const d = new Date(dateStr);
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    return new Date(dateStr).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   }
 
   isBuiltinTool(toolName: string): boolean {
