@@ -1,204 +1,218 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { FormsModule } from '@angular/forms';
-import { MatCardModule } from '@angular/material/card';
-import { MatTableModule } from '@angular/material/table';
-import { MatButtonModule } from '@angular/material/button';
-import { MatIconModule } from '@angular/material/icon';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatSelectModule } from '@angular/material/select';
+import { Component, computed, inject, OnInit, signal } from '@angular/core';
+import { ActivatedRoute, Router } from '@angular/router';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { MatTooltipModule } from '@angular/material/tooltip';
-import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { TicketService, Ticket, ACTIVE_STATUS_FILTER } from '../../core/services/ticket.service';
 import { TicketFilterPresetService, TicketFilterPreset } from '../../core/services/ticket-filter-preset.service';
+import { DetailPanelService } from '../../core/services/detail-panel.service';
 import { TicketDialogComponent } from './ticket-dialog.component';
 import { TicketQuickActionsDialogComponent } from './ticket-quick-actions-dialog.component';
+import {
+  DataTableComponent,
+  DataTableColumnComponent,
+  StatusBadgeComponent,
+  PriorityPillComponent,
+  CategoryChipComponent,
+  BroncoButtonComponent,
+  ToolbarComponent,
+  SelectComponent,
+  ToggleSwitchComponent,
+} from '../../shared/components/index.js';
 
 @Component({
   standalone: true,
-  imports: [RouterLink, FormsModule, MatCardModule, MatTableModule, MatButtonModule, MatIconModule, MatFormFieldModule, MatSelectModule, MatDialogModule, MatTooltipModule, MatSlideToggleModule],
+  imports: [
+    MatDialogModule,
+    DataTableComponent,
+    DataTableColumnComponent,
+    StatusBadgeComponent,
+    PriorityPillComponent,
+    CategoryChipComponent,
+    BroncoButtonComponent,
+    ToolbarComponent,
+    SelectComponent,
+    ToggleSwitchComponent,
+  ],
   template: `
-    <div class="page-header">
-      <h1>Tickets</h1>
-      <button mat-raised-button color="primary" (click)="createTicket()">
-        <mat-icon>add</mat-icon> Create Ticket
-      </button>
-    </div>
+    <div class="ticket-list-page">
+      <div class="page-header">
+        <h1 class="page-title">Tickets</h1>
+        <app-bronco-button variant="primary" (click)="createTicket()">+ Create Ticket</app-bronco-button>
+      </div>
 
-    <div class="filters">
-      <mat-form-field>
-        <mat-label>Preset</mat-label>
-        <mat-select [(ngModel)]="selectedPresetId" (ngModelChange)="onPresetSelected()">
-          <mat-option value="">— No preset —</mat-option>
-          @for (p of presets(); track p.id) {
-            <mat-option [value]="p.id">{{ p.name }}{{ p.isDefault ? ' ★' : '' }}</mat-option>
-          }
-        </mat-select>
-      </mat-form-field>
-      <button mat-icon-button matTooltip="Save current filters as preset" (click)="savePreset()">
-        <mat-icon>save</mat-icon>
-      </button>
-      @if (selectedPresetId) {
-        <button mat-icon-button matTooltip="Delete preset" (click)="deletePreset()">
-          <mat-icon>delete</mat-icon>
-        </button>
-        <mat-slide-toggle
-          [checked]="isSelectedPresetDefault()"
-          (change)="toggleDefault($event.checked)"
-          matTooltip="Set as default preset">
-          Default
-        </mat-slide-toggle>
-      }
+      <app-toolbar>
+        <app-select
+          [value]="selectedPresetId()"
+          [options]="presetOptions()"
+          placeholder="Filter preset..."
+          (valueChange)="onPresetSelected($event)" />
 
-      <mat-form-field>
-        <mat-label>Status</mat-label>
-        <mat-select [(ngModel)]="statusFilter" (ngModelChange)="onFilterChange()">
-          <mat-option [value]="activeFilter">Active</mat-option>
-          <mat-option value="">All</mat-option>
-          <mat-option value="OPEN">Open</mat-option>
-          <mat-option value="IN_PROGRESS">In Progress</mat-option>
-          <mat-option value="WAITING">Waiting</mat-option>
-          <mat-option value="RESOLVED">Resolved</mat-option>
-          <mat-option value="CLOSED">Closed</mat-option>
-        </mat-select>
-      </mat-form-field>
-      <mat-form-field>
-        <mat-label>Category</mat-label>
-        <mat-select [(ngModel)]="categoryFilter" (ngModelChange)="onFilterChange()">
-          <mat-option value="">All</mat-option>
-          <mat-option value="DATABASE_PERF">Database Perf</mat-option>
-          <mat-option value="BUG_FIX">Bug Fix</mat-option>
-          <mat-option value="FEATURE_REQUEST">Feature Request</mat-option>
-          <mat-option value="SCHEMA_CHANGE">Schema Change</mat-option>
-          <mat-option value="CODE_REVIEW">Code Review</mat-option>
-          <mat-option value="ARCHITECTURE">Architecture</mat-option>
-          <mat-option value="GENERAL">General</mat-option>
-        </mat-select>
-      </mat-form-field>
-    </div>
+        @if (selectedPresetId()) {
+          <app-bronco-button variant="ghost" size="sm" (click)="savePreset()">Save</app-bronco-button>
+          <app-bronco-button variant="ghost" size="sm" (click)="deletePreset()">Delete</app-bronco-button>
+          <app-toggle-switch
+            [checked]="isSelectedPresetDefault()"
+            (checkedChange)="toggleDefault($event)"
+            label="Default" />
+        } @else {
+          <app-bronco-button variant="ghost" size="sm" (click)="savePreset()">Save as Preset</app-bronco-button>
+        }
 
-    <mat-card>
-      <table mat-table [dataSource]="tickets()" class="full-width">
-        <ng-container matColumnDef="priority">
-          <th mat-header-cell *matHeaderCellDef>Priority</th>
-          <td mat-cell *matCellDef="let t">
-            <span class="priority priority-{{ t.priority.toLowerCase() }}">{{ t.priority }}</span>
-          </td>
-        </ng-container>
+        <span class="toolbar-spacer"></span>
 
-        <ng-container matColumnDef="ticketNumber">
-          <th mat-header-cell *matHeaderCellDef>#</th>
-          <td mat-cell *matCellDef="let t">
-            <span class="ticket-number">{{ t.ticketNumber ? '#' + t.ticketNumber : '' }}</span>
-          </td>
-        </ng-container>
+        <app-select
+          [value]="statusFilter()"
+          [options]="statusOptions"
+          placeholder="Status"
+          (valueChange)="onStatusChange($event)" />
 
-        <ng-container matColumnDef="subject">
-          <th mat-header-cell *matHeaderCellDef>Subject</th>
-          <td mat-cell *matCellDef="let t">
-            <a [routerLink]="['/tickets', t.id]" class="link">{{ t.subject }}</a>
-            @if (t.summary) {
-              <div class="summary-preview" [title]="t.summary">{{ truncate(t.summary, 100) }}</div>
-            }
-          </td>
-        </ng-container>
+        <app-select
+          [value]="categoryFilter()"
+          [options]="categoryOptions"
+          placeholder="Category"
+          (valueChange)="onCategoryChange($event)" />
+      </app-toolbar>
 
-        <ng-container matColumnDef="client">
-          <th mat-header-cell *matHeaderCellDef>Client</th>
-          <td mat-cell *matCellDef="let t">
-            <span class="code-chip">{{ t.client?.shortCode }}</span>
-          </td>
-        </ng-container>
+      <app-data-table
+        [data]="tickets()"
+        [trackBy]="trackById"
+        [rowClickable]="true"
+        (rowClick)="onTicketClick($event)"
+        emptyMessage="No tickets match the current filters">
 
-        <ng-container matColumnDef="status">
-          <th mat-header-cell *matHeaderCellDef>Status</th>
-          <td mat-cell *matCellDef="let t">
-            <span class="status-chip status-{{ t.status.toLowerCase() }}">{{ formatStatus(t.status) }}</span>
-          </td>
-        </ng-container>
+        <app-data-column key="priority" header="Priority" width="100px" [sortable]="false">
+          <ng-template #cell let-row>
+            <app-priority-pill [priority]="mapPriority(row.priority)" />
+          </ng-template>
+        </app-data-column>
 
-        <ng-container matColumnDef="category">
-          <th mat-header-cell *matHeaderCellDef>Category</th>
-          <td mat-cell *matCellDef="let t">{{ t.category ?? '-' }}</td>
-        </ng-container>
-
-        <ng-container matColumnDef="analysisStatus">
-          <th mat-header-cell *matHeaderCellDef>Analysis</th>
-          <td mat-cell *matCellDef="let t">
-            <span class="analysis-chip analysis-{{ t.analysisStatus?.toLowerCase() }}">
-              @if (t.analysisStatus === 'IN_PROGRESS') {
-                <mat-icon class="spin-icon">sync</mat-icon>
-              }
-              {{ formatAnalysisStatus(t.analysisStatus) }}
+        <app-data-column key="ticketNumber" header="#" width="70px" [sortable]="false">
+          <ng-template #cell let-row>
+            <span style="font-size: 12px; color: var(--text-tertiary); font-family: ui-monospace, monospace;">
+              {{ row.ticketNumber ? '#' + row.ticketNumber : '' }}
             </span>
-          </td>
-        </ng-container>
+          </ng-template>
+        </app-data-column>
 
-        <ng-container matColumnDef="source">
-          <th mat-header-cell *matHeaderCellDef>Source</th>
-          <td mat-cell *matCellDef="let t">{{ t.source }}</td>
-        </ng-container>
+        <app-data-column key="subject" header="Subject" [sortable]="false">
+          <ng-template #cell let-row>
+            <span style="font-weight: 500; color: var(--text-primary);">{{ row.subject }}</span>
+            @if (row.summary) {
+              <div style="font-size: 12px; color: var(--text-tertiary); margin-top: 2px; line-height: 1.3;">
+                {{ truncate(row.summary, 100) }}
+              </div>
+            }
+          </ng-template>
+        </app-data-column>
 
-        <ng-container matColumnDef="created">
-          <th mat-header-cell *matHeaderCellDef>Created</th>
-          <td mat-cell *matCellDef="let t">{{ formatDate(t.createdAt) }}</td>
-        </ng-container>
+        <app-data-column key="client" header="Client" width="100px" [sortable]="false">
+          <ng-template #cell let-row>
+            @if (row.client?.shortCode) {
+              <span style="font-size: 12px; padding: 2px 8px; background: var(--bg-active); border-radius: var(--radius-sm); color: var(--accent); font-family: ui-monospace, monospace;">
+                {{ row.client.shortCode }}
+              </span>
+            }
+          </ng-template>
+        </app-data-column>
 
-        <ng-container matColumnDef="actions">
-          <th mat-header-cell *matHeaderCellDef></th>
-          <td mat-cell *matCellDef="let t">
-            <button mat-icon-button matTooltip="Quick actions" aria-label="Quick actions" (click)="openQuickActions(t); $event.stopPropagation()">
-              <mat-icon>more_vert</mat-icon>
-            </button>
-          </td>
-        </ng-container>
+        <app-data-column key="status" header="Status" width="120px" [sortable]="false">
+          <ng-template #cell let-row>
+            <app-status-badge [status]="mapStatus(row.status)" />
+          </ng-template>
+        </app-data-column>
 
-        <tr mat-header-row *matHeaderRowDef="columns"></tr>
-        <tr mat-row *matRowDef="let row; columns: columns;"></tr>
-      </table>
-    </mat-card>
+        <app-data-column key="analysisStatus" header="Analysis" width="110px" [sortable]="false">
+          <ng-template #cell let-row>
+            <span class="analysis-chip" [class]="'analysis-' + (row.analysisStatus?.toLowerCase() ?? 'pending')">
+              @if (row.analysisStatus === 'IN_PROGRESS') {
+                <span class="spin-icon">&#x21BB;</span>
+              }
+              {{ formatAnalysisStatus(row.analysisStatus) }}
+            </span>
+          </ng-template>
+        </app-data-column>
 
-    @if (tickets().length === 0) {
-      <p class="empty">No tickets match the current filters.</p>
-    }
+        <app-data-column key="category" header="Category" width="130px" [sortable]="false">
+          <ng-template #cell let-row>
+            <app-category-chip [category]="row.category ?? 'GENERAL'" />
+          </ng-template>
+        </app-data-column>
+
+        <app-data-column key="created" header="Created" width="100px" [sortable]="false">
+          <ng-template #cell let-row>
+            <span style="font-size: 12px; color: var(--text-tertiary);">{{ formatDate(row.createdAt) }}</span>
+          </ng-template>
+        </app-data-column>
+
+        <app-data-column key="actions" header="" width="40px" [sortable]="false">
+          <ng-template #cell let-row>
+            <app-bronco-button variant="icon" size="sm" (click)="openQuickActions(row); $event.stopPropagation()">
+              &#x22EE;
+            </app-bronco-button>
+          </ng-template>
+        </app-data-column>
+
+      </app-data-table>
+    </div>
   `,
   styles: [`
-    .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-    .page-header h1 { margin: 0; }
-    .filters { display: flex; gap: 12px; margin-bottom: 16px; align-items: center; flex-wrap: wrap; }
-    .full-width { width: 100%; }
-    .link { text-decoration: none; color: #3f51b5; font-weight: 500; }
-    .link:hover { text-decoration: underline; }
-    .summary-preview { font-size: 12px; color: #666; margin-top: 2px; line-height: 1.3; }
-    .ticket-number { font-size: 12px; color: #666; font-family: monospace; }
-    .code-chip { font-size: 12px; padding: 2px 8px; background: #e8eaf6; border-radius: 4px; color: #3f51b5; font-family: monospace; }
-    .priority { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
-    .priority-critical { background: #ffebee; color: #c62828; }
-    .priority-high { background: #fff3e0; color: #e65100; }
-    .priority-medium { background: #e3f2fd; color: #1565c0; }
-    .priority-low { background: #e8f5e9; color: #2e7d32; }
-    .empty { color: #999; padding: 16px; text-align: center; }
-    .status-chip { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 4px; white-space: nowrap; }
-    .status-open { background: #e3f2fd; color: #1565c0; }
-    .status-in_progress { background: #fff3e0; color: #e65100; }
-    .status-waiting { background: #f3e5f5; color: #6a1b9a; }
-    .status-resolved { background: #e8f5e9; color: #2e7d32; }
-    .status-closed { background: #f5f5f5; color: #666; }
-    .analysis-chip { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 4px; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
-    .analysis-pending { background: #f5f5f5; color: #666; }
-    .analysis-in_progress { background: #e3f2fd; color: #1565c0; }
-    .analysis-completed { background: #e8f5e9; color: #2e7d32; }
-    .analysis-failed { background: #ffebee; color: #c62828; }
-    .analysis-skipped { background: #f5f5f5; color: #999; }
-    .spin-icon { font-size: 14px; width: 14px; height: 14px; animation: spin 1.5s linear infinite; }
-    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    .ticket-list-page {
+      max-width: 1200px;
+    }
+
+    .page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .page-title {
+      font-family: var(--font-primary);
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin: 0;
+    }
+
+    .toolbar-spacer {
+      flex: 1 1 auto;
+    }
+
+    .analysis-chip {
+      font-family: var(--font-primary);
+      font-size: 11px;
+      font-weight: 500;
+      padding: 2px 8px;
+      border-radius: var(--radius-sm);
+      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .analysis-pending { background: var(--bg-muted); color: var(--text-tertiary); }
+    .analysis-in_progress { background: rgba(0, 122, 255, 0.08); color: var(--color-info); }
+    .analysis-completed { background: rgba(52, 199, 89, 0.08); color: var(--color-success); }
+    .analysis-failed { background: rgba(255, 59, 48, 0.08); color: var(--color-error); }
+    .analysis-skipped { background: var(--bg-muted); color: var(--text-tertiary); }
+
+    .spin-icon {
+      display: inline-block;
+      font-size: 12px;
+      animation: spin 1.5s linear infinite;
+    }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
   `],
 })
 export class TicketListComponent implements OnInit {
   private ticketService = inject(TicketService);
   private presetService = inject(TicketFilterPresetService);
+  private detailPanel = inject(DetailPanelService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private dialog = inject(MatDialog);
@@ -206,15 +220,44 @@ export class TicketListComponent implements OnInit {
 
   tickets = signal<Ticket[]>([]);
   presets = signal<TicketFilterPreset[]>([]);
-  activeFilter = ACTIVE_STATUS_FILTER;
-  statusFilter = ACTIVE_STATUS_FILTER;
-  categoryFilter = '';
-  clientIdFilter = '';
-  selectedPresetId = '';
-  columns = ['priority', 'ticketNumber', 'subject', 'client', 'status', 'analysisStatus', 'category', 'source', 'created', 'actions'];
+
+  statusFilter = signal(ACTIVE_STATUS_FILTER);
+  categoryFilter = signal('');
+  clientIdFilter = signal('');
+  selectedPresetId = signal('');
+
+  trackById = (item: Ticket) => item.id;
+
+  statusOptions = [
+    { value: ACTIVE_STATUS_FILTER, label: 'Active' },
+    { value: '', label: 'All' },
+    { value: 'OPEN', label: 'Open' },
+    { value: 'IN_PROGRESS', label: 'In Progress' },
+    { value: 'WAITING', label: 'Waiting' },
+    { value: 'RESOLVED', label: 'Resolved' },
+    { value: 'CLOSED', label: 'Closed' },
+  ];
+
+  categoryOptions = [
+    { value: '', label: 'All Categories' },
+    { value: 'DATABASE_PERF', label: 'Database Perf' },
+    { value: 'BUG_FIX', label: 'Bug Fix' },
+    { value: 'FEATURE_REQUEST', label: 'Feature Request' },
+    { value: 'SCHEMA_CHANGE', label: 'Schema Change' },
+    { value: 'CODE_REVIEW', label: 'Code Review' },
+    { value: 'ARCHITECTURE', label: 'Architecture' },
+    { value: 'GENERAL', label: 'General' },
+  ];
+
+  presetOptions = computed(() =>
+    [{ value: '', label: '— No preset —' }, ...this.presets().map(p => ({
+      value: p.id,
+      label: p.name + (p.isDefault ? ' ★' : ''),
+    }))]
+  );
 
   ngOnInit(): void {
-    this.clientIdFilter = this.route.snapshot.queryParams['clientId'] ?? '';
+    this.clientIdFilter.set(this.route.snapshot.queryParams['clientId'] ?? '');
     this.loadPresets({
       next: () => {
         const defaultPreset = this.presets().find(p => p.isDefault);
@@ -229,9 +272,9 @@ export class TicketListComponent implements OnInit {
 
   load(): void {
     this.ticketService.getTickets({
-      clientId: this.clientIdFilter || undefined,
-      status: this.statusFilter || undefined,
-      category: this.categoryFilter || undefined,
+      clientId: this.clientIdFilter() || undefined,
+      status: this.statusFilter() || undefined,
+      category: this.categoryFilter() || undefined,
       limit: 100,
     }).subscribe(tickets => this.tickets.set(tickets));
   }
@@ -246,27 +289,38 @@ export class TicketListComponent implements OnInit {
     });
   }
 
-  onPresetSelected(): void {
-    if (this.selectedPresetId) {
-      const preset = this.presets().find(p => p.id === this.selectedPresetId);
+  onTicketClick(ticket: Ticket): void {
+    this.detailPanel.open('ticket', ticket.id);
+  }
+
+  onStatusChange(value: string): void {
+    this.statusFilter.set(value);
+    this.selectedPresetId.set('');
+    this.load();
+  }
+
+  onCategoryChange(value: string): void {
+    this.categoryFilter.set(value);
+    this.selectedPresetId.set('');
+    this.load();
+  }
+
+  onPresetSelected(presetId: string): void {
+    this.selectedPresetId.set(presetId);
+    if (presetId) {
+      const preset = this.presets().find(p => p.id === presetId);
       if (preset) this.applyPreset(preset);
     }
     this.load();
   }
 
-  onFilterChange(): void {
-    this.selectedPresetId = '';
-    this.load();
-  }
-
   savePreset(): void {
-    const selected = this.presets().find(p => p.id === this.selectedPresetId);
+    const selected = this.presets().find(p => p.id === this.selectedPresetId());
     if (selected) {
-      // Update existing preset with current filters
       this.presetService.updatePreset(selected.id, {
-        statusFilter: this.statusFilter || null,
-        categoryFilter: this.categoryFilter || null,
-        clientIdFilter: this.clientIdFilter || null,
+        statusFilter: this.statusFilter() || null,
+        categoryFilter: this.categoryFilter() || null,
+        clientIdFilter: this.clientIdFilter() || null,
       }).subscribe({
         next: () => {
           this.snackBar.open(`Preset "${selected.name}" updated`, 'OK', { duration: 2000 });
@@ -275,18 +329,17 @@ export class TicketListComponent implements OnInit {
         error: (err) => this.snackBar.open(err.error?.error ?? 'Failed to update preset', 'OK', { duration: 3000 }),
       });
     } else {
-      // Create new preset
       const name = window.prompt('Preset name:');
       if (!name?.trim()) return;
       this.presetService.createPreset({
         name: name.trim(),
-        statusFilter: this.statusFilter || null,
-        categoryFilter: this.categoryFilter || null,
-        clientIdFilter: this.clientIdFilter || null,
+        statusFilter: this.statusFilter() || null,
+        categoryFilter: this.categoryFilter() || null,
+        clientIdFilter: this.clientIdFilter() || null,
       }).subscribe({
         next: (preset) => {
           this.snackBar.open(`Preset "${preset.name}" created`, 'OK', { duration: 2000 });
-          this.loadPresets({ next: () => { this.selectedPresetId = preset.id; } });
+          this.loadPresets({ next: () => { this.selectedPresetId.set(preset.id); } });
         },
         error: (err) => this.snackBar.open(err.error?.error ?? 'Failed to create preset', 'OK', { duration: 3000 }),
       });
@@ -294,13 +347,13 @@ export class TicketListComponent implements OnInit {
   }
 
   deletePreset(): void {
-    const selected = this.presets().find(p => p.id === this.selectedPresetId);
+    const selected = this.presets().find(p => p.id === this.selectedPresetId());
     if (!selected) return;
     if (!confirm(`Delete preset "${selected.name}"?`)) return;
     this.presetService.deletePreset(selected.id).subscribe({
       next: () => {
         this.snackBar.open(`Preset "${selected.name}" deleted`, 'OK', { duration: 2000 });
-        this.selectedPresetId = '';
+        this.selectedPresetId.set('');
         this.loadPresets();
       },
       error: (err) => this.snackBar.open(err.error?.error ?? 'Failed to delete preset', 'OK', { duration: 3000 }),
@@ -308,7 +361,7 @@ export class TicketListComponent implements OnInit {
   }
 
   toggleDefault(checked: boolean): void {
-    const selected = this.presets().find(p => p.id === this.selectedPresetId);
+    const selected = this.presets().find(p => p.id === this.selectedPresetId());
     if (!selected) return;
     this.presetService.updatePreset(selected.id, { isDefault: checked }).subscribe({
       next: () => {
@@ -320,25 +373,21 @@ export class TicketListComponent implements OnInit {
   }
 
   isSelectedPresetDefault(): boolean {
-    const selected = this.presets().find(p => p.id === this.selectedPresetId);
+    const selected = this.presets().find(p => p.id === this.selectedPresetId());
     return selected?.isDefault ?? false;
   }
 
   createTicket(): void {
     const ref = this.dialog.open(TicketDialogComponent, {
       width: '600px',
-      data: { clientId: this.clientIdFilter || undefined },
+      data: { clientId: this.clientIdFilter() || undefined },
     });
     ref.afterClosed().subscribe(result => {
       if (result) {
         this.load();
-        this.router.navigate(['/tickets', result.id]);
+        this.detailPanel.open('ticket', result.id);
       }
     });
-  }
-
-  formatDate(dateStr: string): string {
-    return new Date(dateStr).toLocaleDateString();
   }
 
   openQuickActions(ticket: Ticket): void {
@@ -351,15 +400,8 @@ export class TicketListComponent implements OnInit {
     });
   }
 
-  formatStatus(status: string): string {
-    const labels: Record<string, string> = {
-      OPEN: 'Open',
-      IN_PROGRESS: 'In Progress',
-      WAITING: 'Waiting',
-      RESOLVED: 'Resolved',
-      CLOSED: 'Closed',
-    };
-    return labels[status] ?? status;
+  formatDate(dateStr: string): string {
+    return new Date(dateStr).toLocaleDateString();
   }
 
   formatAnalysisStatus(status: string | undefined): string {
@@ -377,12 +419,28 @@ export class TicketListComponent implements OnInit {
     return text.length > maxLen ? text.slice(0, maxLen) + '...' : text;
   }
 
+  mapPriority(priority: string): 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' {
+    const valid = new Set(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']);
+    return valid.has(priority) ? priority as 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' : 'MEDIUM';
+  }
+
+  mapStatus(status: string): 'open' | 'in_progress' | 'analyzing' | 'resolved' | 'closed' {
+    const map: Record<string, 'open' | 'in_progress' | 'analyzing' | 'resolved' | 'closed'> = {
+      OPEN: 'open',
+      IN_PROGRESS: 'in_progress',
+      ANALYZING: 'analyzing',
+      RESOLVED: 'resolved',
+      CLOSED: 'closed',
+    };
+    return map[status] ?? 'open';
+  }
+
   private applyPreset(preset: TicketFilterPreset): void {
-    this.selectedPresetId = preset.id;
-    this.statusFilter = preset.statusFilter ?? this.activeFilter;
-    this.categoryFilter = preset.categoryFilter ?? '';
-    if (!this.clientIdFilter) {
-      this.clientIdFilter = preset.clientIdFilter ?? '';
+    this.selectedPresetId.set(preset.id);
+    this.statusFilter.set(preset.statusFilter ?? ACTIVE_STATUS_FILTER);
+    this.categoryFilter.set(preset.categoryFilter ?? '');
+    if (!this.clientIdFilter()) {
+      this.clientIdFilter.set(preset.clientIdFilter ?? '');
     }
   }
 }
