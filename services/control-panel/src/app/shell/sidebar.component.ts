@@ -13,7 +13,7 @@ import { FailedJobsService } from '../core/services/failed-jobs.service';
   template: `
     <nav class="sidebar">
       <div class="brand">
-        <div class="brand-logo">iT</div>
+        <img class="brand-logo" src="logo.svg" alt="Bronco">
         <div class="brand-text">
           <span class="brand-name">iTrack 3</span>
           <span class="brand-subtitle">with iTrackAI®</span>
@@ -92,15 +92,9 @@ import { FailedJobsService } from '../core/services/failed-jobs.service';
     .brand-logo {
       width: 28px;
       height: 28px;
-      background: var(--accent);
-      color: var(--text-on-accent);
       border-radius: var(--radius-sm);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 12px;
-      font-weight: 600;
       flex-shrink: 0;
+      object-fit: cover;
     }
     .brand-text {
       display: flex;
