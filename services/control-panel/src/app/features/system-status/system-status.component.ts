@@ -77,7 +77,7 @@ import { McpServerInfoComponent } from '../../shared/components/mcp-server-info.
         }
 
         <!-- Infrastructure -->
-        <div class="section-title">Infrastructure</div>
+        <h2 class="section-title">Infrastructure</h2>
         <div class="component-grid">
           @for (comp of infrastructure(); track comp.name) {
             <div class="status-card">
@@ -87,7 +87,7 @@ import { McpServerInfoComponent } from '../../shared/components/mcp-server-info.
                   {{ comp.name }}
                 </div>
                 @if (comp.controllable) {
-                  <button class="btn-icon" [matMenuTriggerFor]="menu" [disabled]="controlling() === serviceKey(comp.name)" title="Service controls">
+                  <button type="button" class="btn-icon" [matMenuTriggerFor]="menu" [disabled]="controlling() === serviceKey(comp.name)" [attr.aria-label]="'Service controls for ' + comp.name" title="Service controls">
                     @if (controlling() === serviceKey(comp.name)) {
                       <span class="spinner-inline"></span>
                     } @else {
@@ -151,7 +151,7 @@ import { McpServerInfoComponent } from '../../shared/components/mcp-server-info.
         </div>
 
         <!-- Services -->
-        <div class="section-title">Services</div>
+        <h2 class="section-title">Services</h2>
         <div class="component-grid">
           @for (comp of services(); track comp.name) {
             <div class="status-card">
@@ -161,7 +161,7 @@ import { McpServerInfoComponent } from '../../shared/components/mcp-server-info.
                   {{ comp.name }}
                 </div>
                 @if (comp.controllable) {
-                  <button class="btn-icon" [matMenuTriggerFor]="svcMenu" [disabled]="controlling() === serviceKey(comp.name)" title="Service controls">
+                  <button type="button" class="btn-icon" [matMenuTriggerFor]="svcMenu" [disabled]="controlling() === serviceKey(comp.name)" [attr.aria-label]="'Service controls for ' + comp.name" title="Service controls">
                     @if (controlling() === serviceKey(comp.name)) {
                       <span class="spinner-inline"></span>
                     } @else {
@@ -222,7 +222,7 @@ import { McpServerInfoComponent } from '../../shared/components/mcp-server-info.
         </div>
 
         <!-- External Dependencies -->
-        <div class="section-title">External Dependencies</div>
+        <h2 class="section-title">External Dependencies</h2>
         <div class="component-grid">
           @for (comp of external(); track comp.name) {
             <div class="status-card">
@@ -271,7 +271,7 @@ import { McpServerInfoComponent } from '../../shared/components/mcp-server-info.
 
         <!-- LLM Providers -->
         @if (llmProviders().length > 0) {
-          <div class="section-title">LLM Providers</div>
+          <h2 class="section-title">LLM Providers</h2>
           <div class="component-grid">
             @for (llm of llmProviders(); track llm.name) {
               <div class="status-card">
@@ -337,7 +337,7 @@ import { McpServerInfoComponent } from '../../shared/components/mcp-server-info.
 
         <!-- Client MCP Servers -->
         @if (mcpServers().length > 0) {
-          <div class="section-title">Client MCP Servers</div>
+          <h2 class="section-title">Client MCP Servers</h2>
           <div class="component-grid">
             @for (mcp of mcpServers(); track (mcp.clientShortCode + ':' + mcp.label)) {
               <div class="status-card">
@@ -365,7 +365,7 @@ import { McpServerInfoComponent } from '../../shared/components/mcp-server-info.
 
         <!-- Job queues -->
         @if (queueEntries().length > 0) {
-          <div class="section-title">Job Queues (BullMQ)</div>
+          <h2 class="section-title">Job Queues (BullMQ)</h2>
           <div class="component-grid">
             @for (entry of queueEntries(); track entry[0]) {
               <div class="status-card queue-card">
