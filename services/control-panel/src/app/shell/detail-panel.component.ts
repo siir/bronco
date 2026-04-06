@@ -2,7 +2,7 @@ import { Component, effect, inject, signal } from '@angular/core';
 import { Subscription } from 'rxjs';
 import { Router, RouterLink } from '@angular/router';
 import { DatePipe, SlicePipe } from '@angular/common';
-import { DetailPanelService, DetailEntityType } from '../core/services/detail-panel.service.js';
+import { DetailPanelService, DetailEntityType } from '../core/services/detail-panel.service';
 import { TicketService, Ticket } from '../core/services/ticket.service';
 import { ClientService, Client } from '../core/services/client.service';
 import { ScheduledProbeService, ScheduledProbe } from '../core/services/scheduled-probe.service';
@@ -168,7 +168,7 @@ const STATUS_MAP: Record<string, 'open' | 'in_progress' | 'analyzing' | 'resolve
             </div>
           }
           <div class="compact-footer">
-            <a class="view-full-link" [routerLink]="['/tickets', t.id]" (click)="detailPanel.close()">View Full Details</a>
+            <a class="view-full-link" [routerLink]="['/tickets', t.id]" (click)="detailPanel.dismiss()">View Full Details</a>
           </div>
         </div>
         }

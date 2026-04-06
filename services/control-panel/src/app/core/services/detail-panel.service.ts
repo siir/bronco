@@ -40,6 +40,13 @@ export class DetailPanelService {
     });
   }
 
+  /** Reset panel state without navigating — use when another navigation is already in progress. */
+  dismiss(): void {
+    this.entityType.set(null);
+    this.entityId.set(null);
+    this.mode.set('full');
+  }
+
   /** Call from shell on init to restore panel from query param */
   restoreFromUrl(params: { detail?: string; type?: string; mode?: string }): void {
     if (params.detail) {
