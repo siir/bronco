@@ -2,6 +2,7 @@ import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { AuthService } from '../core/services/auth.service';
+import { ThemeService } from '../core/services/theme.service';
 import { VersionService } from '../core/services/version.service';
 import { TicketService, ACTIVE_STATUS_FILTER } from '../core/services/ticket.service';
 import { FailedJobsService } from '../core/services/failed-jobs.service';
@@ -67,7 +68,11 @@ import { FailedJobsService } from '../core/services/failed-jobs.service';
 
       <div class="sidebar-footer">
         <button class="nav-item logout-btn" (click)="authService.logout()">Logout</button>
-        <span class="version-label">Project Bronco · v{{ version() }}</span>
+        <a routerLink="/profile" class="theme-indicator">
+          <span class="theme-dot" [style.background]="themeService.currentTheme().accentColor"></span>
+          <span>{{ themeService.currentTheme().name }}</span>
+        </a>
+        <span class="version-label">v{{ version() }}</span>
       </div>
     </nav>
   `,
@@ -162,6 +167,26 @@ import { FailedJobsService } from '../core/services/failed-jobs.service';
       border: none;
       font-family: var(--font-primary);
     }
+    .theme-indicator {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 16px;
+      font-size: 12px;
+      color: var(--text-tertiary);
+      text-decoration: none;
+      cursor: pointer;
+      transition: color 120ms ease;
+    }
+    .theme-indicator:hover {
+      color: var(--text-secondary);
+    }
+    .theme-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
     .version-label {
       display: block;
       padding: 2px 16px 8px;
@@ -183,6 +208,7 @@ import { FailedJobsService } from '../core/services/failed-jobs.service';
 })
 export class SidebarComponent implements OnInit {
   readonly authService = inject(AuthService);
+  readonly themeService = inject(ThemeService);
   private readonly versionService = inject(VersionService);
   private readonly ticketService = inject(TicketService);
   private readonly failedJobsService = inject(FailedJobsService);
