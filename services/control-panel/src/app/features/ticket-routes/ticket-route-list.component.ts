@@ -120,9 +120,9 @@ const CATEGORIES = [
                     [checked]="route.isActive"
                     (checkedChange)="toggleActive(route)">
                   </app-toggle-switch>
-                  <app-bronco-button variant="ghost" size="sm" title="Regenerate AI summary" (click)="regenerateSummary(route)">✦</app-bronco-button>
-                  <app-bronco-button variant="ghost" size="sm" title="Edit route" (click)="editRoute(route)">Edit</app-bronco-button>
-                  <app-bronco-button variant="ghost" size="sm" title="Delete route" (click)="deleteRoute(route)">
+                  <app-bronco-button variant="ghost" size="sm" (click)="regenerateSummary(route)">✦</app-bronco-button>
+                  <app-bronco-button variant="ghost" size="sm" (click)="editRoute(route)">Edit</app-bronco-button>
+                  <app-bronco-button variant="ghost" size="sm" (click)="deleteRoute(route)">
                     <span class="destructive-text">Delete</span>
                   </app-bronco-button>
                 </div>
@@ -162,7 +162,7 @@ const CATEGORIES = [
                           <td class="col-order">{{ s.stepOrder }}</td>
                           <td>{{ s.name }}</td>
                           <td>
-                            <span class="step-type-chip" [class]="'phase-' + stepPhase(s.stepType)">{{ s.stepType }}</span>
+                            <span [class]="'step-type-chip phase-' + stepPhase(s.stepType)">{{ s.stepType }}</span>
                           </td>
                           <td>
                             @if (s.taskTypeOverride) {
@@ -183,8 +183,8 @@ const CATEGORIES = [
                           </td>
                           <td class="col-actions">
                             <div class="step-actions">
-                              <app-bronco-button variant="ghost" size="sm" title="Edit step" (click)="editStep(route, s)">Edit</app-bronco-button>
-                              <app-bronco-button variant="ghost" size="sm" title="Delete step" (click)="deleteStep(route, s)">
+                              <app-bronco-button variant="ghost" size="sm" (click)="editStep(route, s)">Edit</app-bronco-button>
+                              <app-bronco-button variant="ghost" size="sm" (click)="deleteStep(route, s)">
                                 <span class="destructive-text">Delete</span>
                               </app-bronco-button>
                             </div>
@@ -514,12 +514,17 @@ export class TicketRouteListComponent implements OnInit {
   }
 
   toggleActive(route: TicketRoute): void {
-    this.routeService.updateRoute(route.id, { isActive: !route.isActive }).subscribe({
+    const newState = !route.isActive;
+    route.isActive = newState;
+    this.routeService.updateRoute(route.id, { isActive: newState }).subscribe({
       next: () => {
-        this.snackBar.open(`Route ${route.isActive ? 'deactivated' : 'activated'}`, 'OK', { duration: 3000 });
+        this.snackBar.open(`Route ${newState ? 'activated' : 'deactivated'}`, 'OK', { duration: 3000 });
         this.loadRoutes();
       },
-      error: () => this.snackBar.open('Failed to update route', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: () => {
+        route.isActive = !newState;
+        this.snackBar.open('Failed to update route', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+      },
     });
   }
 
@@ -569,12 +574,17 @@ export class TicketRouteListComponent implements OnInit {
   }
 
   toggleStepActive(route: TicketRoute, step: TicketRouteStep): void {
-    this.routeService.updateStep(route.id, step.id, { isActive: !step.isActive }).subscribe({
+    const newState = !step.isActive;
+    step.isActive = newState;
+    this.routeService.updateStep(route.id, step.id, { isActive: newState }).subscribe({
       next: () => {
-        this.snackBar.open(`Step ${step.isActive ? 'deactivated' : 'activated'}`, 'OK', { duration: 3000 });
+        this.snackBar.open(`Step ${newState ? 'activated' : 'deactivated'}`, 'OK', { duration: 3000 });
         this.loadRoutes();
       },
-      error: () => this.snackBar.open('Failed to update step', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: () => {
+        step.isActive = !newState;
+        this.snackBar.open('Failed to update step', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+      },
     });
   }
 

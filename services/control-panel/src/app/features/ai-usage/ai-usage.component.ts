@@ -165,8 +165,7 @@ const DATE_PRESETS: DatePreset[] = [
         <app-tab label="Model Costs">
           <div class="tab-content">
             <div class="toolbar-row">
-              <app-bronco-button variant="primary" (click)="refreshCosts()" [disabled]="loading()"
-                                 title="Fetch latest models and pricing from OpenRouter + Ollama">
+              <app-bronco-button variant="primary" (click)="refreshCosts()" [disabled]="loading()">
                 ⟳ Refresh Costs
               </app-bronco-button>
               <app-bronco-button variant="secondary" (click)="addModel()">
@@ -213,11 +212,11 @@ const DATE_PRESETS: DatePreset[] = [
               <app-data-column key="actions" header="" [sortable]="false" width="160px">
                 <ng-template #cell let-row>
                   <div class="action-btns">
-                    <app-bronco-button variant="ghost" size="sm" title="Edit" (click)="editModel(row)">Edit</app-bronco-button>
+                    <app-bronco-button variant="ghost" size="sm" (click)="editModel(row)">Edit</app-bronco-button>
                     @if (row.isCustomCost) {
-                      <app-bronco-button variant="ghost" size="sm" title="Clear custom cost" (click)="clearCustomCost(row)">Reset</app-bronco-button>
+                      <app-bronco-button variant="ghost" size="sm" (click)="clearCustomCost(row)">Reset</app-bronco-button>
                     }
-                    <app-bronco-button variant="ghost" size="sm" title="Delete" (click)="deleteModel(row)">
+                    <app-bronco-button variant="ghost" size="sm" (click)="deleteModel(row)">
                       <span class="destructive-text">Delete</span>
                     </app-bronco-button>
                   </div>
@@ -250,7 +249,7 @@ const DATE_PRESETS: DatePreset[] = [
                   </div>
                 }
                 @if (logProviderFilters.length > 0) {
-                  <button class="filter-clear" (click)="logProviderFilters = []; resetAndLoadLogs(); $event.stopPropagation()">×</button>
+                  <button class="filter-clear" aria-label="Clear provider filter" (click)="logProviderFilters = []; resetAndLoadLogs(); $event.stopPropagation()">×</button>
                 }
               </div>
 
@@ -276,7 +275,7 @@ const DATE_PRESETS: DatePreset[] = [
                   </div>
                 }
                 @if (logTaskTypeFilters.length > 0) {
-                  <button class="filter-clear" (click)="logTaskTypeFilters = []; resetAndLoadLogs(); $event.stopPropagation()">×</button>
+                  <button class="filter-clear" aria-label="Clear task type filter" (click)="logTaskTypeFilters = []; resetAndLoadLogs(); $event.stopPropagation()">×</button>
                 }
               </div>
 
@@ -298,7 +297,7 @@ const DATE_PRESETS: DatePreset[] = [
                   </div>
                 }
                 @if (logPromptKeyFilters.length > 0) {
-                  <button class="filter-clear" (click)="logPromptKeyFilters = []; resetAndLoadLogs(); $event.stopPropagation()">×</button>
+                  <button class="filter-clear" aria-label="Clear prompt key filter" (click)="logPromptKeyFilters = []; resetAndLoadLogs(); $event.stopPropagation()">×</button>
                 }
               </div>
             </div>
@@ -394,13 +393,14 @@ const DATE_PRESETS: DatePreset[] = [
                       <tr class="log-row" [class.expanded-row]="expandedLogIds().has(row.id)"
                           (click)="toggleLog(row)">
                         <td class="col-checkbox" (click)="$event.stopPropagation()">
-                          <input type="checkbox"
+                          <input type="checkbox" aria-label="Select log entry"
                                  [checked]="selectedLogIds().has(row.id)"
                                  (change)="toggleRowSelection(row.id, $any($event.target).checked)">
                         </td>
                         <td class="col-expand">
                           <button class="expand-btn"
                                   [title]="expandedLogIds().has(row.id) ? 'Collapse' : 'Show prompt/response'"
+                                  [attr.aria-label]="expandedLogIds().has(row.id) ? 'Collapse row' : 'Expand row'"
                                   (click)="toggleLog(row); $event.stopPropagation()">
                             {{ expandedLogIds().has(row.id) ? '▴' : '▾' }}
                           </button>
