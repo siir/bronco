@@ -4,8 +4,8 @@ import { Component, input } from '@angular/core';
   selector: 'app-form-field',
   standalone: true,
   template: `
-    <div class="form-field" [class.has-error]="error()">
-      <label class="field-label">{{ label() }}</label>
+    <label class="form-field" [class.has-error]="error()">
+      <span class="field-label">{{ label() }}</span>
       <div class="field-input">
         <ng-content />
       </div>
@@ -14,7 +14,7 @@ import { Component, input } from '@angular/core';
       } @else if (hint()) {
         <span class="field-hint">{{ hint() }}</span>
       }
-    </div>
+    </label>
   `,
   styles: [`
     .form-field {

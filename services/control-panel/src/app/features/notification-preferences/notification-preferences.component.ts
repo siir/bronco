@@ -194,8 +194,7 @@ const EMAIL_TARGET_OPTIONS = [
                   @if (saving()) {
                     <mat-spinner diameter="20" />
                   } @else {
-                    <mat-icon>save</mat-icon>
-                    Save All
+                    <span><mat-icon>save</mat-icon> Save All</span>
                   }
                 </button>
               </div>
