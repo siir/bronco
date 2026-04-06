@@ -401,14 +401,14 @@ const STATUS_MAP: Record<string, 'open' | 'in_progress' | 'analyzing' | 'resolve
               <div class="detail-section">
                 <p class="summary-text analysis-preformatted">{{ a.suggestions }}</p>
               </div>
-              @if (a.status === 'REJECTED' && a.rejectionReason) {
-                <div class="rejection-card">
-                  <span class="section-label">Rejection Reason</span>
-                  <p class="summary-text">{{ a.rejectionReason }}</p>
-                </div>
-              }
             } @else {
               <p class="placeholder-text">No suggestions</p>
+            }
+            @if (a.status === 'REJECTED' && a.rejectionReason) {
+              <div class="rejection-card">
+                <span class="section-label">Rejection Reason</span>
+                <p class="summary-text">{{ a.rejectionReason }}</p>
+              </div>
             }
           </app-tab>
         </app-tab-group>
@@ -928,20 +928,20 @@ export class DetailPanelComponent {
     }
   }
 
+  private ingestionStatusTone(status: string): 'meta-success' | 'meta-error' | 'meta-info' | 'meta-muted' {
+    const s = status.trim().toUpperCase();
+    if (s === 'COMPLETED' || s === 'SUCCESS' || s === 'SUCCEEDED' || s === 'DONE') return 'meta-success';
+    if (s === 'FAILED' || s === 'ERROR') return 'meta-error';
+    if (s === 'RUNNING' || s === 'PROCESSING' || s === 'IN_PROGRESS') return 'meta-info';
+    return 'meta-muted';
+  }
+
   jobStatusClass(status: string): string {
-    const s = status.toUpperCase();
-    if (s === 'COMPLETED') return 'meta-badge meta-success';
-    if (s === 'FAILED') return 'meta-badge meta-error';
-    if (s === 'RUNNING') return 'meta-badge meta-info';
-    return 'meta-badge meta-muted';
+    return `meta-badge ${this.ingestionStatusTone(status)}`;
   }
 
   stepStatusClass(status: string): string {
-    const s = status.toUpperCase();
-    if (s === 'COMPLETED') return 'meta-success';
-    if (s === 'FAILED') return 'meta-error';
-    if (s === 'RUNNING') return 'meta-info';
-    return 'meta-muted';
+    return this.ingestionStatusTone(status);
   }
 
 }
