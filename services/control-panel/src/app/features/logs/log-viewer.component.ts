@@ -37,7 +37,7 @@ import {
         <app-select
           [value]="serviceFilter"
           [options]="serviceOptions()"
-          placeholder="Service"
+          placeholder=""
           (valueChange)="serviceFilter = $event; resetAndLoad()">
         </app-select>
         <app-select
@@ -62,7 +62,7 @@ import {
       </div>
 
       <div class="table-card">
-        <app-data-table [data]="logs()" [trackBy]="trackById" [rowClickable]="true" (rowClick)="hasDetails($event) && toggleExpand($event.id)" emptyMessage="No logs match the current filters.">
+        <app-data-table [data]="logs()" [trackBy]="trackById" (rowClick)="hasDetails($event) && toggleExpand($event.id)" emptyMessage="No logs match the current filters.">
           <app-data-column key="level" header="Level" [sortable]="false" width="80px">
             <ng-template #cell let-log>
               <span class="level level-{{ log.level.toLowerCase() }}">{{ log.level }}</span>
@@ -103,7 +103,7 @@ import {
           <app-data-column key="expand" header="" [sortable]="false" width="48px">
             <ng-template #cell let-log>
               @if (hasDetails(log)) {
-                <button class="icon-btn" (click)="toggleExpand(log.id); $event.stopPropagation()">
+                <button type="button" class="icon-btn" [attr.aria-label]="expandedId() === log.id ? 'Collapse details' : 'Expand details'" (click)="toggleExpand(log.id); $event.stopPropagation()">
                   {{ expandedId() === log.id ? '−' : '+' }}
                 </button>
               }

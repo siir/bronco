@@ -54,7 +54,7 @@ import {
         <app-select
           [value]="classificationFilter"
           [options]="classificationOptions"
-          placeholder="Classification"
+          placeholder=""
           (valueChange)="classificationFilter = $event; resetAndLoad()">
         </app-select>
         <app-select
@@ -135,7 +135,7 @@ import {
 
           <app-data-column key="actions" header="" [sortable]="false" width="48px">
             <ng-template #cell let-log>
-              <button class="icon-btn" [matMenuTriggerFor]="menu" (click)="$event.stopPropagation()">···</button>
+              <button type="button" class="icon-btn" aria-label="Open actions menu" [matMenuTriggerFor]="menu" (click)="$event.stopPropagation()">···</button>
               <mat-menu #menu="matMenu">
                 @if (log.status === 'failed' || log.classification === 'NOISE' || log.classification === 'AUTO_REPLY') {
                   <button mat-menu-item (click)="retryEmail(log)">Retry</button>
