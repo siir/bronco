@@ -9,7 +9,7 @@ export class LocalDatePipe implements PipeTransform {
     if (includeTime) {
       return d.toLocaleString(undefined, {
         month: 'short', day: 'numeric', year: 'numeric',
-        hour: '2-digit', minute: '2-digit', hour12: false,
+        hour: 'numeric', minute: '2-digit', hour12: true,
       });
     }
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });

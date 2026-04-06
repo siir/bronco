@@ -399,7 +399,7 @@ interface FlowNode {
                       {{ group.stepName }}
                     </div>
                     @for (entry of group.entries; track entry.id) {
-                      @if (entry.type === 'ai') {
+                      @if (entry.type === 'ai' && !isSubTask(entry)) {
                         <div class="conv-ai-block">
                           <div class="conv-ai-header">
                             <span class="conv-task-type">{{ entry.taskType }}</span>
@@ -418,6 +418,18 @@ interface FlowNode {
                               }
                             </div>
                           }
+                          @if (entry.archive?.fullPrompt || entry.promptText) {
+                            <div class="conv-final-response conv-prompt-block">
+                              <span class="conv-final-label">Prompt</span>
+                              <pre class="conv-response-text" [class.clamped]="!convPromptExpanded[entry.id]">{{ convPromptText(entry) }}</pre>
+                              @if (isMultilineConvPrompt(entry)) {
+                                <button mat-button class="inline-expand-btn" (click)="convPromptExpanded[entry.id] = !convPromptExpanded[entry.id]">
+                                  {{ convPromptExpanded[entry.id] ? 'less' : 'more' }}
+                                  <mat-icon>{{ convPromptExpanded[entry.id] ? 'keyboard_double_arrow_up' : 'keyboard_double_arrow_down' }}</mat-icon>
+                                </button>
+                              }
+                            </div>
+                          }
                           @if (entry.archive?.fullResponse || entry.responseText) {
                             <div class="conv-final-response">
                               <span class="conv-final-label">Response</span>
@@ -429,6 +441,44 @@ interface FlowNode {
                                 </button>
                               }
                             </div>
+                          }
+                          <!-- Nested sub-tasks -->
+                          @if (getOrchestrationId(entry); as orchestrationId) {
+                            @for (sub of getSubTasks(group.entries, orchestrationId); track sub.id) {
+                              <div class="conv-subtask">
+                                <div class="conv-ai-header">
+                                  <mat-icon class="subtask-icon">subdirectory_arrow_right</mat-icon>
+                                  <span class="conv-task-type">{{ sub.taskType }}</span>
+                                  <span class="conv-model">{{ sub.model }}</span>
+                                  <span class="conv-tokens">{{ sub.inputTokens | number }}in / {{ sub.outputTokens | number }}out</span>
+                                  @if (sub.costUsd != null) { <span class="conv-cost">\${{ sub.costUsd | number:'1.4-4' }}</span> }
+                                </div>
+                                @if (sub.archive?.fullPrompt || sub.promptText) {
+                                  <div class="conv-final-response conv-prompt-block">
+                                    <span class="conv-final-label">Prompt</span>
+                                    <pre class="conv-response-text" [class.clamped]="!convPromptExpanded[sub.id]">{{ convPromptText(sub) }}</pre>
+                                    @if (isMultilineConvPrompt(sub)) {
+                                      <button mat-button class="inline-expand-btn" (click)="convPromptExpanded[sub.id] = !convPromptExpanded[sub.id]">
+                                        {{ convPromptExpanded[sub.id] ? 'less' : 'more' }}
+                                        <mat-icon>{{ convPromptExpanded[sub.id] ? 'keyboard_double_arrow_up' : 'keyboard_double_arrow_down' }}</mat-icon>
+                                      </button>
+                                    }
+                                  </div>
+                                }
+                                @if (sub.archive?.fullResponse || sub.responseText) {
+                                  <div class="conv-final-response">
+                                    <span class="conv-final-label">Response</span>
+                                    <pre class="conv-response-text" [class.clamped]="!convExpanded[sub.id]">{{ convResponseText(sub) }}</pre>
+                                    @if (isMultilineConv(sub)) {
+                                      <button mat-button class="inline-expand-btn" (click)="convExpanded[sub.id] = !convExpanded[sub.id]">
+                                        {{ convExpanded[sub.id] ? 'less' : 'more' }}
+                                        <mat-icon>{{ convExpanded[sub.id] ? 'keyboard_double_arrow_up' : 'keyboard_double_arrow_down' }}</mat-icon>
+                                      </button>
+                                    }
+                                  </div>
+                                }
+                              </div>
+                            }
                           }
                         </div>
                       }
@@ -452,6 +502,18 @@ interface FlowNode {
                               @if (turn.toolName) { <span class="conv-tool-call">🔧 {{ turn.toolName }}</span> }
                               @if (turn.tokenCount) { <span class="conv-token-count">{{ turn.tokenCount | number }} tokens</span> }
                             </div>
+                          }
+                        </div>
+                      }
+                      @if (entry.archive?.fullPrompt || entry.promptText) {
+                        <div class="conv-final-response conv-prompt-block">
+                          <span class="conv-final-label">Prompt</span>
+                          <pre class="conv-response-text" [class.clamped]="!convPromptExpanded[entry.id]">{{ convPromptText(entry) }}</pre>
+                          @if (isMultilineConvPrompt(entry)) {
+                            <button mat-button class="inline-expand-btn" (click)="convPromptExpanded[entry.id] = !convPromptExpanded[entry.id]">
+                              {{ convPromptExpanded[entry.id] ? 'less' : 'more' }}
+                              <mat-icon>{{ convPromptExpanded[entry.id] ? 'keyboard_double_arrow_up' : 'keyboard_double_arrow_down' }}</mat-icon>
+                            </button>
                           }
                         </div>
                       }
@@ -772,17 +834,6 @@ interface FlowNode {
                     </div>
                   }
                 }
-                @if (recommendationActions(event); as actions) {
-                  <div class="recommendation-actions">
-                    @for (action of actions; track $index) {
-                      <div class="recommendation-row" [class.action-applied]="action.applied">
-                        <mat-icon class="action-status-icon">{{ action.applied ? 'check_circle' : 'radio_button_unchecked' }}</mat-icon>
-                        <span class="action-label">{{ action.action }}</span>
-                        @if (action.detail) { <span class="action-detail">{{ action.detail }}</span> }
-                      </div>
-                    }
-                  </div>
-                }
               }
               @if (event.content) {
                 @if (event.eventType === 'SYSTEM_NOTE' && isJsonContent(event.content)) {
@@ -797,38 +848,48 @@ interface FlowNode {
                     }
                   </div>
                 } @else if (event.eventType === 'AI_RECOMMENDATION' && hasActionsMeta(event)) {
-                  <!-- AI Recommendation with actions — human-readable list -->
-                  <div class="recommendation-actions">
-                    @for (act of getEventActions(event); track $index) {
-                      <div class="rec-action-row">
-                        <mat-icon class="rec-icon">{{ recActionIcon(act.action) }}</mat-icon>
-                        <div class="rec-action-detail">
-                          <span class="rec-action-type">{{ formatRecActionType(act.action) }}</span>
-                          @if (act.value) {
-                            <span class="rec-action-value">{{ act.value }}</span>
-                          }
-                          <span class="rec-action-reason">{{ act.reason }}</span>
-                        </div>
-                        <span class="rec-status-badge" [class]="'rec-badge-' + getActionOutcome(act)">
-                          {{ getActionOutcomeLabel(act) }}
-                        </span>
-                        @if (getActionOutcome(act) === 'pending_approval') {
-                          <button mat-stroked-button color="primary" class="rec-approve-btn" (click)="approvePendingAction(act.pendingActionId)">Approve</button>
-                          <button mat-stroked-button class="rec-dismiss-btn" (click)="dismissPendingAction(act.pendingActionId)">Dismiss</button>
-                        }
-                      </div>
-                    }
-                  </div>
-                  @if (event.content && event.content.length > 0) {
-                    <div class="event-content markdown-content" [class.collapsed]="!expandedEvents[event.id + '-raw'] && event.content.length > 300">
-                      <div [innerHTML]="event.content | markdown"></div>
+                  <!-- AI Recommendation summary above action cards (action bullets stripped) -->
+                  @if (recSummaryContent(event); as summary) {
+                    <div class="event-content markdown-content" [class.collapsed]="!expandedEvents[event.id + '-raw'] && summary.length > 300">
+                      <div [innerHTML]="summary | markdown"></div>
                     </div>
-                    @if (event.content.length > 300) {
+                    @if (summary.length > 300) {
                       <button mat-button class="show-more-btn" (click)="expandedEvents[event.id + '-raw'] = !expandedEvents[event.id + '-raw']">
                         {{ expandedEvents[event.id + '-raw'] ? 'Hide details' : 'Show details' }}
                       </button>
                     }
                   }
+                  <!-- AI Recommendation action cards -->
+                  <div class="recommendation-actions">
+                    @for (act of getEventActions(event); track $index) {
+                      <div class="rec-action-row" [class.rec-resolved]="getActionOutcome(act) !== 'pending_approval'">
+                        <div class="rec-action-header" (click)="getActionOutcome(act) !== 'pending_approval' ? expandedEvents[event.id + '-act-' + $index] = !expandedEvents[event.id + '-act-' + $index] : null">
+                          <mat-icon class="rec-icon">{{ recActionIcon(act.action) }}</mat-icon>
+                          <span class="rec-action-type">{{ formatRecActionType(act.action) }}</span>
+                          <span class="rec-status-badge" [class]="'rec-badge-' + getActionOutcome(act)">
+                            {{ getActionOutcomeLabel(act) }}
+                          </span>
+                          @if (getActionOutcome(act) !== 'pending_approval') {
+                            <mat-icon class="rec-expand-icon">{{ expandedEvents[event.id + '-act-' + $index] ? 'expand_less' : 'expand_more' }}</mat-icon>
+                          }
+                        </div>
+                        @if (getActionOutcome(act) === 'pending_approval' || expandedEvents[event.id + '-act-' + $index]) {
+                          <div class="rec-action-detail">
+                            @if (act.value) {
+                              <span class="rec-action-value">{{ act.value }}</span>
+                            }
+                            <span class="rec-action-reason">{{ act.reason }}</span>
+                          </div>
+                        }
+                        @if (getActionOutcome(act) === 'pending_approval') {
+                          <div class="rec-action-buttons">
+                            <button mat-stroked-button color="primary" class="rec-approve-btn" (click)="approvePendingAction(act.pendingActionId)">Approve</button>
+                            <button mat-stroked-button class="rec-dismiss-btn" (click)="dismissPendingAction(act.pendingActionId)">Dismiss</button>
+                          </div>
+                        }
+                      </div>
+                    }
+                  </div>
                 } @else if (isMarkdownEvent(event.eventType)) {
                   <div class="event-content markdown-content" [class.collapsed]="!expandedEvents[event.id] && event.content.length > 300">
                     <div [innerHTML]="event.content | markdown"></div>
@@ -1088,13 +1149,17 @@ interface FlowNode {
     .probe-data-code { background: #263238; color: #eeffff; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 12px; max-height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; }
     /* AI Recommendation action list */
     .recommendation-actions { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
-    .rec-action-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: #fafafa; border-radius: 6px; border: 1px solid #eee; }
+    .rec-action-row { display: flex; flex-direction: column; gap: 4px; padding: 6px 10px; background: #fafafa; border-radius: 6px; border: 1px solid #eee; }
+    .rec-action-header { display: flex; align-items: center; gap: 8px; }
+    .rec-resolved .rec-action-header { cursor: pointer; }
+    .rec-expand-icon { font-size: 16px; width: 16px; height: 16px; color: #999; }
     .rec-icon { font-size: 18px; width: 18px; height: 18px; color: #666; flex-shrink: 0; }
-    .rec-action-detail { flex: 1; display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; }
+    .rec-action-detail { display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; padding-left: 26px; }
+    .rec-action-buttons { display: flex; gap: 6px; padding-left: 26px; }
     .rec-action-type { font-weight: 600; font-size: 13px; }
     .rec-action-value { font-family: monospace; font-size: 12px; background: #e8eaf6; padding: 1px 6px; border-radius: 3px; color: #283593; }
     .rec-action-reason { font-size: 12px; color: #666; }
-    .rec-status-badge { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+    .rec-status-badge { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px; white-space: nowrap; margin-left: auto; }
     .rec-badge-auto_executed { background: #e8f5e9; color: #2e7d32; }
     .rec-badge-pending_approval { background: #fff3e0; color: #e65100; }
     .rec-badge-skipped { background: #f5f5f5; color: #999; }
@@ -1222,6 +1287,8 @@ interface FlowNode {
     .conv-step-label { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #888; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 4px; }
     .conv-step-icon { font-size: 14px; width: 14px; height: 14px; color: #aaa; }
     .conv-ai-block { border-left: 3px solid #7c4dff; background: #fafafa; border-radius: 0 6px 6px 0; padding: 8px 12px; margin-bottom: 10px; }
+    .conv-subtask { margin-left: 20px; border-left: 2px solid #b39ddb; background: #f5f3ff; border-radius: 0 6px 6px 0; padding: 6px 10px; margin-top: 6px; }
+    .subtask-icon { font-size: 16px; width: 16px; height: 16px; color: #9575cd; }
     .conv-ai-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
     .conv-task-type { font-size: 12px; font-weight: 700; background: #e8f5e9; color: #2e7d32; padding: 1px 7px; border-radius: 10px; }
     .conv-model { font-size: 11px; color: #888; font-family: monospace; }
@@ -1237,6 +1304,7 @@ interface FlowNode {
     .conv-final-label { font-size: 10px; font-weight: 700; color: #999; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 2px; }
     .conv-final-response { margin-top: 6px; }
     .conv-response-text { font-size: 12px; font-family: monospace; color: #333; margin: 0; white-space: pre-wrap; word-break: break-word; background: #f7f7f7; padding: 6px 8px; border-radius: 4px; border-left: 2px solid #7c4dff; }
+    .conv-prompt-block .conv-response-text { border-left-color: #ff9800; background: #fffdf5; }
     .conv-response-text.clamped { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
     .conv-empty { padding: 24px; text-align: center; color: #888; }
     .inline-expand-btn { font-size: 11px; color: #666; padding: 0; min-width: auto; margin-top: 2px; }
@@ -1282,6 +1350,7 @@ export class TicketDetailComponent implements OnInit {
   logsSearchFilter = signal('');
   expandedLogs: Record<string, boolean> = {};
   costSummary = signal<TicketCostSummary | null>(null);
+  pendingActionMap = signal<Record<string, string>>({});
   stepGroups = signal<StepGroup[]>([]);
   ungroupedEntries = signal<UnifiedLogEntry[]>([]);
   conversationEntries = signal<UnifiedLogEntry[]>([]);
@@ -1290,6 +1359,7 @@ export class TicketDetailComponent implements OnInit {
   convStepGroups = signal<StepGroup[]>([]);
   convUngrouped = signal<UnifiedLogEntry[]>([]);
   convExpanded: Record<string, boolean> = {};
+  convPromptExpanded: Record<string, boolean> = {};
 
   // Legacy — still used by loadTicketAiUsage for the existing AI Cost card
   ticketLogs = signal<TicketAppLog[]>([]);
@@ -1412,7 +1482,18 @@ export class TicketDetailComponent implements OnInit {
     this.loadUnifiedLogs();
     this.loadCostSummary();
     this.loadTicketAiUsage();
+    this.loadPendingActions();
     this.destroyRef.onDestroy(() => this.stopPolling());
+  }
+
+  loadPendingActions(): void {
+    this.ticketService.getPendingActions(this.id()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (actions) => {
+        const map: Record<string, string> = {};
+        for (const a of actions) map[a.id] = a.status;
+        this.pendingActionMap.set(map);
+      },
+    });
   }
 
   load(): void {
@@ -1665,13 +1746,36 @@ export class TicketDetailComponent implements OnInit {
     }
   }
 
+  isSubTask(entry: UnifiedLogEntry): boolean {
+    return !!(entry.conversationMetadata as Record<string, unknown> | null)?.['isSubTask'];
+  }
+
+  getOrchestrationId(entry: UnifiedLogEntry): string | null {
+    return ((entry.conversationMetadata as Record<string, unknown> | null)?.['orchestrationId'] as string) ?? null;
+  }
+
+  getSubTasks(entries: UnifiedLogEntry[], orchestrationId: string): UnifiedLogEntry[] {
+    return entries.filter(e =>
+      e.type === 'ai' && this.isSubTask(e) && this.getOrchestrationId(e) === orchestrationId
+    );
+  }
+
   convMessages(entry: UnifiedLogEntry): Array<{ role: string; tokenCount?: number; toolName?: string }> {
     const meta = entry.conversationMetadata as { messages?: Array<{ role: string; tokenCount?: number; toolName?: string }> } | null;
     return meta?.messages ?? [];
   }
 
+  convPromptText(entry: UnifiedLogEntry): string {
+    return entry.archive?.fullPrompt ?? entry.promptText ?? '';
+  }
+
   convResponseText(entry: UnifiedLogEntry): string {
     return entry.archive?.fullResponse ?? entry.responseText ?? '';
+  }
+
+  isMultilineConvPrompt(entry: UnifiedLogEntry): boolean {
+    const text = this.convPromptText(entry);
+    return text.split('\n').filter(l => l.trim().length > 0).length > 2;
   }
 
   isMultilineConv(entry: UnifiedLogEntry): boolean {
@@ -1811,7 +1915,18 @@ export class TicketDetailComponent implements OnInit {
   }
 
   isMarkdownEvent(eventType: string): boolean {
-    return eventType === 'AI_ANALYSIS' || eventType === 'AI_RECOMMENDATION';
+    return eventType === 'AI_ANALYSIS' || eventType === 'AI_RECOMMENDATION' || eventType === 'COMMENT';
+  }
+
+  recSummaryContent(event: TicketEvent): string {
+    if (!event.content) return '';
+    const actionPrefixes = /^[-•]\s*(Auto-executed|Pending approval|Skipped):/i;
+    const headerPrefixes = /^\*\*(Auto-executed|Pending approval|Skipped):\*\*$/i;
+    return event.content
+      .split('\n')
+      .filter(line => !actionPrefixes.test(line.trim()) && !headerPrefixes.test(line.trim()))
+      .join('\n')
+      .trim();
   }
 
   formatEventType(type: string): string {
@@ -1870,7 +1985,14 @@ export class TicketDetailComponent implements OnInit {
     });
   }
 
-  getActionOutcome(act: { outcome?: string; applied?: boolean }): string {
+  getActionOutcome(act: { outcome?: string; applied?: boolean; pendingActionId?: string }): string {
+    // Check live pending action status first (reflects approve/dismiss without reload)
+    if (act.pendingActionId) {
+      const liveStatus = this.pendingActionMap()[act.pendingActionId];
+      if (liveStatus === 'approved') return 'approved';
+      if (liveStatus === 'dismissed') return 'dismissed';
+      if (liveStatus === 'pending') return 'pending_approval';
+    }
     if (act.outcome) return act.outcome;
     if (act.applied === true) return 'auto_executed';
     return 'skipped';
@@ -1925,6 +2047,7 @@ export class TicketDetailComponent implements OnInit {
     this.ticketService.approvePendingAction(ticketId, actionId).subscribe({
       next: () => {
         this.snackBar.open('Action approved', 'OK', { duration: 3000, panelClass: 'success-snackbar' });
+        this.loadPendingActions();
         this.load();
       },
       error: () => this.snackBar.open('Failed to approve action', 'OK', { duration: 5000 }),
@@ -1938,6 +2061,7 @@ export class TicketDetailComponent implements OnInit {
     this.ticketService.dismissPendingAction(ticketId, actionId).subscribe({
       next: () => {
         this.snackBar.open('Action dismissed', 'OK', { duration: 3000 });
+        this.loadPendingActions();
         this.load();
       },
       error: () => this.snackBar.open('Failed to dismiss action', 'OK', { duration: 5000 }),
@@ -1997,7 +2121,7 @@ export class TicketDetailComponent implements OnInit {
   formatTime(dateStr: string): string {
     const d = new Date(dateStr);
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' +
-      d.toLocaleTimeString(undefined, { hour12: false, hour: '2-digit', minute: '2-digit' });
+      d.toLocaleTimeString(undefined, { hour12: true, hour: 'numeric', minute: '2-digit' });
   }
 
   formatDuration(ms: number): string {

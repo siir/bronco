@@ -36,6 +36,9 @@ export interface ConversationMetadata {
   messageCount: number;
   totalContextTokens: number;
   messages: Array<{ role: string; tokenCount?: number; toolName?: string }>;
+  orchestrationId?: string;
+  orchestrationIteration?: number;
+  isSubTask?: boolean;
 }
 
 /** Data written to the prompt archive table alongside a usage log entry. */
