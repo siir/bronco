@@ -1,4 +1,5 @@
 import { Component, effect, inject, signal } from '@angular/core';
+import { Subscription } from 'rxjs';
 import { Router } from '@angular/router';
 import { DatePipe, SlicePipe } from '@angular/common';
 import { DetailPanelService, DetailEntityType } from '../core/services/detail-panel.service';
@@ -64,6 +65,9 @@ function entityRoute(type: DetailEntityType, id: string): string[] {
 
       @if (loading()) {
         <div class="panel-loading">Loading...</div>
+
+      } @else if (error()) {
+        <div class="panel-loading">Failed to load {{ detailPanel.entityType() }} details.</div>
 
       <!-- TICKET -->
       } @else if (ticket(); as t) {
@@ -236,7 +240,7 @@ function entityRoute(type: DetailEntityType, id: string): string[] {
                 <div class="field-row">
                   <span class="field-label">Status</span>
                   <span class="field-value">
-                    <span class="run-status" [class]="'run-' + p.lastRunStatus">{{ p.lastRunStatus }}</span>
+                    <span [class]="'run-status' + (p.lastRunStatus ? ' run-' + p.lastRunStatus : '')">{{ p.lastRunStatus ?? '—' }}</span>
                   </span>
                 </div>
                 <div class="field-row">
@@ -515,42 +519,46 @@ export class DetailPanelComponent {
   probe = signal<ScheduledProbe | null>(null);
   selectedTab = signal(0);
   loading = signal(false);
+  error = signal(false);
 
   constructor() {
-    effect(() => {
+    effect((onCleanup) => {
       const type = this.detailPanel.entityType();
       const id = this.detailPanel.entityId();
       // Reset all
       this.ticket.set(null);
       this.client.set(null);
       this.probe.set(null);
+      this.error.set(false);
       this.selectedTab.set(0);
 
       if (!type || !id) return;
       this.loading.set(true);
 
+      let sub: Subscription | undefined;
       switch (type) {
         case 'ticket':
-          this.ticketService.getTicket(id).subscribe({
+          sub = this.ticketService.getTicket(id).subscribe({
             next: (t) => { this.ticket.set(t); this.loading.set(false); },
-            error: () => { this.loading.set(false); },
+            error: () => { this.error.set(true); this.loading.set(false); },
           });
           break;
         case 'client':
-          this.clientService.getClient(id).subscribe({
+          sub = this.clientService.getClient(id).subscribe({
             next: (c) => { this.client.set(c); this.loading.set(false); },
-            error: () => { this.loading.set(false); },
+            error: () => { this.error.set(true); this.loading.set(false); },
           });
           break;
         case 'probe':
-          this.probeService.getProbe(id).subscribe({
+          sub = this.probeService.getProbe(id).subscribe({
             next: (p) => { this.probe.set(p); this.loading.set(false); },
-            error: () => { this.loading.set(false); },
+            error: () => { this.error.set(true); this.loading.set(false); },
           });
           break;
         default:
           this.loading.set(false);
       }
+      onCleanup(() => sub?.unsubscribe());
     });
   }
 
