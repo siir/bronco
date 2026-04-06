@@ -228,7 +228,7 @@ export class SidebarComponent implements OnInit {
         this.ticketBadge.set(count);
       });
 
-    this.failedJobsService.list()
+    this.failedJobsService.list({ limit: 1 })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(res => {
         this.failedJobsBadge.set(res.total);
