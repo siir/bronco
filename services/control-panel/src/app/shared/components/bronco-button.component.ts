@@ -85,5 +85,5 @@ import { Component, input } from '@angular/core';
 export class BroncoButtonComponent {
   variant = input<'primary' | 'secondary' | 'ghost' | 'destructive' | 'icon'>('secondary');
   size = input<'sm' | 'md' | 'lg'>('md');
-  disabled = input(false);
+  disabled = input<boolean>(false);
 }
