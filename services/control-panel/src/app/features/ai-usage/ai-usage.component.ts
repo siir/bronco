@@ -982,7 +982,7 @@ export class AiUsageComponent implements OnInit {
   formatTime(dateStr: string): string {
     const d = new Date(dateStr);
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' +
-      d.toLocaleTimeString(undefined, { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      d.toLocaleTimeString(undefined, { hour12: true, hour: 'numeric', minute: '2-digit', second: '2-digit' });
   }
 
   private getDateSince(preset: string): string | null {

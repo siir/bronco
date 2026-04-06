@@ -27,8 +27,9 @@ async function main(): Promise<void> {
   // --- SMTP mailer (DB config takes priority, env vars as fallback) ---
   let mailer: Mailer | null = null;
   const dbSmtp = await loadSmtpFromDb(db, config.ENCRYPTION_KEY);
+  const smtpLoader = () => loadSmtpFromDb(db, config.ENCRYPTION_KEY);
   if (dbSmtp) {
-    mailer = new Mailer(dbSmtp);
+    mailer = new Mailer(dbSmtp, smtpLoader);
   } else if (config.SMTP_HOST && config.SMTP_USER && config.SMTP_FROM && config.SMTP_PASSWORD) {
     logger.warn('No SMTP config in DB — falling back to env vars');
     mailer = new Mailer({
@@ -69,6 +70,7 @@ async function main(): Promise<void> {
     apiKey: config.API_KEY,
     mcpAuthToken: config.MCP_AUTH_TOKEN,
     selfAnalysisQueue,
+    artifactStoragePath: config.ARTIFACT_STORAGE_PATH,
   });
   const analysisWorker = createWorker<AnalysisJob>(
     'ticket-analysis',

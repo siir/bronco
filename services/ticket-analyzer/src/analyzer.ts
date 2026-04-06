@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { readdir, rm, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { join, relative, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Job } from 'bullmq';
 import { Prisma } from '@bronco/db';
@@ -322,6 +322,8 @@ export interface AnalyzerDeps {
   mcpAuthToken?: string;
   /** Optional BullMQ queue for self-analysis triggers (post-pipeline analysis). */
   selfAnalysisQueue?: import('bullmq').Queue;
+  /** Optional path for storing full MCP tool result artifacts on disk. */
+  artifactStoragePath?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -1832,11 +1834,39 @@ interface SubTaskResult {
   toolCalls: Array<{ tool: string; system?: string; input: Record<string, unknown>; output: string; durationMs: number }>;
 }
 
-const ORCHESTRATED_MODEL_MAP: Record<string, string> = {
-  haiku: 'claude-haiku-4-5-20251001',
-  sonnet: 'claude-sonnet-4-6',
-  opus: 'claude-opus-4-6',
-};
+/** Resolve the orchestrated model map from active Claude provider models.
+ *  Maps short names (haiku/sonnet/opus) to the actual model IDs configured in the DB. */
+async function resolveOrchestratedModelMap(db: PrismaClient): Promise<Record<string, string>> {
+  const models = await db.aiProviderModel.findMany({
+    where: { isActive: true, provider: { provider: 'CLAUDE' } },
+    select: { model: true },
+    orderBy: [{ model: 'asc' }],
+  });
+  const matches: Record<'haiku' | 'sonnet' | 'opus', string[]> = {
+    haiku: [],
+    sonnet: [],
+    opus: [],
+  };
+  for (const { model } of models) {
+    const lower = model.toLowerCase();
+    if (lower.includes('haiku')) matches.haiku.push(model);
+    else if (lower.includes('sonnet')) matches.sonnet.push(model);
+    else if (lower.includes('opus')) matches.opus.push(model);
+  }
+  const map: Record<string, string> = {};
+  for (const shortName of ['haiku', 'sonnet', 'opus'] as const) {
+    const candidates = matches[shortName];
+    if (candidates.length === 0) continue;
+    if (candidates.length > 1) {
+      logger.warn(
+        { shortName, candidates },
+        'Multiple active Claude models matched orchestrated short name; using first from deterministic ordering',
+      );
+    }
+    map[shortName] = candidates[0];
+  }
+  return map;
+}
 
 // ---------------------------------------------------------------------------
 // Tool resolution: exact → base-name → substring → fuzzy
@@ -1941,6 +1971,57 @@ function resolveTaskTools(
   return { resolved, fuzzy, unmatched };
 }
 
+/**
+ * Sanitize a string to be safe for use as a filename component.
+ * Only allows alphanumerics, dots, hyphens, and underscores; replaces all
+ * other characters (including path separators) with underscores and trims
+ * to 64 characters to prevent path traversal or excessively long filenames.
+ */
+function sanitizeFilenameSegment(value: string): string {
+  return value.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 64);
+}
+
+async function saveMcpToolArtifact(
+  db: PrismaClient,
+  ticketId: string,
+  toolName: string,
+  rawResult: string,
+  storagePath: string,
+): Promise<void> {
+  try {
+    let isJson = false;
+    try { JSON.parse(rawResult); isJson = true; } catch { /* not JSON */ }
+    const mimeType = isJson ? 'application/json' : 'text/plain';
+    const ext = isJson ? 'json' : 'txt';
+    const safeToolName = sanitizeFilenameSegment(toolName || 'unknown');
+    const filename = `mcp-${safeToolName}-${Date.now()}-${randomUUID()}.${ext}`;
+    const resolvedStorage = resolve(storagePath);
+    const ticketDir = resolve(resolvedStorage, 'tickets', ticketId);
+    const rel = relative(resolvedStorage, ticketDir);
+    if (rel.startsWith('..') || rel === '') {
+      logger.warn({ ticketId, ticketDir, resolvedStorage }, 'MCP artifact path escaped storage root — skipping');
+      return;
+    }
+    const fullPath = join(ticketDir, filename);
+    await mkdir(ticketDir, { recursive: true });
+    await writeFile(fullPath, rawResult, 'utf-8');
+    const relativePath = `tickets/${ticketId}/${filename}`;
+    await db.artifact.create({
+      data: {
+        ticketId,
+        filename,
+        mimeType,
+        sizeBytes: Buffer.byteLength(rawResult, 'utf-8'),
+        storagePath: relativePath,
+        description: `Raw MCP tool output from agentic analysis (${toolName})`,
+      },
+    });
+    logger.info({ ticketId, filename }, 'MCP tool artifact saved');
+  } catch (err) {
+    logger.warn({ err, ticketId }, 'Failed to save MCP tool artifact — continuing');
+  }
+}
+
 // Signals indicating a sub-task result may be irrelevant (checked in first 500 chars)
 const IRRELEVANT_SIGNALS = [
   'not relevant', 'unable to', 'cannot access', 'i cannot', "i don't have",
@@ -1959,9 +2040,12 @@ async function executeOrchestratedSubTask(
   agenticTools: AIToolDefinition[],
   mcpIntegrations: Map<string, McpIntegrationInfo>,
   repoIdByPrefix: Map<string, string>,
+  orchestration?: { id: string; iteration: number },
+  modelMap?: Record<string, string>,
 ): Promise<SubTaskResult> {
   const { ai } = deps;
-  const model = ORCHESTRATED_MODEL_MAP[task.model] ?? ORCHESTRATED_MODEL_MAP.sonnet;
+  const map = modelMap ?? {};
+  const model = map[task.model] ?? map.sonnet ?? 'claude-sonnet-4-6';
 
   const toolCalls: SubTaskResult['toolCalls'] = [];
   let inputTokens = 0;
@@ -2021,9 +2105,10 @@ async function executeOrchestratedSubTask(
     let hasToolError = false;
 
     if (tools.length > 0) {
+      const orchCtx = orchestration ? { orchestrationId: orchestration.id, orchestrationIteration: orchestration.iteration, isSubTask: true } : {};
       const response = await ai.generateWithTools({
         taskType: TaskType.DEEP_ANALYSIS,
-        context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory },
+        context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, ...orchCtx },
         messages: [{ role: 'user', content: task.prompt }],
         tools,
         systemPrompt: subTaskSystemPrompt,
@@ -2059,12 +2144,21 @@ async function executeOrchestratedSubTask(
             content: result.result,
             ...(result.isError ? { is_error: true } : {}),
           });
+          if (deps.artifactStoragePath && !result.isError) {
+            void saveMcpToolArtifact(deps.db, ticketId, toolUse.name, result.result, deps.artifactStoragePath).catch(error => {
+              logger.warn({
+                err: error,
+                ticketId,
+                toolName: toolUse.name,
+              }, 'Failed to persist MCP tool artifact');
+            });
+          }
           if (result.isError) hasToolError = true;
         }
 
         const summaryResponse = await ai.generateWithTools({
           taskType: TaskType.DEEP_ANALYSIS,
-          context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory },
+          context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, ...orchCtx },
           messages: [
             { role: 'user', content: task.prompt },
             { role: 'assistant', content: response.contentBlocks },
@@ -2110,9 +2204,10 @@ async function executeOrchestratedSubTask(
     }
 
     // No tools — pure analysis
+    const orchCtx = orchestration ? { orchestrationId: orchestration.id, orchestrationIteration: orchestration.iteration, isSubTask: true } : {};
     const response = await ai.generate({
       taskType: TaskType.DEEP_ANALYSIS,
-      context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory },
+      context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, ...orchCtx },
       prompt: task.prompt,
       providerOverride: 'CLAUDE',
       modelOverride: model,
@@ -2837,6 +2932,7 @@ async function executeRoutePipeline(
               maxParallelTasks = Math.min(10, Math.max(1, Math.trunc(coerced)));
             }
           }
+          const orchModelMap = await resolveOrchestratedModelMap(db);
           const orchMaxIterations = maxIterations;
           const existingDoc = ticket.knowledgeDoc ?? '';
           const runTimestamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
@@ -2883,7 +2979,8 @@ async function executeRoutePipeline(
 
           for (let i = 0; i < orchMaxIterations; i++) {
             orchIterationsRun = i + 1;
-            appLog.info(`Orchestrated analysis iteration ${i + 1}/${orchMaxIterations}`, { ticketId, iteration: i + 1 }, ticketId, 'ticket');
+            const orchestrationId = randomUUID();
+            appLog.info(`Orchestrated analysis iteration ${i + 1}/${orchMaxIterations}`, { ticketId, iteration: i + 1, orchestrationId }, ticketId, 'ticket');
 
             // Extract only the current run content (after the run header) for the strategist
             const currentRunStart = knowledgeDoc.lastIndexOf(currentRunHeader);
@@ -2903,7 +3000,7 @@ async function executeRoutePipeline(
 
             const strategistResponse = await ai.generate({
               taskType: (step.taskTypeOverride ?? TaskType.DEEP_ANALYSIS) as TaskType,
-              context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!clientContext },
+              context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!clientContext, orchestrationId, orchestrationIteration: i + 1 },
               prompt: strategistPrompt,
               systemPrompt: ORCHESTRATED_SYSTEM_PROMPT,
               providerOverride: 'CLAUDE',
@@ -2937,7 +3034,7 @@ async function executeRoutePipeline(
             const taskBatches = chunkArray(plan.tasks, maxParallelTasks);
             for (const batch of taskBatches) {
               const results = await Promise.allSettled(
-                batch.map(task => executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, environmentContext, task, agenticTools, mcpIntegrations, repoIdByPrefix)),
+                batch.map(task => executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, environmentContext, task, agenticTools, mcpIntegrations, repoIdByPrefix, { id: orchestrationId, iteration: i + 1 }, orchModelMap)),
               );
 
               for (let j = 0; j < results.length; j++) {
@@ -3187,6 +3284,15 @@ async function executeRoutePipeline(
               content: result.result,
               ...(result.isError ? { is_error: true } : {}),
             });
+            if (deps.artifactStoragePath && !result.isError) {
+              void saveMcpToolArtifact(deps.db, ticketId, toolUse.name, result.result, deps.artifactStoragePath).catch(error => {
+                logger.warn({
+                  err: error,
+                  ticketId,
+                  toolName: toolUse.name,
+                }, 'Failed to persist MCP tool artifact');
+              });
+            }
             appLog.info(
               `Agentic tool call: ${toolUse.name} (${elapsed}ms)`,
               {
