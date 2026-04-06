@@ -4,6 +4,7 @@ import { SidebarComponent } from './sidebar.component';
 import { HeaderBarComponent } from './header-bar.component';
 import { DetailPanelComponent } from './detail-panel.component';
 import { DetailPanelService } from '../core/services/detail-panel.service';
+import { ThemeService } from '../core/services/theme.service';
 
 const ROUTE_TITLE_MAP: Record<string, string> = {
   dashboard: 'Dashboard',
@@ -74,6 +75,7 @@ const ROUTE_TITLE_MAP: Record<string, string> = {
 })
 export class AppShellComponent implements OnInit {
   readonly detailPanel = inject(DetailPanelService);
+  private readonly _theme = inject(ThemeService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   readonly pageTitle = signal('Dashboard');
