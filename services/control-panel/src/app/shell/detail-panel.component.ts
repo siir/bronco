@@ -1,8 +1,11 @@
 import { Component, effect, inject, signal } from '@angular/core';
+import { Subscription } from 'rxjs';
 import { Router } from '@angular/router';
-import { DatePipe } from '@angular/common';
+import { DatePipe, SlicePipe } from '@angular/common';
 import { DetailPanelService, DetailEntityType } from '../core/services/detail-panel.service';
 import { TicketService, Ticket } from '../core/services/ticket.service';
+import { ClientService, Client } from '../core/services/client.service';
+import { ScheduledProbeService, ScheduledProbe } from '../core/services/scheduled-probe.service';
 import {
   StatusBadgeComponent,
   PriorityPillComponent,
@@ -28,6 +31,7 @@ function entityRoute(type: DetailEntityType, id: string): string[] {
   standalone: true,
   imports: [
     DatePipe,
+    SlicePipe,
     StatusBadgeComponent,
     PriorityPillComponent,
     CategoryChipComponent,
@@ -37,17 +41,18 @@ function entityRoute(type: DetailEntityType, id: string): string[] {
   template: `
     <aside class="detail-panel">
       <div class="panel-header">
-        @if (ticket(); as t) {
-          <div class="panel-title">
-            <span class="entity-type">Ticket</span>
+        <div class="panel-title">
+          <span class="entity-type">{{ detailPanel.entityType() }}</span>
+          @if (ticket(); as t) {
             <span class="entity-subject">{{ t.subject }}</span>
-          </div>
-        } @else {
-          <div class="panel-title">
-            <span class="entity-type">{{ detailPanel.entityType() }}</span>
+          } @else if (client(); as c) {
+            <span class="entity-subject">{{ c.name }}</span>
+          } @else if (probe(); as p) {
+            <span class="entity-subject">{{ p.name }}</span>
+          } @else {
             <span class="entity-id">{{ detailPanel.entityId() }}</span>
-          </div>
-        }
+          }
+        </div>
         <div class="panel-actions">
           <button class="panel-btn" (click)="expandToFullPage()" title="Open full page" aria-label="Open full page">
             <span class="expand-icon">&#x2197;</span>
@@ -60,6 +65,11 @@ function entityRoute(type: DetailEntityType, id: string): string[] {
 
       @if (loading()) {
         <div class="panel-loading">Loading...</div>
+
+      } @else if (error()) {
+        <div class="panel-loading">Failed to load {{ detailPanel.entityType() }} details.</div>
+
+      <!-- TICKET -->
       } @else if (ticket(); as t) {
         <div class="panel-meta">
           <app-status-badge [status]="mapStatus(t.status)" />
@@ -113,6 +123,144 @@ function entityRoute(type: DetailEntityType, id: string): string[] {
             <p class="placeholder-text">Events view coming soon</p>
           </app-tab>
         </app-tab-group>
+
+      <!-- CLIENT -->
+      } @else if (client(); as c) {
+        <div class="panel-meta">
+          @if (c.isActive) {
+            <span class="meta-badge meta-success">Active</span>
+          } @else {
+            <span class="meta-badge meta-muted">Inactive</span>
+          }
+          <span class="meta-badge meta-accent">{{ c.shortCode }}</span>
+        </div>
+
+        <app-tab-group [selectedIndex]="selectedTab()" (selectedIndexChange)="selectedTab.set($event)">
+          <app-tab label="Details">
+            <div class="detail-fields">
+              <div class="field-row">
+                <span class="field-label">Short Code</span>
+                <span class="field-value client-code">{{ c.shortCode }}</span>
+              </div>
+              <div class="field-row">
+                <span class="field-label">Systems</span>
+                <span class="field-value">{{ c._count?.systems ?? 0 }}</span>
+              </div>
+              <div class="field-row">
+                <span class="field-label">Tickets</span>
+                <span class="field-value">{{ c._count?.tickets ?? 0 }}</span>
+              </div>
+              <div class="field-row">
+                <span class="field-label">AI Mode</span>
+                <span class="field-value">{{ c.aiMode ?? 'Default' }}</span>
+              </div>
+              <div class="field-row">
+                <span class="field-label">Auto Route</span>
+                <span class="field-value">{{ c.autoRouteTickets ? 'Yes' : 'No' }}</span>
+              </div>
+              <div class="field-row">
+                <span class="field-label">Created</span>
+                <span class="field-value">{{ c.createdAt | date:'medium' }}</span>
+              </div>
+            </div>
+            @if (c.notes) {
+              <div class="detail-section">
+                <span class="section-label">Notes</span>
+                <p class="summary-text">{{ c.notes }}</p>
+              </div>
+            }
+          </app-tab>
+          <app-tab label="Systems">
+            @if (c.systems?.length) {
+              @for (sys of c.systems; track sys.id) {
+                <div class="list-item">
+                  <span class="list-item-name">{{ sys.name }}</span>
+                </div>
+              }
+            } @else {
+              <p class="placeholder-text">No systems</p>
+            }
+          </app-tab>
+        </app-tab-group>
+
+      <!-- PROBE -->
+      } @else if (probe(); as p) {
+        <div class="panel-meta">
+          @if (p.isActive) {
+            <span class="meta-badge meta-success">Active</span>
+          } @else {
+            <span class="meta-badge meta-muted">Inactive</span>
+          }
+          <span class="meta-badge meta-accent">{{ p.action }}</span>
+        </div>
+
+        <app-tab-group [selectedIndex]="selectedTab()" (selectedIndexChange)="selectedTab.set($event)">
+          <app-tab label="Details">
+            <div class="detail-fields">
+              <div class="field-row">
+                <span class="field-label">Tool</span>
+                <span class="field-value" style="font-family: ui-monospace, monospace; font-size: 12px;">{{ p.toolName }}</span>
+              </div>
+              <div class="field-row">
+                <span class="field-label">Client</span>
+                <span class="field-value">
+                  @if (p.client; as pc) {
+                    @if (pc.shortCode) {
+                      <span class="client-code">{{ pc.shortCode }}</span>
+                    }
+                    {{ pc.name }}
+                  } @else {
+                    —
+                  }
+                </span>
+              </div>
+              <div class="field-row">
+                <span class="field-label">Schedule</span>
+                <span class="field-value">{{ p.cronExpression }}</span>
+              </div>
+              <div class="field-row">
+                <span class="field-label">Category</span>
+                <span class="field-value">{{ p.category ?? 'Any' }}</span>
+              </div>
+              <div class="field-row">
+                <span class="field-label">Retention</span>
+                <span class="field-value">{{ p.retentionDays }}d / {{ p.retentionMaxRuns }} runs</span>
+              </div>
+            </div>
+            @if (p.description) {
+              <div class="detail-section">
+                <span class="section-label">Description</span>
+                <p class="summary-text">{{ p.description }}</p>
+              </div>
+            }
+          </app-tab>
+          <app-tab label="Last Run">
+            @if (p.lastRunAt) {
+              <div class="detail-fields">
+                <div class="field-row">
+                  <span class="field-label">Status</span>
+                  <span class="field-value">
+                    <span [class]="'run-status' + (p.lastRunStatus ? ' run-' + p.lastRunStatus : '')">{{ p.lastRunStatus ?? '—' }}</span>
+                  </span>
+                </div>
+                <div class="field-row">
+                  <span class="field-label">Time</span>
+                  <span class="field-value">{{ p.lastRunAt | date:'medium' }}</span>
+                </div>
+              </div>
+              @if (p.lastRunResult) {
+                <div class="detail-section">
+                  <span class="section-label">Result</span>
+                  <pre class="result-block">{{ p.lastRunResult | slice:0:500 }}</pre>
+                </div>
+              }
+            } @else {
+              <p class="placeholder-text">No runs yet</p>
+            }
+          </app-tab>
+        </app-tab-group>
+
+      <!-- FALLBACK for system, analysis, job -->
       } @else {
         <div class="panel-body">
           <p class="placeholder-text">
@@ -281,26 +429,136 @@ function entityRoute(type: DetailEntityType, id: string): string[] {
       line-height: 1.6;
       margin: 0;
     }
+
+    .meta-badge {
+      font-size: 12px;
+      font-weight: 500;
+      padding: 2px 10px;
+      border-radius: var(--radius-pill);
+    }
+
+    .meta-success {
+      background: rgba(52,199,89,0.08);
+      color: var(--color-success);
+    }
+
+    .meta-muted {
+      background: var(--bg-muted);
+      color: var(--text-tertiary);
+    }
+
+    .meta-accent {
+      background: var(--bg-active);
+      color: var(--accent);
+      font-family: ui-monospace, monospace;
+    }
+
+    .list-item {
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border-light);
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .list-item:last-child {
+      border-bottom: none;
+    }
+
+    .list-item-name {
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+
+    .run-status {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: var(--radius-sm);
+    }
+
+    .run-success {
+      background: rgba(52,199,89,0.08);
+      color: var(--color-success);
+    }
+
+    .run-error {
+      background: rgba(255,59,48,0.08);
+      color: var(--color-error);
+    }
+
+    .run-skipped {
+      background: var(--bg-muted);
+      color: var(--text-tertiary);
+    }
+
+    .result-block {
+      font-family: ui-monospace, monospace;
+      font-size: 12px;
+      background: var(--bg-muted);
+      border-radius: var(--radius-md);
+      padding: 12px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 200px;
+      overflow-y: auto;
+      color: var(--text-secondary);
+      margin: 0;
+    }
   `],
 })
 export class DetailPanelComponent {
   readonly detailPanel = inject(DetailPanelService);
   private readonly router = inject(Router);
   private readonly ticketService = inject(TicketService);
+  private readonly clientService = inject(ClientService);
+  private readonly probeService = inject(ScheduledProbeService);
 
   ticket = signal<Ticket | null>(null);
+  client = signal<Client | null>(null);
+  probe = signal<ScheduledProbe | null>(null);
   selectedTab = signal(0);
   loading = signal(false);
+  error = signal(false);
 
   constructor() {
-    effect(() => {
+    effect((onCleanup) => {
       const type = this.detailPanel.entityType();
       const id = this.detailPanel.entityId();
-      if (type === 'ticket' && id) {
-        this.loadTicket(id);
-      } else {
-        this.ticket.set(null);
+      // Reset all
+      this.ticket.set(null);
+      this.client.set(null);
+      this.probe.set(null);
+      this.error.set(false);
+      this.selectedTab.set(0);
+
+      if (!type || !id) return;
+      this.loading.set(true);
+
+      let sub: Subscription | undefined;
+      switch (type) {
+        case 'ticket':
+          sub = this.ticketService.getTicket(id).subscribe({
+            next: (t) => { this.ticket.set(t); this.loading.set(false); },
+            error: () => { this.error.set(true); this.loading.set(false); },
+          });
+          break;
+        case 'client':
+          sub = this.clientService.getClient(id).subscribe({
+            next: (c) => { this.client.set(c); this.loading.set(false); },
+            error: () => { this.error.set(true); this.loading.set(false); },
+          });
+          break;
+        case 'probe':
+          sub = this.probeService.getProbe(id).subscribe({
+            next: (p) => { this.probe.set(p); this.loading.set(false); },
+            error: () => { this.error.set(true); this.loading.set(false); },
+          });
+          break;
+        default:
+          this.loading.set(false);
       }
+      onCleanup(() => sub?.unsubscribe());
     });
   }
 
@@ -330,11 +588,4 @@ export class DetailPanelComponent {
     return map[status] ?? 'open';
   }
 
-  private loadTicket(id: string): void {
-    this.loading.set(true);
-    this.ticketService.getTicket(id).subscribe({
-      next: (t) => { this.ticket.set(t); this.loading.set(false); },
-      error: () => { this.ticket.set(null); this.loading.set(false); },
-    });
-  }
 }
