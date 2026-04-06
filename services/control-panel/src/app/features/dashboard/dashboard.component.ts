@@ -1,6 +1,5 @@
 import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { RouterLink } from '@angular/router';
 import { ClientService, Client } from '../../core/services/client.service';
 import { TicketService, Ticket, ACTIVE_STATUS_FILTER } from '../../core/services/ticket.service';
 import { SystemStatusService, SystemStatusResponse } from '../../core/services/system-status.service';
@@ -12,8 +11,6 @@ import {
   StatusBadgeComponent,
   PriorityPillComponent,
   CategoryChipComponent,
-  BroncoButtonComponent,
-  ToolbarComponent,
 } from '../../shared/components/index.js';
 
 /** Short code used by the imap-worker as a sentinel client for emails with no matched client. */
@@ -22,15 +19,12 @@ const UNKNOWN_CLIENT_SHORT_CODE = '_unknown';
 @Component({
   standalone: true,
   imports: [
-    RouterLink,
     StatCardComponent,
     DataTableComponent,
     DataTableColumnComponent,
     StatusBadgeComponent,
     PriorityPillComponent,
     CategoryChipComponent,
-    BroncoButtonComponent,
-    ToolbarComponent,
   ],
   template: `
     <div class="dashboard">

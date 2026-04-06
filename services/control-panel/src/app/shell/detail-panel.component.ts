@@ -63,7 +63,7 @@ function entityRoute(type: DetailEntityType, id: string): string[] {
       } @else if (ticket(); as t) {
         <div class="panel-meta">
           <app-status-badge [status]="mapStatus(t.status)" />
-          <app-priority-pill [priority]="$any(t.priority)" />
+          <app-priority-pill [priority]="mapPriority(t.priority)" />
           @if (t.category) {
             <app-category-chip [category]="t.category" />
           }
@@ -311,6 +311,11 @@ export class DetailPanelComponent {
       this.detailPanel.close();
       this.router.navigate(entityRoute(type, id));
     }
+  }
+
+  mapPriority(priority: string): 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' {
+    const valid = new Set(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']);
+    return valid.has(priority) ? priority as 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' : 'MEDIUM';
   }
 
   /** Map API ticket status strings to StatusBadge values */
