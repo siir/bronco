@@ -15,8 +15,8 @@ import { AuthService } from '../../core/services/auth.service';
     <div class="login-wrapper">
       <mat-card class="login-card">
         <mat-card-header>
-          <mat-card-title>Bronco</mat-card-title>
-          <mat-card-subtitle>Sign in to the control panel</mat-card-subtitle>
+          <mat-card-title>iTrack 3</mat-card-title>
+          <mat-card-subtitle>with iTrackAI® · Control Panel</mat-card-subtitle>
         </mat-card-header>
         <mat-card-content>
           <mat-form-field class="full-width">
