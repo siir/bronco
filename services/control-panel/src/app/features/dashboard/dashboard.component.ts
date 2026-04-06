@@ -1,4 +1,4 @@
-import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, DestroyRef, inject, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ClientService, Client } from '../../core/services/client.service';
 import { TicketService, Ticket, ACTIVE_STATUS_FILTER } from '../../core/services/ticket.service';
@@ -33,13 +33,11 @@ const UNKNOWN_CLIENT_SHORT_CODE = '_unknown';
         <app-stat-card label="Critical" [value]="criticalTickets() + ''" change="" [changeType]="criticalTickets() > 0 ? 'negative' : 'neutral'" />
         <app-stat-card label="Clients" [value]="clients().length + ''" change="" changeType="neutral" />
         <app-stat-card label="Database Systems" [value]="totalSystems() + ''" change="" changeType="neutral" />
-        @if (statusData(); as status) {
-          <app-stat-card
-            label="Services"
-            [value]="upCount() + '/' + (status.components.length + (status.mcpServers?.length ?? 0) + (status.llmProviders?.length ?? 0))"
-            [change]="status.status === 'UP' ? 'All healthy' : status.status"
-            [changeType]="status.status === 'UP' ? 'positive' : 'negative'" />
-        }
+        <app-stat-card
+          label="Services"
+          [value]="servicesValue()"
+          [change]="servicesChange()"
+          [changeType]="servicesChangeType()" />
         @if (unknownClientTickets() > 0) {
           <app-stat-card
             label="Unassigned Client"
@@ -131,11 +129,33 @@ export class DashboardComponent implements OnInit {
   totalSystems = signal(0);
   statusData = signal<SystemStatusResponse | null>(null);
   upCount = signal(0);
+  servicesError = signal(false);
   unknownClientId = signal('');
   unknownClientTickets = signal(0);
 
   sortColumn = signal('');
   sortDirection = signal<'asc' | 'desc'>('asc');
+
+  servicesValue = computed(() => {
+    const status = this.statusData();
+    if (!status) return '\u2014';
+    const total = status.components.length + (status.mcpServers?.length ?? 0) + (status.llmProviders?.length ?? 0);
+    return this.upCount() + '/' + total;
+  });
+
+  servicesChange = computed(() => {
+    if (this.servicesError()) return 'Unavailable';
+    const status = this.statusData();
+    if (!status) return 'Loading...';
+    return status.status === 'UP' ? 'All healthy' : status.status;
+  });
+
+  servicesChangeType = computed(() => {
+    if (this.servicesError()) return 'negative' as const;
+    const status = this.statusData();
+    if (!status) return 'neutral' as const;
+    return status.status === 'UP' ? 'positive' as const : 'negative' as const;
+  });
 
   trackById = (item: Ticket) => item.id;
 
@@ -170,12 +190,15 @@ export class DashboardComponent implements OnInit {
         const llmUp = res.llmProviders?.filter(l => l.status === 'UP').length ?? 0;
         this.upCount.set(res.components.filter(c => c.status === 'UP').length + mcpUp + llmUp);
       },
-      error: () => {},
+      error: () => {
+        this.statusData.set(null);
+        this.servicesError.set(true);
+      },
     });
   }
 
   onTicketClick(ticket: Ticket): void {
-    this.detailPanel.open('ticket', ticket.id);
+    this.detailPanel.open('ticket', ticket.id, 'compact');
   }
 
   onSortChange(event: { column: string; direction: 'asc' | 'desc' }): void {

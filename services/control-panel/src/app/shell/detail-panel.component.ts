@@ -1,8 +1,8 @@
 import { Component, effect, inject, signal } from '@angular/core';
 import { Subscription } from 'rxjs';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { DatePipe, SlicePipe } from '@angular/common';
-import { DetailPanelService, DetailEntityType } from '../core/services/detail-panel.service';
+import { DetailPanelService, DetailEntityType } from '../core/services/detail-panel.service.js';
 import { TicketService, Ticket } from '../core/services/ticket.service';
 import { ClientService, Client } from '../core/services/client.service';
 import { ScheduledProbeService, ScheduledProbe } from '../core/services/scheduled-probe.service';
@@ -41,6 +41,7 @@ const STATUS_MAP: Record<string, 'open' | 'in_progress' | 'analyzing' | 'resolve
   imports: [
     DatePipe,
     SlicePipe,
+    RouterLink,
     StatusBadgeComponent,
     PriorityPillComponent,
     CategoryChipComponent,
@@ -88,6 +89,7 @@ const STATUS_MAP: Record<string, 'open' | 'in_progress' | 'analyzing' | 'resolve
           }
         </div>
 
+        @if (detailPanel.mode() === 'full') {
         <app-tab-group [selectedIndex]="selectedTab()" (selectedIndexChange)="selectedTab.set($event)">
           <app-tab label="Details">
             <div class="detail-fields">
@@ -132,6 +134,44 @@ const STATUS_MAP: Record<string, 'open' | 'in_progress' | 'analyzing' | 'resolve
             <p class="placeholder-text">Events view coming soon</p>
           </app-tab>
         </app-tab-group>
+        } @else {
+        <div class="panel-body">
+          <div class="detail-fields">
+            <div class="field-row">
+              <span class="field-label">Client</span>
+              <span class="field-value">
+                @if (t.client; as c) {
+                  @if (c.shortCode) {
+                    <span class="client-code">{{ c.shortCode }}</span>
+                  }
+                }
+                {{ t.client?.name ?? '—' }}
+              </span>
+            </div>
+            <div class="field-row">
+              <span class="field-label">System</span>
+              <span class="field-value">{{ t.system?.name ?? '—' }}</span>
+            </div>
+            <div class="field-row">
+              <span class="field-label">Source</span>
+              <span class="field-value">{{ t.source }}</span>
+            </div>
+            <div class="field-row">
+              <span class="field-label">Created</span>
+              <span class="field-value">{{ t.createdAt | date:'medium' }}</span>
+            </div>
+          </div>
+          @if (t.summary) {
+            <div class="detail-section">
+              <span class="section-label">Summary</span>
+              <p class="summary-text">{{ t.summary }}</p>
+            </div>
+          }
+          <div class="compact-footer">
+            <a class="view-full-link" [routerLink]="['/tickets', t.id]" (click)="detailPanel.close()">View Full Details</a>
+          </div>
+        </div>
+        }
 
       <!-- CLIENT -->
       } @else if (client(); as c) {
@@ -498,6 +538,25 @@ const STATUS_MAP: Record<string, 'open' | 'in_progress' | 'analyzing' | 'resolve
     .run-skipped {
       background: var(--bg-muted);
       color: var(--text-tertiary);
+    }
+
+    .compact-footer {
+      margin-top: 24px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border-light);
+    }
+
+    .view-full-link {
+      display: inline-block;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--accent);
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    .view-full-link:hover {
+      text-decoration: underline;
     }
 
     .result-block {
