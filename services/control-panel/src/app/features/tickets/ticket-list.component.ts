@@ -1,5 +1,5 @@
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute } from '@angular/router';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { TicketService, Ticket, ACTIVE_STATUS_FILTER } from '../../core/services/ticket.service';
@@ -44,7 +44,7 @@ import {
         <app-select
           [value]="selectedPresetId()"
           [options]="presetOptions()"
-          placeholder="Filter preset..."
+          placeholder=""
           (valueChange)="onPresetSelected($event)" />
 
         @if (selectedPresetId()) {
@@ -63,13 +63,13 @@ import {
         <app-select
           [value]="statusFilter()"
           [options]="statusOptions"
-          placeholder="Status"
+          placeholder=""
           (valueChange)="onStatusChange($event)" />
 
         <app-select
           [value]="categoryFilter()"
           [options]="categoryOptions"
-          placeholder="Category"
+          placeholder=""
           (valueChange)="onCategoryChange($event)" />
       </app-toolbar>
 
@@ -146,7 +146,7 @@ import {
 
         <app-data-column key="actions" header="" width="40px" [sortable]="false">
           <ng-template #cell let-row>
-            <app-bronco-button variant="icon" size="sm" (click)="openQuickActions(row); $event.stopPropagation()">
+            <app-bronco-button variant="icon" size="sm" aria-label="Quick actions" (click)="openQuickActions(row); $event.stopPropagation()">
               &#x22EE;
             </app-bronco-button>
           </ng-template>
@@ -214,7 +214,6 @@ export class TicketListComponent implements OnInit {
   private presetService = inject(TicketFilterPresetService);
   private detailPanel = inject(DetailPanelService);
   private route = inject(ActivatedRoute);
-  private router = inject(Router);
   private dialog = inject(MatDialog);
   private snackBar = inject(MatSnackBar);
 
@@ -428,6 +427,7 @@ export class TicketListComponent implements OnInit {
     const map: Record<string, 'open' | 'in_progress' | 'analyzing' | 'resolved' | 'closed'> = {
       OPEN: 'open',
       IN_PROGRESS: 'in_progress',
+      WAITING: 'in_progress',
       ANALYZING: 'analyzing',
       RESOLVED: 'resolved',
       CLOSED: 'closed',
