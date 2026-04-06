@@ -14,7 +14,7 @@ import { FailedJobsService } from '../core/services/failed-jobs.service';
   template: `
     <nav class="sidebar">
       <div class="brand">
-        <img class="brand-logo" src="logo.svg" alt="Bronco">
+        <img class="brand-logo" src="logo.png" alt="Bronco">
         <div class="brand-text">
           <span class="brand-name">iTrack 3</span>
           <span class="brand-subtitle">with iTrackAI®</span>
