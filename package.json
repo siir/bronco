@@ -27,7 +27,7 @@
     "clean": "pnpm -r run clean"
   },
   "devDependencies": {
-    "typescript": "^5.5.0"
+    "typescript": "~5.8.0"
   },
   "engines": {
     "node": ">=20.0.0",
