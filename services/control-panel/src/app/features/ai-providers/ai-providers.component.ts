@@ -1,228 +1,282 @@
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MatCardModule } from '@angular/material/card';
-import { MatTableModule } from '@angular/material/table';
-import { MatButtonModule } from '@angular/material/button';
-import { MatIconModule } from '@angular/material/icon';
-import { MatSlideToggleModule } from '@angular/material/slide-toggle';
-import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { AiProviderService, AiProvider, AiProviderModel } from '../../core/services/ai-provider.service';
 import { AiProviderDialogComponent } from '../prompts/ai-provider-dialog.component';
 import { AiModelDialogComponent } from '../prompts/ai-model-dialog.component';
+import {
+  BroncoButtonComponent,
+  ToggleSwitchComponent,
+  DataTableComponent,
+  DataTableColumnComponent,
+} from '../../shared/components/index.js';
 
 @Component({
   standalone: true,
-  imports: [FormsModule, MatCardModule, MatTableModule, MatButtonModule, MatIconModule, MatSlideToggleModule, MatTooltipModule, MatDialogModule],
+  imports: [FormsModule, MatDialogModule, BroncoButtonComponent, ToggleSwitchComponent, DataTableComponent, DataTableColumnComponent],
   template: `
-    <div class="page-header">
-      <h1>AI Providers & Models</h1>
-    </div>
-
-    <!-- Providers Section -->
-    <div class="section-header">
-      <h2>Providers</h2>
-      <button mat-raised-button color="primary" (click)="addProvider()">
-        <mat-icon>add</mat-icon> Add Provider
-      </button>
-    </div>
-
-    <mat-card class="section-card">
-      <table mat-table [dataSource]="providers()" class="full-width">
-        <ng-container matColumnDef="provider">
-          <th mat-header-cell *matHeaderCellDef>Provider</th>
-          <td mat-cell *matCellDef="let p">
-            <span class="provider-chip provider-{{ p.provider.toLowerCase() }}">{{ p.provider }}</span>
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="baseUrl">
-          <th mat-header-cell *matHeaderCellDef>Base URL</th>
-          <td mat-cell *matCellDef="let p">
-            @if (p.baseUrl) {
-              <code class="url-text">{{ p.baseUrl }}</code>
-            } @else {
-              <span class="muted">—</span>
-            }
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="apiKey">
-          <th mat-header-cell *matHeaderCellDef>API Key</th>
-          <td mat-cell *matCellDef="let p">
-            @if (p.hasApiKey) {
-              <mat-icon class="key-icon">lock</mat-icon>
-            } @else {
-              <span class="muted">—</span>
-            }
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="models">
-          <th mat-header-cell *matHeaderCellDef>Models</th>
-          <td mat-cell *matCellDef="let p">
-            <span class="code-chip">{{ p.activeModelCount }}/{{ p.modelCount }}</span>
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="active">
-          <th mat-header-cell *matHeaderCellDef>Active</th>
-          <td mat-cell *matCellDef="let p">
-            <mat-slide-toggle
-              [checked]="p.isActive"
-              (change)="toggleProviderActive(p)"
-              color="primary">
-            </mat-slide-toggle>
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="actions">
-          <th mat-header-cell *matHeaderCellDef></th>
-          <td mat-cell *matCellDef="let p">
-            <button mat-icon-button matTooltip="Test Connection" (click)="testProvider(p)">
-              <mat-icon>wifi_tethering</mat-icon>
-            </button>
-            <button mat-icon-button (click)="editProvider(p)">
-              <mat-icon>edit</mat-icon>
-            </button>
-            <button mat-icon-button color="warn" matTooltip="Delete provider and all its models" (click)="deleteProvider(p)">
-              <mat-icon>delete</mat-icon>
-            </button>
-          </td>
-        </ng-container>
-
-        <tr mat-header-row *matHeaderRowDef="providerColumns"></tr>
-        <tr mat-row *matRowDef="let row; columns: providerColumns;"></tr>
-      </table>
-    </mat-card>
-
-    @if (providers().length === 0) {
-      <p class="empty">No providers configured. Add a provider to get started.</p>
-    }
-
-    <!-- Models Section -->
-    <div class="section-header models-section">
-      <h2>Models</h2>
-      <button mat-raised-button color="primary" (click)="addModel()" [disabled]="providers().length === 0">
-        <mat-icon>add</mat-icon> Add Model
-      </button>
-    </div>
-
-    @if (disabledProviderTypes().length > 0) {
-      <div class="provider-warning-banner">
-        <mat-icon>warning</mat-icon>
-        <span>
-          @for (p of disabledProviderTypes(); track p; let last = $last) {
-            <strong>{{ p }}</strong>{{ last ? '' : ', ' }}
-          }
-          {{ disabledProviderTypes().length > 1 ? 'providers are' : 'provider is' }} unavailable (disabled or with no active models).
-          Models under these providers will not be routed to.
-        </span>
+    <div class="page-wrapper">
+      <div class="page-header">
+        <h1>AI Providers & Models</h1>
       </div>
-    }
 
-    <mat-card class="section-card">
-      <table mat-table [dataSource]="models()" class="full-width">
-        <ng-container matColumnDef="name">
-          <th mat-header-cell *matHeaderCellDef>Name</th>
-          <td mat-cell *matCellDef="let m">{{ m.name }}</td>
-        </ng-container>
+      <!-- Providers Section -->
+      <div class="section-header">
+        <h2>Providers</h2>
+        <app-bronco-button variant="primary" (click)="addProvider()">+ Add Provider</app-bronco-button>
+      </div>
 
-        <ng-container matColumnDef="provider">
-          <th mat-header-cell *matHeaderCellDef>Provider</th>
-          <td mat-cell *matCellDef="let m">
-            <span class="provider-chip provider-{{ m.provider.toLowerCase() }}">{{ m.provider }}</span>
-            @if (!m.providerActive) {
-              <mat-icon class="inline-warn-icon" matTooltip="Provider is disabled">warning</mat-icon>
-            }
-          </td>
-        </ng-container>
+      <div class="section-card">
+        <app-data-table [data]="providers()" [trackBy]="trackProviderById" [rowClickable]="false" emptyMessage="No providers configured. Add a provider to get started.">
+          <app-data-column key="provider" header="Provider" [sortable]="false">
+            <ng-template #cell let-p>
+              <span class="provider-chip provider-{{ p.provider.toLowerCase() }}">{{ p.provider }}</span>
+            </ng-template>
+          </app-data-column>
 
-        <ng-container matColumnDef="model">
-          <th mat-header-cell *matHeaderCellDef>Model</th>
-          <td mat-cell *matCellDef="let m">
-            <code class="model-name">{{ m.model }}</code>
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="capability">
-          <th mat-header-cell *matHeaderCellDef>Capability</th>
-          <td mat-cell *matCellDef="let m">
-            <span class="code-chip">{{ m.capabilityLevel }}</span>
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="enabledApps">
-          <th mat-header-cell *matHeaderCellDef>Enabled For</th>
-          <td mat-cell *matCellDef="let m">
-            @if (m.enabledApps.length === 0) {
-              <span class="scope-chip scope-all">All Apps</span>
-            } @else {
-              @for (app of m.enabledApps; track app) {
-                <span class="scope-chip">{{ appScopeLabel(app) }}</span>
+          <app-data-column key="baseUrl" header="Base URL" [sortable]="false">
+            <ng-template #cell let-p>
+              @if (p.baseUrl) {
+                <code class="url-text">{{ p.baseUrl }}</code>
+              } @else {
+                <span class="muted">—</span>
               }
+            </ng-template>
+          </app-data-column>
+
+          <app-data-column key="apiKey" header="API Key" [sortable]="false" width="80px">
+            <ng-template #cell let-p>
+              @if (p.hasApiKey) {
+                <span class="key-icon" title="API key configured">&#x1F512;</span>
+              } @else {
+                <span class="muted">—</span>
+              }
+            </ng-template>
+          </app-data-column>
+
+          <app-data-column key="models" header="Models" [sortable]="false" width="80px">
+            <ng-template #cell let-p>
+              <span class="code-chip">{{ p.activeModelCount }}/{{ p.modelCount }}</span>
+            </ng-template>
+          </app-data-column>
+
+          <app-data-column key="active" header="Active" [sortable]="false" width="80px">
+            <ng-template #cell let-p>
+              <app-toggle-switch
+                [checked]="p.isActive"
+                (checkedChange)="toggleProviderActive(p)">
+              </app-toggle-switch>
+            </ng-template>
+          </app-data-column>
+
+          <app-data-column key="actions" header="" [sortable]="false" width="140px">
+            <ng-template #cell let-p>
+              <div class="action-btns">
+                <app-bronco-button variant="ghost" size="sm" title="Test Connection" (click)="testProvider(p)">Test</app-bronco-button>
+                <app-bronco-button variant="ghost" size="sm" (click)="editProvider(p)">Edit</app-bronco-button>
+                <app-bronco-button variant="destructive" size="sm" title="Delete provider and all its models" (click)="deleteProvider(p)">Delete</app-bronco-button>
+              </div>
+            </ng-template>
+          </app-data-column>
+        </app-data-table>
+      </div>
+
+      <!-- Models Section -->
+      <div class="section-header models-section">
+        <h2>Models</h2>
+        <app-bronco-button variant="primary" (click)="addModel()" [disabled]="providers().length === 0">+ Add Model</app-bronco-button>
+      </div>
+
+      @if (disabledProviderTypes().length > 0) {
+        <div class="provider-warning-banner">
+          <span class="warning-icon">&#x26A0;</span>
+          <span>
+            @for (p of disabledProviderTypes(); track p; let last = $last) {
+              <strong>{{ p }}</strong>{{ last ? '' : ', ' }}
             }
-          </td>
-        </ng-container>
+            {{ disabledProviderTypes().length > 1 ? 'providers are' : 'provider is' }} unavailable (disabled or with no active models).
+            Models under these providers will not be routed to.
+          </span>
+        </div>
+      }
 
-        <ng-container matColumnDef="active">
-          <th mat-header-cell *matHeaderCellDef>Active</th>
-          <td mat-cell *matCellDef="let m">
-            <mat-slide-toggle
-              [checked]="m.isActive"
-              (change)="toggleModelActive(m)"
-              color="primary">
-            </mat-slide-toggle>
-          </td>
-        </ng-container>
+      <div class="section-card">
+        <app-data-table [data]="models()" [trackBy]="trackModelById" [rowClickable]="false" emptyMessage="No models configured. Add a model to enable AI features.">
+          <app-data-column key="name" header="Name" [sortable]="false">
+            <ng-template #cell let-m>
+              <span class="model-name-text">{{ m.name }}</span>
+            </ng-template>
+          </app-data-column>
 
-        <ng-container matColumnDef="actions">
-          <th mat-header-cell *matHeaderCellDef></th>
-          <td mat-cell *matCellDef="let m">
-            <button mat-icon-button (click)="editModel(m)">
-              <mat-icon>edit</mat-icon>
-            </button>
-            <button mat-icon-button color="warn" (click)="deleteModel(m)">
-              <mat-icon>delete</mat-icon>
-            </button>
-          </td>
-        </ng-container>
+          <app-data-column key="provider" header="Provider" [sortable]="false">
+            <ng-template #cell let-m>
+              <span class="provider-chip provider-{{ m.provider.toLowerCase() }}">{{ m.provider }}</span>
+              @if (!m.providerActive) {
+                <span class="inline-warn" title="Provider is disabled">&#x26A0;</span>
+              }
+            </ng-template>
+          </app-data-column>
 
-        <tr mat-header-row *matHeaderRowDef="modelColumns"></tr>
-        <tr mat-row *matRowDef="let row; columns: modelColumns;"></tr>
-      </table>
-    </mat-card>
+          <app-data-column key="model" header="Model" [sortable]="false">
+            <ng-template #cell let-m>
+              <code class="model-code">{{ m.model }}</code>
+            </ng-template>
+          </app-data-column>
 
-    @if (models().length === 0) {
-      <p class="empty">No models configured. Add a model to enable AI features.</p>
-    }
+          <app-data-column key="capability" header="Capability" [sortable]="false">
+            <ng-template #cell let-m>
+              <span class="code-chip">{{ m.capabilityLevel }}</span>
+            </ng-template>
+          </app-data-column>
+
+          <app-data-column key="enabledApps" header="Enabled For" [sortable]="false">
+            <ng-template #cell let-m>
+              @if (m.enabledApps.length === 0) {
+                <span class="scope-chip scope-all">All Apps</span>
+              } @else {
+                @for (app of m.enabledApps; track app) {
+                  <span class="scope-chip">{{ appScopeLabel(app) }}</span>
+                }
+              }
+            </ng-template>
+          </app-data-column>
+
+          <app-data-column key="active" header="Active" [sortable]="false" width="80px">
+            <ng-template #cell let-m>
+              <app-toggle-switch
+                [checked]="m.isActive"
+                (checkedChange)="toggleModelActive(m)">
+              </app-toggle-switch>
+            </ng-template>
+          </app-data-column>
+
+          <app-data-column key="actions" header="" [sortable]="false" width="120px">
+            <ng-template #cell let-m>
+              <div class="action-btns">
+                <app-bronco-button variant="ghost" size="sm" (click)="editModel(m)">Edit</app-bronco-button>
+                <app-bronco-button variant="destructive" size="sm" (click)="deleteModel(m)">Delete</app-bronco-button>
+              </div>
+            </ng-template>
+          </app-data-column>
+        </app-data-table>
+      </div>
+    </div>
   `,
   styles: [`
-    .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-    .page-header h1 { margin: 0; }
-    .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-    .section-header h2 { margin: 0; font-size: 18px; }
-    .section-card { margin-bottom: 24px; }
+    .page-wrapper { max-width: 1200px; }
+    .page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+    .page-header h1 {
+      margin: 0;
+      font-size: 28px;
+      font-weight: 600;
+      font-family: var(--font-primary);
+      color: var(--text-primary);
+      letter-spacing: -0.28px;
+      line-height: 1.14;
+    }
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .section-header h2 {
+      margin: 0;
+      font-size: 21px;
+      font-weight: 600;
+      font-family: var(--font-primary);
+      color: var(--text-primary);
+      letter-spacing: -0.224px;
+    }
+    .section-card {
+      background: var(--bg-card);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-card);
+      margin-bottom: 24px;
+      overflow: hidden;
+    }
     .models-section { margin-top: 32px; }
-    .full-width { width: 100%; }
-    .provider-chip { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; background: #f5f5f5; color: #333; }
-    .provider-local { background: #e8f5e9; color: #2e7d32; }
-    .provider-claude { background: #fce4ec; color: #c62828; }
-    .provider-openai { background: #e3f2fd; color: #1565c0; }
-    .provider-grok { background: #fff3e0; color: #e65100; }
-    .provider-google { background: #e8f5e9; color: #1b5e20; }
-    .model-name { font-size: 13px; background: #f5f5f5; padding: 2px 6px; border-radius: 3px; }
-    .url-text { font-size: 12px; background: #f5f5f5; padding: 2px 6px; border-radius: 3px; word-break: break-all; }
-    .code-chip { font-size: 12px; padding: 2px 8px; background: #e8eaf6; border-radius: 4px; color: #3f51b5; font-family: monospace; }
-    .key-icon { font-size: 18px; color: #888; }
-    .muted { color: #999; }
-    .empty { color: #999; padding: 16px; text-align: center; }
-    .provider-warning-banner { display: flex; align-items: center; gap: 8px; padding: 12px 16px; margin-bottom: 16px; background: #fff3e0; border: 1px solid #ffe0b2; border-radius: 8px; color: #e65100; font-size: 13px; }
-    .provider-warning-banner mat-icon { color: #e65100; flex-shrink: 0; }
-    .scope-chip { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 4px; background: #e8eaf6; color: #3f51b5; margin-right: 4px; display: inline-block; margin-bottom: 2px; }
-    .scope-all { background: #e8f5e9; color: #2e7d32; }
-    .inline-warn-icon { font-size: 16px; width: 16px; height: 16px; color: #e65100; vertical-align: middle; margin-left: 4px; }
+    .provider-chip {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: var(--radius-sm);
+      background: var(--bg-muted);
+      color: var(--text-secondary);
+      font-family: var(--font-primary);
+    }
+    .provider-local { background: rgba(52, 199, 89, 0.1); color: var(--color-success); }
+    .provider-claude { background: rgba(255, 59, 48, 0.08); color: var(--color-error); }
+    .provider-openai { background: rgba(0, 122, 255, 0.08); color: var(--color-info); }
+    .provider-grok { background: rgba(255, 149, 0, 0.1); color: var(--color-warning); }
+    .provider-google { background: rgba(52, 199, 89, 0.1); color: var(--color-success); }
+    .url-text {
+      font-size: 12px;
+      background: var(--bg-muted);
+      padding: 2px 6px;
+      border-radius: var(--radius-sm);
+      word-break: break-all;
+    }
+    .model-code {
+      font-size: 13px;
+      background: var(--bg-muted);
+      padding: 2px 6px;
+      border-radius: var(--radius-sm);
+    }
+    .model-name-text {
+      font-weight: 500;
+      color: var(--text-primary);
+      font-family: var(--font-primary);
+    }
+    .code-chip {
+      font-size: 12px;
+      padding: 2px 8px;
+      background: rgba(0, 113, 227, 0.08);
+      border-radius: var(--radius-sm);
+      color: var(--accent);
+      font-family: monospace;
+    }
+    .key-icon { font-size: 14px; }
+    .muted { color: var(--text-tertiary); }
+    .action-btns { display: flex; gap: 4px; align-items: center; }
+    .provider-warning-banner {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      margin-bottom: 16px;
+      background: rgba(255, 149, 0, 0.08);
+      border: 1px solid rgba(255, 149, 0, 0.2);
+      border-radius: var(--radius-md);
+      color: var(--color-warning);
+      font-size: 13px;
+      font-family: var(--font-primary);
+    }
+    .warning-icon { font-size: 16px; flex-shrink: 0; }
+    .scope-chip {
+      font-size: 11px;
+      font-weight: 500;
+      padding: 2px 8px;
+      border-radius: var(--radius-sm);
+      background: rgba(0, 113, 227, 0.08);
+      color: var(--accent);
+      margin-right: 4px;
+      display: inline-block;
+      margin-bottom: 2px;
+    }
+    .scope-all { background: rgba(52, 199, 89, 0.1); color: var(--color-success); }
+    .inline-warn {
+      font-size: 14px;
+      color: var(--color-warning);
+      vertical-align: middle;
+      margin-left: 4px;
+    }
   `],
 })
 export class AiProvidersComponent implements OnInit {
@@ -232,10 +286,11 @@ export class AiProvidersComponent implements OnInit {
 
   providers = signal<AiProvider[]>([]);
   models = signal<AiProviderModel[]>([]);
-  providerColumns = ['provider', 'baseUrl', 'apiKey', 'models', 'active', 'actions'];
-  modelColumns = ['name', 'provider', 'model', 'capability', 'enabledApps', 'active', 'actions'];
 
   private appScopeLabels = signal<Record<string, string>>({});
+
+  trackProviderById = (p: AiProvider) => p.id;
+  trackModelById = (m: AiProviderModel) => m.id;
 
   appScopeLabel(scope: string): string {
     return this.appScopeLabels()[scope] ?? scope;

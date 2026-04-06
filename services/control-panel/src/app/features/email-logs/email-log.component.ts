@@ -2,21 +2,19 @@ import { Component, inject, OnInit, signal, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { MatCardModule } from '@angular/material/card';
-import { MatTableModule } from '@angular/material/table';
-import { MatButtonModule } from '@angular/material/button';
-import { MatIconModule } from '@angular/material/icon';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatSelectModule } from '@angular/material/select';
-import { MatInputModule } from '@angular/material/input';
-import { MatChipsModule } from '@angular/material/chips';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
-import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatMenuModule } from '@angular/material/menu';
-import { MatSnackBarModule, MatSnackBar } from '@angular/material/snack-bar';
+import { MatSnackBar } from '@angular/material/snack-bar';
 import { Subject, EMPTY, switchMap, timer } from 'rxjs';
 import { catchError, takeUntil } from 'rxjs/operators';
 import { EmailLogService, EmailProcessingLog, EmailLogStats } from '../../core/services/email-log.service';
+import {
+  BroncoButtonComponent,
+  SelectComponent,
+  StatCardComponent,
+  DataTableComponent,
+  DataTableColumnComponent,
+} from '../../shared/components/index.js';
 
 @Component({
   standalone: true,
@@ -24,296 +22,302 @@ import { EmailLogService, EmailProcessingLog, EmailLogStats } from '../../core/s
     CommonModule,
     FormsModule,
     RouterLink,
-    MatCardModule,
-    MatTableModule,
-    MatButtonModule,
-    MatIconModule,
-    MatFormFieldModule,
-    MatSelectModule,
-    MatInputModule,
-    MatChipsModule,
     MatPaginatorModule,
-    MatTooltipModule,
     MatMenuModule,
-    MatSnackBarModule,
+    BroncoButtonComponent,
+    SelectComponent,
+    StatCardComponent,
+    DataTableComponent,
+    DataTableColumnComponent,
   ],
   template: `
-    <div class="page-header">
-      <h1>Email Processing Log</h1>
-      <button mat-raised-button (click)="load()">
-        <mat-icon>refresh</mat-icon> Refresh
-      </button>
-    </div>
+    <div class="page-wrapper">
+      <div class="page-header">
+        <h1>Email Processing Log</h1>
+        <app-bronco-button variant="secondary" (click)="load()">Refresh</app-bronco-button>
+      </div>
 
-    <!-- Stats cards -->
-    <div class="stats-row">
-      <mat-card class="stat-card">
-        <mat-card-content>
-          <div class="stat-value">{{ stats().totalToday }}</div>
-          <div class="stat-label">Processed Today</div>
-        </mat-card-content>
-      </mat-card>
-      <mat-card class="stat-card">
-        <mat-card-content>
-          <div class="stat-value">{{ stats().ticketsCreated }}</div>
-          <div class="stat-label">Tickets Created</div>
-        </mat-card-content>
-      </mat-card>
-      <mat-card class="stat-card">
-        <mat-card-content>
-          <div class="stat-value">{{ stats().noiseFiltered }}</div>
-          <div class="stat-label">Noise Filtered</div>
-        </mat-card-content>
-      </mat-card>
-      <mat-card class="stat-card" [class.stat-alert]="stats().failures > 0">
-        <mat-card-content>
-          <div class="stat-value">{{ stats().failures }}</div>
-          <div class="stat-label">Failures</div>
-        </mat-card-content>
-      </mat-card>
-    </div>
+      <!-- Stats cards -->
+      <div class="stats-row">
+        <app-stat-card label="Processed Today" [value]="'' + stats().totalToday"></app-stat-card>
+        <app-stat-card label="Tickets Created" [value]="'' + stats().ticketsCreated"></app-stat-card>
+        <app-stat-card label="Noise Filtered" [value]="'' + stats().noiseFiltered"></app-stat-card>
+        <app-stat-card
+          label="Failures"
+          [value]="'' + stats().failures"
+          [changeType]="stats().failures > 0 ? 'negative' : 'neutral'">
+        </app-stat-card>
+      </div>
 
-    <!-- Filters -->
-    <div class="filters">
-      <mat-form-field>
-        <mat-label>Classification</mat-label>
-        <mat-select [(ngModel)]="classificationFilter" (ngModelChange)="resetAndLoad()">
-          <mat-option value="">All</mat-option>
-          <mat-option value="TICKET_WORTHY">Ticket Worthy</mat-option>
-          <mat-option value="THREAD_REPLY">Thread Reply</mat-option>
-          <mat-option value="NOISE">Noise</mat-option>
-          <mat-option value="AUTO_REPLY">Auto Reply</mat-option>
-        </mat-select>
-      </mat-form-field>
+      <!-- Filters -->
+      <div class="filters">
+        <app-select
+          [value]="classificationFilter"
+          [options]="classificationOptions"
+          placeholder=""
+          (valueChange)="classificationFilter = $event; resetAndLoad()">
+        </app-select>
+        <app-select
+          [value]="statusFilter"
+          [options]="statusOptions"
+          placeholder="Status"
+          (valueChange)="statusFilter = $event; resetAndLoad()">
+        </app-select>
+      </div>
 
-      <mat-form-field>
-        <mat-label>Status</mat-label>
-        <mat-select [(ngModel)]="statusFilter" (ngModelChange)="resetAndLoad()">
-          <mat-option value="">All</mat-option>
-          <mat-option value="processed">Processed</mat-option>
-          <mat-option value="failed">Failed</mat-option>
-          <mat-option value="retried">Retried</mat-option>
-          <mat-option value="discarded">Discarded</mat-option>
-        </mat-select>
-      </mat-form-field>
-    </div>
-
-    <!-- Table -->
-    <mat-card>
-      <table mat-table [dataSource]="logs()" class="full-width" multiTemplateDataRows>
-        <ng-container matColumnDef="from">
-          <th mat-header-cell *matHeaderCellDef>From</th>
-          <td mat-cell *matCellDef="let log">
-            <div class="from-cell">
-              <span class="from-name">{{ log.fromName || log.from }}</span>
-              @if (log.fromName && log.fromName !== log.from) {
-                <span class="from-address">{{ log.from }}</span>
-              }
-            </div>
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="subject">
-          <th mat-header-cell *matHeaderCellDef>Subject</th>
-          <td mat-cell *matCellDef="let log" class="subject-cell">{{ log.subject }}</td>
-        </ng-container>
-
-        <ng-container matColumnDef="classification">
-          <th mat-header-cell *matHeaderCellDef>Classification</th>
-          <td mat-cell *matCellDef="let log">
-            <span class="badge badge-{{ log.classification.toLowerCase() }}">{{ formatClassification(log.classification) }}</span>
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="status">
-          <th mat-header-cell *matHeaderCellDef>Status</th>
-          <td mat-cell *matCellDef="let log">
-            <span class="badge status-{{ log.status }}">{{ log.status }}</span>
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="client">
-          <th mat-header-cell *matHeaderCellDef>Client</th>
-          <td mat-cell *matCellDef="let log">
-            @if (log.client) {
-              <a [routerLink]="['/clients', log.client.id]">{{ log.client.name }}</a>
-            } @else {
-              <span class="muted">—</span>
-            }
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="ticket">
-          <th mat-header-cell *matHeaderCellDef>Ticket</th>
-          <td mat-cell *matCellDef="let log">
-            @if (log.ticket) {
-              <a [routerLink]="['/tickets', log.ticket.id]" [matTooltip]="log.ticket.subject">{{ log.ticket.subject | slice:0:30 }}{{ log.ticket.subject.length > 30 ? '...' : '' }}</a>
-            } @else {
-              <span class="muted">—</span>
-            }
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="received">
-          <th mat-header-cell *matHeaderCellDef>Received</th>
-          <td mat-cell *matCellDef="let log" class="time-cell">{{ formatTime(log.receivedAt ?? log.createdAt) }}</td>
-        </ng-container>
-
-        <ng-container matColumnDef="processingMs">
-          <th mat-header-cell *matHeaderCellDef>Time</th>
-          <td mat-cell *matCellDef="let log">
-            @if (log.processingMs !== null) {
-              {{ log.processingMs }}ms
-            } @else {
-              <span class="muted">—</span>
-            }
-          </td>
-        </ng-container>
-
-        <ng-container matColumnDef="actions">
-          <th mat-header-cell *matHeaderCellDef></th>
-          <td mat-cell *matCellDef="let log">
-            <button mat-icon-button [matMenuTriggerFor]="menu" (click)="$event.stopPropagation()">
-              <mat-icon>more_vert</mat-icon>
-            </button>
-            <mat-menu #menu="matMenu">
-              @if (log.status === 'failed' || log.classification === 'NOISE' || log.classification === 'AUTO_REPLY') {
-                <button mat-menu-item (click)="retryEmail(log)">
-                  <mat-icon>replay</mat-icon> Retry
-                </button>
-              }
-              <button mat-menu-item [matMenuTriggerFor]="reclassifyMenu">
-                <mat-icon>label</mat-icon> Reclassify
-              </button>
-              <button mat-menu-item (click)="toggleExpand(log.id)">
-                <mat-icon>info</mat-icon> Details
-              </button>
-            </mat-menu>
-            <mat-menu #reclassifyMenu="matMenu">
-              <button mat-menu-item (click)="reclassify(log, 'TICKET_WORTHY')">Ticket Worthy</button>
-              <button mat-menu-item (click)="reclassify(log, 'THREAD_REPLY')">Thread Reply</button>
-              <button mat-menu-item (click)="reclassify(log, 'NOISE')">Noise</button>
-              <button mat-menu-item (click)="reclassify(log, 'AUTO_REPLY')">Auto Reply</button>
-            </mat-menu>
-          </td>
-        </ng-container>
-
-        <!-- Expanded detail row -->
-        <ng-container matColumnDef="expandedDetail">
-          <td mat-cell *matCellDef="let log" [attr.colspan]="columns.length">
-            @if (expandedId() === log.id) {
-              <div class="detail-panel">
-                @if (log.errorMessage) {
-                  <div class="detail-section error-block">
-                    <div class="detail-label">Error</div>
-                    <pre>{{ log.errorMessage }}</pre>
-                  </div>
-                }
-                <div class="detail-section">
-                  <div class="detail-label">Message ID</div>
-                  <code>{{ log.messageId }}</code>
-                </div>
-                @if (log.metadata) {
-                  @if (log.metadata['inReplyTo']) {
-                    <div class="detail-section">
-                      <div class="detail-label">In-Reply-To</div>
-                      <code>{{ log.metadata['inReplyTo'] }}</code>
-                    </div>
-                  }
-                  @if (log.metadata['references']?.length) {
-                    <div class="detail-section">
-                      <div class="detail-label">References</div>
-                      <code>{{ log.metadata['references'].join(', ') }}</code>
-                    </div>
-                  }
-                  @if (log.metadata['body']) {
-                    <div class="detail-section">
-                      <div class="detail-label">Body Preview</div>
-                      <pre class="body-preview">{{ log.metadata['body'] | slice:0:1000 }}</pre>
-                    </div>
-                  }
+      <!-- Table -->
+      <div class="table-card">
+        <app-data-table [data]="logs()" [trackBy]="trackById" [rowClickable]="true" (rowClick)="toggleExpand($event.id)" emptyMessage="No email logs found.">
+          <app-data-column key="from" header="From" [sortable]="false">
+            <ng-template #cell let-log>
+              <div class="from-cell">
+                <span class="from-name">{{ log.fromName || log.from }}</span>
+                @if (log.fromName && log.fromName !== log.from) {
+                  <span class="from-address">{{ log.from }}</span>
                 }
               </div>
-            }
-          </td>
-        </ng-container>
+            </ng-template>
+          </app-data-column>
 
-        <tr mat-header-row *matHeaderRowDef="columns"></tr>
-        <tr mat-row *matRowDef="let log; columns: columns;" class="log-row" (click)="toggleExpand(log.id)"></tr>
-        <tr mat-row *matRowDef="let log; columns: ['expandedDetail'];" class="detail-row"></tr>
-      </table>
+          <app-data-column key="subject" header="Subject" [sortable]="false" width="300px">
+            <ng-template #cell let-log>
+              <span class="subject-text">{{ log.subject }}</span>
+            </ng-template>
+          </app-data-column>
 
-      <mat-paginator
-        [length]="total()"
-        [pageSize]="pageSize"
-        [pageSizeOptions]="[50, 100, 200]"
-        (page)="onPage($event)"
-        showFirstLastButtons>
-      </mat-paginator>
-    </mat-card>
+          <app-data-column key="classification" header="Classification" [sortable]="false">
+            <ng-template #cell let-log>
+              <span class="badge badge-{{ log.classification.toLowerCase() }}">{{ formatClassification(log.classification) }}</span>
+            </ng-template>
+          </app-data-column>
+
+          <app-data-column key="status" header="Status" [sortable]="false">
+            <ng-template #cell let-log>
+              <span class="badge status-{{ log.status }}">{{ log.status }}</span>
+            </ng-template>
+          </app-data-column>
+
+          <app-data-column key="client" header="Client" [sortable]="false">
+            <ng-template #cell let-log>
+              @if (log.client) {
+                <a class="link" [routerLink]="['/clients', log.client.id]">{{ log.client.name }}</a>
+              } @else {
+                <span class="muted">—</span>
+              }
+            </ng-template>
+          </app-data-column>
+
+          <app-data-column key="ticket" header="Ticket" [sortable]="false">
+            <ng-template #cell let-log>
+              @if (log.ticket) {
+                <a class="link" [routerLink]="['/tickets', log.ticket.id]" [title]="log.ticket.subject">{{ log.ticket.subject | slice:0:30 }}{{ log.ticket.subject.length > 30 ? '...' : '' }}</a>
+              } @else {
+                <span class="muted">—</span>
+              }
+            </ng-template>
+          </app-data-column>
+
+          <app-data-column key="received" header="Received" [sortable]="false">
+            <ng-template #cell let-log>
+              <span class="time-cell">{{ formatTime(log.receivedAt ?? log.createdAt) }}</span>
+            </ng-template>
+          </app-data-column>
+
+          <app-data-column key="processingMs" header="Time" [sortable]="false">
+            <ng-template #cell let-log>
+              @if (log.processingMs !== null) {
+                {{ log.processingMs }}ms
+              } @else {
+                <span class="muted">—</span>
+              }
+            </ng-template>
+          </app-data-column>
+
+          <app-data-column key="actions" header="" [sortable]="false" width="48px">
+            <ng-template #cell let-log>
+              <button type="button" class="icon-btn" aria-label="Open actions menu" [matMenuTriggerFor]="menu" (click)="$event.stopPropagation()">···</button>
+              <mat-menu #menu="matMenu">
+                @if (log.status === 'failed' || log.classification === 'NOISE' || log.classification === 'AUTO_REPLY') {
+                  <button mat-menu-item (click)="retryEmail(log)">Retry</button>
+                }
+                <button mat-menu-item [matMenuTriggerFor]="reclassifyMenu">Reclassify</button>
+                <button mat-menu-item (click)="toggleExpand(log.id)">Details</button>
+              </mat-menu>
+              <mat-menu #reclassifyMenu="matMenu">
+                <button mat-menu-item (click)="reclassify(log, 'TICKET_WORTHY')">Ticket Worthy</button>
+                <button mat-menu-item (click)="reclassify(log, 'THREAD_REPLY')">Thread Reply</button>
+                <button mat-menu-item (click)="reclassify(log, 'NOISE')">Noise</button>
+                <button mat-menu-item (click)="reclassify(log, 'AUTO_REPLY')">Auto Reply</button>
+              </mat-menu>
+            </ng-template>
+          </app-data-column>
+        </app-data-table>
+
+        <!-- Expanded detail -->
+        @for (log of logs(); track log.id) {
+          @if (expandedId() === log.id) {
+            <div class="detail-panel">
+              @if (log.errorMessage) {
+                <div class="detail-section error-block">
+                  <div class="detail-label">Error</div>
+                  <pre>{{ log.errorMessage }}</pre>
+                </div>
+              }
+              <div class="detail-section">
+                <div class="detail-label">Message ID</div>
+                <code>{{ log.messageId }}</code>
+              </div>
+              @if (log.metadata) {
+                @if (log.metadata['inReplyTo']) {
+                  <div class="detail-section">
+                    <div class="detail-label">In-Reply-To</div>
+                    <code>{{ log.metadata['inReplyTo'] }}</code>
+                  </div>
+                }
+                @if (asArray(log.metadata['references']).length) {
+                  <div class="detail-section">
+                    <div class="detail-label">References</div>
+                    <code>{{ asArray(log.metadata['references']).join(', ') }}</code>
+                  </div>
+                }
+                @if (log.metadata['body']) {
+                  <div class="detail-section">
+                    <div class="detail-label">Body Preview</div>
+                    <pre class="body-preview">{{ asString(log.metadata['body']) | slice:0:1000 }}</pre>
+                  </div>
+                }
+              }
+            </div>
+          }
+        }
+
+        <mat-paginator
+          [length]="total()"
+          [pageSize]="pageSize"
+          [pageSizeOptions]="[50, 100, 200]"
+          (page)="onPage($event)"
+          showFirstLastButtons>
+        </mat-paginator>
+      </div>
+    </div>
   `,
   styles: [`
+    .page-wrapper { max-width: 1200px; }
     .page-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 16px;
+      margin-bottom: 20px;
     }
-    .page-header h1 { margin: 0; font-size: 24px; font-weight: 400; }
+    .page-header h1 {
+      margin: 0;
+      font-size: 28px;
+      font-weight: 600;
+      font-family: var(--font-primary);
+      color: var(--text-primary);
+      letter-spacing: -0.28px;
+      line-height: 1.14;
+    }
     .stats-row {
       display: flex;
       gap: 16px;
-      margin-bottom: 16px;
+      margin-bottom: 20px;
       flex-wrap: wrap;
     }
-    .stat-card {
-      flex: 1;
-      min-width: 140px;
-      text-align: center;
-    }
-    .stat-value { font-size: 28px; font-weight: 500; }
-    .stat-label { font-size: 13px; color: #666; margin-top: 4px; }
-    .stat-alert { border-left: 4px solid #f44336; }
-    .stat-alert .stat-value { color: #f44336; }
+    .stats-row app-stat-card { flex: 1; min-width: 140px; }
     .filters {
       display: flex;
       gap: 12px;
       flex-wrap: wrap;
-      margin-bottom: 16px;
+      margin-bottom: 20px;
     }
-    .filters mat-form-field { width: 180px; }
-    .full-width { width: 100%; }
+    .table-card {
+      background: var(--bg-card);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-card);
+      overflow: hidden;
+    }
     .from-cell { display: flex; flex-direction: column; }
-    .from-name { font-weight: 500; font-size: 13px; }
-    .from-address { font-size: 11px; color: #888; }
-    .subject-cell { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .time-cell { white-space: nowrap; font-size: 12px; color: #666; }
-    .muted { color: #ccc; }
+    .from-name { font-weight: 500; font-size: 13px; color: var(--text-primary); }
+    .from-address { font-size: 11px; color: var(--text-tertiary); }
+    .subject-text { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; color: var(--text-secondary); }
+    .time-cell { white-space: nowrap; font-size: 12px; color: var(--text-tertiary); font-family: var(--font-primary); }
+    .muted { color: var(--text-tertiary); }
+    .link { text-decoration: none; color: var(--accent-link); font-weight: 500; }
+    .link:hover { text-decoration: underline; }
     .badge {
       display: inline-block;
       padding: 2px 8px;
-      border-radius: 12px;
+      border-radius: var(--radius-sm);
       font-size: 11px;
-      font-weight: 500;
+      font-weight: 600;
       text-transform: uppercase;
+      font-family: var(--font-primary);
+      letter-spacing: -0.08px;
     }
-    .badge-ticket_worthy { background: #e8f5e9; color: #2e7d32; }
-    .badge-thread_reply { background: #e3f2fd; color: #1565c0; }
-    .badge-noise { background: #fafafa; color: #9e9e9e; }
-    .badge-auto_reply { background: #fff3e0; color: #e65100; }
-    .status-processed { background: #e8f5e9; color: #2e7d32; }
-    .status-failed { background: #ffebee; color: #c62828; }
-    .status-retried { background: #fff3e0; color: #e65100; }
-    .status-discarded { background: #fafafa; color: #9e9e9e; }
-    .log-row { cursor: pointer; }
-    .log-row:hover { background: #f5f5f5; }
-    .detail-row { height: 0; }
-    .detail-panel { padding: 16px 24px; background: #fafafa; border-bottom: 1px solid #e0e0e0; }
+    .badge-ticket_worthy { background: rgba(52, 199, 89, 0.1); color: var(--color-success); }
+    .badge-thread_reply { background: rgba(0, 122, 255, 0.08); color: var(--color-info); }
+    .badge-noise { background: var(--bg-muted); color: var(--text-tertiary); }
+    .badge-auto_reply { background: rgba(255, 149, 0, 0.1); color: var(--color-warning); }
+    .status-processed { background: rgba(52, 199, 89, 0.1); color: var(--color-success); }
+    .status-failed { background: rgba(255, 59, 48, 0.1); color: var(--color-error); }
+    .status-retried { background: rgba(255, 149, 0, 0.1); color: var(--color-warning); }
+    .status-discarded { background: var(--bg-muted); color: var(--text-tertiary); }
+    .icon-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 16px;
+      color: var(--text-tertiary);
+      padding: 4px 8px;
+      border-radius: var(--radius-sm);
+      letter-spacing: 1px;
+      font-weight: 700;
+    }
+    .icon-btn:hover { background: var(--bg-hover); }
+    .detail-panel {
+      padding: 16px 24px;
+      background: var(--bg-page);
+      border-top: 1px solid var(--border-light);
+      border-bottom: 1px solid var(--border-light);
+    }
     .detail-section { margin-bottom: 12px; }
-    .detail-label { font-weight: 500; font-size: 12px; color: #666; margin-bottom: 4px; }
-    .error-block pre { color: #c62828; background: #fff5f5; padding: 8px; border-radius: 4px; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
-    .body-preview { background: #fff; border: 1px solid #e0e0e0; padding: 8px; border-radius: 4px; font-size: 12px; white-space: pre-wrap; word-break: break-word; max-height: 200px; overflow-y: auto; }
-    code { font-size: 12px; background: #f5f5f5; padding: 2px 6px; border-radius: 3px; }
+    .detail-label {
+      font-weight: 600;
+      font-size: 12px;
+      color: var(--text-tertiary);
+      margin-bottom: 4px;
+      font-family: var(--font-primary);
+      letter-spacing: -0.12px;
+    }
+    .error-block pre {
+      color: var(--color-error);
+      background: rgba(255, 59, 48, 0.06);
+      padding: 8px;
+      border-radius: var(--radius-md);
+      font-size: 12px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin: 0;
+    }
+    .body-preview {
+      background: var(--bg-card);
+      border: 1px solid var(--border-light);
+      padding: 8px;
+      border-radius: var(--radius-md);
+      font-size: 12px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 200px;
+      overflow-y: auto;
+      margin: 0;
+    }
+    code {
+      font-size: 12px;
+      background: var(--bg-muted);
+      padding: 2px 6px;
+      border-radius: var(--radius-sm);
+    }
   `],
 })
 export class EmailLogComponent implements OnInit, OnDestroy {
@@ -331,7 +335,23 @@ export class EmailLogComponent implements OnInit, OnDestroy {
   pageSize = 100;
   pageIndex = 0;
 
-  columns = ['from', 'subject', 'classification', 'status', 'client', 'ticket', 'received', 'processingMs', 'actions'];
+  classificationOptions = [
+    { value: '', label: 'All' },
+    { value: 'TICKET_WORTHY', label: 'Ticket Worthy' },
+    { value: 'THREAD_REPLY', label: 'Thread Reply' },
+    { value: 'NOISE', label: 'Noise' },
+    { value: 'AUTO_REPLY', label: 'Auto Reply' },
+  ];
+
+  statusOptions = [
+    { value: '', label: 'All' },
+    { value: 'processed', label: 'Processed' },
+    { value: 'failed', label: 'Failed' },
+    { value: 'retried', label: 'Retried' },
+    { value: 'discarded', label: 'Discarded' },
+  ];
+
+  trackById = (log: EmailProcessingLog) => log.id;
 
   ngOnInit(): void {
     this.load();
@@ -424,6 +444,14 @@ export class EmailLogComponent implements OnInit, OnDestroy {
 
   formatClassification(c: string): string {
     return c.replace(/_/g, ' ');
+  }
+
+  asArray(val: unknown): string[] {
+    return Array.isArray(val) ? val : [];
+  }
+
+  asString(val: unknown): string {
+    return typeof val === 'string' ? val : String(val ?? '');
   }
 
   private buildFilters(): Record<string, string | number> {
