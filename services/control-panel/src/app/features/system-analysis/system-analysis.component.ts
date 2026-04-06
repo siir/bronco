@@ -95,6 +95,7 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
               <div class="suggestions-text">{{ a.suggestions }}</div>
               <app-bronco-button variant="secondary" size="sm" class="copy-btn"
                 title="Copy suggestions to clipboard for a new coding session"
+                aria-label="Copy suggestions to clipboard for a new coding session"
                 (click)="copySuggestions(a)">
                 Copy for Session
               </app-bronco-button>
@@ -121,7 +122,7 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
                   Reopen
                 </app-bronco-button>
               }
-              <app-bronco-button variant="icon" size="sm" (click)="deleteAnalysis(a)" title="Delete permanently">
+              <app-bronco-button variant="icon" size="sm" (click)="deleteAnalysis(a)" title="Delete permanently" aria-label="Delete permanently">
                 ✕
               </app-bronco-button>
             </div>

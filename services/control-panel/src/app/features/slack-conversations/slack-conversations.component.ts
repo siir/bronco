@@ -77,7 +77,7 @@ import { BroncoButtonComponent, SelectComponent } from '../../shared/components/
                     [attr.aria-expanded]="expandedId() === row.id"
                     (click)="toggleExpand(row.id)"
                     (keydown.enter)="toggleExpand(row.id)"
-                    (keydown.space)="toggleExpand(row.id)">
+                    (keydown.space)="$event.preventDefault(); toggleExpand(row.id)">
                   <td>{{ row.operator.name }}</td>
                   <td>{{ row.client?.name ?? '—' }}</td>
                   <td><code>{{ row.channelId }}</code></td>

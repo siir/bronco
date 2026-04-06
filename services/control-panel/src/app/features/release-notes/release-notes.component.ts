@@ -100,6 +100,7 @@ const CHANGE_TYPE_META: Record<ReleaseNoteType, { label: string; color: string }
                   <div class="note-actions">
                     <app-bronco-button variant="icon" size="sm"
                       [title]="note.isVisible ? 'Mark as hidden' : 'Mark as visible'"
+                      [attr.aria-label]="note.isVisible ? 'Mark as hidden' : 'Mark as visible'"
                       (click)="toggleVisibility(note)">
                       {{ note.isVisible ? '◉' : '○' }}
                     </app-bronco-button>
@@ -228,8 +229,8 @@ const CHANGE_TYPE_META: Record<ReleaseNoteType, { label: string; color: string }
       border-bottom: 2px solid var(--border-light); margin-bottom: 4px;
     }
     .release-tag {
-      font-family: var(--font-primary); font-size: 15px; font-weight: 700;
-      color: var(--accent); font-family: monospace;
+      font-family: monospace; font-size: 15px; font-weight: 700;
+      color: var(--accent);
     }
     .release-count { font-family: var(--font-primary); font-size: 12px; color: var(--text-tertiary); margin-left: 4px; }
   `],

@@ -39,7 +39,7 @@ import { BroncoButtonComponent, SelectComponent } from '../../shared/components/
             [placeholder]="''"
             (valueChange)="errorWindowDays = +$event; refresh()">
           </app-select>
-          <app-bronco-button variant="icon" size="sm" (click)="refresh()" [disabled]="loading()" title="Refresh">
+          <app-bronco-button variant="icon" size="sm" (click)="refresh()" [disabled]="loading()" title="Refresh" aria-label="Refresh">
             ↻
           </app-bronco-button>
         </div>

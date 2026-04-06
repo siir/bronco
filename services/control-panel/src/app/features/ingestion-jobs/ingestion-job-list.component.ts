@@ -114,12 +114,12 @@ import { BroncoButtonComponent, SelectComponent } from '../../shared/components/
                   <td>{{ getDuration(r) }}</td>
                   <td>{{ r.steps.length }}</td>
                   <td class="col-expand">
-                    <app-bronco-button variant="icon" size="sm"
+                    <button type="button" class="expand-btn"
                       (click)="toggleExpand(r); $event.stopPropagation()"
                       [attr.aria-label]="expandedRunId === r.id ? 'Collapse run details' : 'Expand run details'"
                       [attr.aria-expanded]="expandedRunId === r.id">
                       {{ expandedRunId === r.id ? '▲' : '▼' }}
-                    </app-bronco-button>
+                    </button>
                   </td>
                 </tr>
                 @if (expandedRunId === r.id && expandedRun()) {
@@ -230,6 +230,11 @@ import { BroncoButtonComponent, SelectComponent } from '../../shared/components/
       color: var(--text-secondary); border-bottom: 1px solid var(--border-light);
     }
     .col-expand { width: 48px; text-align: center; }
+    .expand-btn {
+      background: none; border: none; cursor: pointer; padding: 4px 8px;
+      font-size: 14px; color: var(--text-secondary); border-radius: var(--radius-sm);
+    }
+    .expand-btn:hover { background: var(--bg-hover); }
 
     .run-row { cursor: pointer; transition: background 120ms ease; }
     .run-row:hover { background: var(--bg-hover); }
