@@ -1,0 +1,42 @@
+/*
+ * Linear Theme
+ * Source: linear.app DESIGN.md
+ * Dark theme: near-black backgrounds, Inter font, indigo-violet accent
+ */
+
+body.theme-linear {
+  --bg-page: #08090a;
+  --bg-card: #191a1b;
+  --bg-sidebar: #0f1011;
+  --bg-header: #0f1011;
+  --bg-panel: #191a1b;
+  --bg-hover: #28282c;
+  --bg-active: rgba(255, 255, 255, 0.05);
+  --bg-muted: #0f1011;
+
+  --text-primary: #f7f8f8;
+  --text-secondary: #d0d6e0;
+  --text-tertiary: #8a8f98;
+  --text-on-accent: #ffffff;
+
+  --accent: #5e6ad2;
+  --accent-link: #7170ff;
+  --accent-hover: #828fff;
+
+  --color-success: #27a644;
+  --color-warning: #ef9100;
+  --color-error: #e52020;
+  --color-info: #7170ff;
+
+  --border-light: rgba(255, 255, 255, 0.05);
+  --border-medium: rgba(255, 255, 255, 0.08);
+
+  --shadow-card: rgba(0, 0, 0, 0.2) 0px 0px 0px 1px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 9999px;
+
+  --font-primary: 'Inter', 'SF Pro Display', -apple-system, system-ui, sans-serif;
+}
