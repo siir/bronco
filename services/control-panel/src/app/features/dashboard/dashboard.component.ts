@@ -1,193 +1,126 @@
 import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
-import { MatCardModule } from '@angular/material/card';
-import { MatIconModule } from '@angular/material/icon';
-import { MatButtonModule } from '@angular/material/button';
 import { ClientService, Client } from '../../core/services/client.service';
 import { TicketService, Ticket, ACTIVE_STATUS_FILTER } from '../../core/services/ticket.service';
 import { SystemStatusService, SystemStatusResponse } from '../../core/services/system-status.service';
+import { DetailPanelService } from '../../core/services/detail-panel.service';
+import {
+  StatCardComponent,
+  DataTableComponent,
+  DataTableColumnComponent,
+  StatusBadgeComponent,
+  PriorityPillComponent,
+  CategoryChipComponent,
+  BroncoButtonComponent,
+  ToolbarComponent,
+} from '../../shared/components/index.js';
 
 /** Short code used by the imap-worker as a sentinel client for emails with no matched client. */
 const UNKNOWN_CLIENT_SHORT_CODE = '_unknown';
 
 @Component({
   standalone: true,
-  imports: [RouterLink, MatCardModule, MatIconModule, MatButtonModule],
+  imports: [
+    RouterLink,
+    StatCardComponent,
+    DataTableComponent,
+    DataTableColumnComponent,
+    StatusBadgeComponent,
+    PriorityPillComponent,
+    CategoryChipComponent,
+    BroncoButtonComponent,
+    ToolbarComponent,
+  ],
   template: `
-    <h1>Dashboard</h1>
-    <div class="stats-grid">
-      <mat-card>
-        <mat-card-content>
-          <div class="stat">
-            <mat-icon class="stat-icon">business</mat-icon>
-            <div>
-              <div class="stat-value">{{ clients().length }}</div>
-              <div class="stat-label">Clients</div>
-            </div>
-          </div>
-        </mat-card-content>
-        <mat-card-actions>
-          <a mat-button routerLink="/clients">View All</a>
-        </mat-card-actions>
-      </mat-card>
+    <div class="dashboard">
+      <div class="stats-row">
+        <app-stat-card label="Open Tickets" [value]="openTickets() + ''" change="" changeType="neutral" />
+        <app-stat-card label="Critical" [value]="criticalTickets() + ''" change="" [changeType]="criticalTickets() > 0 ? 'negative' : 'neutral'" />
+        <app-stat-card label="Clients" [value]="clients().length + ''" change="" changeType="neutral" />
+        <app-stat-card label="Database Systems" [value]="totalSystems() + ''" change="" changeType="neutral" />
+        @if (statusData(); as status) {
+          <app-stat-card
+            label="Services"
+            [value]="upCount() + '/' + (status.components.length + (status.mcpServers?.length ?? 0) + (status.llmProviders?.length ?? 0))"
+            [change]="status.status === 'UP' ? 'All healthy' : status.status"
+            [changeType]="status.status === 'UP' ? 'positive' : 'negative'" />
+        }
+        @if (unknownClientTickets() > 0) {
+          <app-stat-card
+            label="Unassigned Client"
+            [value]="unknownClientTickets() + ''"
+            change="Needs attention"
+            changeType="negative" />
+        }
+      </div>
 
-      <mat-card>
-        <mat-card-content>
-          <div class="stat">
-            <mat-icon class="stat-icon" style="color: #f57c00">confirmation_number</mat-icon>
-            <div>
-              <div class="stat-value">{{ openTickets() }}</div>
-              <div class="stat-label">Open Tickets</div>
-            </div>
-          </div>
-        </mat-card-content>
-        <mat-card-actions>
-          <a mat-button routerLink="/tickets">View All</a>
-        </mat-card-actions>
-      </mat-card>
+      <h2 class="section-title">Recent Tickets</h2>
 
-      <mat-card>
-        <mat-card-content>
-          <div class="stat">
-            <mat-icon class="stat-icon" style="color: #388e3c">storage</mat-icon>
-            <div>
-              <div class="stat-value">{{ totalSystems() }}</div>
-              <div class="stat-label">Database Systems</div>
-            </div>
-          </div>
-        </mat-card-content>
-      </mat-card>
+      <app-data-table
+        [data]="recentTickets()"
+        [trackBy]="trackById"
+        [sortColumn]="sortColumn()"
+        [sortDirection]="sortDirection()"
+        (sortChange)="onSortChange($event)"
+        (rowClick)="onTicketClick($event)"
+        emptyMessage="No tickets yet">
 
-      <mat-card>
-        <mat-card-content>
-          <div class="stat">
-            <mat-icon class="stat-icon" style="color: #d32f2f">priority_high</mat-icon>
-            <div>
-              <div class="stat-value">{{ criticalTickets() }}</div>
-              <div class="stat-label">Critical Tickets</div>
-            </div>
-          </div>
-        </mat-card-content>
-      </mat-card>
+        <app-data-column key="subject" header="Subject" [sortable]="false">
+          <ng-template #cell let-row>
+            <span style="font-weight: 500; color: var(--text-primary);">{{ row.subject }}</span>
+          </ng-template>
+        </app-data-column>
 
-      <!-- System Status Summary -->
-      @if (statusData(); as status) {
-        <mat-card [class]="'status-summary-card status-' + status.status.toLowerCase()">
-          <mat-card-content>
-            <div class="stat">
-              <mat-icon class="stat-icon" [style.color]="statusColor(status.status)">{{ statusIcon(status.status) }}</mat-icon>
-              <div>
-                <div class="stat-value">{{ upCount() }}/{{ status.components.length + (status.mcpServers?.length ?? 0) + (status.llmProviders?.length ?? 0) }}</div>
-                <div class="stat-label">Services {{ status.status === 'UP' ? 'OK' : status.status }}</div>
-              </div>
-            </div>
-          </mat-card-content>
-          <mat-card-actions>
-            <a mat-button routerLink="/system-status">View Status</a>
-          </mat-card-actions>
-        </mat-card>
-      }
+        <app-data-column key="status" header="Status" width="130px">
+          <ng-template #cell let-row>
+            <app-status-badge [status]="mapStatus(row.status)" />
+          </ng-template>
+        </app-data-column>
 
-      <!-- Unknown / unassigned client warning -->
-      @if (unknownClientTickets() > 0) {
-        <mat-card class="unknown-client-card">
-          <mat-card-content>
-            <div class="stat">
-              <mat-icon class="stat-icon" style="color: #f57c00">person_off</mat-icon>
-              <div>
-                <div class="stat-value">{{ unknownClientTickets() }}</div>
-                <div class="stat-label">Unassigned Client</div>
-              </div>
-            </div>
-          </mat-card-content>
-          <mat-card-actions>
-            <a mat-button [routerLink]="['/tickets']" [queryParams]="{ clientId: unknownClientId() }">View Tickets</a>
-          </mat-card-actions>
-        </mat-card>
-      }
-    </div>
+        <app-data-column key="priority" header="Priority" width="110px">
+          <ng-template #cell let-row>
+            <app-priority-pill [priority]="row.priority" />
+          </ng-template>
+        </app-data-column>
 
-    <h2>Recent Tickets</h2>
-    <div class="ticket-list">
-      @for (ticket of recentTickets(); track ticket.id) {
-        <mat-card class="ticket-card">
-          <mat-card-content>
-            <div class="ticket-row">
-              <span class="ticket-priority priority-{{ ticket.priority.toLowerCase() }}">{{ ticket.priority }}</span>
-              <a [routerLink]="['/tickets', ticket.id]" class="ticket-subject">{{ ticket.subject }}</a>
-              <span class="ticket-client" [class.ticket-client-unknown]="ticket.client?.shortCode === UNKNOWN_CLIENT_SHORT_CODE">{{ ticket.client?.shortCode ?? '—' }}</span>
-              <span class="ticket-status">{{ ticket.status }}</span>
-            </div>
-          </mat-card-content>
-        </mat-card>
-      } @empty {
-        <p class="empty">No tickets yet.</p>
-      }
+        <app-data-column key="category" header="Category" width="140px">
+          <ng-template #cell let-row>
+            <app-category-chip [category]="row.category ?? 'GENERAL'" />
+          </ng-template>
+        </app-data-column>
+
+        <app-data-column key="client" header="Client" width="140px" [sortable]="false">
+          <ng-template #cell let-row>
+            <span style="font-size: 13px; color: var(--text-secondary);">
+              @if (row.client?.shortCode) {
+                <span style="color: var(--accent); font-weight: 600;">{{ row.client.shortCode }}</span>
+              }
+              {{ row.client?.name ?? '—' }}
+            </span>
+          </ng-template>
+        </app-data-column>
+
+      </app-data-table>
     </div>
   `,
   styles: [`
-    h1 { margin: 0 0 24px; }
-    h2 { margin: 32px 0 16px; }
-    .stats-grid {
+    .dashboard {
+      max-width: 1200px;
+    }
+    .stats-row {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
       gap: 16px;
+      margin-bottom: 32px;
     }
-    .stat {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      padding: 8px 0;
-    }
-    .stat-icon { font-size: 36px; width: 36px; height: 36px; color: #3f51b5; }
-    .stat-value { font-size: 28px; font-weight: 500; }
-    .stat-label { color: #666; font-size: 14px; }
-    .ticket-list { display: flex; flex-direction: column; gap: 8px; }
-    .ticket-card { cursor: pointer; }
-    .ticket-row {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-    .ticket-subject {
-      flex: 1;
-      text-decoration: none;
-      color: #333;
-      font-weight: 500;
-    }
-    .ticket-subject:hover { color: #3f51b5; }
-    .ticket-priority {
-      font-size: 11px;
+    .section-title {
+      font-family: var(--font-primary);
+      font-size: 16px;
       font-weight: 600;
-      padding: 2px 8px;
-      border-radius: 4px;
-      text-transform: uppercase;
+      color: var(--text-primary);
+      margin: 0 0 12px;
     }
-    .priority-critical { background: #ffebee; color: #c62828; }
-    .priority-high { background: #fff3e0; color: #e65100; }
-    .priority-medium { background: #e3f2fd; color: #1565c0; }
-    .priority-low { background: #e8f5e9; color: #2e7d32; }
-    .ticket-client {
-      font-size: 12px;
-      padding: 2px 8px;
-      background: #e8eaf6;
-      border-radius: 4px;
-      color: #3f51b5;
-    }
-    .ticket-client-unknown {
-      background: #fff3e0;
-      color: #e65100;
-    }
-    .ticket-status {
-      font-size: 12px;
-      color: #666;
-    }
-    .empty { color: #999; padding: 16px; }
-    .status-summary-card.status-up { border-left: 4px solid #4caf50; }
-    .status-summary-card.status-degraded { border-left: 4px solid #ff9800; }
-    .status-summary-card.status-down { border-left: 4px solid #f44336; }
-    .unknown-client-card { border-left: 4px solid #f57c00; }
   `],
 })
 export class DashboardComponent implements OnInit {
@@ -195,6 +128,7 @@ export class DashboardComponent implements OnInit {
   private ticketService = inject(TicketService);
   private systemStatusService = inject(SystemStatusService);
   private destroyRef = inject(DestroyRef);
+  private detailPanel = inject(DetailPanelService);
 
   clients = signal<Client[]>([]);
   recentTickets = signal<Ticket[]>([]);
@@ -205,7 +139,11 @@ export class DashboardComponent implements OnInit {
   upCount = signal(0);
   unknownClientId = signal('');
   unknownClientTickets = signal(0);
-  readonly UNKNOWN_CLIENT_SHORT_CODE = UNKNOWN_CLIENT_SHORT_CODE;
+
+  sortColumn = signal('');
+  sortDirection = signal<'asc' | 'desc'>('asc');
+
+  trackById = (item: Ticket) => item.id;
 
   ngOnInit(): void {
     this.clientService.getClients().subscribe(clients => {
@@ -242,21 +180,24 @@ export class DashboardComponent implements OnInit {
     });
   }
 
-  statusIcon(status: string): string {
-    switch (status) {
-      case 'UP': return 'check_circle';
-      case 'DEGRADED': return 'warning';
-      case 'DOWN': return 'error';
-      default: return 'help';
-    }
+  onTicketClick(ticket: Ticket): void {
+    this.detailPanel.open('ticket', ticket.id);
   }
 
-  statusColor(status: string): string {
-    switch (status) {
-      case 'UP': return '#4caf50';
-      case 'DEGRADED': return '#ff9800';
-      case 'DOWN': return '#f44336';
-      default: return '#9e9e9e';
-    }
+  onSortChange(event: { column: string; direction: 'asc' | 'desc' }): void {
+    this.sortColumn.set(event.column);
+    this.sortDirection.set(event.direction);
+  }
+
+  /** Map API ticket status strings to StatusBadge values */
+  mapStatus(status: string): 'open' | 'in_progress' | 'analyzing' | 'resolved' | 'closed' {
+    const map: Record<string, 'open' | 'in_progress' | 'analyzing' | 'resolved' | 'closed'> = {
+      OPEN: 'open',
+      IN_PROGRESS: 'in_progress',
+      ANALYZING: 'analyzing',
+      RESOLVED: 'resolved',
+      CLOSED: 'closed',
+    };
+    return map[status] ?? 'open';
   }
 }
