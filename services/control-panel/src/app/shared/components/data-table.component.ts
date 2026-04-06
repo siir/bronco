@@ -22,8 +22,8 @@ import { DataTableColumnComponent } from './data-table-column.component';
                   [attr.tabindex]="col.sortable() ? 0 : null"
                   [attr.aria-sort]="sortColumn() === col.key() ? (sortDirection() === 'asc' ? 'ascending' : 'descending') : null"
                   (click)="col.sortable() ? onSort(col.key()) : null"
-                  (keydown.enter)="col.sortable() ? onSort(col.key()) : null"
-                  (keydown.space)="col.sortable() ? onSort(col.key()) : null">
+                  (keydown.enter)="col.sortable() ? onSortKey($event, col.key()) : null"
+                  (keydown.space)="col.sortable() ? onSortKey($event, col.key()) : null">
                   @if (col.headerTpl()) {
                     <ng-container [ngTemplateOutlet]="col.headerTpl()!" />
                   } @else {
@@ -143,5 +143,10 @@ export class DataTableComponent<T = unknown> {
   onSort(key: string): void {
     const direction = this.sortColumn() === key && this.sortDirection() === 'asc' ? 'desc' : 'asc';
     this.sortChange.emit({ column: key, direction });
+  }
+
+  onSortKey(event: Event, key: string): void {
+    event.preventDefault();
+    this.onSort(key);
   }
 }

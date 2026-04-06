@@ -1,11 +1,11 @@
-import { Component } from '@angular/core';
+import { Component, input } from '@angular/core';
 
 @Component({
   selector: 'app-header-bar',
   standalone: true,
   template: `
     <header class="header-bar">
-      <span class="page-title">Dashboard</span>
+      <span class="page-title">{{ title() }}</span>
       <button class="search-trigger" type="button" aria-label="Search">
         <span class="search-text">Search...</span>
         <kbd class="search-kbd">&#x2318;K</kbd>
@@ -61,4 +61,6 @@ import { Component } from '@angular/core';
     }
   `],
 })
-export class HeaderBarComponent {}
+export class HeaderBarComponent {
+  title = input<string>('Dashboard');
+}

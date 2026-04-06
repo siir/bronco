@@ -66,19 +66,19 @@ const UNKNOWN_CLIENT_SHORT_CODE = '_unknown';
           </ng-template>
         </app-data-column>
 
-        <app-data-column key="status" header="Status" width="130px">
+        <app-data-column key="status" header="Status" width="130px" [sortable]="false">
           <ng-template #cell let-row>
             <app-status-badge [status]="mapStatus(row.status)" />
           </ng-template>
         </app-data-column>
 
-        <app-data-column key="priority" header="Priority" width="110px">
+        <app-data-column key="priority" header="Priority" width="110px" [sortable]="false">
           <ng-template #cell let-row>
             <app-priority-pill [priority]="row.priority" />
           </ng-template>
         </app-data-column>
 
-        <app-data-column key="category" header="Category" width="140px">
+        <app-data-column key="category" header="Category" width="140px" [sortable]="false">
           <ng-template #cell let-row>
             <app-category-chip [category]="row.category ?? 'GENERAL'" />
           </ng-template>
