@@ -1,5 +1,4 @@
 import { Component, inject, OnInit, OnDestroy, signal, computed } from '@angular/core';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { RouterLink } from '@angular/router';
 import type { Subscription } from 'rxjs';
 import {
@@ -12,6 +11,7 @@ import type { McpDiscoveryMetadata } from '../../core/services/integration.servi
 import { AiProviderService } from '../../core/services/ai-provider.service';
 import { NotificationChannelsComponent } from '../notification-channels/notification-channels.component';
 import { McpServerInfoComponent } from '../../shared/components/mcp-server-info.component';
+import { ToastService } from '../../core/services/toast.service';
 import {
   DropdownMenuComponent,
   DropdownItemComponent,
@@ -748,7 +748,7 @@ import {
 export class SystemStatusComponent implements OnInit, OnDestroy {
   private statusService = inject(SystemStatusService);
   private aiProviderService = inject(AiProviderService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
   private refreshInterval: ReturnType<typeof setInterval> | null = null;
   private refreshSub: Subscription | undefined;
   private aiProviderSub: Subscription | undefined;
@@ -828,16 +828,12 @@ export class SystemStatusComponent implements OnInit, OnDestroy {
     this.statusService.controlService(service, action).subscribe({
       next: (res) => {
         this.controlling.set(null);
-        this.snackBar.open(res.message, 'OK', { duration: 4000, panelClass: 'success-snackbar' });
+        this.toast.success(res.message);
         setTimeout(() => this.refresh(), 3000);
       },
       error: (err) => {
         this.controlling.set(null);
-        this.snackBar.open(
-          `Failed to ${action} ${service}: ${err.error?.error ?? err.message}`,
-          'Dismiss',
-          { duration: 6000 },
-        );
+        this.toast.error(`Failed to ${action} ${service}: ${err.error?.error ?? err.message}`);
       },
     });
   }

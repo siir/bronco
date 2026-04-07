@@ -3,13 +3,13 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
-import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { IntegrationService, type McpDiscoveryMetadata } from '../../core/services/integration.service';
+import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   selector: 'app-mcp-server-info',
   standalone: true,
-  imports: [MatIconModule, MatButtonModule, MatTooltipModule, MatProgressSpinnerModule, MatSnackBarModule],
+  imports: [MatIconModule, MatButtonModule, MatTooltipModule, MatProgressSpinnerModule],
   template: `
     <div class="mcp-info">
       <!-- Server identity -->
@@ -170,7 +170,7 @@ export class McpServerInfoComponent {
   verified = output<void>();
 
   private integrationService = inject(IntegrationService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
   verifying = false;
 
@@ -181,12 +181,12 @@ export class McpServerInfoComponent {
     this.integrationService.verify(id).subscribe({
       next: () => {
         this.verifying = false;
-        this.snackBar.open('Verification job enqueued', 'OK', { duration: 3000 });
+        this.toast.success('Verification job enqueued');
         this.verified.emit();
       },
       error: (err) => {
         this.verifying = false;
-        this.snackBar.open(err.error?.error ?? 'Verification failed', 'OK', { duration: 5000 });
+        this.toast.error(err.error?.error ?? 'Verification failed');
       },
     });
   }

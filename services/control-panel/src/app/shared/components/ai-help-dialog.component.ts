@@ -9,9 +9,9 @@ import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { AiProviderService, type AiProviderModel } from '../../core/services/ai-provider.service';
 import type { AiHelpResponse } from '../../core/services/ticket.service';
+import { ToastService } from '../../core/services/toast.service';
 
 /**
  * Data passed to the AI help dialog. The `submitFn` callback is responsible for
@@ -103,7 +103,7 @@ interface ModelOption {
 export class AiHelpDialogComponent implements OnInit {
   data: AiHelpDialogData = inject(MAT_DIALOG_DATA);
   private providerService = inject(AiProviderService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
   private destroyRef = inject(DestroyRef);
 
   modelOptions = signal<ModelOption[]>([]);
@@ -154,7 +154,7 @@ export class AiHelpDialogComponent implements OnInit {
       this.loading.set(false);
       const msg = err?.error?.message ?? err?.message ?? 'AI request failed';
       this.errorMsg.set(msg);
-      this.snackBar.open(msg, 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+      this.toast.error(msg);
     });
   }
 }

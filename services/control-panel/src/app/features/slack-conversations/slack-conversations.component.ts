@@ -1,7 +1,6 @@
 import { Component, inject, OnInit, signal, OnDestroy, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { MatSnackBarModule, MatSnackBar } from '@angular/material/snack-bar';
 import { Subject, EMPTY } from 'rxjs';
 import { catchError, takeUntil } from 'rxjs/operators';
 import {
@@ -11,13 +10,13 @@ import {
 } from '../../core/services/slack-conversation.service';
 import { ClientService, Client } from '../../core/services/client.service';
 import { BroncoButtonComponent, SelectComponent, PaginatorComponent, type PaginatorPageEvent } from '../../shared/components/index.js';
+import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   standalone: true,
   imports: [
     CommonModule,
     FormsModule,
-    MatSnackBarModule,
     BroncoButtonComponent,
     SelectComponent,
     PaginatorComponent,
@@ -260,7 +259,7 @@ import { BroncoButtonComponent, SelectComponent, PaginatorComponent, type Pagina
 export class SlackConversationsComponent implements OnInit, OnDestroy {
   private conversationService = inject(SlackConversationService);
   private clientService = inject(ClientService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
   private destroy$ = new Subject<void>();
 
   conversations = signal<SlackConversationSummary[]>([]);
@@ -298,7 +297,7 @@ export class SlackConversationsComponent implements OnInit, OnDestroy {
       .getConversations(this.buildFilters())
       .pipe(
         catchError(() => {
-          this.snackBar.open('Failed to load conversations.', 'Dismiss', { duration: 5000 });
+          this.toast.error('Failed to load conversations.');
           return EMPTY;
         }),
       )
@@ -333,7 +332,7 @@ export class SlackConversationsComponent implements OnInit, OnDestroy {
       .getConversation(id)
       .pipe(
         catchError(() => {
-          this.snackBar.open('Failed to load conversation detail.', 'Dismiss', { duration: 5000 });
+          this.toast.error('Failed to load conversation detail.');
           this.loadingDetail.set(false);
           return EMPTY;
         }),

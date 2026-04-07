@@ -4,7 +4,6 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Subject, debounceTime } from 'rxjs';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import {
   AiUsageService, AiUsageSummary, AiModelCost, AiUsageLogEntry, AiUsageLogDetail,
@@ -20,6 +19,7 @@ import {
   PaginatorComponent,
   type PaginatorPageEvent,
 } from '../../shared/components/index.js';
+import { ToastService } from '../../core/services/toast.service';
 
 interface DatePreset {
   label: string;
@@ -873,7 +873,7 @@ const DATE_PRESETS: DatePreset[] = [
 })
 export class AiUsageComponent implements OnInit {
   private aiUsageService = inject(AiUsageService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
   private dialog = inject(MatDialog);
   private router = inject(Router);
   private route = inject(ActivatedRoute);
@@ -1018,12 +1018,12 @@ export class AiUsageComponent implements OnInit {
       next: (res) => {
         this.loading.set(false);
         const msg = `Updated ${res.updated} models` + (res.skipped ? `, skipped ${res.skipped} custom` : '');
-        this.snackBar.open(msg, 'OK', { duration: 4000 });
+        this.toast.info(msg);
         this.loadCosts();
       },
       error: (err) => {
         this.loading.set(false);
-        this.snackBar.open(err.error?.error ?? 'Failed to refresh costs', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+        this.toast.error(err.error?.error ?? 'Failed to refresh costs');
       },
     });
   }
@@ -1041,15 +1041,15 @@ export class AiUsageComponent implements OnInit {
   deleteModel(cost: AiModelCost): void {
     if (!confirm(`Delete cost entry for ${cost.provider}/${cost.model}?`)) return;
     this.aiUsageService.deleteCost(cost.id).subscribe({
-      next: () => { this.snackBar.open('Deleted', 'OK', { duration: 3000 }); this.loadCosts(); },
-      error: () => this.snackBar.open('Failed to delete', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      next: () => { this.toast.success('Deleted'); this.loadCosts(); },
+      error: () => this.toast.error('Failed to delete'),
     });
   }
 
   clearCustomCost(cost: AiModelCost): void {
     this.aiUsageService.clearCustomCost(cost.id).subscribe({
-      next: () => { this.snackBar.open('Custom cost cleared', 'OK', { duration: 3000 }); this.loadCosts(); },
-      error: () => this.snackBar.open('Failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      next: () => { this.toast.success('Custom cost cleared'); this.loadCosts(); },
+      error: () => this.toast.error('Failed'),
     });
   }
 
@@ -1107,13 +1107,13 @@ export class AiUsageComponent implements OnInit {
     this.aiUsageService.refreshLogCosts().subscribe({
       next: (res) => {
         this.logLoading.set(false);
-        this.snackBar.open(`Refreshed costs: ${res.updated} of ${res.total} entries updated`, 'OK', { duration: 4000 });
+        this.toast.success(`Refreshed costs: ${res.updated} of ${res.total} entries updated`);
         this.loadLogs();
         this.loadSummary();
       },
       error: () => {
         this.logLoading.set(false);
-        this.snackBar.open('Failed to refresh log costs', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+        this.toast.error('Failed to refresh log costs');
       },
     });
   }
@@ -1165,12 +1165,12 @@ export class AiUsageComponent implements OnInit {
     this.aiUsageService.deleteLogs(body).subscribe({
       next: (res) => {
         this.logLoading.set(false);
-        this.snackBar.open(`Deleted ${res.deleted} log entries`, 'OK', { duration: 4000 });
+        this.toast.success(`Deleted ${res.deleted} log entries`);
         this.resetAndLoadLogs();
       },
       error: () => {
         this.logLoading.set(false);
-        this.snackBar.open('Failed to delete logs', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+        this.toast.error('Failed to delete logs');
       },
     });
   }
@@ -1243,7 +1243,7 @@ export class AiUsageComponent implements OnInit {
         const nextIds = new Set(this.expandedLogIds());
         nextIds.delete(requestedId);
         this.expandedLogIds.set(nextIds);
-        this.snackBar.open('Failed to load log detail', 'OK', { duration: 4000, panelClass: 'error-snackbar' });
+        this.toast.error('Failed to load log detail');
       },
     });
   }

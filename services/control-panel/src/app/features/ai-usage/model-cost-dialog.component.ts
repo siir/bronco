@@ -6,8 +6,8 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { AiUsageService, AiModelCost } from '../../core/services/ai-usage.service';
+import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   standalone: true,
@@ -61,7 +61,7 @@ export class ModelCostDialogComponent implements OnInit {
   private dialogRef = inject(MatDialogRef<ModelCostDialogComponent>);
   private data = inject<{ cost?: AiModelCost }>(MAT_DIALOG_DATA);
   private aiUsageService = inject(AiUsageService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
   isEdit = !!this.data.cost;
   provider = this.data.cost?.provider ?? '';
@@ -97,10 +97,10 @@ export class ModelCostDialogComponent implements OnInit {
       isCustomCost: this.isCustomCost,
     }).subscribe({
       next: () => {
-        this.snackBar.open(this.isEdit ? 'Cost updated' : 'Model cost added', 'OK', { duration: 3000 });
+        this.toast.success(this.isEdit ? 'Cost updated' : 'Model cost added');
         this.dialogRef.close(true);
       },
-      error: (err) => this.snackBar.open(err.error?.message ?? 'Failed to save', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: (err) => this.toast.error(err.error?.message ?? 'Failed to save'),
     });
   }
 }

@@ -11,7 +11,6 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { DatePipe, DecimalPipe, SlicePipe } from '@angular/common';
 import {
   ScheduledProbeService,
@@ -19,6 +18,7 @@ import {
   ProbeRun,
   ProbeRunStep,
 } from '../../core/services/scheduled-probe.service';
+import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   standalone: true,
@@ -442,7 +442,7 @@ import {
 export class ProbeRunsComponent implements OnInit, OnDestroy {
   private route = inject(ActivatedRoute);
   private probeService = inject(ScheduledProbeService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
   private clipboard = inject(Clipboard);
 
   probe = signal<ScheduledProbe | null>(null);
@@ -605,9 +605,9 @@ export class ProbeRunsComponent implements OnInit, OnDestroy {
   copyToClipboard(text: string): void {
     const ok = this.clipboard.copy(text);
     if (ok) {
-      this.snackBar.open('Copied to clipboard', 'OK', { duration: 2000 });
+      this.toast.success('Copied to clipboard');
     } else {
-      this.snackBar.open('Failed to copy to clipboard', 'OK', { duration: 4000, panelClass: 'error-snackbar' });
+      this.toast.error('Failed to copy to clipboard');
     }
   }
 
@@ -625,12 +625,12 @@ export class ProbeRunsComponent implements OnInit, OnDestroy {
     this.probeService.purgeRuns(this.probeId).subscribe({
       next: (res) => {
         this.purging = false;
-        this.snackBar.open(`Deleted ${res.deleted} runs`, 'OK', { duration: 3000 });
+        this.toast.success(`Deleted ${res.deleted} runs`);
         this.loadRuns();
       },
       error: () => {
         this.purging = false;
-        this.snackBar.open('Failed to purge history', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+        this.toast.error('Failed to purge history');
       },
     });
   }
@@ -657,11 +657,11 @@ export class ProbeRunsComponent implements OnInit, OnDestroy {
       next: (p) => {
         this.savingRetention = false;
         this.probe.set(p);
-        this.snackBar.open('Retention settings saved', 'OK', { duration: 3000 });
+        this.toast.success('Retention settings saved');
       },
       error: () => {
         this.savingRetention = false;
-        this.snackBar.open('Failed to save retention settings', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+        this.toast.error('Failed to save retention settings');
       },
     });
   }

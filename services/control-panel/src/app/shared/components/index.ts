@@ -15,6 +15,7 @@ export { TabComponent } from './tab.component';
 export { TabGroupComponent } from './tab-group.component';
 export { DialogComponent } from './dialog.component';
 export { ToolbarComponent } from './toolbar.component';
+export { ToastContainerComponent } from './toast-container.component';
 export { PaginatorComponent, type PaginatorPageEvent } from './paginator.component';
 export {
   DropdownMenuComponent,

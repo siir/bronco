@@ -1,6 +1,5 @@
 import { Component, inject, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { AuthService } from '../../core/services/auth.service';
 import { ThemeService } from '../../core/services/theme.service';
 import {
@@ -8,6 +7,7 @@ import {
   CardComponent,
   FormFieldComponent,
 } from '../../shared/components/index.js';
+import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   standalone: true,
@@ -276,7 +276,7 @@ import {
 export class ProfileComponent implements OnInit {
   authService = inject(AuthService);
   readonly themeService = inject(ThemeService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
   profileName = '';
   profileEmail = '';
@@ -299,11 +299,11 @@ export class ProfileComponent implements OnInit {
     this.profileSaving = true;
     this.authService.updateProfile({ name: this.profileName, email: this.profileEmail }).subscribe({
       next: () => {
-        this.snackBar.open('Profile updated', 'OK', { duration: 3000 });
+        this.toast.success('Profile updated');
         this.profileSaving = false;
       },
       error: (err) => {
-        this.snackBar.open(err.error?.error ?? 'Failed to update profile', 'OK', { duration: 5000 });
+        this.toast.error(err.error?.error ?? 'Failed to update profile');
         this.profileSaving = false;
       },
     });
@@ -311,24 +311,24 @@ export class ProfileComponent implements OnInit {
 
   changePassword(): void {
     if (this.newPassword !== this.confirmPassword) {
-      this.snackBar.open('New passwords do not match', 'OK', { duration: 5000 });
+      this.toast.info('New passwords do not match');
       return;
     }
     if (this.newPassword.length < 8) {
-      this.snackBar.open('Password must be at least 8 characters', 'OK', { duration: 5000 });
+      this.toast.info('Password must be at least 8 characters');
       return;
     }
     this.passwordSaving = true;
     this.authService.changePassword(this.currentPassword, this.newPassword).subscribe({
       next: () => {
-        this.snackBar.open('Password changed successfully', 'OK', { duration: 3000 });
+        this.toast.success('Password changed successfully');
         this.currentPassword = '';
         this.newPassword = '';
         this.confirmPassword = '';
         this.passwordSaving = false;
       },
       error: (err) => {
-        this.snackBar.open(err.error?.error ?? 'Failed to change password', 'OK', { duration: 5000 });
+        this.toast.error(err.error?.error ?? 'Failed to change password');
         this.passwordSaving = false;
       },
     });

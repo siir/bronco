@@ -10,7 +10,6 @@ import { MatChipsModule } from '@angular/material/chips';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatTabsModule } from '@angular/material/tabs';
@@ -23,6 +22,7 @@ import { AiHelpDialogComponent, type AiHelpDialogData } from '../../shared/compo
 import { AiLogEntryComponent } from './ai-log-entry.component';
 import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
 import { RelativeTimePipe } from '../../shared/pipes/relative-time.pipe';
+import { ToastService } from '../../core/services/toast.service';
 
 interface StepGroup {
   stepName: string;
@@ -999,7 +999,7 @@ export class TicketDetailComponent implements OnInit {
   private logSummaryService = inject(LogSummaryService);
   private aiUsageService = inject(AiUsageService);
   private destroyRef = inject(DestroyRef);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
   private dialog = inject(MatDialog);
 
   private pollHandle: ReturnType<typeof setInterval> | null = null;
@@ -1477,15 +1477,15 @@ export class TicketDetailComponent implements OnInit {
         next: (result) => {
           this.generatingLogs.set(false);
           if (result.created > 0) {
-            this.snackBar.open('Log summary generated', 'OK', { duration: 3000 });
+            this.toast.info('Log summary generated');
             this.loadLogSummaries();
           } else {
-            this.snackBar.open('No new logs to summarize', 'OK', { duration: 3000 });
+            this.toast.info('No new logs to summarize');
           }
         },
         error: () => {
           this.generatingLogs.set(false);
-          this.snackBar.open('Failed to generate log summary', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+          this.toast.error('Failed to generate log summary');
         },
       });
   }
@@ -1493,20 +1493,20 @@ export class TicketDetailComponent implements OnInit {
   updateStatus(status: string): void {
     this.ticketService.updateTicket(this.id(), { status } as never).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => {
-        this.snackBar.open('Status updated', 'OK', { duration: 3000 });
+        this.toast.success('Status updated');
         this.load();
       },
-      error: () => this.snackBar.open('Failed to update', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: () => this.toast.error('Failed to update'),
     });
   }
 
   updateField(field: 'priority' | 'category', value: string | null): void {
     this.ticketService.updateTicket(this.id(), { [field]: value } as never).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => {
-        this.snackBar.open(`${field.charAt(0).toUpperCase() + field.slice(1)} updated`, 'OK', { duration: 3000 });
+        this.toast.success(`${field.charAt(0).toUpperCase() + field.slice(1)} updated`);
         this.load();
       },
-      error: () => this.snackBar.open(`Failed to update ${field}`, 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: () => this.toast.error(`Failed to update ${field}`),
     });
   }
 
@@ -1526,10 +1526,10 @@ export class TicketDetailComponent implements OnInit {
       next: () => {
         this.editingKnowledgeDoc.set(false);
         this.knowledgeDocDraft = '';
-        this.snackBar.open('Knowledge doc updated', 'OK', { duration: 3000 });
+        this.toast.success('Knowledge doc updated');
         this.load();
       },
-      error: () => this.snackBar.open('Failed to update knowledge doc', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: () => this.toast.error('Failed to update knowledge doc'),
     });
   }
 
@@ -1537,10 +1537,10 @@ export class TicketDetailComponent implements OnInit {
     if (!confirm('This will remove all investigation history. Continue?')) return;
     this.ticketService.updateKnowledgeDoc(this.id(), null).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => {
-        this.snackBar.open('Knowledge doc cleared', 'OK', { duration: 3000 });
+        this.toast.success('Knowledge doc cleared');
         this.load();
       },
-      error: () => this.snackBar.open('Failed to clear knowledge doc', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: () => this.toast.error('Failed to clear knowledge doc'),
     });
   }
 
@@ -1549,12 +1549,12 @@ export class TicketDetailComponent implements OnInit {
     this.ticketService.reanalyze(this.id()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => {
         this.reanalyzing.set(false);
-        this.snackBar.open('Analysis re-queued', 'OK', { duration: 3000 });
+        this.toast.success('Analysis re-queued');
         this.load();
       },
       error: () => {
         this.reanalyzing.set(false);
-        this.snackBar.open('Failed to re-queue analysis', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+        this.toast.error('Failed to re-queue analysis');
       },
     });
   }
@@ -1587,7 +1587,7 @@ export class TicketDetailComponent implements OnInit {
         this.newComment = '';
         this.load();
       },
-      error: () => this.snackBar.open('Failed to add comment', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: () => this.toast.error('Failed to add comment'),
     });
   }
 
@@ -1727,11 +1727,11 @@ export class TicketDetailComponent implements OnInit {
     if (!ticketId) return;
     this.ticketService.approvePendingAction(ticketId, actionId).subscribe({
       next: () => {
-        this.snackBar.open('Action approved', 'OK', { duration: 3000, panelClass: 'success-snackbar' });
+        this.toast.success('Action approved');
         this.loadPendingActions();
         this.load();
       },
-      error: () => this.snackBar.open('Failed to approve action', 'OK', { duration: 5000 }),
+      error: () => this.toast.error('Failed to approve action'),
     });
   }
 
@@ -1741,11 +1741,11 @@ export class TicketDetailComponent implements OnInit {
     if (!ticketId) return;
     this.ticketService.dismissPendingAction(ticketId, actionId).subscribe({
       next: () => {
-        this.snackBar.open('Action dismissed', 'OK', { duration: 3000 });
+        this.toast.success('Action dismissed');
         this.loadPendingActions();
         this.load();
       },
-      error: () => this.snackBar.open('Failed to dismiss action', 'OK', { duration: 5000 }),
+      error: () => this.toast.error('Failed to dismiss action'),
     });
   }
 
