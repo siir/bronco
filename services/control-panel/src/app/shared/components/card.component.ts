@@ -9,6 +9,8 @@ import { Component, input } from '@angular/core';
     </div>
   `,
   styles: [`
+    :host { display: block; }
+
     .card {
       background: var(--bg-card);
       border-radius: var(--radius-lg);

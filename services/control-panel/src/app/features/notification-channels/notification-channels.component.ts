@@ -80,8 +80,8 @@ import {
               <div class="channel-actions">
                 <app-toggle-switch
                   [checked]="ch.isActive"
+                  [label]="'Enable ' + ch.name"
                   (checkedChange)="toggleActive(ch)"
-                  [attr.title]="'Enable/disable this channel'"
                 ></app-toggle-switch>
                 <app-bronco-button variant="icon" size="sm" [attr.aria-label]="'Actions for ' + ch.name" #menuTrigger (click)="menu.toggle()">
                   &#x22EE;
