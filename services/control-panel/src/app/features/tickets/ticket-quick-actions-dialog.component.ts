@@ -1,7 +1,7 @@
 import { Component, DestroyRef, inject, input, output } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { TicketService, Ticket } from '../../core/services/ticket.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 import { FormFieldComponent, SelectComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({
@@ -44,7 +44,7 @@ import { FormFieldComponent, SelectComponent, BroncoButtonComponent } from '../.
 })
 export class TicketQuickActionsDialogComponent {
   private ticketService = inject(TicketService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
   private destroyRef = inject(DestroyRef);
 
   ticket = input.required<Ticket>();
@@ -108,10 +108,10 @@ export class TicketQuickActionsDialogComponent {
 
     this.ticketService.updateTicket(t.id, patch as Partial<Ticket>).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (updated) => {
-        this.snackBar.open('Ticket updated', 'OK', { duration: 3000 });
+        this.toast.success('Ticket updated');
         this.saved.emit(updated);
       },
-      error: (err) => this.snackBar.open(err.error?.message ?? 'Failed to update ticket', 'OK', { duration: 5000 }),
+      error: (err) => this.toast.error(err.error?.message ?? 'Failed to update ticket'),
     });
   }
 }

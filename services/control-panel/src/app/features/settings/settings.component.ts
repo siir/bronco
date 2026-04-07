@@ -1,9 +1,7 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { MatMenuModule } from '@angular/material/menu';
 import {
   ExternalServiceService,
   ExternalService,
@@ -28,14 +26,16 @@ import {
   TabGroupComponent,
   DataTableComponent,
   DataTableColumnComponent,
+  DropdownMenuComponent,
+  DropdownItemComponent,
 } from '../../shared/components/index.js';
+import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   standalone: true,
   imports: [
     FormsModule,
     MatDialogModule,
-    MatMenuModule,
     BroncoButtonComponent,
     CardComponent,
     FormFieldComponent,
@@ -45,6 +45,8 @@ import {
     TabGroupComponent,
     DataTableComponent,
     DataTableColumnComponent,
+    DropdownMenuComponent,
+    DropdownItemComponent,
   ],
   template: `
     <div class="page-wrapper">
@@ -265,16 +267,16 @@ import {
                 </app-data-column>
                 <app-data-column key="actions" header="" [sortable]="false" width="60px">
                   <ng-template #cell let-svc>
-                    <app-bronco-button variant="icon" size="sm" [matMenuTriggerFor]="svcMenu" title="Actions">
+                    <app-bronco-button variant="icon" size="sm" title="Actions" #svcTrigger (click)="svcMenu.toggle()">
                       ...
                     </app-bronco-button>
-                    <mat-menu #svcMenu="matMenu">
-                      <button mat-menu-item (click)="editService(svc)">Edit</button>
-                      <button mat-menu-item (click)="toggleMonitored(svc)">
+                    <app-dropdown-menu #svcMenu [trigger]="svcTrigger">
+                      <app-dropdown-item (action)="editService(svc)">Edit</app-dropdown-item>
+                      <app-dropdown-item (action)="toggleMonitored(svc)">
                         {{ svc.isMonitored ? 'Disable Monitoring' : 'Enable Monitoring' }}
-                      </button>
-                      <button mat-menu-item (click)="deleteService(svc)" class="delete-action">Delete</button>
-                    </mat-menu>
+                      </app-dropdown-item>
+                      <app-dropdown-item (action)="deleteService(svc)" [destructive]="true">Delete</app-dropdown-item>
+                    </app-dropdown-menu>
                   </ng-template>
                 </app-data-column>
               </app-data-table>
@@ -589,7 +591,7 @@ import {
   `],
 })
 export class SettingsComponent implements OnInit {
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
   private dialog = inject(MatDialog);
   private extSvc = inject(ExternalServiceService);
   private settingsSvc = inject(SettingsService);
@@ -676,13 +678,13 @@ export class SettingsComponent implements OnInit {
 
   saveKey(): void {
     sessionStorage.setItem('rc_api_key', this.apiKey);
-    this.snackBar.open('API key saved', 'OK', { duration: 3000, panelClass: 'success-snackbar' });
+    this.toast.success('API key saved');
   }
 
   clearKey(): void {
     this.apiKey = '';
     sessionStorage.removeItem('rc_api_key');
-    this.snackBar.open('API key cleared', 'OK', { duration: 3000 });
+    this.toast.success('API key cleared');
   }
 
   loadUsers(): void {
@@ -700,7 +702,7 @@ export class SettingsComponent implements OnInit {
       error: (err) => {
         this.usersLoading.set(false);
         if (err?.status !== 403) {
-          this.snackBar.open('Failed to load users', 'OK', { duration: 5000 });
+          this.toast.error('Failed to load users');
         }
       },
     });
@@ -715,7 +717,7 @@ export class SettingsComponent implements OnInit {
       },
       error: () => {
         this.superAdminLoading.set(false);
-        this.snackBar.open('Failed to load super admin setting', 'OK', { duration: 5000 });
+        this.toast.error('Failed to load super admin setting');
       },
     });
   }
@@ -726,11 +728,11 @@ export class SettingsComponent implements OnInit {
       next: (result) => {
         this.superAdminUserId = result.userId;
         this.superAdminSaving.set(false);
-        this.snackBar.open('Super admin saved', 'OK', { duration: 3000, panelClass: 'success-snackbar' });
+        this.toast.success('Super admin saved');
       },
       error: () => {
         this.superAdminSaving.set(false);
-        this.snackBar.open('Failed to save super admin', 'OK', { duration: 5000 });
+        this.toast.error('Failed to save super admin');
       },
     });
   }
@@ -738,7 +740,7 @@ export class SettingsComponent implements OnInit {
   loadServices(): void {
     this.extSvc.getAll().subscribe({
       next: (list) => this.services.set(list),
-      error: () => this.snackBar.open('Failed to load external services', 'OK', { duration: 5000 }),
+      error: () => this.toast.error('Failed to load external services'),
     });
   }
 
@@ -765,14 +767,10 @@ export class SettingsComponent implements OnInit {
   toggleMonitored(svc: ExternalService): void {
     this.extSvc.update(svc.id, { isMonitored: !svc.isMonitored }).subscribe({
       next: () => {
-        this.snackBar.open(
-          `${svc.name} monitoring ${svc.isMonitored ? 'disabled' : 'enabled'}`,
-          'OK',
-          { duration: 3000, panelClass: 'success-snackbar' },
-        );
+        this.toast.success(`${svc.name} monitoring ${svc.isMonitored ? 'disabled' : 'enabled'}`);
         this.loadServices();
       },
-      error: () => this.snackBar.open('Failed to update', 'OK', { duration: 5000 }),
+      error: () => this.toast.error('Failed to update'),
     });
   }
 
@@ -780,10 +778,10 @@ export class SettingsComponent implements OnInit {
     if (!confirm(`Delete "${svc.name}"? This cannot be undone.`)) return;
     this.extSvc.delete(svc.id).subscribe({
       next: () => {
-        this.snackBar.open(`${svc.name} deleted`, 'OK', { duration: 3000, panelClass: 'success-snackbar' });
+        this.toast.success(`${svc.name} deleted`);
         this.loadServices();
       },
-      error: () => this.snackBar.open('Failed to delete', 'OK', { duration: 5000 }),
+      error: () => this.toast.error('Failed to delete'),
     });
   }
 
@@ -800,7 +798,7 @@ export class SettingsComponent implements OnInit {
       error: () => {
         this.statusesLoading.set(false);
         this.statusesError.set(true);
-        this.snackBar.open('Failed to load status configs', 'OK', { duration: 5000 });
+        this.toast.error('Failed to load status configs');
       },
     });
   }
@@ -838,7 +836,7 @@ export class SettingsComponent implements OnInit {
       error: () => {
         this.categoriesLoading.set(false);
         this.categoriesError.set(true);
-        this.snackBar.open('Failed to load category configs', 'OK', { duration: 5000 });
+        this.toast.error('Failed to load category configs');
       },
     });
   }
@@ -881,7 +879,7 @@ export class SettingsComponent implements OnInit {
       },
       error: () => {
         this.actionSafetyLoading.set(false);
-        this.snackBar.open('Failed to load action safety config', 'OK', { duration: 5000 });
+        this.toast.error('Failed to load action safety config');
       },
     });
   }
@@ -904,11 +902,11 @@ export class SettingsComponent implements OnInit {
           Object.entries(saved.actions).map(([actionType, level]) => ({ actionType, level }))
         );
         this.actionSafetySaving.set(false);
-        this.snackBar.open('Action safety config saved', 'OK', { duration: 3000, panelClass: 'success-snackbar' });
+        this.toast.success('Action safety config saved');
       },
       error: () => {
         this.actionSafetySaving.set(false);
-        this.snackBar.open('Failed to save action safety config', 'OK', { duration: 5000 });
+        this.toast.error('Failed to save action safety config');
       },
     });
   }
@@ -939,7 +937,7 @@ export class SettingsComponent implements OnInit {
       },
       error: () => {
         this.analysisStrategyLoading.set(false);
-        this.snackBar.open('Failed to load analysis strategy config', 'OK', { duration: 5000 });
+        this.toast.error('Failed to load analysis strategy config');
       },
     });
   }
@@ -961,11 +959,11 @@ export class SettingsComponent implements OnInit {
         this.analysisStrategy.set(saved.strategy);
         this.analysisMaxParallel.set(saved.maxParallelTasks);
         this.analysisStrategySaving.set(false);
-        this.snackBar.open('Analysis strategy saved', 'OK', { duration: 3000, panelClass: 'success-snackbar' });
+        this.toast.success('Analysis strategy saved');
       },
       error: () => {
         this.analysisStrategySaving.set(false);
-        this.snackBar.open('Failed to save analysis strategy', 'OK', { duration: 5000 });
+        this.toast.error('Failed to save analysis strategy');
       },
     });
   }
@@ -985,7 +983,7 @@ export class SettingsComponent implements OnInit {
       },
       error: () => {
         this.selfAnalysisLoading.set(false);
-        this.snackBar.open('Failed to load self-analysis config', 'OK', { duration: 5000 });
+        this.toast.error('Failed to load self-analysis config');
       },
     });
   }
@@ -1004,10 +1002,10 @@ export class SettingsComponent implements OnInit {
         this.selfAnalysisScheduled.set(saved.scheduledEnabled);
         this.selfAnalysisCron.set(saved.scheduledCron);
         this.selfAnalysisRepoUrl.set(saved.repoUrl);
-        this.snackBar.open('Self-analysis config saved', 'OK', { duration: 2000, panelClass: 'success-snackbar' });
+        this.toast.success('Self-analysis config saved');
       },
       error: () => {
-        this.snackBar.open('Failed to save self-analysis config', 'OK', { duration: 5000 });
+        this.toast.error('Failed to save self-analysis config');
         this.loadSelfAnalysis();
       },
     });

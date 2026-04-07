@@ -1,6 +1,4 @@
 import { Component, inject, OnInit, OnDestroy, signal, computed } from '@angular/core';
-import { MatSnackBar } from '@angular/material/snack-bar';
-import { MatMenuModule } from '@angular/material/menu';
 import { RouterLink } from '@angular/router';
 import type { Subscription } from 'rxjs';
 import {
@@ -13,13 +11,19 @@ import type { McpDiscoveryMetadata } from '../../core/services/integration.servi
 import { AiProviderService } from '../../core/services/ai-provider.service';
 import { NotificationChannelsComponent } from '../notification-channels/notification-channels.component';
 import { McpServerInfoComponent } from '../../shared/components/mcp-server-info.component';
+import { ToastService } from '../../core/services/toast.service';
+import {
+  DropdownMenuComponent,
+  DropdownItemComponent,
+} from '../../shared/components/index.js';
 
 @Component({
   standalone: true,
   imports: [
     RouterLink,
-    MatMenuModule,
     NotificationChannelsComponent,
+    DropdownMenuComponent,
+    DropdownItemComponent,
     McpServerInfoComponent,
   ],
   template: `
@@ -87,24 +91,18 @@ import { McpServerInfoComponent } from '../../shared/components/mcp-server-info.
                   {{ comp.name }}
                 </div>
                 @if (comp.controllable) {
-                  <button type="button" class="btn-icon" [matMenuTriggerFor]="menu" [disabled]="controlling() === serviceKey(comp.name)" [attr.aria-label]="'Service controls for ' + comp.name" title="Service controls">
+                  <button type="button" class="btn-icon" [disabled]="controlling() === serviceKey(comp.name)" [attr.aria-label]="'Service controls for ' + comp.name" title="Service controls" #infraTrigger (click)="infraMenu.toggle()">
                     @if (controlling() === serviceKey(comp.name)) {
                       <span class="spinner-inline"></span>
                     } @else {
                       &#x22EE;
                     }
                   </button>
-                  <mat-menu #menu="matMenu">
-                    <button mat-menu-item (click)="control(serviceKey(comp.name), 'restart')">
-                      &#x21bb; Restart
-                    </button>
-                    <button mat-menu-item (click)="control(serviceKey(comp.name), 'stop')">
-                      &#x25A0; Stop
-                    </button>
-                    <button mat-menu-item (click)="control(serviceKey(comp.name), 'start')">
-                      &#x25B6; Start
-                    </button>
-                  </mat-menu>
+                  <app-dropdown-menu #infraMenu [trigger]="infraTrigger">
+                    <app-dropdown-item (action)="control(serviceKey(comp.name), 'restart')">&#x21bb; Restart</app-dropdown-item>
+                    <app-dropdown-item (action)="control(serviceKey(comp.name), 'stop')">&#x25A0; Stop</app-dropdown-item>
+                    <app-dropdown-item (action)="control(serviceKey(comp.name), 'start')">&#x25B6; Start</app-dropdown-item>
+                  </app-dropdown-menu>
                 }
               </div>
 
@@ -161,24 +159,18 @@ import { McpServerInfoComponent } from '../../shared/components/mcp-server-info.
                   {{ comp.name }}
                 </div>
                 @if (comp.controllable) {
-                  <button type="button" class="btn-icon" [matMenuTriggerFor]="svcMenu" [disabled]="controlling() === serviceKey(comp.name)" [attr.aria-label]="'Service controls for ' + comp.name" title="Service controls">
+                  <button type="button" class="btn-icon" [disabled]="controlling() === serviceKey(comp.name)" [attr.aria-label]="'Service controls for ' + comp.name" title="Service controls" #svcTrigger (click)="svcDropdown.toggle()">
                     @if (controlling() === serviceKey(comp.name)) {
                       <span class="spinner-inline"></span>
                     } @else {
                       &#x22EE;
                     }
                   </button>
-                  <mat-menu #svcMenu="matMenu">
-                    <button mat-menu-item (click)="control(serviceKey(comp.name), 'restart')">
-                      &#x21bb; Restart
-                    </button>
-                    <button mat-menu-item (click)="control(serviceKey(comp.name), 'stop')">
-                      &#x25A0; Stop
-                    </button>
-                    <button mat-menu-item (click)="control(serviceKey(comp.name), 'start')">
-                      &#x25B6; Start
-                    </button>
-                  </mat-menu>
+                  <app-dropdown-menu #svcDropdown [trigger]="svcTrigger">
+                    <app-dropdown-item (action)="control(serviceKey(comp.name), 'restart')">&#x21bb; Restart</app-dropdown-item>
+                    <app-dropdown-item (action)="control(serviceKey(comp.name), 'stop')">&#x25A0; Stop</app-dropdown-item>
+                    <app-dropdown-item (action)="control(serviceKey(comp.name), 'start')">&#x25B6; Start</app-dropdown-item>
+                  </app-dropdown-menu>
                 }
               </div>
 
@@ -756,7 +748,7 @@ import { McpServerInfoComponent } from '../../shared/components/mcp-server-info.
 export class SystemStatusComponent implements OnInit, OnDestroy {
   private statusService = inject(SystemStatusService);
   private aiProviderService = inject(AiProviderService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
   private refreshInterval: ReturnType<typeof setInterval> | null = null;
   private refreshSub: Subscription | undefined;
   private aiProviderSub: Subscription | undefined;
@@ -836,16 +828,12 @@ export class SystemStatusComponent implements OnInit, OnDestroy {
     this.statusService.controlService(service, action).subscribe({
       next: (res) => {
         this.controlling.set(null);
-        this.snackBar.open(res.message, 'OK', { duration: 4000, panelClass: 'success-snackbar' });
+        this.toast.success(res.message);
         setTimeout(() => this.refresh(), 3000);
       },
       error: (err) => {
         this.controlling.set(null);
-        this.snackBar.open(
-          `Failed to ${action} ${service}: ${err.error?.error ?? err.message}`,
-          'Dismiss',
-          { duration: 6000 },
-        );
+        this.toast.error(`Failed to ${action} ${service}: ${err.error?.error ?? err.message}`);
       },
     });
   }

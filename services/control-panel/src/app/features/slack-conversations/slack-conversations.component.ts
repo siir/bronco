@@ -1,8 +1,6 @@
 import { Component, inject, OnInit, signal, OnDestroy, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
-import { MatSnackBarModule, MatSnackBar } from '@angular/material/snack-bar';
 import { Subject, EMPTY } from 'rxjs';
 import { catchError, takeUntil } from 'rxjs/operators';
 import {
@@ -11,17 +9,17 @@ import {
   SlackConversationDetail,
 } from '../../core/services/slack-conversation.service';
 import { ClientService, Client } from '../../core/services/client.service';
-import { BroncoButtonComponent, SelectComponent } from '../../shared/components/index.js';
+import { BroncoButtonComponent, SelectComponent, PaginatorComponent, type PaginatorPageEvent } from '../../shared/components/index.js';
+import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   standalone: true,
   imports: [
     CommonModule,
     FormsModule,
-    MatPaginatorModule,
-    MatSnackBarModule,
     BroncoButtonComponent,
     SelectComponent,
+    PaginatorComponent,
   ],
   template: `
     <div class="page-wrapper">
@@ -144,13 +142,12 @@ import { BroncoButtonComponent, SelectComponent } from '../../shared/components/
           </table>
         }
 
-        <mat-paginator
+        <app-paginator
           [length]="total()"
           [pageSize]="pageSize"
+          [pageIndex]="pageIndex"
           [pageSizeOptions]="[25, 50, 100]"
-          (page)="onPage($event)"
-          showFirstLastButtons>
-        </mat-paginator>
+          (page)="onPage($event)" />
       </div>
     </div>
   `,
@@ -262,7 +259,7 @@ import { BroncoButtonComponent, SelectComponent } from '../../shared/components/
 export class SlackConversationsComponent implements OnInit, OnDestroy {
   private conversationService = inject(SlackConversationService);
   private clientService = inject(ClientService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
   private destroy$ = new Subject<void>();
 
   conversations = signal<SlackConversationSummary[]>([]);
@@ -300,7 +297,7 @@ export class SlackConversationsComponent implements OnInit, OnDestroy {
       .getConversations(this.buildFilters())
       .pipe(
         catchError(() => {
-          this.snackBar.open('Failed to load conversations.', 'Dismiss', { duration: 5000 });
+          this.toast.error('Failed to load conversations.');
           return EMPTY;
         }),
       )
@@ -315,7 +312,7 @@ export class SlackConversationsComponent implements OnInit, OnDestroy {
     this.load();
   }
 
-  onPage(event: PageEvent): void {
+  onPage(event: PaginatorPageEvent): void {
     this.pageSize = event.pageSize;
     this.pageIndex = event.pageIndex;
     this.load();
@@ -335,7 +332,7 @@ export class SlackConversationsComponent implements OnInit, OnDestroy {
       .getConversation(id)
       .pipe(
         catchError(() => {
-          this.snackBar.open('Failed to load conversation detail.', 'Dismiss', { duration: 5000 });
+          this.toast.error('Failed to load conversation detail.');
           this.loadingDetail.set(false);
           return EMPTY;
         }),

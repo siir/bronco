@@ -5,8 +5,8 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatButtonModule } from '@angular/material/button';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { AiProviderService, AiProvider, ProviderType } from '../../core/services/ai-provider.service';
+import { ToastService } from '../../core/services/toast.service';
 
 interface DialogData {
   config?: AiProvider;
@@ -75,7 +75,7 @@ export class AiProviderDialogComponent implements OnInit {
   private dialogRef = inject(MatDialogRef<AiProviderDialogComponent>);
   data: DialogData = inject(MAT_DIALOG_DATA);
   private providerService = inject(AiProviderService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
   isEdit = !!this.data.config;
   provider = this.data.config?.provider ?? '';
@@ -93,7 +93,7 @@ export class AiProviderDialogComponent implements OnInit {
       },
       error: () => {
         this.loadingProviders = false;
-        this.snackBar.open('Failed to load provider types', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+        this.toast.error('Failed to load provider types');
       },
     });
   }
@@ -118,10 +118,10 @@ export class AiProviderDialogComponent implements OnInit {
       if (this.apiKey) data['apiKey'] = this.apiKey;
       this.providerService.updateProvider(this.data.config!.id, data).subscribe({
         next: (result) => {
-          this.snackBar.open('Provider updated', 'OK', { duration: 3000 });
+          this.toast.success('Provider updated');
           this.dialogRef.close(result);
         },
-        error: (err) => this.snackBar.open(err.error?.message ?? 'Failed to update provider', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+        error: (err) => this.toast.error(err.error?.message ?? 'Failed to update provider'),
       });
     } else {
       this.providerService.createProvider({
@@ -130,10 +130,10 @@ export class AiProviderDialogComponent implements OnInit {
         apiKey: this.provider !== 'LOCAL' ? this.apiKey : undefined,
       }).subscribe({
         next: (result) => {
-          this.snackBar.open('Provider created', 'OK', { duration: 3000 });
+          this.toast.success('Provider created');
           this.dialogRef.close(result);
         },
-        error: (err) => this.snackBar.open(err.error?.message ?? 'Failed to create provider', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+        error: (err) => this.toast.error(err.error?.message ?? 'Failed to create provider'),
       });
     }
   }

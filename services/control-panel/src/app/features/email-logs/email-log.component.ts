@@ -2,9 +2,6 @@ import { Component, inject, OnInit, signal, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
-import { MatMenuModule } from '@angular/material/menu';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { Subject, EMPTY, switchMap, timer } from 'rxjs';
 import { catchError, takeUntil } from 'rxjs/operators';
 import { EmailLogService, EmailProcessingLog, EmailLogStats } from '../../core/services/email-log.service';
@@ -14,7 +11,14 @@ import {
   StatCardComponent,
   DataTableComponent,
   DataTableColumnComponent,
+  PaginatorComponent,
+  type PaginatorPageEvent,
+  DropdownMenuComponent,
+  DropdownItemComponent,
+  DropdownDividerComponent,
+  DropdownLabelComponent,
 } from '../../shared/components/index.js';
+import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   standalone: true,
@@ -22,13 +26,16 @@ import {
     CommonModule,
     FormsModule,
     RouterLink,
-    MatPaginatorModule,
-    MatMenuModule,
     BroncoButtonComponent,
     SelectComponent,
     StatCardComponent,
     DataTableComponent,
     DataTableColumnComponent,
+    PaginatorComponent,
+    DropdownMenuComponent,
+    DropdownItemComponent,
+    DropdownDividerComponent,
+    DropdownLabelComponent,
   ],
   template: `
     <div class="page-wrapper">
@@ -135,20 +142,19 @@ import {
 
           <app-data-column key="actions" header="" [sortable]="false" width="48px">
             <ng-template #cell let-log>
-              <button type="button" class="icon-btn" aria-label="Open actions menu" [matMenuTriggerFor]="menu" (click)="$event.stopPropagation()">···</button>
-              <mat-menu #menu="matMenu">
+              <button type="button" class="icon-btn" aria-label="Open actions menu" #menuTrigger (click)="$event.stopPropagation(); menu.toggle()">···</button>
+              <app-dropdown-menu #menu [trigger]="menuTrigger">
                 @if (log.status === 'failed' || log.classification === 'NOISE' || log.classification === 'AUTO_REPLY') {
-                  <button mat-menu-item (click)="retryEmail(log)">Retry</button>
+                  <app-dropdown-item (action)="retryEmail(log)">Retry</app-dropdown-item>
                 }
-                <button mat-menu-item [matMenuTriggerFor]="reclassifyMenu">Reclassify</button>
-                <button mat-menu-item (click)="toggleExpand(log.id)">Details</button>
-              </mat-menu>
-              <mat-menu #reclassifyMenu="matMenu">
-                <button mat-menu-item (click)="reclassify(log, 'TICKET_WORTHY')">Ticket Worthy</button>
-                <button mat-menu-item (click)="reclassify(log, 'THREAD_REPLY')">Thread Reply</button>
-                <button mat-menu-item (click)="reclassify(log, 'NOISE')">Noise</button>
-                <button mat-menu-item (click)="reclassify(log, 'AUTO_REPLY')">Auto Reply</button>
-              </mat-menu>
+                <app-dropdown-item (action)="toggleExpand(log.id)">Details</app-dropdown-item>
+                <app-dropdown-divider />
+                <app-dropdown-label>Reclassify as:</app-dropdown-label>
+                <app-dropdown-item (action)="reclassify(log, 'TICKET_WORTHY')">Ticket Worthy</app-dropdown-item>
+                <app-dropdown-item (action)="reclassify(log, 'THREAD_REPLY')">Thread Reply</app-dropdown-item>
+                <app-dropdown-item (action)="reclassify(log, 'NOISE')">Noise</app-dropdown-item>
+                <app-dropdown-item (action)="reclassify(log, 'AUTO_REPLY')">Auto Reply</app-dropdown-item>
+              </app-dropdown-menu>
             </ng-template>
           </app-data-column>
         </app-data-table>
@@ -191,13 +197,12 @@ import {
           }
         }
 
-        <mat-paginator
+        <app-paginator
           [length]="total()"
           [pageSize]="pageSize"
+          [pageIndex]="pageIndex"
           [pageSizeOptions]="[50, 100, 200]"
-          (page)="onPage($event)"
-          showFirstLastButtons>
-        </mat-paginator>
+          (page)="onPage($event)" />
       </div>
     </div>
   `,
@@ -322,7 +327,7 @@ import {
 })
 export class EmailLogComponent implements OnInit, OnDestroy {
   private emailLogService = inject(EmailLogService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
   private destroy$ = new Subject<void>();
 
   logs = signal<EmailProcessingLog[]>([]);
@@ -379,7 +384,7 @@ export class EmailLogComponent implements OnInit, OnDestroy {
       .getLogs(this.buildFilters())
       .pipe(
         catchError(() => {
-          this.snackBar.open('Failed to load email logs. Please try again.', 'Dismiss', { duration: 5000 });
+          this.toast.error('Failed to load email logs. Please try again.');
           return EMPTY;
         }),
       )
@@ -395,7 +400,7 @@ export class EmailLogComponent implements OnInit, OnDestroy {
       .getStats()
       .pipe(
         catchError(() => {
-          this.snackBar.open('Failed to load email log stats. Please try again.', 'Dismiss', { duration: 5000 });
+          this.toast.error('Failed to load email log stats. Please try again.');
           return EMPTY;
         }),
       )
@@ -407,7 +412,7 @@ export class EmailLogComponent implements OnInit, OnDestroy {
     this.load();
   }
 
-  onPage(event: PageEvent): void {
+  onPage(event: PaginatorPageEvent): void {
     this.pageSize = event.pageSize;
     this.pageIndex = event.pageIndex;
     this.load();
@@ -420,20 +425,20 @@ export class EmailLogComponent implements OnInit, OnDestroy {
   retryEmail(log: EmailProcessingLog): void {
     this.emailLogService.retry(log.id).subscribe({
       next: (res) => {
-        this.snackBar.open(res.message, 'OK', { duration: 4000 });
+        this.toast.info(res.message);
         this.load();
       },
-      error: (err) => this.snackBar.open(err.error?.error ?? 'Retry failed', 'OK', { duration: 4000 }),
+      error: (err) => this.toast.error(err.error?.error ?? 'Retry failed'),
     });
   }
 
   reclassify(log: EmailProcessingLog, classification: string): void {
     this.emailLogService.reclassify(log.id, classification).subscribe({
       next: () => {
-        this.snackBar.open('Classification updated', 'OK', { duration: 3000 });
+        this.toast.success('Classification updated');
         this.load();
       },
-      error: (err) => this.snackBar.open(err.error?.error ?? 'Update failed', 'OK', { duration: 4000 }),
+      error: (err) => this.toast.error(err.error?.error ?? 'Update failed'),
     });
   }
 

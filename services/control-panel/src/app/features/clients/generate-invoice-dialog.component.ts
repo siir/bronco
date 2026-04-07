@@ -5,8 +5,8 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { InvoiceService } from '../../core/services/invoice.service';
+import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   standalone: true,
@@ -37,7 +37,7 @@ export class GenerateInvoiceDialogComponent {
   private dialogRef = inject(MatDialogRef<GenerateInvoiceDialogComponent>);
   private data: { clientId: string } = inject(MAT_DIALOG_DATA);
   private invoiceService = inject(InvoiceService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
   periodStart = '';
   periodEnd = '';
@@ -52,12 +52,12 @@ export class GenerateInvoiceDialogComponent {
       finalize: this.finalize,
     }).subscribe({
       next: () => {
-        this.snackBar.open('Invoice generated', 'OK', { duration: 3000 });
+        this.toast.info('Invoice generated');
         this.dialogRef.close(true);
       },
       error: (err) => {
         this.generating = false;
-        this.snackBar.open(err.error?.error ?? 'Generation failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+        this.toast.error(err.error?.error ?? 'Generation failed');
       },
     });
   }

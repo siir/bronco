@@ -5,8 +5,6 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
-import { MatSnackBar } from '@angular/material/snack-bar';
-import { MatMenuModule } from '@angular/material/menu';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatDialogModule, MatDialog } from '@angular/material/dialog';
 import { FormsModule } from '@angular/forms';
@@ -18,6 +16,11 @@ import {
   NotificationChannel,
 } from '../../core/services/notification-channel.service';
 import { NotificationChannelDialogComponent } from './notification-channel-dialog.component';
+import { ToastService } from '../../core/services/toast.service';
+import {
+  DropdownMenuComponent,
+  DropdownItemComponent,
+} from '../../shared/components/index.js';
 
 @Component({
   standalone: true,
@@ -30,8 +33,9 @@ import { NotificationChannelDialogComponent } from './notification-channel-dialo
     MatChipsModule,
     MatTooltipModule,
     MatProgressSpinnerModule,
-    MatMenuModule,
     MatSlideToggleModule,
+    DropdownMenuComponent,
+    DropdownItemComponent,
     MatDialogModule,
     MatFormFieldModule,
     MatInputModule,
@@ -74,20 +78,12 @@ import { NotificationChannelDialogComponent } from './notification-channel-dialo
                   (change)="toggleActive(ch)"
                   matTooltip="Enable/disable this channel"
                 ></mat-slide-toggle>
-                <button mat-icon-button [matMenuTriggerFor]="menu">
-                  <mat-icon>more_vert</mat-icon>
-                </button>
-                <mat-menu #menu="matMenu">
-                  <button mat-menu-item (click)="openDialog(ch)">
-                    <mat-icon>edit</mat-icon> Edit
-                  </button>
-                  <button mat-menu-item (click)="testChannel(ch)">
-                    <mat-icon>send</mat-icon> Send Test
-                  </button>
-                  <button mat-menu-item (click)="deleteChannel(ch)" class="delete-item">
-                    <mat-icon>delete</mat-icon> Delete
-                  </button>
-                </mat-menu>
+                <button type="button" class="icon-btn" [attr.aria-label]="'Actions for ' + ch.name" #menuTrigger (click)="menu.toggle()">&#x22EE;</button>
+                <app-dropdown-menu #menu [trigger]="menuTrigger">
+                  <app-dropdown-item (action)="openDialog(ch)">Edit</app-dropdown-item>
+                  <app-dropdown-item (action)="testChannel(ch)">Send Test</app-dropdown-item>
+                  <app-dropdown-item (action)="deleteChannel(ch)" [destructive]="true">Delete</app-dropdown-item>
+                </app-dropdown-menu>
               </div>
             </div>
 
@@ -194,12 +190,22 @@ import { NotificationChannelDialogComponent } from './notification-channel-dialo
       color: #666;
     }
 
-    .delete-item { color: #c62828; }
+    .icon-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 18px;
+      color: var(--text-tertiary);
+      padding: 4px 8px;
+      border-radius: var(--radius-sm);
+      line-height: 1;
+    }
+    .icon-btn:hover { background: var(--bg-hover); }
   `],
 })
 export class NotificationChannelsComponent implements OnInit {
   private channelService = inject(NotificationChannelService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
   private dialog = inject(MatDialog);
 
   channels = signal<NotificationChannel[]>([]);
@@ -236,7 +242,7 @@ export class NotificationChannelsComponent implements OnInit {
     this.channelService.update(channel.id, { isActive: !channel.isActive }).subscribe({
       next: () => this.load(),
       error: (err) => {
-        this.snackBar.open(err.error?.error ?? 'Failed to update', 'Dismiss', { duration: 4000 });
+        this.toast.error(err.error?.error ?? 'Failed to update');
       },
     });
   }
@@ -247,14 +253,14 @@ export class NotificationChannelsComponent implements OnInit {
       next: (res) => {
         this.testing.set(null);
         if (res.success) {
-          this.snackBar.open(res.message ?? 'Test sent!', 'OK', { duration: 4000 });
+          this.toast.success(res.message ?? 'Test sent!');
         } else {
-          this.snackBar.open(`Test failed: ${res.error}`, 'Dismiss', { duration: 6000 });
+          this.toast.error(`Test failed: ${res.error}`);
         }
       },
       error: (err) => {
         this.testing.set(null);
-        this.snackBar.open(err.error?.error ?? 'Test failed', 'Dismiss', { duration: 4000 });
+        this.toast.error(err.error?.error ?? 'Test failed');
       },
     });
   }
@@ -263,11 +269,11 @@ export class NotificationChannelsComponent implements OnInit {
     if (!confirm(`Delete notification channel "${channel.name}"?`)) return;
     this.channelService.delete(channel.id).subscribe({
       next: () => {
-        this.snackBar.open('Channel deleted', 'OK', { duration: 3000 });
+        this.toast.success('Channel deleted');
         this.load();
       },
       error: (err) => {
-        this.snackBar.open(err.error?.error ?? 'Failed to delete', 'Dismiss', { duration: 4000 });
+        this.toast.error(err.error?.error ?? 'Failed to delete');
       },
     });
   }

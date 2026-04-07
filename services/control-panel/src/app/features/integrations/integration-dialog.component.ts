@@ -7,11 +7,11 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatButtonModule } from '@angular/material/button';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatIconModule } from '@angular/material/icon';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { IntegrationService } from '../../core/services/integration.service';
 import type { ClientIntegration } from '../../core/services/integration.service';
 import { AuthService } from '../../core/services/auth.service';
 import { McpToolVisibilityDialogComponent } from './mcp-tool-visibility-dialog.component';
+import { ToastService } from '../../core/services/toast.service';
 
 interface DialogData {
   clientId: string;
@@ -206,7 +206,7 @@ export class IntegrationDialogComponent implements OnInit {
   private data: DialogData = inject(MAT_DIALOG_DATA);
   private integrationService = inject(IntegrationService);
   private authService = inject(AuthService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
   private matDialog = inject(MatDialog);
 
   editing = false;
@@ -367,10 +367,10 @@ export class IntegrationDialogComponent implements OnInit {
         notes: this.notes || null,
       }).subscribe({
         next: () => {
-          this.snackBar.open('Integration updated', 'OK', { duration: 3000, panelClass: 'success-snackbar' });
+          this.toast.success('Integration updated');
           this.dialogRef.close(true);
         },
-        error: (err) => this.snackBar.open(err.error?.message ?? 'Update failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+        error: (err) => this.toast.error(err.error?.message ?? 'Update failed'),
       });
     } else {
       this.integrationService.createIntegration({
@@ -381,10 +381,10 @@ export class IntegrationDialogComponent implements OnInit {
         notes: this.notes || undefined,
       }).subscribe({
         next: () => {
-          this.snackBar.open('Integration created', 'OK', { duration: 3000, panelClass: 'success-snackbar' });
+          this.toast.success('Integration created');
           this.dialogRef.close(true);
         },
-        error: (err) => this.snackBar.open(err.error?.message ?? 'Failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+        error: (err) => this.toast.error(err.error?.message ?? 'Failed'),
       });
     }
   }

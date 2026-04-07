@@ -1,9 +1,12 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterOutlet, ActivatedRoute, Router, NavigationEnd } from '@angular/router';
 import { SidebarComponent } from './sidebar.component';
 import { HeaderBarComponent } from './header-bar.component';
 import { DetailPanelComponent } from './detail-panel.component';
 import { DetailPanelService } from '../core/services/detail-panel.service';
+import { ThemeService } from '../core/services/theme.service';
+import { ToastContainerComponent } from '../shared/components/toast-container.component';
 
 const ROUTE_TITLE_MAP: Record<string, string> = {
   dashboard: 'Dashboard',
@@ -34,7 +37,7 @@ const ROUTE_TITLE_MAP: Record<string, string> = {
 @Component({
   selector: 'app-shell',
   standalone: true,
-  imports: [RouterOutlet, SidebarComponent, HeaderBarComponent, DetailPanelComponent],
+  imports: [RouterOutlet, SidebarComponent, HeaderBarComponent, DetailPanelComponent, ToastContainerComponent],
   template: `
     <div class="shell">
       <app-sidebar />
@@ -48,6 +51,7 @@ const ROUTE_TITLE_MAP: Record<string, string> = {
         <app-detail-panel />
       }
     </div>
+    <app-toast-container />
   `,
   styles: [`
     .shell {
@@ -74,18 +78,22 @@ const ROUTE_TITLE_MAP: Record<string, string> = {
 })
 export class AppShellComponent implements OnInit {
   readonly detailPanel = inject(DetailPanelService);
+  private readonly theme = inject(ThemeService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
   readonly pageTitle = signal('Dashboard');
 
   ngOnInit(): void {
+    this.theme.init();
     const params = this.route.snapshot.queryParams;
     this.detailPanel.restoreFromUrl({
       detail: params['detail'],
       type: params['type'],
+      mode: params['mode'],
     });
     this.updateTitle();
-    this.router.events.subscribe(event => {
+    this.router.events.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(event => {
       if (event instanceof NavigationEnd) this.updateTitle();
     });
   }

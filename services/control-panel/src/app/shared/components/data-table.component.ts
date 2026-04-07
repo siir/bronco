@@ -42,7 +42,8 @@ import { DataTableColumnComponent } from './data-table-column.component';
                 [class.clickable]="rowClickable()"
                 [attr.tabindex]="rowClickable() ? 0 : null"
                 (click)="rowClickable() ? rowClick.emit(row) : null"
-                (keydown.enter)="rowClickable() ? rowClick.emit(row) : null">
+                (keydown.enter)="rowClickable() ? rowClick.emit(row) : null"
+                (keydown.space)="rowClickable() ? onRowSpace($event, row) : null">
                 @for (col of columns(); track col.key()) {
                   <td [style.width]="col.width()">
                     <ng-container [ngTemplateOutlet]="col.cellTpl()" [ngTemplateOutletContext]="{ $implicit: row }" />
@@ -148,5 +149,10 @@ export class DataTableComponent<T = unknown> {
   onSortKey(event: Event, key: string): void {
     event.preventDefault();
     this.onSort(key);
+  }
+
+  onRowSpace(event: Event, row: T): void {
+    event.preventDefault();
+    this.rowClick.emit(row);
   }
 }

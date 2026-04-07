@@ -5,12 +5,12 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatButtonModule } from '@angular/material/button';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import {
   NotificationChannelService,
   NotificationChannel,
 } from '../../core/services/notification-channel.service';
+import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   standalone: true,
@@ -100,7 +100,7 @@ import {
 export class NotificationChannelDialogComponent {
   private channelService = inject(NotificationChannelService);
   private dialogRef = inject(MatDialogRef<NotificationChannelDialogComponent>);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
   private data: NotificationChannel | null = inject(MAT_DIALOG_DATA);
 
   isEdit = !!this.data;
@@ -128,7 +128,7 @@ export class NotificationChannelDialogComponent {
 
   save(): void {
     if (!this.name.trim()) {
-      this.snackBar.open('Name is required', 'Dismiss', { duration: 3000 });
+      this.toast.info('Name is required');
       return;
     }
 
@@ -143,7 +143,7 @@ export class NotificationChannelDialogComponent {
         },
         error: (err) => {
           this.saving = false;
-          this.snackBar.open(err.error?.error ?? 'Failed to update', 'Dismiss', { duration: 4000 });
+          this.toast.error(err.error?.error ?? 'Failed to update');
         },
       });
     } else {
@@ -155,7 +155,7 @@ export class NotificationChannelDialogComponent {
         },
         error: (err) => {
           this.saving = false;
-          this.snackBar.open(err.error?.error ?? 'Failed to create', 'Dismiss', { duration: 4000 });
+          this.toast.error(err.error?.error ?? 'Failed to create');
         },
       });
     }

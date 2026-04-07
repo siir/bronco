@@ -1,7 +1,6 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
-import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { environment } from '../../../environments/environment';
 import {
   DEFAULT_OPERATIONAL_ALERT_CONFIG,
@@ -18,6 +17,7 @@ import {
   DataTableComponent,
   DataTableColumnComponent,
 } from '../../shared/components/index.js';
+import { ToastService } from '../../core/services/toast.service';
 
 interface NotificationPreference {
   id: string;
@@ -70,7 +70,6 @@ const EMAIL_TARGET_OPTIONS = [
   standalone: true,
   imports: [
     FormsModule,
-    MatSnackBarModule,
     BroncoButtonComponent,
     CardComponent,
     FormFieldComponent,
@@ -406,7 +405,7 @@ const EMAIL_TARGET_OPTIONS = [
 })
 export class NotificationPreferencesComponent implements OnInit {
   private http = inject(HttpClient);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
   selectedTab = signal(0);
   loading = signal(true);
@@ -507,7 +506,7 @@ export class NotificationPreferencesComponent implements OnInit {
         this.loading.set(false);
       },
       error: () => {
-        this.snackBar.open('Failed to load notification preferences', 'Dismiss', { duration: 5000 });
+        this.toast.error('Failed to load notification preferences');
         this.loading.set(false);
       },
     });
@@ -526,11 +525,11 @@ export class NotificationPreferencesComponent implements OnInit {
 
     this.http.put(`${environment.apiUrl}/notification-preferences`, payload).subscribe({
       next: () => {
-        this.snackBar.open('Preferences saved', 'Dismiss', { duration: 3000 });
+        this.toast.success('Preferences saved');
         this.saving.set(false);
       },
       error: () => {
-        this.snackBar.open('Failed to save preferences', 'Dismiss', { duration: 5000 });
+        this.toast.error('Failed to save preferences');
         this.saving.set(false);
       },
     });
@@ -576,11 +575,11 @@ export class NotificationPreferencesComponent implements OnInit {
       next: saved => {
         this.alertConfig.set(saved);
         this.alertsSaving.set(false);
-        this.snackBar.open('Alert configuration saved', 'Dismiss', { duration: 3000 });
+        this.toast.success('Alert configuration saved');
       },
       error: () => {
         this.alertsSaving.set(false);
-        this.snackBar.open('Failed to save alert configuration', 'Dismiss', { duration: 5000 });
+        this.toast.error('Failed to save alert configuration');
       },
     });
   }

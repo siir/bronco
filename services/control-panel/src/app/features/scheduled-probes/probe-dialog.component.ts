@@ -7,10 +7,10 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatButtonModule } from '@angular/material/button';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatCheckboxModule } from '@angular/material/checkbox';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { ScheduledProbeService, ScheduledProbe, CreateProbeRequest, UpdateProbeRequest } from '../../core/services/scheduled-probe.service';
 import { IntegrationService, ClientIntegration } from '../../core/services/integration.service';
 import { Client } from '../../core/services/client.service';
+import { ToastService } from '../../core/services/toast.service';
 
 interface ToolInfo {
   name: string;
@@ -292,7 +292,7 @@ export class ProbeDialogComponent implements OnInit {
   private dialogRef = inject(MatDialogRef<ProbeDialogComponent>);
   private probeService = inject(ScheduledProbeService);
   private integrationService = inject(IntegrationService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
   isEdit = !!this.data.probe;
   name = this.data.probe?.name ?? '';
@@ -511,12 +511,12 @@ export class ProbeDialogComponent implements OnInit {
       }
       this.probeService.updateProbe(this.data.probe!.id, updateData).subscribe({
         next: () => {
-          this.snackBar.open('Probe updated', 'OK', { duration: 3000 });
+          this.toast.success('Probe updated');
           this.dialogRef.close(true);
         },
         error: (err) => {
           this.saving = false;
-          this.snackBar.open(err.error?.message ?? 'Failed to update probe', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+          this.toast.error(err.error?.message ?? 'Failed to update probe');
         },
       });
     } else {
@@ -541,12 +541,12 @@ export class ProbeDialogComponent implements OnInit {
       }
       this.probeService.createProbe(req).subscribe({
         next: () => {
-          this.snackBar.open('Probe created', 'OK', { duration: 3000 });
+          this.toast.success('Probe created');
           this.dialogRef.close(true);
         },
         error: (err) => {
           this.saving = false;
-          this.snackBar.open(err.error?.message ?? 'Failed to create probe', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+          this.toast.error(err.error?.message ?? 'Failed to create probe');
         },
       });
     }

@@ -5,8 +5,8 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { AuthService } from '../../core/services/auth.service';
+import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   standalone: true,
@@ -15,8 +15,8 @@ import { AuthService } from '../../core/services/auth.service';
     <div class="login-wrapper">
       <mat-card class="login-card">
         <mat-card-header>
-          <mat-card-title>Bronco</mat-card-title>
-          <mat-card-subtitle>Sign in to the control panel</mat-card-subtitle>
+          <mat-card-title>iTrack 3</mat-card-title>
+          <mat-card-subtitle>with iTrackAI® · Control Panel</mat-card-subtitle>
         </mat-card-header>
         <mat-card-content>
           <mat-form-field class="full-width">
@@ -70,7 +70,7 @@ import { AuthService } from '../../core/services/auth.service';
 })
 export class LoginComponent {
   private authService = inject(AuthService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
   email = '';
   password = '';
@@ -79,7 +79,7 @@ export class LoginComponent {
 
   login(): void {
     if (!this.email || !this.password) {
-      this.snackBar.open('Email and password are required', 'OK', { duration: 3000, panelClass: 'error-snackbar' });
+      this.toast.error('Email and password are required');
       return;
     }
 
@@ -88,7 +88,7 @@ export class LoginComponent {
       error: (err) => {
         this.loading.set(false);
         const message = err.error?.error ?? 'Login failed';
-        this.snackBar.open(message, 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+        this.toast.error(message);
       },
     });
   }

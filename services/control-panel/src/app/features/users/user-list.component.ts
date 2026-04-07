@@ -1,8 +1,6 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
-import { MatMenuModule } from '@angular/material/menu';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { UserService, type ControlPanelUser } from '../../core/services/user.service';
 import { AuthService } from '../../core/services/auth.service';
@@ -11,18 +9,22 @@ import {
   BroncoButtonComponent,
   CardComponent,
   FormFieldComponent,
+  DropdownMenuComponent,
+  DropdownItemComponent,
 } from '../../shared/components/index.js';
+import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   standalone: true,
   imports: [
     FormsModule,
     DatePipe,
-    MatMenuModule,
     MatDialogModule,
     BroncoButtonComponent,
     CardComponent,
     FormFieldComponent,
+    DropdownMenuComponent,
+    DropdownItemComponent,
   ],
   template: `
     <div class="page-wrapper">
@@ -47,20 +49,20 @@ import {
                   <div class="user-name">{{ user.name }}</div>
                   <div class="user-email">{{ user.email }}</div>
                 </div>
-                <app-bronco-button variant="icon" size="sm" [matMenuTriggerFor]="menu" class="card-menu" title="Actions">
+                <app-bronco-button variant="icon" size="sm" class="card-menu" [attr.aria-label]="'Actions for ' + user.name" #menuTrigger (click)="menu.toggle()">
                   ...
                 </app-bronco-button>
-                <mat-menu #menu="matMenu">
-                  <button mat-menu-item (click)="openEdit(user)">Edit</button>
-                  <button mat-menu-item (click)="openResetPassword(user)">Reset Password</button>
+                <app-dropdown-menu #menu [trigger]="menuTrigger">
+                  <app-dropdown-item (action)="openEdit(user)">Edit</app-dropdown-item>
+                  <app-dropdown-item (action)="openResetPassword(user)">Reset Password</app-dropdown-item>
                   @if (user.id !== currentUserId()) {
                     @if (user.isActive) {
-                      <button mat-menu-item (click)="deactivate(user)">Deactivate</button>
+                      <app-dropdown-item (action)="deactivate(user)">Deactivate</app-dropdown-item>
                     } @else {
-                      <button mat-menu-item (click)="activate(user)">Activate</button>
+                      <app-dropdown-item (action)="activate(user)">Activate</app-dropdown-item>
                     }
                   }
-                </mat-menu>
+                </app-dropdown-menu>
               </div>
               <div class="user-details">
                 <div class="detail-row">
@@ -270,7 +272,7 @@ import {
 export class UserListComponent implements OnInit {
   private userService = inject(UserService);
   private authService = inject(AuthService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
   private dialog = inject(MatDialog);
 
   users = signal<ControlPanelUser[]>([]);
@@ -293,7 +295,7 @@ export class UserListComponent implements OnInit {
       },
       error: (err) => {
         this.loading.set(false);
-        this.snackBar.open(err.error?.message ?? err.error?.error ?? 'Failed to load users', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+        this.toast.error(err.error?.message ?? err.error?.error ?? 'Failed to load users');
       },
     });
   }
@@ -328,31 +330,31 @@ export class UserListComponent implements OnInit {
     if (!user) return;
     this.userService.resetPassword(user.id, this.resetPassword).subscribe({
       next: () => {
-        this.snackBar.open('Password reset successfully', 'OK', { duration: 3000 });
+        this.toast.success('Password reset successfully');
         this.resetUser.set(null);
         this.resetPassword = '';
       },
-      error: (err) => this.snackBar.open(err.error?.message ?? err.error?.error ?? 'Reset failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: (err) => this.toast.error(err.error?.message ?? err.error?.error ?? 'Reset failed'),
     });
   }
 
   deactivate(user: ControlPanelUser): void {
     this.userService.deleteUser(user.id).subscribe({
       next: () => {
-        this.snackBar.open('User deactivated', 'OK', { duration: 3000 });
+        this.toast.success('User deactivated');
         this.load();
       },
-      error: (err) => this.snackBar.open(err.error?.message ?? err.error?.error ?? 'Deactivation failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: (err) => this.toast.error(err.error?.message ?? err.error?.error ?? 'Deactivation failed'),
     });
   }
 
   activate(user: ControlPanelUser): void {
     this.userService.updateUser(user.id, { isActive: true }).subscribe({
       next: () => {
-        this.snackBar.open('User activated', 'OK', { duration: 3000 });
+        this.toast.success('User activated');
         this.load();
       },
-      error: (err) => this.snackBar.open(err.error?.message ?? err.error?.error ?? 'Activation failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: (err) => this.toast.error(err.error?.message ?? err.error?.error ?? 'Activation failed'),
     });
   }
 }

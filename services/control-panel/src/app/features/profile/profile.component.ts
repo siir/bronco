@@ -1,12 +1,13 @@
 import { Component, inject, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { AuthService } from '../../core/services/auth.service';
+import { ThemeService } from '../../core/services/theme.service';
 import {
   BroncoButtonComponent,
   CardComponent,
   FormFieldComponent,
 } from '../../shared/components/index.js';
+import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   standalone: true,
@@ -27,6 +28,33 @@ import {
           <div class="field">
             <span class="label">User ID</span>
             <span class="mono">{{ user.id }}</span>
+          </div>
+        </app-card>
+
+        <app-card>
+          <h2 class="section-title">Theme</h2>
+          <div class="theme-grid">
+            @for (theme of themeService.themes; track theme.id) {
+              <button
+                class="theme-card"
+                [class.theme-card-active]="theme.id === themeService.currentTheme().id"
+                (click)="themeService.setTheme(theme.id)">
+                <div class="theme-card-preview" [class.theme-card-dark]="theme.isDark">
+                  <span class="theme-swatch" [style.background]="theme.accentColor"></span>
+                </div>
+                <div class="theme-card-info">
+                  <span class="theme-card-name">{{ theme.name }}</span>
+                  <span class="theme-card-desc">{{ theme.description }}</span>
+                </div>
+                @if (theme.id === themeService.currentTheme().id) {
+                  <span class="theme-check">
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                      <path d="M2.5 7.5L5.5 10.5L11.5 3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </span>
+                }
+              </button>
+            }
           </div>
         </app-card>
 
@@ -167,11 +195,88 @@ import {
       padding-top: 16px;
       border-top: 1px solid var(--border-light);
     }
+
+    .theme-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+    .theme-card {
+      position: relative;
+      background: var(--bg-page);
+      border: 2px solid var(--border-light);
+      border-radius: var(--radius-md);
+      padding: 0;
+      cursor: pointer;
+      text-align: left;
+      font-family: var(--font-primary);
+      overflow: hidden;
+      transition: border-color 150ms ease, box-shadow 150ms ease;
+    }
+    .theme-card:hover {
+      border-color: var(--border-medium);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    }
+    .theme-card-active {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent);
+    }
+    .theme-card-active:hover {
+      border-color: var(--accent);
+    }
+    .theme-card-preview {
+      height: 48px;
+      background: #f5f5f7;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-bottom: 1px solid var(--border-light);
+    }
+    .theme-card-preview.theme-card-dark {
+      background: #1a1a1a;
+    }
+    .theme-swatch {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    }
+    .theme-card-info {
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .theme-card-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .theme-card-desc {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      line-height: 1.3;
+    }
+    .theme-check {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: var(--text-on-accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
   `],
 })
 export class ProfileComponent implements OnInit {
   authService = inject(AuthService);
-  private snackBar = inject(MatSnackBar);
+  readonly themeService = inject(ThemeService);
+  private toast = inject(ToastService);
 
   profileName = '';
   profileEmail = '';
@@ -194,11 +299,11 @@ export class ProfileComponent implements OnInit {
     this.profileSaving = true;
     this.authService.updateProfile({ name: this.profileName, email: this.profileEmail }).subscribe({
       next: () => {
-        this.snackBar.open('Profile updated', 'OK', { duration: 3000 });
+        this.toast.success('Profile updated');
         this.profileSaving = false;
       },
       error: (err) => {
-        this.snackBar.open(err.error?.error ?? 'Failed to update profile', 'OK', { duration: 5000 });
+        this.toast.error(err.error?.error ?? 'Failed to update profile');
         this.profileSaving = false;
       },
     });
@@ -206,24 +311,24 @@ export class ProfileComponent implements OnInit {
 
   changePassword(): void {
     if (this.newPassword !== this.confirmPassword) {
-      this.snackBar.open('New passwords do not match', 'OK', { duration: 5000 });
+      this.toast.info('New passwords do not match');
       return;
     }
     if (this.newPassword.length < 8) {
-      this.snackBar.open('Password must be at least 8 characters', 'OK', { duration: 5000 });
+      this.toast.info('Password must be at least 8 characters');
       return;
     }
     this.passwordSaving = true;
     this.authService.changePassword(this.currentPassword, this.newPassword).subscribe({
       next: () => {
-        this.snackBar.open('Password changed successfully', 'OK', { duration: 3000 });
+        this.toast.success('Password changed successfully');
         this.currentPassword = '';
         this.newPassword = '';
         this.confirmPassword = '';
         this.passwordSaving = false;
       },
       error: (err) => {
-        this.snackBar.open(err.error?.error ?? 'Failed to change password', 'OK', { duration: 5000 });
+        this.toast.error(err.error?.error ?? 'Failed to change password');
         this.passwordSaving = false;
       },
     });

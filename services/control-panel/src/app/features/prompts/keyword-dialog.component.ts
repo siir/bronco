@@ -5,8 +5,8 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatButtonModule } from '@angular/material/button';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { PromptService, PromptKeyword } from '../../core/services/prompt.service';
+import { ToastService } from '../../core/services/toast.service';
 
 interface DialogData {
   keyword?: PromptKeyword;
@@ -66,7 +66,7 @@ export class KeywordDialogComponent {
   private dialogRef = inject(MatDialogRef<KeywordDialogComponent>);
   data: DialogData = inject(MAT_DIALOG_DATA);
   private promptService = inject(PromptService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
   isEdit = !!this.data.keyword;
   token = this.data.keyword?.token ?? '';
@@ -90,10 +90,10 @@ export class KeywordDialogComponent {
         category: this.category,
       }).subscribe({
         next: (result) => {
-          this.snackBar.open('Keyword updated', 'OK', { duration: 3000 });
+          this.toast.success('Keyword updated');
           this.dialogRef.close(result);
         },
-        error: (err) => this.snackBar.open(err.error?.message ?? 'Failed to update keyword', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+        error: (err) => this.toast.error(err.error?.message ?? 'Failed to update keyword'),
       });
     } else {
       this.promptService.createKeyword({
@@ -104,10 +104,10 @@ export class KeywordDialogComponent {
         category: this.category,
       }).subscribe({
         next: (result) => {
-          this.snackBar.open('Keyword created', 'OK', { duration: 3000 });
+          this.toast.success('Keyword created');
           this.dialogRef.close(result);
         },
-        error: (err) => this.snackBar.open(err.error?.message ?? 'Failed to create keyword', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+        error: (err) => this.toast.error(err.error?.message ?? 'Failed to create keyword'),
       });
     }
   }

@@ -1,8 +1,8 @@
 import { Component, inject, input, output, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { TicketService } from '../../core/services/ticket.service.js';
 import { ClientService, Client } from '../../core/services/client.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 import { FormFieldComponent, TextInputComponent, TextareaComponent, SelectComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({
@@ -64,7 +64,7 @@ import { FormFieldComponent, TextInputComponent, TextareaComponent, SelectCompon
 export class TicketDialogComponent implements OnInit {
   private ticketService = inject(TicketService);
   private clientService = inject(ClientService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
   clientId = input<string>('');
   created = output<{ id: string }>();
@@ -121,10 +121,10 @@ export class TicketDialogComponent implements OnInit {
       category: this.category || undefined,
     }).subscribe({
       next: (ticket) => {
-        this.snackBar.open('Ticket created', 'OK', { duration: 3000 });
+        this.toast.success('Ticket created');
         this.created.emit({ id: ticket.id });
       },
-      error: (err) => this.snackBar.open(err.error?.message ?? 'Failed to create ticket', 'OK', { duration: 5000 }),
+      error: (err) => this.toast.error(err.error?.message ?? 'Failed to create ticket'),
     });
   }
 }
