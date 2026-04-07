@@ -314,7 +314,7 @@ import { AiUsageService, type AiUsageClientSummary, type AiUsageLogEntry } from 
                     <mat-icon>{{ memoryTypeIcon(mem.memoryType) }}</mat-icon>
                     <strong>{{ mem.title }}</strong>
                     <span class="type-chip type-{{ mem.memoryType.toLowerCase() }}">{{ mem.memoryType }}</span>
-                    <span class="source-badge source-{{ mem.source.toLowerCase() }}">
+                    <span class="source-badge source-{{ (mem.source ?? 'MANUAL').toLowerCase() }}">
                       {{ mem.source === 'AI_LEARNED' ? 'AI' : 'MANUAL' }}
                     </span>
                     @if (mem.category) {
