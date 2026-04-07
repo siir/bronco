@@ -6,10 +6,10 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatButtonModule } from '@angular/material/button';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { TicketRouteService, TicketRoute } from '../../core/services/ticket-route.service';
 import type { RouteType } from '../../core/services/ticket-route.service';
 import { Client } from '../../core/services/client.service';
+import { ToastService } from '../../core/services/toast.service';
 
 const SOURCES = [
   { value: 'EMAIL', label: 'Email' },
@@ -114,7 +114,7 @@ export class TicketRouteDialogComponent {
   data = inject<DialogData>(MAT_DIALOG_DATA);
   private dialogRef = inject(MatDialogRef<TicketRouteDialogComponent>);
   private routeService = inject(TicketRouteService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
   sources = SOURCES;
 
@@ -145,12 +145,12 @@ export class TicketRouteDialogComponent {
         sortOrder: this.sortOrder,
       }).subscribe({
         next: () => {
-          this.snackBar.open('Route updated', 'OK', { duration: 3000 });
+          this.toast.success('Route updated');
           this.dialogRef.close(true);
         },
         error: (err) => {
           this.saving = false;
-          this.snackBar.open(err.error?.message ?? 'Failed to update route', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+          this.toast.error(err.error?.message ?? 'Failed to update route');
         },
       });
     } else {
@@ -166,15 +166,15 @@ export class TicketRouteDialogComponent {
       }).subscribe({
         next: (result) => {
           if (result.warnings?.length) {
-            this.snackBar.open(result.warnings[0], 'OK', { duration: 8000, panelClass: 'warn-snackbar' });
+            this.toast.warning(result.warnings[0]);
           } else {
-            this.snackBar.open('Route created', 'OK', { duration: 3000 });
+            this.toast.success('Route created');
           }
           this.dialogRef.close(true);
         },
         error: (err) => {
           this.saving = false;
-          this.snackBar.open(err.error?.message ?? 'Failed to create route', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+          this.toast.error(err.error?.message ?? 'Failed to create route');
         },
       });
     }

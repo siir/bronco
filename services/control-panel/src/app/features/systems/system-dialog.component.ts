@@ -6,8 +6,8 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { SystemService } from '../../core/services/system.service';
+import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   standalone: true,
@@ -90,7 +90,7 @@ export class SystemDialogComponent {
   private dialogRef = inject(MatDialogRef<SystemDialogComponent>);
   private data: { clientId: string } = inject(MAT_DIALOG_DATA);
   private systemService = inject(SystemService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
   form = {
     name: '',
@@ -118,10 +118,10 @@ export class SystemDialogComponent {
       notes: this.form.notes || undefined,
     } as never).subscribe({
       next: () => {
-        this.snackBar.open('System created', 'OK', { duration: 3000, panelClass: 'success-snackbar' });
+        this.toast.success('System created');
         this.dialogRef.close(true);
       },
-      error: (err) => this.snackBar.open(err.error?.error ?? 'Failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: (err) => this.toast.error(err.error?.error ?? 'Failed'),
     });
   }
 }

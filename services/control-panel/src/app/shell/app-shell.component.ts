@@ -5,6 +5,7 @@ import { HeaderBarComponent } from './header-bar.component';
 import { DetailPanelComponent } from './detail-panel.component';
 import { DetailPanelService } from '../core/services/detail-panel.service';
 import { ThemeService } from '../core/services/theme.service';
+import { ToastContainerComponent } from '../shared/components/toast-container.component';
 
 const ROUTE_TITLE_MAP: Record<string, string> = {
   dashboard: 'Dashboard',
@@ -35,7 +36,7 @@ const ROUTE_TITLE_MAP: Record<string, string> = {
 @Component({
   selector: 'app-shell',
   standalone: true,
-  imports: [RouterOutlet, SidebarComponent, HeaderBarComponent, DetailPanelComponent],
+  imports: [RouterOutlet, SidebarComponent, HeaderBarComponent, DetailPanelComponent, ToastContainerComponent],
   template: `
     <div class="shell">
       <app-sidebar />
@@ -49,6 +50,7 @@ const ROUTE_TITLE_MAP: Record<string, string> = {
         <app-detail-panel />
       }
     </div>
+    <app-toast-container />
   `,
   styles: [`
     .shell {

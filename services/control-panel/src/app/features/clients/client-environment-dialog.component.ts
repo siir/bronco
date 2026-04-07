@@ -5,8 +5,8 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { ClientEnvironmentService, type ClientEnvironment } from '../../core/services/client-environment.service';
+import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   standalone: true,
@@ -63,7 +63,7 @@ export class ClientEnvironmentDialogComponent {
   private dialogRef = inject(MatDialogRef<ClientEnvironmentDialogComponent>);
   data = inject<{ clientId: string; environment?: ClientEnvironment }>(MAT_DIALOG_DATA);
   private envService = inject(ClientEnvironmentService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
   name = this.data.environment?.name ?? '';
   tag = this.data.environment?.tag ?? '';
@@ -90,12 +90,12 @@ export class ClientEnvironmentDialogComponent {
 
     op.subscribe({
       next: (result) => {
-        this.snackBar.open(`Environment ${this.data.environment ? 'updated' : 'created'}`, 'OK', { duration: 3000 });
+        this.toast.success(`Environment ${this.data.environment ? 'updated' : 'created'}`);
         this.dialogRef.close(result);
       },
       error: (err) => {
         this.saving = false;
-        this.snackBar.open(err.error?.error ?? err.error?.message ?? 'Save failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+        this.toast.error(err.error?.error ?? err.error?.message ?? 'Save failed');
       },
     });
   }

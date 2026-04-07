@@ -6,9 +6,9 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { AiProviderService, AiProvider, AiProviderModel, AppScopeItem } from '../../core/services/ai-provider.service';
 import { AiUsageService, CatalogModel } from '../../core/services/ai-usage.service';
+import { ToastService } from '../../core/services/toast.service';
 
 interface DialogData {
   model?: AiProviderModel;
@@ -101,7 +101,7 @@ export class AiModelDialogComponent implements OnInit {
   data: DialogData = inject(MAT_DIALOG_DATA);
   private providerService = inject(AiProviderService);
   private aiUsageService = inject(AiUsageService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
   capabilityLevels = CAPABILITY_LEVELS;
 
@@ -135,7 +135,7 @@ export class AiModelDialogComponent implements OnInit {
     // Fetch app scopes for the "Enabled For" checkboxes
     this.providerService.getAppScopes().subscribe({
       next: (scopes) => this.appScopes = scopes,
-      error: () => this.snackBar.open('Failed to load app scopes', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: () => this.toast.error('Failed to load app scopes'),
     });
   }
 
@@ -179,10 +179,10 @@ export class AiModelDialogComponent implements OnInit {
         enabledApps: enabledAppsArray,
       }).subscribe({
         next: (result) => {
-          this.snackBar.open('Model updated', 'OK', { duration: 3000 });
+          this.toast.success('Model updated');
           this.dialogRef.close(result);
         },
-        error: (err) => this.snackBar.open(err.error?.message ?? 'Failed to update model', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+        error: (err) => this.toast.error(err.error?.message ?? 'Failed to update model'),
       });
     } else {
       this.providerService.createModel({
@@ -193,10 +193,10 @@ export class AiModelDialogComponent implements OnInit {
         enabledApps: enabledAppsArray,
       }).subscribe({
         next: (result) => {
-          this.snackBar.open('Model created', 'OK', { duration: 3000 });
+          this.toast.success('Model created');
           this.dialogRef.close(result);
         },
-        error: (err) => this.snackBar.open(err.error?.message ?? 'Failed to create model', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+        error: (err) => this.toast.error(err.error?.message ?? 'Failed to create model'),
       });
     }
   }

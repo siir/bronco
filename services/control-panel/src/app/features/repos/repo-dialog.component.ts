@@ -4,8 +4,8 @@ import { MAT_DIALOG_DATA, MatDialogRef, MatDialogModule } from '@angular/materia
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { RepoService, type CodeRepo } from '../../core/services/repo.service';
+import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   standalone: true,
@@ -52,7 +52,7 @@ export class RepoDialogComponent {
   private dialogRef = inject(MatDialogRef<RepoDialogComponent>);
   private data: { clientId: string; repo?: CodeRepo } = inject(MAT_DIALOG_DATA);
   private repoService = inject(RepoService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
   title = this.data.repo ? 'Edit Code Repository' : 'Add Code Repository';
   saveLabel = this.data.repo ? 'Save' : 'Create';
@@ -80,10 +80,10 @@ export class RepoDialogComponent {
 
     request$.subscribe({
       next: () => {
-        this.snackBar.open(this.data.repo ? 'Repo updated' : 'Repo created', 'OK', { duration: 3000, panelClass: 'success-snackbar' });
+        this.toast.success(this.data.repo ? 'Repo updated' : 'Repo created');
         this.dialogRef.close(true);
       },
-      error: (err) => this.snackBar.open(err.error?.error ?? 'Failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: (err) => this.toast.error(err.error?.error ?? 'Failed'),
     });
   }
 }

@@ -27,20 +27,6 @@ html, body {
   flex: 1 1 auto;
 }
 
-.mat-mdc-snack-bar-container {
-  &.error-snackbar {
-    --mdc-snackbar-container-color: #d32f2f;
-    --mdc-snackbar-supporting-text-color: white;
-  }
-  &.success-snackbar {
-    --mdc-snackbar-container-color: #388e3c;
-    --mdc-snackbar-supporting-text-color: white;
-  }
-  &.warn-snackbar {
-    --mdc-snackbar-container-color: #f57c00;
-    --mdc-snackbar-supporting-text-color: white;
-  }
-}
 
 @media (max-width: 767px) {
   .mat-mdc-table {

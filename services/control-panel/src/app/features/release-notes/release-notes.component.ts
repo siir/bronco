@@ -1,11 +1,11 @@
 import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatPaginatorModule, type PageEvent } from '@angular/material/paginator';
-import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatDialogModule, MatDialog } from '@angular/material/dialog';
 import { ReleaseNotesService, type ReleaseNote, type ReleaseNoteType } from '../../core/services/release-notes.service';
 import { BackfillDialogComponent } from './backfill-dialog.component';
 import { BroncoButtonComponent, SelectComponent } from '../../shared/components/index.js';
+import { ToastService } from '../../core/services/toast.service';
 
 const CHANGE_TYPE_META: Record<ReleaseNoteType, { label: string; color: string }> = {
   FEATURE: { label: 'Feature', color: 'var(--color-success)' },
@@ -19,7 +19,6 @@ const CHANGE_TYPE_META: Record<ReleaseNoteType, { label: string; color: string }
   imports: [
     FormsModule,
     MatPaginatorModule,
-    MatSnackBarModule,
     MatDialogModule,
     BroncoButtonComponent,
     SelectComponent,
@@ -237,7 +236,7 @@ const CHANGE_TYPE_META: Record<ReleaseNoteType, { label: string; color: string }
 })
 export class ReleaseNotesComponent implements OnInit {
   private releaseNotesService = inject(ReleaseNotesService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
   private dialog = inject(MatDialog);
 
   notes = signal<ReleaseNote[]>([]);
@@ -319,7 +318,7 @@ export class ReleaseNotesComponent implements OnInit {
       },
       error: () => {
         this.loading.set(false);
-        this.snackBar.open('Failed to load release notes', 'OK', { duration: 5000 });
+        this.toast.error('Failed to load release notes');
       },
     });
   }
@@ -363,7 +362,7 @@ export class ReleaseNotesComponent implements OnInit {
         this.notes.update((list) => list.map((n) => (n.id === updated.id ? updated : n)));
       },
       error: () => {
-        this.snackBar.open('Failed to update visibility', 'OK', { duration: 5000 });
+        this.toast.error('Failed to update visibility');
       },
     });
   }
@@ -376,14 +375,14 @@ export class ReleaseNotesComponent implements OnInit {
       this.releaseNotesService.backfill(result.fromSha, result.toSha).subscribe({
         next: (r) => {
           this.ingestLoading.set(false);
-          this.snackBar.open(`Sync complete — ${r.ingested} ingested, ${r.skipped} skipped`, 'OK', { duration: 5000 });
+          this.toast.success(`Sync complete — ${r.ingested} ingested, ${r.skipped} skipped`);
           this.load();
           this.loadServices();
           this.loadTags();
         },
         error: (err) => {
           this.ingestLoading.set(false);
-          this.snackBar.open(err.error?.error ?? 'Backfill failed', 'OK', { duration: 8000 });
+          this.toast.error(err.error?.error ?? 'Backfill failed');
         },
       });
     });

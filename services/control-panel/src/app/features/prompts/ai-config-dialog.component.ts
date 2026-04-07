@@ -5,11 +5,11 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatButtonModule } from '@angular/material/button';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { AiConfigService, AiModelConfig } from '../../core/services/ai-config.service';
 import { ClientService, Client } from '../../core/services/client.service';
 import { AiUsageService, CatalogModel } from '../../core/services/ai-usage.service';
 import { AiProviderService, ProviderType } from '../../core/services/ai-provider.service';
+import { ToastService } from '../../core/services/toast.service';
 
 interface DialogData {
   taskType?: string;
@@ -113,7 +113,7 @@ export class AiConfigDialogComponent implements OnInit {
   private clientService = inject(ClientService);
   private aiUsageService = inject(AiUsageService);
   private aiProviderService = inject(AiProviderService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
   isEdit = !!this.data.config;
   presetTaskType = !this.data.config && !!this.data.taskType;
@@ -149,7 +149,7 @@ export class AiConfigDialogComponent implements OnInit {
       },
       error: () => {
         this.loadingProviders = false;
-        this.snackBar.open('Failed to load provider types', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+        this.toast.error('Failed to load provider types');
       },
     });
 
@@ -196,10 +196,10 @@ export class AiConfigDialogComponent implements OnInit {
         model: this.model.trim(),
       }).subscribe({
         next: (result) => {
-          this.snackBar.open('Config updated', 'OK', { duration: 3000 });
+          this.toast.success('Config updated');
           this.dialogRef.close(result);
         },
-        error: (err) => this.snackBar.open(err.error?.message ?? 'Failed to update config', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+        error: (err) => this.toast.error(err.error?.message ?? 'Failed to update config'),
       });
     } else {
       this.aiConfigService.create({
@@ -210,10 +210,10 @@ export class AiConfigDialogComponent implements OnInit {
         model: this.model.trim(),
       }).subscribe({
         next: (result) => {
-          this.snackBar.open('Config created', 'OK', { duration: 3000 });
+          this.toast.success('Config created');
           this.dialogRef.close(result);
         },
-        error: (err) => this.snackBar.open(err.error?.message ?? 'Failed to create config', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+        error: (err) => this.toast.error(err.error?.message ?? 'Failed to create config'),
       });
     }
   }

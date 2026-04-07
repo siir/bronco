@@ -1,8 +1,6 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
-import { MatSnackBar } from '@angular/material/snack-bar';
-import { MatSnackBarModule } from '@angular/material/snack-bar';
 import {
   SettingsService,
   SmtpSystemConfig,
@@ -20,12 +18,12 @@ import {
   TabComponent,
   TabGroupComponent,
 } from '../../shared/components/index.js';
+import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   standalone: true,
   imports: [
     FormsModule,
-    MatSnackBarModule,
     BroncoButtonComponent,
     CardComponent,
     FormFieldComponent,
@@ -335,7 +333,7 @@ import {
 })
 export class SystemSettingsComponent implements OnInit {
   private settingsService = inject(SettingsService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
 
@@ -403,11 +401,11 @@ export class SystemSettingsComponent implements OnInit {
     this.settingsService.updateSmtpConfig(this.smtp).subscribe({
       next: (c) => {
         this.smtp = { ...this.smtp, ...c };
-        this.snackBar.open('SMTP config saved', 'OK', { duration: 3000 });
+        this.toast.success('SMTP config saved');
         this.saving.set(false);
       },
       error: (err) => {
-        this.snackBar.open(err?.error?.message || 'Failed to save SMTP config', 'OK', { duration: 5000 });
+        this.toast.error(err?.error?.message || 'Failed to save SMTP config');
         this.saving.set(false);
       },
     });
@@ -417,11 +415,11 @@ export class SystemSettingsComponent implements OnInit {
     this.testing.set(true);
     this.settingsService.testSmtpConfig().subscribe({
       next: (r) => {
-        this.snackBar.open(r.success ? (r.message || 'Success') : (r.error || 'Test failed'), 'OK', { duration: 5000 });
+        r.success ? this.toast.success(r.message || 'Success') : this.toast.error(r.error || 'Test failed');
         this.testing.set(false);
       },
       error: (err) => {
-        this.snackBar.open(err?.error?.message || 'SMTP test failed', 'OK', { duration: 5000 });
+        this.toast.error(err?.error?.message || 'SMTP test failed');
         this.testing.set(false);
       },
     });
@@ -432,11 +430,11 @@ export class SystemSettingsComponent implements OnInit {
     this.settingsService.updateDevOpsConfig(this.devops).subscribe({
       next: (c) => {
         this.devops = { ...this.devops, ...c };
-        this.snackBar.open('DevOps config saved', 'OK', { duration: 3000 });
+        this.toast.success('DevOps config saved');
         this.saving.set(false);
       },
       error: (err) => {
-        this.snackBar.open(err?.error?.message || 'Failed to save DevOps config', 'OK', { duration: 5000 });
+        this.toast.error(err?.error?.message || 'Failed to save DevOps config');
         this.saving.set(false);
       },
     });
@@ -446,11 +444,11 @@ export class SystemSettingsComponent implements OnInit {
     this.testing.set(true);
     this.settingsService.testDevOpsConfig().subscribe({
       next: (r) => {
-        this.snackBar.open(r.success ? (r.message || 'Success') : (r.error || 'Test failed'), 'OK', { duration: 5000 });
+        r.success ? this.toast.success(r.message || 'Success') : this.toast.error(r.error || 'Test failed');
         this.testing.set(false);
       },
       error: (err) => {
-        this.snackBar.open(err?.error?.message || 'DevOps test failed', 'OK', { duration: 5000 });
+        this.toast.error(err?.error?.message || 'DevOps test failed');
         this.testing.set(false);
       },
     });
@@ -461,11 +459,11 @@ export class SystemSettingsComponent implements OnInit {
     this.settingsService.updateGithubConfig(this.github).subscribe({
       next: (c) => {
         this.github = { ...this.github, ...c };
-        this.snackBar.open('GitHub config saved', 'OK', { duration: 3000 });
+        this.toast.success('GitHub config saved');
         this.saving.set(false);
       },
       error: (err) => {
-        this.snackBar.open(err?.error?.message || 'Failed to save GitHub config', 'OK', { duration: 5000 });
+        this.toast.error(err?.error?.message || 'Failed to save GitHub config');
         this.saving.set(false);
       },
     });
@@ -475,11 +473,11 @@ export class SystemSettingsComponent implements OnInit {
     this.testing.set(true);
     this.settingsService.testGithubConfig().subscribe({
       next: (r) => {
-        this.snackBar.open(r.success ? (r.message || 'Success') : (r.error || 'Test failed'), 'OK', { duration: 5000 });
+        r.success ? this.toast.success(r.message || 'Success') : this.toast.error(r.error || 'Test failed');
         this.testing.set(false);
       },
       error: (err) => {
-        this.snackBar.open(err?.error?.message || 'GitHub test failed', 'OK', { duration: 5000 });
+        this.toast.error(err?.error?.message || 'GitHub test failed');
         this.testing.set(false);
       },
     });
@@ -490,11 +488,11 @@ export class SystemSettingsComponent implements OnInit {
     this.settingsService.saveImapConfig(this.imap).subscribe({
       next: (c) => {
         this.imap = { ...this.imap, ...c };
-        this.snackBar.open('IMAP config saved', 'OK', { duration: 3000 });
+        this.toast.success('IMAP config saved');
         this.saving.set(false);
       },
       error: (err) => {
-        this.snackBar.open(err?.error?.message || 'Failed to save IMAP config', 'OK', { duration: 5000 });
+        this.toast.error(err?.error?.message || 'Failed to save IMAP config');
         this.saving.set(false);
       },
     });
@@ -504,11 +502,11 @@ export class SystemSettingsComponent implements OnInit {
     this.testing.set(true);
     this.settingsService.testImapConnection().subscribe({
       next: (r) => {
-        this.snackBar.open(r.success ? (r.message || 'Success') : (r.error || 'Test failed'), 'OK', { duration: 5000 });
+        r.success ? this.toast.success(r.message || 'Success') : this.toast.error(r.error || 'Test failed');
         this.testing.set(false);
       },
       error: (err) => {
-        this.snackBar.open(err?.error?.message || 'IMAP test failed', 'OK', { duration: 5000 });
+        this.toast.error(err?.error?.message || 'IMAP test failed');
         this.testing.set(false);
       },
     });
@@ -519,11 +517,11 @@ export class SystemSettingsComponent implements OnInit {
     this.settingsService.saveSlackConfig(this.slack).subscribe({
       next: (c) => {
         this.slack = { ...this.slack, ...c };
-        this.snackBar.open('Slack config saved', 'OK', { duration: 3000 });
+        this.toast.success('Slack config saved');
         this.saving.set(false);
       },
       error: (err) => {
-        this.snackBar.open(err?.error?.message || 'Failed to save Slack config', 'OK', { duration: 5000 });
+        this.toast.error(err?.error?.message || 'Failed to save Slack config');
         this.saving.set(false);
       },
     });
@@ -533,11 +531,11 @@ export class SystemSettingsComponent implements OnInit {
     this.testing.set(true);
     this.settingsService.testSlackConnection().subscribe({
       next: (r) => {
-        this.snackBar.open(r.success ? (r.message || 'Success') : (r.error || 'Test failed'), 'OK', { duration: 5000 });
+        r.success ? this.toast.success(r.message || 'Success') : this.toast.error(r.error || 'Test failed');
         this.testing.set(false);
       },
       error: (err) => {
-        this.snackBar.open(err?.error?.message || 'Slack test failed', 'OK', { duration: 5000 });
+        this.toast.error(err?.error?.message || 'Slack test failed');
         this.testing.set(false);
       },
     });
@@ -548,11 +546,11 @@ export class SystemSettingsComponent implements OnInit {
     this.settingsService.savePromptRetention(this.promptRetention).subscribe({
       next: (c) => {
         this.promptRetention = { ...this.promptRetention, ...c };
-        this.snackBar.open('Prompt retention config saved', 'OK', { duration: 3000 });
+        this.toast.success('Prompt retention config saved');
         this.saving.set(false);
       },
       error: (err) => {
-        this.snackBar.open(err?.error?.message || 'Failed to save prompt retention config', 'OK', { duration: 5000 });
+        this.toast.error(err?.error?.message || 'Failed to save prompt retention config');
         this.saving.set(false);
       },
     });

@@ -10,10 +10,10 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { PromptService, PromptDetail, PromptOverride, PreviewResult } from '../../core/services/prompt.service';
 import { ClientService, Client } from '../../core/services/client.service';
 import { OverrideDialogComponent } from './override-dialog.component';
+import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   standalone: true,
@@ -184,7 +184,7 @@ export class PromptDetailComponent implements OnInit {
   private clientService = inject(ClientService);
   private destroyRef = inject(DestroyRef);
   private dialog = inject(MatDialog);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
   detail = signal<PromptDetail | null>(null);
   preview = signal<PreviewResult | null>(null);
@@ -239,10 +239,10 @@ export class PromptDetailComponent implements OnInit {
   toggleOverride(override: PromptOverride): void {
     this.promptService.updateOverride(override.id, { isActive: !override.isActive }).subscribe({
       next: () => {
-        this.snackBar.open(`Override ${override.isActive ? 'deactivated' : 'activated'}`, 'OK', { duration: 3000 });
+        this.toast.success(`Override ${override.isActive ? 'deactivated' : 'activated'}`);
         this.load();
       },
-      error: () => this.snackBar.open('Failed to update override', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: () => this.toast.error('Failed to update override'),
     });
   }
 
@@ -250,10 +250,10 @@ export class PromptDetailComponent implements OnInit {
     if (!confirm('Delete this override?')) return;
     this.promptService.deleteOverride(override.id).subscribe({
       next: () => {
-        this.snackBar.open('Override deleted', 'OK', { duration: 3000 });
+        this.toast.success('Override deleted');
         this.load();
       },
-      error: () => this.snackBar.open('Failed to delete override', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: () => this.toast.error('Failed to delete override'),
     });
   }
 }

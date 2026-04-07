@@ -2,7 +2,6 @@ import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { TicketRouteService, TicketRoute, TicketRouteStep, RouteStepTypeInfo } from '../../core/services/ticket-route.service';
 import type { RouteType } from '../../core/services/ticket-route.service';
 import { ClientService, Client } from '../../core/services/client.service';
@@ -15,6 +14,7 @@ import {
   TabGroupComponent,
   ToggleSwitchComponent,
 } from '../../shared/components/index.js';
+import { ToastService } from '../../core/services/toast.service';
 
 const CATEGORIES = [
   { value: 'DATABASE_PERF', label: 'Database Perf' },
@@ -431,7 +431,7 @@ export class TicketRouteListComponent implements OnInit {
   private routeService = inject(TicketRouteService);
   private clientService = inject(ClientService);
   private dialog = inject(MatDialog);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
   routes = signal<TicketRoute[]>([]);
   ingestionRoutes = signal<TicketRoute[]>([]);
@@ -518,24 +518,24 @@ export class TicketRouteListComponent implements OnInit {
     route.isActive = newState;
     this.routeService.updateRoute(route.id, { isActive: newState }).subscribe({
       next: () => {
-        this.snackBar.open(`Route ${newState ? 'activated' : 'deactivated'}`, 'OK', { duration: 3000 });
+        this.toast.success(`Route ${newState ? 'activated' : 'deactivated'}`);
         this.loadRoutes();
       },
       error: () => {
         route.isActive = !newState;
-        this.snackBar.open('Failed to update route', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+        this.toast.error('Failed to update route');
       },
     });
   }
 
   regenerateSummary(route: TicketRoute): void {
-    this.snackBar.open('Generating summary...', '', { duration: 10000 });
+    this.toast.info('Generating summary...');
     this.routeService.regenerateSummary(route.id).subscribe({
       next: () => {
-        this.snackBar.open('Summary updated', 'OK', { duration: 3000 });
+        this.toast.success('Summary updated');
         this.loadRoutes();
       },
-      error: () => this.snackBar.open('Failed to generate summary', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: () => this.toast.error('Failed to generate summary'),
     });
   }
 
@@ -543,10 +543,10 @@ export class TicketRouteListComponent implements OnInit {
     if (!confirm(`Delete route "${route.name}"? This will also delete all its steps.`)) return;
     this.routeService.deleteRoute(route.id).subscribe({
       next: () => {
-        this.snackBar.open('Route deleted', 'OK', { duration: 3000 });
+        this.toast.success('Route deleted');
         this.loadRoutes();
       },
-      error: () => this.snackBar.open('Failed to delete route', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: () => this.toast.error('Failed to delete route'),
     });
   }
 
@@ -578,12 +578,12 @@ export class TicketRouteListComponent implements OnInit {
     step.isActive = newState;
     this.routeService.updateStep(route.id, step.id, { isActive: newState }).subscribe({
       next: () => {
-        this.snackBar.open(`Step ${newState ? 'activated' : 'deactivated'}`, 'OK', { duration: 3000 });
+        this.toast.success(`Step ${newState ? 'activated' : 'deactivated'}`);
         this.loadRoutes();
       },
       error: () => {
         step.isActive = !newState;
-        this.snackBar.open('Failed to update step', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+        this.toast.error('Failed to update step');
       },
     });
   }
@@ -592,10 +592,10 @@ export class TicketRouteListComponent implements OnInit {
     if (!confirm(`Delete step "${step.name}"?`)) return;
     this.routeService.deleteStep(route.id, step.id).subscribe({
       next: () => {
-        this.snackBar.open('Step deleted', 'OK', { duration: 3000 });
+        this.toast.success('Step deleted');
         this.loadRoutes();
       },
-      error: () => this.snackBar.open('Failed to delete step', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: () => this.toast.error('Failed to delete step'),
     });
   }
 }

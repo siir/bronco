@@ -5,9 +5,9 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatButtonModule } from '@angular/material/button';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { UserService, type ControlPanelUser } from '../../core/services/user.service';
+import { ToastService } from '../../core/services/toast.service';
 
 interface DialogData {
   user?: ControlPanelUser;
@@ -65,7 +65,7 @@ export class UserDialogComponent {
   private dialogRef = inject(MatDialogRef<UserDialogComponent>);
   data = inject<DialogData>(MAT_DIALOG_DATA);
   private userService = inject(UserService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
   name = this.data.user?.name ?? '';
   email = this.data.user?.email ?? '';
@@ -85,10 +85,10 @@ export class UserDialogComponent {
         ...(this.slackUserId !== undefined && { slackUserId: this.slackUserId }),
       }).subscribe({
         next: () => {
-          this.snackBar.open('User updated', 'OK', { duration: 3000 });
+          this.toast.success('User updated');
           this.dialogRef.close(true);
         },
-        error: (err) => this.snackBar.open(err.error?.message ?? err.error?.error ?? 'Update failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+        error: (err) => this.toast.error(err.error?.message ?? err.error?.error ?? 'Update failed'),
       });
     } else {
       this.userService.createUser({
@@ -99,10 +99,10 @@ export class UserDialogComponent {
         ...(this.slackUserId && { slackUserId: this.slackUserId }),
       }).subscribe({
         next: () => {
-          this.snackBar.open('User created', 'OK', { duration: 3000 });
+          this.toast.success('User created');
           this.dialogRef.close(true);
         },
-        error: (err) => this.snackBar.open(err.error?.message ?? err.error?.error ?? 'Create failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+        error: (err) => this.toast.error(err.error?.message ?? err.error?.error ?? 'Create failed'),
       });
     }
   }

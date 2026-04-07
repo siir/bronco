@@ -2,11 +2,11 @@ import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { MatPaginatorModule, type PageEvent } from '@angular/material/paginator';
-import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatDialogModule, MatDialog } from '@angular/material/dialog';
 import { SystemAnalysisService, type SystemAnalysis, type SystemAnalysisStats } from '../../core/services/system-analysis.service';
 import { RejectDialogComponent } from './reject-dialog.component';
 import { BroncoButtonComponent, SelectComponent } from '../../shared/components/index.js';
+import { ToastService } from '../../core/services/toast.service';
 
 const STATUS_META: Record<string, { label: string; color: string }> = {
   PENDING: { label: 'Pending Review', color: 'var(--color-warning)' },
@@ -20,7 +20,6 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
     FormsModule,
     RouterLink,
     MatPaginatorModule,
-    MatSnackBarModule,
     MatDialogModule,
     BroncoButtonComponent,
     SelectComponent,
@@ -221,7 +220,7 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
 })
 export class SystemAnalysisComponent implements OnInit {
   private analysisService = inject(SystemAnalysisService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
   private dialog = inject(MatDialog);
 
   analyses = signal<SystemAnalysis[]>([]);
@@ -263,7 +262,7 @@ export class SystemAnalysisComponent implements OnInit {
       },
       error: () => {
         this.loading.set(false);
-        this.snackBar.open('Failed to load analyses', 'OK', { duration: 5000 });
+        this.toast.error('Failed to load analyses');
       },
     });
   }
@@ -288,12 +287,12 @@ export class SystemAnalysisComponent implements OnInit {
   acknowledge(a: SystemAnalysis): void {
     this.analysisService.acknowledge(a.id).subscribe({
       next: () => {
-        this.snackBar.open('Analysis acknowledged', 'OK', { duration: 3000 });
+        this.toast.info('Analysis acknowledged');
         this.load();
         this.loadStats();
       },
       error: (err) => {
-        this.snackBar.open(err.error?.error ?? 'Failed to acknowledge', 'OK', { duration: 5000 });
+        this.toast.error(err.error?.error ?? 'Failed to acknowledge');
       },
     });
   }
@@ -304,12 +303,12 @@ export class SystemAnalysisComponent implements OnInit {
       if (reason) {
         this.analysisService.reject(a.id, reason).subscribe({
           next: () => {
-            this.snackBar.open('Analysis rejected', 'OK', { duration: 3000 });
+            this.toast.success('Analysis rejected');
             this.load();
             this.loadStats();
           },
           error: (err) => {
-            this.snackBar.open(err.error?.error ?? 'Failed to reject', 'OK', { duration: 5000 });
+            this.toast.error(err.error?.error ?? 'Failed to reject');
           },
         });
       }
@@ -319,12 +318,12 @@ export class SystemAnalysisComponent implements OnInit {
   reopen(a: SystemAnalysis): void {
     this.analysisService.reopen(a.id).subscribe({
       next: () => {
-        this.snackBar.open('Analysis reopened', 'OK', { duration: 3000 });
+        this.toast.info('Analysis reopened');
         this.load();
         this.loadStats();
       },
       error: (err) => {
-        this.snackBar.open(err.error?.error ?? 'Failed to reopen', 'OK', { duration: 5000 });
+        this.toast.error(err.error?.error ?? 'Failed to reopen');
       },
     });
   }
@@ -333,12 +332,12 @@ export class SystemAnalysisComponent implements OnInit {
     if (!confirm('Delete this analysis permanently?')) return;
     this.analysisService.delete(a.id).subscribe({
       next: () => {
-        this.snackBar.open('Analysis deleted', 'OK', { duration: 3000 });
+        this.toast.success('Analysis deleted');
         this.load();
         this.loadStats();
       },
       error: (err) => {
-        this.snackBar.open(err.error?.error ?? 'Failed to delete', 'OK', { duration: 5000 });
+        this.toast.error(err.error?.error ?? 'Failed to delete');
       },
     });
   }
@@ -347,9 +346,9 @@ export class SystemAnalysisComponent implements OnInit {
     const text = `## System Improvement Suggestions\n\nFrom ticket ${a.ticketId}:\n\n${a.suggestions}`;
     try {
       await navigator.clipboard.writeText(text);
-      this.snackBar.open('Suggestions copied to clipboard', 'OK', { duration: 3000 });
+      this.toast.success('Suggestions copied to clipboard');
     } catch {
-      this.snackBar.open('Failed to copy to clipboard', 'OK', { duration: 3000 });
+      this.toast.error('Failed to copy to clipboard');
     }
   }
 

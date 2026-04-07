@@ -4,7 +4,6 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import { MatMenuModule } from '@angular/material/menu';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { Subject, EMPTY, switchMap, timer } from 'rxjs';
 import { catchError, takeUntil } from 'rxjs/operators';
 import { EmailLogService, EmailProcessingLog, EmailLogStats } from '../../core/services/email-log.service';
@@ -15,6 +14,7 @@ import {
   DataTableComponent,
   DataTableColumnComponent,
 } from '../../shared/components/index.js';
+import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   standalone: true,
@@ -322,7 +322,7 @@ import {
 })
 export class EmailLogComponent implements OnInit, OnDestroy {
   private emailLogService = inject(EmailLogService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
   private destroy$ = new Subject<void>();
 
   logs = signal<EmailProcessingLog[]>([]);
@@ -379,7 +379,7 @@ export class EmailLogComponent implements OnInit, OnDestroy {
       .getLogs(this.buildFilters())
       .pipe(
         catchError(() => {
-          this.snackBar.open('Failed to load email logs. Please try again.', 'Dismiss', { duration: 5000 });
+          this.toast.error('Failed to load email logs. Please try again.');
           return EMPTY;
         }),
       )
@@ -395,7 +395,7 @@ export class EmailLogComponent implements OnInit, OnDestroy {
       .getStats()
       .pipe(
         catchError(() => {
-          this.snackBar.open('Failed to load email log stats. Please try again.', 'Dismiss', { duration: 5000 });
+          this.toast.error('Failed to load email log stats. Please try again.');
           return EMPTY;
         }),
       )
@@ -420,20 +420,20 @@ export class EmailLogComponent implements OnInit, OnDestroy {
   retryEmail(log: EmailProcessingLog): void {
     this.emailLogService.retry(log.id).subscribe({
       next: (res) => {
-        this.snackBar.open(res.message, 'OK', { duration: 4000 });
+        this.toast.info(res.message);
         this.load();
       },
-      error: (err) => this.snackBar.open(err.error?.error ?? 'Retry failed', 'OK', { duration: 4000 }),
+      error: (err) => this.toast.error(err.error?.error ?? 'Retry failed'),
     });
   }
 
   reclassify(log: EmailProcessingLog, classification: string): void {
     this.emailLogService.reclassify(log.id, classification).subscribe({
       next: () => {
-        this.snackBar.open('Classification updated', 'OK', { duration: 3000 });
+        this.toast.success('Classification updated');
         this.load();
       },
-      error: (err) => this.snackBar.open(err.error?.error ?? 'Update failed', 'OK', { duration: 4000 }),
+      error: (err) => this.toast.error(err.error?.error ?? 'Update failed'),
     });
   }
 

@@ -9,7 +9,6 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatTableModule } from '@angular/material/table';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { ClientService, Client, System, Contact } from '../../core/services/client.service';
@@ -39,6 +38,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { AiUsageService, type AiUsageClientSummary, type AiUsageLogEntry } from '../../core/services/ai-usage.service';
+import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   standalone: true,
@@ -703,7 +703,7 @@ export class ClientDetailComponent implements OnInit {
   private aiUsageService = inject(AiUsageService);
   private destroyRef = inject(DestroyRef);
   private dialog = inject(MatDialog);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
   private router = inject(Router);
   private route = inject(ActivatedRoute);
 
@@ -832,9 +832,9 @@ export class ClientDetailComponent implements OnInit {
       next: (updated) => {
         this.client.set({ ...c, slackChannelId: updated.slackChannelId });
         this.pendingSlackChannelId = undefined;
-        this.snackBar.open('Slack Channel ID saved', 'OK', { duration: 3000 });
+        this.toast.success('Slack Channel ID saved');
       },
-      error: () => this.snackBar.open('Failed to save Slack Channel ID', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: () => this.toast.error('Failed to save Slack Channel ID'),
     });
   }
 
@@ -856,10 +856,10 @@ export class ClientDetailComponent implements OnInit {
   deleteContact(id: string): void {
     this.contactService.deleteContact(id).subscribe({
       next: () => {
-        this.snackBar.open('Contact deleted', 'OK', { duration: 3000 });
+        this.toast.success('Contact deleted');
         this.load();
       },
-      error: (err) => this.snackBar.open(err.error?.message ?? err.error?.error ?? 'Delete failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: (err) => this.toast.error(err.error?.message ?? err.error?.error ?? 'Delete failed'),
     });
   }
 
@@ -877,11 +877,11 @@ export class ClientDetailComponent implements OnInit {
     if (!confirm(`Delete repo "${repo.name}"?`)) return;
     this.repoService.deleteRepo(repo.id).subscribe({
       next: () => {
-        this.snackBar.open('Repository deleted', 'OK', { duration: 3000 });
+        this.toast.success('Repository deleted');
         this.load();
       },
       error: (err) => {
-        this.snackBar.open(err.error?.message ?? err.error?.error ?? 'Delete failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+        this.toast.error(err.error?.message ?? err.error?.error ?? 'Delete failed');
       },
     });
   }
@@ -901,12 +901,12 @@ export class ClientDetailComponent implements OnInit {
     this.integrations.update(list => list.map(i => i.id === integ.id ? { ...i, isActive: checked } : i));
     this.integrationService.updateIntegration(integ.id, { isActive: checked }).subscribe({
       next: () => {
-        this.snackBar.open(`Integration ${checked ? 'enabled' : 'disabled'}`, 'OK', { duration: 3000 });
+        this.toast.success(`Integration ${checked ? 'enabled' : 'disabled'}`);
       },
       error: (err) => {
         // Revert optimistic update and reload authoritative state
         this.integrations.update(list => list.map(i => i.id === integ.id ? { ...i, isActive: !checked } : i));
-        this.snackBar.open(err.error?.message ?? err.error?.error ?? 'Toggle failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+        this.toast.error(err.error?.message ?? err.error?.error ?? 'Toggle failed');
         this.load();
       },
     });
@@ -920,10 +920,10 @@ export class ClientDetailComponent implements OnInit {
   deleteIntegration(id: string): void {
     this.integrationService.deleteIntegration(id).subscribe({
       next: () => {
-        this.snackBar.open('Integration deleted', 'OK', { duration: 3000 });
+        this.toast.success('Integration deleted');
         this.load();
       },
-      error: (err) => this.snackBar.open(err.error?.message ?? err.error?.error ?? 'Delete failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: (err) => this.toast.error(err.error?.message ?? err.error?.error ?? 'Delete failed'),
     });
   }
 
@@ -950,11 +950,11 @@ export class ClientDetailComponent implements OnInit {
     this.memories.update(list => list.map(m => m.id === mem.id ? { ...m, isActive: checked } : m));
     this.filterMemories();
     this.memoryService.updateMemory(mem.id, { isActive: checked }).subscribe({
-      next: () => this.snackBar.open(`Memory ${checked ? 'enabled' : 'disabled'}`, 'OK', { duration: 3000 }),
+      next: () => this.toast.success(`Memory ${checked ? 'enabled' : 'disabled'}`),
       error: (err) => {
         this.memories.update(list => list.map(m => m.id === mem.id ? { ...m, isActive: !checked } : m));
         this.filterMemories();
-        this.snackBar.open(err.error?.message ?? err.error?.error ?? 'Toggle failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+        this.toast.error(err.error?.message ?? err.error?.error ?? 'Toggle failed');
       },
     });
   }
@@ -962,10 +962,10 @@ export class ClientDetailComponent implements OnInit {
   deleteMemory(id: string): void {
     this.memoryService.deleteMemory(id).subscribe({
       next: () => {
-        this.snackBar.open('Memory entry deleted', 'OK', { duration: 3000 });
+        this.toast.success('Memory entry deleted');
         this.load();
       },
-      error: (err) => this.snackBar.open(err.error?.message ?? err.error?.error ?? 'Delete failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: (err) => this.toast.error(err.error?.message ?? err.error?.error ?? 'Delete failed'),
     });
   }
 
@@ -982,10 +982,10 @@ export class ClientDetailComponent implements OnInit {
   toggleEnvironment(env: ClientEnvironment, checked: boolean): void {
     this.environments.update(list => list.map(e => e.id === env.id ? { ...e, isActive: checked } : e));
     this.envService.updateEnvironment(this.id(), env.id, { isActive: checked }).subscribe({
-      next: () => this.snackBar.open(`Environment ${checked ? 'enabled' : 'disabled'}`, 'OK', { duration: 3000 }),
+      next: () => this.toast.success(`Environment ${checked ? 'enabled' : 'disabled'}`),
       error: (err) => {
         this.environments.update(list => list.map(e => e.id === env.id ? { ...e, isActive: !checked } : e));
-        this.snackBar.open(err.error?.error ?? err.error?.message ?? 'Toggle failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+        this.toast.error(err.error?.error ?? err.error?.message ?? 'Toggle failed');
       },
     });
   }
@@ -994,10 +994,10 @@ export class ClientDetailComponent implements OnInit {
     if (!confirm(`Delete environment "${env.name}"? Linked integrations, repos, and systems will be unlinked.`)) return;
     this.envService.deleteEnvironment(this.id(), env.id).subscribe({
       next: () => {
-        this.snackBar.open('Environment deleted', 'OK', { duration: 3000 });
+        this.toast.success('Environment deleted');
         this.load();
       },
-      error: (err) => this.snackBar.open(err.error?.error ?? err.error?.message ?? 'Delete failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: (err) => this.toast.error(err.error?.error ?? err.error?.message ?? 'Delete failed'),
     });
   }
 
@@ -1048,10 +1048,10 @@ export class ClientDetailComponent implements OnInit {
   deleteClientUser(id: string): void {
     this.clientUserService.deleteUser(id).subscribe({
       next: () => {
-        this.snackBar.open('User deactivated', 'OK', { duration: 3000 });
+        this.toast.success('User deactivated');
         this.load();
       },
-      error: (err) => this.snackBar.open(err.error?.message ?? err.error?.error ?? 'Deactivation failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: (err) => this.toast.error(err.error?.message ?? err.error?.error ?? 'Deactivation failed'),
     });
   }
 
@@ -1068,17 +1068,17 @@ export class ClientDetailComponent implements OnInit {
     if (!confirm(`Delete invoice #${inv.invoiceNumber}?`)) return;
     this.invoiceService.deleteInvoice(this.id(), inv.id).subscribe({
       next: () => {
-        this.snackBar.open('Invoice deleted', 'OK', { duration: 3000 });
+        this.toast.success('Invoice deleted');
         this.load();
       },
-      error: (err) => this.snackBar.open(err.error?.message ?? err.error?.error ?? 'Delete failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: (err) => this.toast.error(err.error?.message ?? err.error?.error ?? 'Delete failed'),
     });
   }
 
   setAiMode(c: Client, mode: string): void {
     this.clientService.updateClient(c.id, { aiMode: mode } as Partial<Client>).subscribe(updated => {
       this.client.set({ ...c, aiMode: updated.aiMode });
-      this.snackBar.open(`AI mode set to ${mode}`, 'OK', { duration: 3000 });
+      this.toast.info(`AI mode set to ${mode}`);
     });
   }
 
@@ -1093,29 +1093,29 @@ export class ClientDetailComponent implements OnInit {
         this.newCredProvider = '';
         this.newCredLabel = '';
         this.newCredApiKey = '';
-        this.snackBar.open('Credential added', 'OK', { duration: 3000 });
+        this.toast.success('Credential added');
         this.load();
       },
-      error: (err) => this.snackBar.open(err.error?.error ?? 'Failed to add credential', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: (err) => this.toast.error(err.error?.error ?? 'Failed to add credential'),
     });
   }
 
   toggleCredential(cred: ClientAiCredential, checked: boolean): void {
     this.aiCredentials.update(list => list.map(c => c.id === cred.id ? { ...c, isActive: checked } : c));
     this.credentialService.updateCredential(this.id(), cred.id, { isActive: checked }).subscribe({
-      next: () => this.snackBar.open(`Credential ${checked ? 'enabled' : 'disabled'}`, 'OK', { duration: 3000 }),
+      next: () => this.toast.success(`Credential ${checked ? 'enabled' : 'disabled'}`),
       error: (err) => {
         this.aiCredentials.update(list => list.map(c => c.id === cred.id ? { ...c, isActive: !checked } : c));
-        this.snackBar.open(err.error?.error ?? 'Toggle failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+        this.toast.error(err.error?.error ?? 'Toggle failed');
       },
     });
   }
 
   testCredential(cred: ClientAiCredential): void {
-    this.snackBar.open('Testing credential...', '', { duration: 10000 });
+    this.toast.info('Testing credential...');
     this.credentialService.testCredential(this.id(), cred.id).subscribe({
-      next: (result) => this.snackBar.open(result.ok ? 'Credential is valid' : `Test failed: ${result.error}`, 'OK', { duration: 5000 }),
-      error: (err) => this.snackBar.open(err.error?.error ?? 'Test failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      next: (result) => result.ok ? this.toast.success('Credential is valid') : this.toast.error(`Test failed: ${result.error}`),
+      error: (err) => this.toast.error(err.error?.error ?? 'Test failed'),
     });
   }
 
@@ -1123,10 +1123,10 @@ export class ClientDetailComponent implements OnInit {
     if (!confirm(`Delete credential "${cred.label}"?`)) return;
     this.credentialService.deleteCredential(this.id(), cred.id).subscribe({
       next: () => {
-        this.snackBar.open('Credential deleted', 'OK', { duration: 3000 });
+        this.toast.success('Credential deleted');
         this.load();
       },
-      error: (err) => this.snackBar.open(err.error?.error ?? 'Delete failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: (err) => this.toast.error(err.error?.error ?? 'Delete failed'),
     });
   }
 }

@@ -5,7 +5,6 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatDialogModule, MatDialog } from '@angular/material/dialog';
@@ -18,6 +17,7 @@ import {
   NotificationChannel,
 } from '../../core/services/notification-channel.service';
 import { NotificationChannelDialogComponent } from './notification-channel-dialog.component';
+import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   standalone: true,
@@ -199,7 +199,7 @@ import { NotificationChannelDialogComponent } from './notification-channel-dialo
 })
 export class NotificationChannelsComponent implements OnInit {
   private channelService = inject(NotificationChannelService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
   private dialog = inject(MatDialog);
 
   channels = signal<NotificationChannel[]>([]);
@@ -236,7 +236,7 @@ export class NotificationChannelsComponent implements OnInit {
     this.channelService.update(channel.id, { isActive: !channel.isActive }).subscribe({
       next: () => this.load(),
       error: (err) => {
-        this.snackBar.open(err.error?.error ?? 'Failed to update', 'Dismiss', { duration: 4000 });
+        this.toast.error(err.error?.error ?? 'Failed to update');
       },
     });
   }
@@ -247,14 +247,14 @@ export class NotificationChannelsComponent implements OnInit {
       next: (res) => {
         this.testing.set(null);
         if (res.success) {
-          this.snackBar.open(res.message ?? 'Test sent!', 'OK', { duration: 4000 });
+          this.toast.success(res.message ?? 'Test sent!');
         } else {
-          this.snackBar.open(`Test failed: ${res.error}`, 'Dismiss', { duration: 6000 });
+          this.toast.error(`Test failed: ${res.error}`);
         }
       },
       error: (err) => {
         this.testing.set(null);
-        this.snackBar.open(err.error?.error ?? 'Test failed', 'Dismiss', { duration: 4000 });
+        this.toast.error(err.error?.error ?? 'Test failed');
       },
     });
   }
@@ -263,11 +263,11 @@ export class NotificationChannelsComponent implements OnInit {
     if (!confirm(`Delete notification channel "${channel.name}"?`)) return;
     this.channelService.delete(channel.id).subscribe({
       next: () => {
-        this.snackBar.open('Channel deleted', 'OK', { duration: 3000 });
+        this.toast.success('Channel deleted');
         this.load();
       },
       error: (err) => {
-        this.snackBar.open(err.error?.error ?? 'Failed to delete', 'Dismiss', { duration: 4000 });
+        this.toast.error(err.error?.error ?? 'Failed to delete');
       },
     });
   }

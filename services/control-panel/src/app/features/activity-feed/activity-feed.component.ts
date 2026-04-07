@@ -3,9 +3,9 @@ import { NgClass } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { MatPaginatorModule, type PageEvent } from '@angular/material/paginator';
-import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { LogSummaryService, type LogSummary, type LogSummaryType, type AttentionLevel } from '../../core/services/log-summary.service';
 import { BroncoButtonComponent, SelectComponent } from '../../shared/components/index.js';
+import { ToastService } from '../../core/services/toast.service';
 
 const TYPE_META: Record<LogSummaryType, { label: string; color: string }> = {
   TICKET: { label: 'Ticket', color: 'var(--accent)' },
@@ -21,7 +21,6 @@ const TYPE_META: Record<LogSummaryType, { label: string; color: string }> = {
     FormsModule,
     RouterLink,
     MatPaginatorModule,
-    MatSnackBarModule,
     BroncoButtonComponent,
     SelectComponent,
   ],
@@ -178,7 +177,7 @@ const TYPE_META: Record<LogSummaryType, { label: string; color: string }> = {
 })
 export class ActivityFeedComponent implements OnInit, OnDestroy {
   private logSummaryService = inject(LogSummaryService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
   private refreshInterval: ReturnType<typeof setInterval> | null = null;
 
   summaries = signal<LogSummary[]>([]);
@@ -244,12 +243,12 @@ export class ActivityFeedComponent implements OnInit, OnDestroy {
           result.uncategorizedSummaries && `${result.uncategorizedSummaries} uncategorized`,
         ].filter(Boolean);
         const msg = parts.length > 0 ? `Created ${parts.join(' + ')} summaries` : 'No new summaries to create';
-        this.snackBar.open(msg, 'OK', { duration: 5000 });
+        this.toast.info(msg);
         this.load();
       },
       error: () => {
         this.generating.set(false);
-        this.snackBar.open('Failed to generate summaries', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+        this.toast.error('Failed to generate summaries');
       },
     });
   }

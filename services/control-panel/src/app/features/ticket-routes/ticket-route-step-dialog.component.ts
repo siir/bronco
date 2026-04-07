@@ -8,8 +8,8 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatRadioModule } from '@angular/material/radio';
 import { MatIconModule } from '@angular/material/icon';
 import { MatCheckboxModule } from '@angular/material/checkbox';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { TicketRouteService, TicketRouteStep, RouteStepTypeInfo, DispatchPreviewEntry, WithWarnings } from '../../core/services/ticket-route.service';
+import { ToastService } from '../../core/services/toast.service';
 
 interface DialogData {
   routeId: string;
@@ -315,7 +315,7 @@ export class TicketRouteStepDialogComponent implements OnInit {
   data = inject<DialogData>(MAT_DIALOG_DATA);
   private dialogRef = inject(MatDialogRef<TicketRouteStepDialogComponent>);
   private routeService = inject(TicketRouteService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
   isEdit = !!this.data.step;
 
@@ -533,15 +533,15 @@ export class TicketRouteStepDialogComponent implements OnInit {
       this.routeService.updateStep(this.data.routeId, this.data.step!.id, updatePayload).subscribe({
         next: (result: WithWarnings<TicketRouteStep>) => {
           if (result.warnings.length > 0) {
-            this.snackBar.open(result.warnings[0], 'Dismiss', { duration: 8000, panelClass: 'warn-snackbar' });
+            this.toast.warning(result.warnings[0]);
           } else {
-            this.snackBar.open('Step updated', 'OK', { duration: 3000 });
+            this.toast.success('Step updated');
           }
           this.dialogRef.close(true);
         },
         error: (err) => {
           this.saving = false;
-          this.snackBar.open(err.error?.message ?? 'Failed to update step', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+          this.toast.error(err.error?.message ?? 'Failed to update step');
         },
       });
     } else {
@@ -555,15 +555,15 @@ export class TicketRouteStepDialogComponent implements OnInit {
       }).subscribe({
         next: (result: WithWarnings<TicketRouteStep>) => {
           if (result.warnings.length > 0) {
-            this.snackBar.open(result.warnings[0], 'Dismiss', { duration: 8000, panelClass: 'warn-snackbar' });
+            this.toast.warning(result.warnings[0]);
           } else {
-            this.snackBar.open('Step added', 'OK', { duration: 3000 });
+            this.toast.success('Step added');
           }
           this.dialogRef.close(true);
         },
         error: (err) => {
           this.saving = false;
-          this.snackBar.open(err.error?.message ?? 'Failed to add step', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+          this.toast.error(err.error?.message ?? 'Failed to add step');
         },
       });
     }

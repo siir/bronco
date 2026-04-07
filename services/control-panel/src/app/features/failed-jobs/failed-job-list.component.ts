@@ -1,10 +1,10 @@
 import { Component, inject, OnInit, OnDestroy, signal, computed } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import type { Subscription } from 'rxjs';
 import { FailedJobsService, FailedJob } from '../../core/services/failed-jobs.service';
 import { SystemStatusService, QueueStats } from '../../core/services/system-status.service';
 import { BroncoButtonComponent, ToolbarComponent, SelectComponent, CardComponent } from '../../shared/components/index.js';
+import { ToastService } from '../../core/services/toast.service';
 
 const ALL_QUEUES = [
   'issue-resolve', 'log-summarize', 'email-ingestion', 'ticket-analysis',
@@ -277,7 +277,7 @@ const ALL_QUEUES = [
 export class FailedJobListComponent implements OnInit, OnDestroy {
   private failedJobsService = inject(FailedJobsService);
   private statusService = inject(SystemStatusService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
   private route = inject(ActivatedRoute);
   private refreshInterval: ReturnType<typeof setInterval> | null = null;
   private sub: Subscription | undefined;
@@ -347,7 +347,7 @@ export class FailedJobListComponent implements OnInit, OnDestroy {
       },
       error: () => {
         this.loading.set(false);
-        this.snackBar.open('Failed to load failed jobs', 'Dismiss', { duration: 4000 });
+        this.toast.error('Failed to load failed jobs');
       },
     });
 
@@ -372,7 +372,7 @@ export class FailedJobListComponent implements OnInit, OnDestroy {
       },
       error: () => {
         this.loading.set(false);
-        this.snackBar.open('Failed to load more jobs', 'Dismiss', { duration: 4000 });
+        this.toast.error('Failed to load more jobs');
       },
     });
   }
@@ -382,12 +382,12 @@ export class FailedJobListComponent implements OnInit, OnDestroy {
     this.failedJobsService.retry(job.queue, job.id).subscribe({
       next: () => {
         this.acting.set(false);
-        this.snackBar.open(`Job ${job.id} retried`, 'OK', { duration: 3000 });
+        this.toast.success(`Job ${job.id} retried`);
         this.refresh();
       },
       error: (err) => {
         this.acting.set(false);
-        this.snackBar.open(`Retry failed: ${err.error?.error ?? err.message}`, 'Dismiss', { duration: 4000 });
+        this.toast.error(`Retry failed: ${err.error?.error ?? err.message}`);
       },
     });
   }
@@ -398,12 +398,12 @@ export class FailedJobListComponent implements OnInit, OnDestroy {
     this.failedJobsService.discard(job.queue, job.id).subscribe({
       next: () => {
         this.acting.set(false);
-        this.snackBar.open(`Job ${job.id} discarded`, 'OK', { duration: 3000 });
+        this.toast.success(`Job ${job.id} discarded`);
         this.refresh();
       },
       error: (err) => {
         this.acting.set(false);
-        this.snackBar.open(`Discard failed: ${err.error?.error ?? err.message}`, 'Dismiss', { duration: 4000 });
+        this.toast.error(`Discard failed: ${err.error?.error ?? err.message}`);
       },
     });
   }
@@ -418,12 +418,12 @@ export class FailedJobListComponent implements OnInit, OnDestroy {
         const msg = res.failedCount > 0
           ? `Retried ${res.retriedCount} jobs in ${queue} (${res.failedCount} failed to retry)`
           : `Retried ${res.retriedCount} jobs in ${queue}`;
-        this.snackBar.open(msg, 'OK', { duration: 3000 });
+        this.toast.info(msg);
         this.refresh();
       },
       error: (err) => {
         this.acting.set(false);
-        this.snackBar.open(`Retry all failed: ${err.error?.error ?? err.message}`, 'Dismiss', { duration: 4000 });
+        this.toast.error(`Retry all failed: ${err.error?.error ?? err.message}`);
       },
     });
   }
@@ -436,12 +436,12 @@ export class FailedJobListComponent implements OnInit, OnDestroy {
     this.failedJobsService.discardAll(queue).subscribe({
       next: (res) => {
         this.acting.set(false);
-        this.snackBar.open(`Discarded ${res.removedCount} jobs in ${queue}`, 'OK', { duration: 3000 });
+        this.toast.success(`Discarded ${res.removedCount} jobs in ${queue}`);
         this.refresh();
       },
       error: (err) => {
         this.acting.set(false);
-        this.snackBar.open(`Discard all failed: ${err.error?.error ?? err.message}`, 'Dismiss', { duration: 4000 });
+        this.toast.error(`Discard all failed: ${err.error?.error ?? err.message}`);
       },
     });
   }

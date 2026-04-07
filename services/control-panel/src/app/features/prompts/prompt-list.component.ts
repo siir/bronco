@@ -2,7 +2,6 @@ import { Component, inject, OnInit, signal } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { PromptService, PromptSummary, PromptKeyword } from '../../core/services/prompt.service';
 import { AiConfigService, TaskTypeDefault, AiModelConfig } from '../../core/services/ai-config.service';
 import { forkJoin } from 'rxjs';
@@ -18,6 +17,7 @@ import {
   DataTableComponent,
   DataTableColumnComponent,
 } from '../../shared/components/index.js';
+import { ToastService } from '../../core/services/toast.service';
 
 interface MergedModelRow {
   taskType: string;
@@ -402,7 +402,7 @@ export class PromptListComponent implements OnInit {
   private router = inject(Router);
   private route = inject(ActivatedRoute);
   private dialog = inject(MatDialog);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
   prompts = signal<PromptSummary[]>([]);
   private allPrompts = signal<PromptSummary[]>([]);
@@ -538,12 +538,12 @@ export class PromptListComponent implements OnInit {
     this.promptService.seedKeywords().subscribe({
       next: (result) => {
         this.seeding.set(false);
-        this.snackBar.open(`Seeded ${result.seeded} keywords`, 'OK', { duration: 3000 });
+        this.toast.info(`Seeded ${result.seeded} keywords`);
         this.loadKeywords();
       },
       error: (err) => {
         this.seeding.set(false);
-        this.snackBar.open(err.error?.message ?? 'Failed to seed keywords', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+        this.toast.error(err.error?.message ?? 'Failed to seed keywords');
       },
     });
   }
@@ -552,10 +552,10 @@ export class PromptListComponent implements OnInit {
     if (!confirm(`Delete keyword "{{${keyword.token}}}"?`)) return;
     this.promptService.deleteKeyword(keyword.id).subscribe({
       next: () => {
-        this.snackBar.open('Keyword deleted', 'OK', { duration: 3000 });
+        this.toast.success('Keyword deleted');
         this.loadKeywords();
       },
-      error: (err) => this.snackBar.open(err.error?.message ?? 'Failed to delete keyword', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: (err) => this.toast.error(err.error?.message ?? 'Failed to delete keyword'),
     });
   }
 
@@ -678,7 +678,7 @@ export class PromptListComponent implements OnInit {
 
   addModelConfig(): void {
     if (this.modelDefaults().length === 0) {
-      this.snackBar.open('Model defaults not loaded yet', 'OK', { duration: 3000 });
+      this.toast.info('Model defaults not loaded yet');
       return;
     }
     const ref = this.dialog.open(AiConfigDialogComponent, {
@@ -712,10 +712,10 @@ export class PromptListComponent implements OnInit {
   toggleModelConfigActiveById(configId: string, currentlyActive: boolean): void {
     this.aiConfigService.update(configId, { isActive: !currentlyActive }).subscribe({
       next: () => {
-        this.snackBar.open(`Config ${currentlyActive ? 'deactivated' : 'activated'}`, 'OK', { duration: 3000 });
+        this.toast.success(`Config ${currentlyActive ? 'deactivated' : 'activated'}`);
         this.loadModelData();
       },
-      error: () => this.snackBar.open('Failed to update config', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: () => this.toast.error('Failed to update config'),
     });
   }
 
@@ -729,10 +729,10 @@ export class PromptListComponent implements OnInit {
     if (!confirm('Delete this model config override?')) return;
     this.aiConfigService.delete(configId).subscribe({
       next: () => {
-        this.snackBar.open('Config deleted', 'OK', { duration: 3000 });
+        this.toast.success('Config deleted');
         this.loadModelData();
       },
-      error: () => this.snackBar.open('Failed to delete config', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: () => this.toast.error('Failed to delete config'),
     });
   }
 
