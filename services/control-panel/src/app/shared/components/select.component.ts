@@ -10,7 +10,7 @@ import { Component, input, output } from '@angular/core';
       [disabled]="disabled()"
       (change)="onChange($event)">
       @if (placeholder()) {
-        <option value="" disabled selected>{{ placeholder() }}</option>
+        <option value="" disabled>{{ placeholder() }}</option>
       }
       @for (opt of options(); track opt.value) {
         <option [value]="opt.value">{{ opt.label }}</option>

@@ -6,6 +6,7 @@ import {
   signal,
   ElementRef,
   inject,
+  forwardRef,
   OnDestroy,
   HostListener,
   ChangeDetectionStrategy,
@@ -102,9 +103,11 @@ export class DropdownItemComponent {
   @Input() destructive = false;
   @Output() action = new EventEmitter<void>();
 
-  onClick(event: Event): void {
-    event.stopPropagation();
+  private menu = inject(forwardRef(() => DropdownMenuComponent), { optional: true });
+
+  onClick(_event: Event): void {
     this.action.emit();
+    this.menu?.close();
   }
 }
 

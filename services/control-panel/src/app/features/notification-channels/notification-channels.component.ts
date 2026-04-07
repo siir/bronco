@@ -78,7 +78,7 @@ import {
                   (change)="toggleActive(ch)"
                   matTooltip="Enable/disable this channel"
                 ></mat-slide-toggle>
-                <button type="button" class="icon-btn" #menuTrigger (click)="menu.toggle()">&#x22EE;</button>
+                <button type="button" class="icon-btn" [attr.aria-label]="'Actions for ' + ch.name" #menuTrigger (click)="menu.toggle()">&#x22EE;</button>
                 <app-dropdown-menu #menu [trigger]="menuTrigger">
                   <app-dropdown-item (action)="openDialog(ch)">Edit</app-dropdown-item>
                   <app-dropdown-item (action)="testChannel(ch)">Send Test</app-dropdown-item>

@@ -49,7 +49,7 @@ import {
                   <div class="user-name">{{ user.name }}</div>
                   <div class="user-email">{{ user.email }}</div>
                 </div>
-                <app-bronco-button variant="icon" size="sm" class="card-menu" title="Actions" #menuTrigger (click)="menu.toggle()">
+                <app-bronco-button variant="icon" size="sm" class="card-menu" [attr.aria-label]="'Actions for ' + user.name" #menuTrigger (click)="menu.toggle()">
                   ...
                 </app-bronco-button>
                 <app-dropdown-menu #menu [trigger]="menuTrigger">
