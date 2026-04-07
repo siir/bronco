@@ -1,7 +1,6 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
-import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import {
   ExternalServiceService,
   ExternalService,
@@ -28,6 +27,7 @@ import {
   DataTableColumnComponent,
   DropdownMenuComponent,
   DropdownItemComponent,
+  DialogComponent,
 } from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service';
 
@@ -35,7 +35,6 @@ import { ToastService } from '../../core/services/toast.service';
   standalone: true,
   imports: [
     FormsModule,
-    MatDialogModule,
     BroncoButtonComponent,
     CardComponent,
     FormFieldComponent,
@@ -47,6 +46,10 @@ import { ToastService } from '../../core/services/toast.service';
     DataTableColumnComponent,
     DropdownMenuComponent,
     DropdownItemComponent,
+    DialogComponent,
+    ExternalServiceDialogComponent,
+    StatusConfigDialogComponent,
+    CategoryConfigDialogComponent,
   ],
   template: `
     <div class="page-wrapper">
@@ -419,6 +422,33 @@ import { ToastService } from '../../core/services/toast.service';
         </app-tab>
       </app-tab-group>
     </div>
+
+    @if (showServiceDialog()) {
+      <app-dialog [open]="true" [title]="editingService() ? 'Edit External Service' : 'Add External Service'" maxWidth="500px" (openChange)="showServiceDialog.set(false)">
+        <app-external-service-dialog-content
+          [service]="editingService() ?? undefined"
+          (saved)="onServiceSaved()"
+          (cancelled)="showServiceDialog.set(false)" />
+      </app-dialog>
+    }
+
+    @if (showStatusDialog()) {
+      <app-dialog [open]="true" [title]="editingStatus() ? 'Edit Status: ' + editingStatus()!.value : 'Create Status'" maxWidth="500px" (openChange)="showStatusDialog.set(false)">
+        <app-status-config-dialog-content
+          [config]="editingStatus() ?? undefined"
+          (saved)="onStatusSaved()"
+          (cancelled)="showStatusDialog.set(false)" />
+      </app-dialog>
+    }
+
+    @if (showCategoryDialog()) {
+      <app-dialog [open]="true" [title]="editingCategory() ? 'Edit Category: ' + editingCategory()!.value : 'Create Category'" maxWidth="500px" (openChange)="showCategoryDialog.set(false)">
+        <app-category-config-dialog-content
+          [config]="editingCategory() ?? undefined"
+          (saved)="onCategorySaved()"
+          (cancelled)="showCategoryDialog.set(false)" />
+      </app-dialog>
+    }
   `,
   styles: [`
     .page-wrapper { max-width: 1200px; }
@@ -592,7 +622,6 @@ import { ToastService } from '../../core/services/toast.service';
 })
 export class SettingsComponent implements OnInit {
   private toast = inject(ToastService);
-  private dialog = inject(MatDialog);
   private extSvc = inject(ExternalServiceService);
   private settingsSvc = inject(SettingsService);
   private userSvc = inject(UserService);
@@ -611,16 +640,22 @@ export class SettingsComponent implements OnInit {
 
   // External Services tab
   services = signal<ExternalService[]>([]);
+  showServiceDialog = signal(false);
+  editingService = signal<ExternalService | null>(null);
 
   // Statuses tab
   statuses = signal<TicketStatusConfig[]>([]);
   statusesLoading = signal(true);
   statusesError = signal(false);
+  showStatusDialog = signal(false);
+  editingStatus = signal<TicketStatusConfig | null>(null);
 
   // Categories tab
   categories = signal<TicketCategoryConfig[]>([]);
   categoriesLoading = signal(true);
   categoriesError = signal(false);
+  showCategoryDialog = signal(false);
+  editingCategory = signal<TicketCategoryConfig | null>(null);
 
   // Action Safety tab
   actionSafetyConfig = signal<Record<string, 'auto' | 'approval'>>({});
@@ -745,23 +780,18 @@ export class SettingsComponent implements OnInit {
   }
 
   addService(): void {
-    const ref = this.dialog.open(ExternalServiceDialogComponent, {
-      width: '500px',
-      data: {},
-    });
-    ref.afterClosed().subscribe((saved) => {
-      if (saved) this.loadServices();
-    });
+    this.editingService.set(null);
+    this.showServiceDialog.set(true);
   }
 
   editService(svc: ExternalService): void {
-    const ref = this.dialog.open(ExternalServiceDialogComponent, {
-      width: '500px',
-      data: { service: svc },
-    });
-    ref.afterClosed().subscribe((saved) => {
-      if (saved) this.loadServices();
-    });
+    this.editingService.set(svc);
+    this.showServiceDialog.set(true);
+  }
+
+  onServiceSaved(): void {
+    this.showServiceDialog.set(false);
+    this.loadServices();
   }
 
   toggleMonitored(svc: ExternalService): void {
@@ -804,23 +834,18 @@ export class SettingsComponent implements OnInit {
   }
 
   createStatus(): void {
-    const ref = this.dialog.open(StatusConfigDialogComponent, {
-      width: '500px',
-      data: {},
-    });
-    ref.afterClosed().subscribe((saved) => {
-      if (saved) this.loadStatuses();
-    });
+    this.editingStatus.set(null);
+    this.showStatusDialog.set(true);
   }
 
   editStatus(config: TicketStatusConfig): void {
-    const ref = this.dialog.open(StatusConfigDialogComponent, {
-      width: '500px',
-      data: { config },
-    });
-    ref.afterClosed().subscribe((saved) => {
-      if (saved) this.loadStatuses();
-    });
+    this.editingStatus.set(config);
+    this.showStatusDialog.set(true);
+  }
+
+  onStatusSaved(): void {
+    this.showStatusDialog.set(false);
+    this.loadStatuses();
   }
 
   // ─── Categories tab ───
@@ -842,23 +867,18 @@ export class SettingsComponent implements OnInit {
   }
 
   createCategory(): void {
-    const ref = this.dialog.open(CategoryConfigDialogComponent, {
-      width: '500px',
-      data: {},
-    });
-    ref.afterClosed().subscribe((saved) => {
-      if (saved) this.loadCategories();
-    });
+    this.editingCategory.set(null);
+    this.showCategoryDialog.set(true);
   }
 
   editCategory(config: TicketCategoryConfig): void {
-    const ref = this.dialog.open(CategoryConfigDialogComponent, {
-      width: '500px',
-      data: { config },
-    });
-    ref.afterClosed().subscribe((saved) => {
-      if (saved) this.loadCategories();
-    });
+    this.editingCategory.set(config);
+    this.showCategoryDialog.set(true);
+  }
+
+  onCategorySaved(): void {
+    this.showCategoryDialog.set(false);
+    this.loadCategories();
   }
 
   truncate(value: string, max: number): string {

@@ -1,7 +1,6 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
-import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { UserService, type ControlPanelUser } from '../../core/services/user.service';
 import { AuthService } from '../../core/services/auth.service';
 import { UserDialogComponent } from './user-dialog.component';
@@ -11,6 +10,7 @@ import {
   FormFieldComponent,
   DropdownMenuComponent,
   DropdownItemComponent,
+  DialogComponent,
 } from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service';
 
@@ -19,12 +19,13 @@ import { ToastService } from '../../core/services/toast.service';
   imports: [
     FormsModule,
     DatePipe,
-    MatDialogModule,
     BroncoButtonComponent,
     CardComponent,
     FormFieldComponent,
     DropdownMenuComponent,
     DropdownItemComponent,
+    DialogComponent,
+    UserDialogComponent,
   ],
   template: `
     <div class="page-wrapper">
@@ -83,6 +84,16 @@ import { ToastService } from '../../core/services/toast.service';
             <p class="empty-state">No users found.</p>
           }
         </div>
+      }
+
+      @if (showUserDialog()) {
+        <app-dialog [open]="true" [title]="editingUser() ? 'Edit User' : 'Create User'" maxWidth="450px" (openChange)="showUserDialog.set(false)">
+          <app-user-dialog-content
+            [user]="editingUser() ?? undefined"
+            [currentUserId]="currentUserId() ?? undefined"
+            (saved)="onUserSaved()"
+            (cancelled)="showUserDialog.set(false)" />
+        </app-dialog>
       }
 
       <!-- Reset Password Dialog (inline) -->
@@ -273,12 +284,13 @@ export class UserListComponent implements OnInit {
   private userService = inject(UserService);
   private authService = inject(AuthService);
   private toast = inject(ToastService);
-  private dialog = inject(MatDialog);
 
   users = signal<ControlPanelUser[]>([]);
   loading = signal(false);
   resetUser = signal<ControlPanelUser | null>(null);
   resetPassword = '';
+  showUserDialog = signal(false);
+  editingUser = signal<ControlPanelUser | null>(null);
 
   currentUserId = () => this.authService.currentUser()?.id;
 
@@ -301,23 +313,18 @@ export class UserListComponent implements OnInit {
   }
 
   openCreate(): void {
-    const ref = this.dialog.open(UserDialogComponent, {
-      width: '450px',
-      data: {},
-    });
-    ref.afterClosed().subscribe((result) => {
-      if (result) this.load();
-    });
+    this.editingUser.set(null);
+    this.showUserDialog.set(true);
   }
 
   openEdit(user: ControlPanelUser): void {
-    const ref = this.dialog.open(UserDialogComponent, {
-      width: '450px',
-      data: { user, currentUserId: this.currentUserId() },
-    });
-    ref.afterClosed().subscribe((result) => {
-      if (result) this.load();
-    });
+    this.editingUser.set(user);
+    this.showUserDialog.set(true);
+  }
+
+  onUserSaved(): void {
+    this.showUserDialog.set(false);
+    this.load();
   }
 
   openResetPassword(user: ControlPanelUser): void {

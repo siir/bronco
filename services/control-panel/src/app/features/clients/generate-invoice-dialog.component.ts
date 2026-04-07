@@ -1,6 +1,5 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, input, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MatDialogRef, MAT_DIALOG_DATA, MatDialogModule } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
@@ -9,35 +8,37 @@ import { InvoiceService } from '../../core/services/invoice.service';
 import { ToastService } from '../../core/services/toast.service';
 
 @Component({
+  selector: 'app-generate-invoice-dialog-content',
   standalone: true,
-  imports: [FormsModule, MatDialogModule, MatFormFieldModule, MatInputModule, MatButtonModule, MatCheckboxModule],
+  imports: [FormsModule, MatFormFieldModule, MatInputModule, MatButtonModule, MatCheckboxModule],
   template: `
-    <h2 mat-dialog-title>Generate Invoice</h2>
-    <mat-dialog-content>
-      <mat-form-field class="full-width">
-        <mat-label>Period Start</mat-label>
-        <input matInput type="date" [(ngModel)]="periodStart" required>
-      </mat-form-field>
-      <mat-form-field class="full-width">
-        <mat-label>Period End</mat-label>
-        <input matInput type="date" [(ngModel)]="periodEnd" required>
-      </mat-form-field>
-      <mat-checkbox [(ngModel)]="finalize">Mark as Final</mat-checkbox>
-    </mat-dialog-content>
-    <mat-dialog-actions align="end">
-      <button mat-button mat-dialog-close>Cancel</button>
+    <mat-form-field class="full-width">
+      <mat-label>Period Start</mat-label>
+      <input matInput type="date" [(ngModel)]="periodStart" required>
+    </mat-form-field>
+    <mat-form-field class="full-width">
+      <mat-label>Period End</mat-label>
+      <input matInput type="date" [(ngModel)]="periodEnd" required>
+    </mat-form-field>
+    <mat-checkbox [(ngModel)]="finalize">Mark as Final</mat-checkbox>
+
+    <div class="dialog-actions" dialogFooter>
+      <button mat-button (click)="cancelled.emit()">Cancel</button>
       <button mat-raised-button color="primary" [disabled]="!periodStart || !periodEnd || generating" (click)="generate()">
         {{ generating ? 'Generating...' : 'Generate' }}
       </button>
-    </mat-dialog-actions>
+    </div>
   `,
-  styles: [`.full-width { width: 100%; margin-bottom: 8px; }`],
+  styles: [`.full-width { width: 100%; margin-bottom: 8px; } .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }`],
 })
 export class GenerateInvoiceDialogComponent {
-  private dialogRef = inject(MatDialogRef<GenerateInvoiceDialogComponent>);
-  private data: { clientId: string } = inject(MAT_DIALOG_DATA);
   private invoiceService = inject(InvoiceService);
   private toast = inject(ToastService);
+
+  clientId = input.required<string>();
+
+  generated = output<boolean>();
+  cancelled = output<void>();
 
   periodStart = '';
   periodEnd = '';
@@ -46,14 +47,14 @@ export class GenerateInvoiceDialogComponent {
 
   generate(): void {
     this.generating = true;
-    this.invoiceService.generateInvoice(this.data.clientId, {
+    this.invoiceService.generateInvoice(this.clientId(), {
       periodStart: this.periodStart,
       periodEnd: this.periodEnd,
       finalize: this.finalize,
     }).subscribe({
       next: () => {
         this.toast.info('Invoice generated');
-        this.dialogRef.close(true);
+        this.generated.emit(true);
       },
       error: (err) => {
         this.generating = false;

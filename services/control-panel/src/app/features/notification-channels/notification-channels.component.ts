@@ -6,7 +6,6 @@ import { MatChipsModule } from '@angular/material/chips';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
-import { MatDialogModule, MatDialog } from '@angular/material/dialog';
 import { FormsModule } from '@angular/forms';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
@@ -20,6 +19,7 @@ import { ToastService } from '../../core/services/toast.service';
 import {
   DropdownMenuComponent,
   DropdownItemComponent,
+  DialogComponent,
 } from '../../shared/components/index.js';
 
 @Component({
@@ -36,10 +36,11 @@ import {
     MatSlideToggleModule,
     DropdownMenuComponent,
     DropdownItemComponent,
-    MatDialogModule,
     MatFormFieldModule,
     MatInputModule,
     MatSelectModule,
+    DialogComponent,
+    NotificationChannelDialogComponent,
   ],
   template: `
     <div class="section-header">
@@ -129,6 +130,15 @@ import {
         </mat-card>
       }
     </div>
+
+    @if (showDialog()) {
+      <app-dialog [open]="true" [title]="(editingChannel() ? 'Edit' : 'Add') + ' Notification Channel'" maxWidth="480px" (openChange)="showDialog.set(false)">
+        <app-notification-channel-dialog-content
+          [channel]="editingChannel()"
+          (saved)="onSaved()"
+          (cancelled)="showDialog.set(false)" />
+      </app-dialog>
+    }
   `,
   styles: [`
     .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
@@ -206,11 +216,12 @@ import {
 export class NotificationChannelsComponent implements OnInit {
   private channelService = inject(NotificationChannelService);
   private toast = inject(ToastService);
-  private dialog = inject(MatDialog);
 
   channels = signal<NotificationChannel[]>([]);
   loading = signal(false);
   testing = signal<string | null>(null);
+  showDialog = signal(false);
+  editingChannel = signal<NotificationChannel | null>(null);
 
   ngOnInit(): void {
     this.load();
@@ -228,14 +239,13 @@ export class NotificationChannelsComponent implements OnInit {
   }
 
   openDialog(channel?: NotificationChannel): void {
-    const dialogRef = this.dialog.open(NotificationChannelDialogComponent, {
-      width: '480px',
-      data: channel ?? null,
-    });
+    this.editingChannel.set(channel ?? null);
+    this.showDialog.set(true);
+  }
 
-    dialogRef.afterClosed().subscribe((result) => {
-      if (result) this.load();
-    });
+  onSaved(): void {
+    this.showDialog.set(false);
+    this.load();
   }
 
   toggleActive(channel: NotificationChannel): void {

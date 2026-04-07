@@ -1,6 +1,5 @@
-import { Component, inject, OnInit } from '@angular/core';
+import { Component, inject, OnInit, input, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MatDialogModule, MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
@@ -16,12 +15,6 @@ interface ToolInfo {
   name: string;
   description: string;
   inputSchema?: Record<string, unknown>;
-}
-
-interface DialogData {
-  probe?: ScheduledProbe;
-  clients: Client[];
-  categories: Array<{ value: string; label: string }>;
 }
 
 const ACTIONS = [
@@ -58,11 +51,11 @@ const COMMON_TIMEZONES = [
 ];
 
 @Component({
+  selector: 'app-probe-dialog-content',
   standalone: true,
-  imports: [FormsModule, MatDialogModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatButtonModule, MatSlideToggleModule, MatCheckboxModule],
+  imports: [FormsModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatButtonModule, MatSlideToggleModule, MatCheckboxModule],
   template: `
-    <h2 mat-dialog-title>{{ isEdit ? 'Edit Probe' : 'Create Probe' }}</h2>
-    <mat-dialog-content class="dialog-content">
+    <div class="dialog-content">
       <mat-form-field appearance="outline" class="full-width">
         <mat-label>Name</mat-label>
         <input matInput [(ngModel)]="name" required placeholder="e.g. Daily Blocking Check">
@@ -77,7 +70,7 @@ const COMMON_TIMEZONES = [
         <mat-form-field appearance="outline" class="full-width">
           <mat-label>Client</mat-label>
           <mat-select [(ngModel)]="clientId" (selectionChange)="onClientChange()" required>
-            @for (c of data.clients; track c.id) {
+            @for (c of clientsList; track c.id) {
               <mat-option [value]="c.id">{{ c.name }} ({{ c.shortCode }})</mat-option>
             }
           </mat-select>
@@ -237,7 +230,7 @@ const COMMON_TIMEZONES = [
           <mat-label>Category</mat-label>
           <mat-select [(ngModel)]="category">
             <mat-option [value]="null">None</mat-option>
-            @for (cat of data.categories; track cat.value) {
+            @for (cat of categoriesList; track cat.value) {
               <mat-option [value]="cat.value">{{ cat.label }}</mat-option>
             }
           </mat-select>
@@ -260,14 +253,14 @@ const COMMON_TIMEZONES = [
           </div>
         </div>
       }
-    </mat-dialog-content>
+    </div>
 
-    <mat-dialog-actions align="end">
-      <button mat-button mat-dialog-close>Cancel</button>
+    <div class="dialog-actions" dialogFooter>
+      <button mat-button (click)="cancelled.emit()">Cancel</button>
       <button mat-raised-button color="primary" (click)="save()" [disabled]="!canSave() || saving">
         {{ saving ? 'Saving...' : (isEdit ? 'Update' : 'Create') }}
       </button>
-    </mat-dialog-actions>
+    </div>
   `,
   styles: [`
     .dialog-content { min-width: 450px; }
@@ -285,38 +278,43 @@ const COMMON_TIMEZONES = [
     .retention-section h4 { margin: 0 0 8px; font-size: 14px; color: #555; }
     .retention-row { display: flex; gap: 12px; }
     .retention-field { flex: 1; }
+    .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
   `],
 })
 export class ProbeDialogComponent implements OnInit {
-  data = inject<DialogData>(MAT_DIALOG_DATA);
-  private dialogRef = inject(MatDialogRef<ProbeDialogComponent>);
   private probeService = inject(ScheduledProbeService);
   private integrationService = inject(IntegrationService);
   private toast = inject(ToastService);
 
-  isEdit = !!this.data.probe;
-  name = this.data.probe?.name ?? '';
-  description = this.data.probe?.description ?? '';
-  clientId = this.data.probe?.clientId ?? '';
-  integrationId = this.data.probe?.integrationId ?? '';
-  toolName = this.data.probe?.toolName ?? '';
-  toolParams: Record<string, unknown> = { ...(this.data.probe?.toolParams ?? {}) };
-  cronExpression = this.data.probe?.cronExpression ?? '0 * * * *';
+  probe = input<ScheduledProbe>();
+  clients = input.required<Client[]>();
+  categories = input.required<ReadonlyArray<{ readonly value: string; readonly label: string }>>();
+
+  saved = output<boolean>();
+  cancelled = output<void>();
+
+  isEdit = false;
+  name = '';
+  description = '';
+  clientId = '';
+  integrationId = '';
+  toolName = '';
+  toolParams: Record<string, unknown> = {};
+  cronExpression = '0 * * * *';
   cronPreset = '';
-  category: string | null = this.data.probe?.category ?? null;
-  action = this.data.probe?.action ?? 'create_ticket';
+  category: string | null = null;
+  action = 'create_ticket';
   operatorEmail = '';
   emailTo = '';
   emailSubject = '';
-  retentionDays = this.data.probe?.retentionDays ?? 30;
-  retentionMaxRuns = this.data.probe?.retentionMaxRuns ?? 100;
+  retentionDays = 30;
+  retentionMaxRuns = 100;
   saving = false;
 
-  // Schedule type: 'time' for timezone-based, 'cron' for raw cron
-  scheduleType: 'time' | 'cron' = !this.data.probe ? 'time' : (this.data.probe.scheduleTimezone ? 'time' : 'cron');
-  scheduleHour = this.data.probe?.scheduleHour ?? 8;
-  scheduleMinute = this.data.probe?.scheduleMinute ?? 0;
-  scheduleTimezone = this.data.probe?.scheduleTimezone ?? 'America/Chicago';
+  scheduleType: 'time' | 'cron' = 'time';
+  scheduleHour = 8;
+  scheduleMinute = 0;
+  scheduleTimezone = 'America/Chicago';
   selectedDays: boolean[] = [false, false, false, false, false, false, false];
 
   actions = ACTIONS;
@@ -334,6 +332,9 @@ export class ProbeDialogComponent implements OnInit {
   availableTools: ToolInfo[] = [];
   toolParamFields: Array<{ name: string; type: string; description: string }> = [];
 
+  clientsList: Client[] = [];
+  categoriesList: ReadonlyArray<{ readonly value: string; readonly label: string }> = [];
+
   get cronHumanReadable(): string {
     return describeCron(this.cronExpression);
   }
@@ -343,39 +344,60 @@ export class ProbeDialogComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    // Load action config from existing probe
-    if (this.data.probe?.actionConfig) {
-      const cfg = this.data.probe.actionConfig;
-      this.operatorEmail = typeof cfg['operatorEmail'] === 'string' ? cfg['operatorEmail'] : '';
-      this.emailTo = typeof cfg['emailTo'] === 'string' ? cfg['emailTo'] : '';
-      this.emailSubject = typeof cfg['emailSubject'] === 'string' ? cfg['emailSubject'] : '';
-    }
+    this.clientsList = this.clients();
+    this.categoriesList = this.categories();
 
-    // Populate days of week from existing probe
-    if (this.data.probe?.scheduleDaysOfWeek) {
-      const days = this.data.probe.scheduleDaysOfWeek.split(',').map(Number);
-      for (const d of days) {
-        if (d >= 0 && d <= 6) this.selectedDays[d] = true;
+    const p = this.probe();
+    this.isEdit = !!p;
+
+    if (p) {
+      this.name = p.name ?? '';
+      this.description = p.description ?? '';
+      this.clientId = p.clientId ?? '';
+      this.integrationId = p.integrationId ?? '';
+      this.toolName = p.toolName ?? '';
+      this.toolParams = { ...(p.toolParams ?? {}) };
+      this.cronExpression = p.cronExpression ?? '0 * * * *';
+      this.category = p.category ?? null;
+      this.action = p.action ?? 'create_ticket';
+      this.retentionDays = p.retentionDays ?? 30;
+      this.retentionMaxRuns = p.retentionMaxRuns ?? 100;
+      this.scheduleType = p.scheduleTimezone ? 'time' : 'cron';
+      this.scheduleHour = p.scheduleHour ?? 8;
+      this.scheduleMinute = p.scheduleMinute ?? 0;
+      this.scheduleTimezone = p.scheduleTimezone ?? 'America/Chicago';
+
+      // Load action config
+      if (p.actionConfig) {
+        const cfg = p.actionConfig;
+        this.operatorEmail = typeof cfg['operatorEmail'] === 'string' ? cfg['operatorEmail'] : '';
+        this.emailTo = typeof cfg['emailTo'] === 'string' ? cfg['emailTo'] : '';
+        this.emailSubject = typeof cfg['emailSubject'] === 'string' ? cfg['emailSubject'] : '';
+      }
+
+      // Populate days of week
+      if (p.scheduleDaysOfWeek) {
+        const days = p.scheduleDaysOfWeek.split(',').map(Number);
+        for (const d of days) {
+          if (d >= 0 && d <= 6) this.selectedDays[d] = true;
+        }
       }
     }
 
     // Set cron preset if it matches
-    const match = CRON_PRESETS.find((p) => p.value === this.cronExpression);
+    const match = CRON_PRESETS.find((pr) => pr.value === this.cronExpression);
     this.cronPreset = match ? match.value : '';
 
     // Load built-in tools
     this.probeService.getBuiltinTools().subscribe((tools) => {
       this.builtinTools = tools;
-      // If editing and the tool is built-in, select that source
       if (this.isEdit && this.toolName && tools.some((t) => t.name === this.toolName)) {
         this.toolSource = 'builtin';
         this.availableTools = this.builtinTools;
-        // Rebuild param fields but preserve existing values
         const existingParams = this.toolParams;
         this.onToolChange();
         if (existingParams) this.toolParams = existingParams;
       } else if (this.toolSource === 'builtin') {
-        // Create mode: user already switched to builtin before load finished
         this.availableTools = this.builtinTools;
       }
     });
@@ -509,10 +531,10 @@ export class ProbeDialogComponent implements OnInit {
         updateData.cronExpression = this.cronExpression;
         updateData.scheduleTimezone = null;
       }
-      this.probeService.updateProbe(this.data.probe!.id, updateData).subscribe({
+      this.probeService.updateProbe(this.probe()!.id, updateData).subscribe({
         next: () => {
           this.toast.success('Probe updated');
-          this.dialogRef.close(true);
+          this.saved.emit(true);
         },
         error: (err) => {
           this.saving = false;
@@ -542,7 +564,7 @@ export class ProbeDialogComponent implements OnInit {
       this.probeService.createProbe(req).subscribe({
         next: () => {
           this.toast.success('Probe created');
-          this.dialogRef.close(true);
+          this.saved.emit(true);
         },
         error: (err) => {
           this.saving = false;
@@ -604,20 +626,13 @@ function describeCron(expr: string): string {
   return expr;
 }
 
-/**
- * Client-side UTC preview: compute what UTC time the local schedule maps to.
- * Uses the same Intl.DateTimeFormat approach as the server-side buildUtcCron.
- */
 function computeUtcPreview(hour: number, minute: number, selectedDays: boolean[], timezone: string): string {
   try {
-    // Create a date in the target timezone for today
     const now = new Date();
     const localStr = now.toLocaleDateString('en-US', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' });
     const [month, day, year] = localStr.split('/').map(Number);
-    // Build a date at the desired local time
     const target = new Date(Date.UTC(year, month - 1, day, hour, minute));
 
-    // Get offset by comparing UTC formatted vs local formatted, including the date
     const utcParts = new Intl.DateTimeFormat('en-US', {
       timeZone: 'UTC',
       year: 'numeric',
@@ -645,13 +660,11 @@ function computeUtcPreview(hour: number, minute: number, selectedDays: boolean[]
     const toUtcMillis = (parts: Intl.DateTimeFormatPart[]) =>
       Date.UTC(getVal(parts, 'year'), getVal(parts, 'month') - 1, getVal(parts, 'day'), getVal(parts, 'hour'), getVal(parts, 'minute'));
 
-    // Compute the offset (local - UTC) in minutes using full date/time
     const offsetMinutes = Math.round((toUtcMillis(localParts) - toUtcMillis(utcParts)) / 60000);
     let resultMinutes = (hour * 60 + minute) - offsetMinutes;
     if (resultMinutes < 0) resultMinutes += 24 * 60;
     if (resultMinutes >= 24 * 60) resultMinutes -= 24 * 60;
 
-    // Track day shift using the same carry logic as buildUtcCron
     let utcMinute = minute - (offsetMinutes % 60);
     let utcHour = hour - Math.trunc(offsetMinutes / 60);
     if (utcMinute < 0) { utcMinute += 60; utcHour -= 1; }
@@ -663,7 +676,6 @@ function computeUtcPreview(hour: number, minute: number, selectedDays: boolean[]
     const rH = Math.floor(resultMinutes / 60);
     const rM = resultMinutes % 60;
 
-    // Build days string, applying dayShift to selected days
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const anySelected = selectedDays.some(Boolean);
     let displayDays = selectedDays.map((c, i) => c ? i : -1).filter((i) => i >= 0);

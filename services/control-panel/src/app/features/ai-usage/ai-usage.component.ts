@@ -4,7 +4,6 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Subject, debounceTime } from 'rxjs';
-import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import {
   AiUsageService, AiUsageSummary, AiModelCost, AiUsageLogEntry, AiUsageLogDetail,
 } from '../../core/services/ai-usage.service';
@@ -17,6 +16,7 @@ import {
   DataTableComponent,
   DataTableColumnComponent,
   PaginatorComponent,
+  DialogComponent,
   type PaginatorPageEvent,
 } from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service';
@@ -63,7 +63,6 @@ const DATE_PRESETS: DatePreset[] = [
   imports: [
     CommonModule,
     FormsModule,
-    MatDialogModule,
     BroncoButtonComponent,
     SelectComponent,
     TabComponent,
@@ -71,6 +70,8 @@ const DATE_PRESETS: DatePreset[] = [
     DataTableComponent,
     DataTableColumnComponent,
     PaginatorComponent,
+    DialogComponent,
+    ModelCostDialogComponent,
   ],
   template: `
     <div class="page-wrapper">
@@ -490,6 +491,15 @@ const DATE_PRESETS: DatePreset[] = [
 
       </app-tab-group>
     </div>
+
+    @if (showCostDialog()) {
+      <app-dialog [open]="true" [title]="(editingCost() ? 'Edit' : 'Add') + ' Model Cost'" maxWidth="500px" (openChange)="showCostDialog.set(false)">
+        <app-model-cost-dialog-content
+          [cost]="editingCost() ?? undefined"
+          (saved)="onCostSaved()"
+          (cancelled)="showCostDialog.set(false)" />
+      </app-dialog>
+    }
   `,
   styles: [`
     .page-wrapper { max-width: 1200px; }
@@ -874,8 +884,10 @@ const DATE_PRESETS: DatePreset[] = [
 export class AiUsageComponent implements OnInit {
   private aiUsageService = inject(AiUsageService);
   private toast = inject(ToastService);
-  private dialog = inject(MatDialog);
   private router = inject(Router);
+
+  showCostDialog = signal(false);
+  editingCost = signal<AiModelCost | null>(null);
   private route = inject(ActivatedRoute);
   private destroyRef = inject(DestroyRef);
 
@@ -1029,13 +1041,18 @@ export class AiUsageComponent implements OnInit {
   }
 
   addModel(): void {
-    const ref = this.dialog.open(ModelCostDialogComponent, { width: '500px', data: {} });
-    ref.afterClosed().subscribe(result => { if (result) this.loadCosts(); });
+    this.editingCost.set(null);
+    this.showCostDialog.set(true);
   }
 
   editModel(cost: AiModelCost): void {
-    const ref = this.dialog.open(ModelCostDialogComponent, { width: '500px', data: { cost } });
-    ref.afterClosed().subscribe(result => { if (result) this.loadCosts(); });
+    this.editingCost.set(cost);
+    this.showCostDialog.set(true);
+  }
+
+  onCostSaved(): void {
+    this.showCostDialog.set(false);
+    this.loadCosts();
   }
 
   deleteModel(cost: AiModelCost): void {
