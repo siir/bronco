@@ -15,3 +15,9 @@ export { TabComponent } from './tab.component';
 export { TabGroupComponent } from './tab-group.component';
 export { DialogComponent } from './dialog.component';
 export { ToolbarComponent } from './toolbar.component';
+export {
+  DropdownMenuComponent,
+  DropdownItemComponent,
+  DropdownDividerComponent,
+  DropdownLabelComponent,
+} from './dropdown-menu.component';

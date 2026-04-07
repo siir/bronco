@@ -1,4 +1,5 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterOutlet, ActivatedRoute, Router, NavigationEnd } from '@angular/router';
 import { SidebarComponent } from './sidebar.component';
 import { HeaderBarComponent } from './header-bar.component';
@@ -78,6 +79,7 @@ export class AppShellComponent implements OnInit {
   private readonly theme = inject(ThemeService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
   readonly pageTitle = signal('Dashboard');
 
   ngOnInit(): void {
@@ -89,7 +91,7 @@ export class AppShellComponent implements OnInit {
       mode: params['mode'],
     });
     this.updateTitle();
-    this.router.events.subscribe(event => {
+    this.router.events.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(event => {
       if (event instanceof NavigationEnd) this.updateTitle();
     });
   }
