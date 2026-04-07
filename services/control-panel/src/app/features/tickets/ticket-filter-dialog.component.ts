@@ -47,7 +47,7 @@ export const EMPTY_ADVANCED_FILTERS: AdvancedFilters = {
         <app-select
           [value]="category"
           [options]="categoryOptions"
-          placeholder="All categories"
+          placeholder=""
           (valueChange)="category = $event" />
       </app-form-field>
 

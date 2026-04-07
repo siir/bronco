@@ -20,6 +20,7 @@ const VALID_SOURCES: Set<string> = new Set(Object.values(TicketSource));
 const VALID_CATEGORIES: Set<string> = new Set(Object.values(TicketCategory));
 const VALID_STATUSES: Set<string> = new Set(Object.values(TicketStatus));
 const VALID_EVENT_TYPES: Set<string> = new Set(Object.values(TicketEventType));
+const VALID_ANALYSIS_STATUSES: Set<string> = new Set(Object.values(AnalysisStatus));
 const VALID_SUFFICIENCY_STATUSES: Set<string> = new Set(Object.values(SufficiencyStatus));
 const VALID_LOG_LEVELS: Set<string> = new Set(Object.values(LogLevel));
 
@@ -68,7 +69,6 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
       }
 
       // Validate analysisStatus filter
-      const VALID_ANALYSIS_STATUSES: Set<string> = new Set(Object.values(AnalysisStatus));
       if (analysisStatus && !VALID_ANALYSIS_STATUSES.has(analysisStatus)) {
         return fastify.httpErrors.badRequest(`Invalid analysisStatus: ${analysisStatus}`);
       }
