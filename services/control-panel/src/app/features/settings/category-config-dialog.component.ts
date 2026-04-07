@@ -1,6 +1,5 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, input, output, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MAT_DIALOG_DATA, MatDialogRef, MatDialogModule } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
@@ -11,64 +10,58 @@ import {
 } from '../../core/services/settings.service';
 import { ToastService } from '../../core/services/toast.service';
 
-export interface CategoryConfigDialogData {
-  config?: TicketCategoryConfig;
-}
-
 @Component({
+  selector: 'app-category-config-dialog-content',
   standalone: true,
   imports: [
     FormsModule,
-    MatDialogModule,
     MatFormFieldModule,
     MatInputModule,
     MatButtonModule,
     MatCheckboxModule,
   ],
   template: `
-    <h2 mat-dialog-title>{{ isCreate ? 'Create Category' : 'Edit Category: ' + data.config!.value }}</h2>
-    <mat-dialog-content>
-      @if (isCreate) {
-        <mat-form-field class="full-width">
-          <mat-label>Value</mat-label>
-          <input matInput [(ngModel)]="value" placeholder="e.g. DATABASE_PERF" required>
-          <mat-hint>Must match a valid TicketCategory enum value</mat-hint>
-        </mat-form-field>
-      }
-
+    @if (isCreate) {
       <mat-form-field class="full-width">
-        <mat-label>Display Name</mat-label>
-        <input matInput [(ngModel)]="displayName">
+        <mat-label>Value</mat-label>
+        <input matInput [(ngModel)]="value" placeholder="e.g. DATABASE_PERF" required>
+        <mat-hint>Must match a valid TicketCategory enum value</mat-hint>
       </mat-form-field>
+    }
 
-      <mat-form-field class="full-width">
-        <mat-label>Description</mat-label>
-        <textarea matInput [(ngModel)]="description" rows="2"></textarea>
-      </mat-form-field>
+    <mat-form-field class="full-width">
+      <mat-label>Display Name</mat-label>
+      <input matInput [(ngModel)]="displayName">
+    </mat-form-field>
 
-      <mat-form-field class="full-width">
-        <mat-label>Color</mat-label>
-        <input matInput [(ngModel)]="color" placeholder="#2196f3">
-        <div matSuffix class="color-preview" [style.background]="color"></div>
-      </mat-form-field>
+    <mat-form-field class="full-width">
+      <mat-label>Description</mat-label>
+      <textarea matInput [(ngModel)]="description" rows="2"></textarea>
+    </mat-form-field>
 
-      <mat-form-field class="full-width">
-        <mat-label>Sort Order</mat-label>
-        <input matInput type="number" [(ngModel)]="sortOrder" min="0">
-      </mat-form-field>
+    <mat-form-field class="full-width">
+      <mat-label>Color</mat-label>
+      <input matInput [(ngModel)]="color" placeholder="#2196f3">
+      <div matSuffix class="color-preview" [style.background]="color"></div>
+    </mat-form-field>
 
-      @if (!isCreate) {
-        <mat-checkbox [(ngModel)]="isActive" class="active-checkbox">
-          Active
-        </mat-checkbox>
-      }
-    </mat-dialog-content>
-    <mat-dialog-actions align="end">
-      <button mat-button mat-dialog-close>Cancel</button>
+    <mat-form-field class="full-width">
+      <mat-label>Sort Order</mat-label>
+      <input matInput type="number" [(ngModel)]="sortOrder" min="0">
+    </mat-form-field>
+
+    @if (!isCreate) {
+      <mat-checkbox [(ngModel)]="isActive" class="active-checkbox">
+        Active
+      </mat-checkbox>
+    }
+
+    <div class="dialog-actions" dialogFooter>
+      <button mat-button (click)="cancelled.emit()">Cancel</button>
       <button mat-raised-button color="primary" (click)="save()" [disabled]="!canSave()">
         {{ isCreate ? 'Create' : 'Update' }}
       </button>
-    </mat-dialog-actions>
+    </div>
   `,
   styles: [`
     .full-width { width: 100%; margin-bottom: 8px; }
@@ -80,22 +73,37 @@ export interface CategoryConfigDialogData {
       border: 1px solid #ccc;
       display: inline-block;
     }
+    .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
   `],
 })
-export class CategoryConfigDialogComponent {
-  private dialogRef = inject(MatDialogRef<CategoryConfigDialogComponent>);
-  data: CategoryConfigDialogData = inject(MAT_DIALOG_DATA);
+export class CategoryConfigDialogComponent implements OnInit {
   private svc = inject(SettingsService);
   private toast = inject(ToastService);
 
-  isCreate = !this.data.config;
+  config = input<TicketCategoryConfig | undefined>(undefined);
+  saved = output<boolean>();
+  cancelled = output<void>();
 
-  value = this.data.config?.value ?? '';
-  displayName = this.data.config?.displayName ?? '';
-  description = this.data.config?.description ?? '';
-  color = this.data.config?.color ?? '#2196f3';
-  sortOrder = this.data.config?.sortOrder ?? 0;
-  isActive = this.data.config?.isActive ?? true;
+  isCreate = true;
+  value = '';
+  displayName = '';
+  description = '';
+  color = '#2196f3';
+  sortOrder = 0;
+  isActive = true;
+
+  ngOnInit(): void {
+    const c = this.config();
+    if (c) {
+      this.isCreate = false;
+      this.value = c.value;
+      this.displayName = c.displayName;
+      this.description = c.description ?? '';
+      this.color = c.color ?? '#2196f3';
+      this.sortOrder = c.sortOrder;
+      this.isActive = c.isActive;
+    }
+  }
 
   canSave(): boolean {
     if (!this.displayName.trim()) return false;
@@ -116,14 +124,15 @@ export class CategoryConfigDialogComponent {
         .subscribe({
           next: () => {
             this.toast.success('Category created');
-            this.dialogRef.close(true);
+            this.saved.emit(true);
           },
           error: (err) =>
             this.toast.error(err.error?.error ?? err.error?.message ?? 'Failed to create'),
         });
     } else {
+      const c = this.config()!;
       this.svc
-        .updateCategory(this.data.config!.value, {
+        .updateCategory(c.value, {
           displayName: this.displayName,
           description: this.description || null,
           color: this.color,
@@ -133,7 +142,7 @@ export class CategoryConfigDialogComponent {
         .subscribe({
           next: () => {
             this.toast.success('Category updated');
-            this.dialogRef.close(true);
+            this.saved.emit(true);
           },
           error: (err) =>
             this.toast.error(err.error?.error ?? err.error?.message ?? 'Failed to update'),

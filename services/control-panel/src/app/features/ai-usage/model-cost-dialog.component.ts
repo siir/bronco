@@ -1,6 +1,5 @@
-import { Component, inject, OnInit } from '@angular/core';
+import { Component, inject, input, output, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MatDialogModule, MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
@@ -10,77 +9,90 @@ import { AiUsageService, AiModelCost } from '../../core/services/ai-usage.servic
 import { ToastService } from '../../core/services/toast.service';
 
 @Component({
+  selector: 'app-model-cost-dialog-content',
   standalone: true,
-  imports: [FormsModule, MatDialogModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatButtonModule, MatCheckboxModule],
+  imports: [FormsModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatButtonModule, MatCheckboxModule],
   template: `
-    <h2 mat-dialog-title>{{ isEdit ? 'Edit' : 'Add' }} Model Cost</h2>
-    <mat-dialog-content>
-      <mat-form-field class="full-width">
-        <mat-label>Provider</mat-label>
-        <mat-select [(ngModel)]="provider" [disabled]="isEdit" required>
-          @for (p of catalogProviders; track p) {
-            <mat-option [value]="p">{{ p }}</mat-option>
-          }
-        </mat-select>
-      </mat-form-field>
+    <mat-form-field class="full-width">
+      <mat-label>Provider</mat-label>
+      <mat-select [(ngModel)]="provider" [disabled]="isEdit" required>
+        @for (p of catalogProviders; track p) {
+          <mat-option [value]="p">{{ p }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
 
-      <mat-form-field class="full-width">
-        <mat-label>Model ID</mat-label>
-        <input matInput [(ngModel)]="model" [readonly]="isEdit" required placeholder="e.g. claude-sonnet-4-6">
-      </mat-form-field>
+    <mat-form-field class="full-width">
+      <mat-label>Model ID</mat-label>
+      <input matInput [(ngModel)]="model" [readonly]="isEdit" required placeholder="e.g. claude-sonnet-4-6">
+    </mat-form-field>
 
-      <mat-form-field class="full-width">
-        <mat-label>Display Name</mat-label>
-        <input matInput [(ngModel)]="displayName" placeholder="e.g. Claude Sonnet 4.6">
-      </mat-form-field>
+    <mat-form-field class="full-width">
+      <mat-label>Display Name</mat-label>
+      <input matInput [(ngModel)]="displayName" placeholder="e.g. Claude Sonnet 4.6">
+    </mat-form-field>
 
-      <mat-form-field class="full-width">
-        <mat-label>Input Cost ($/1M tokens)</mat-label>
-        <input matInput type="number" [(ngModel)]="inputCostPer1m" required min="0" step="0.01">
-      </mat-form-field>
+    <mat-form-field class="full-width">
+      <mat-label>Input Cost ($/1M tokens)</mat-label>
+      <input matInput type="number" [(ngModel)]="inputCostPer1m" required min="0" step="0.01">
+    </mat-form-field>
 
-      <mat-form-field class="full-width">
-        <mat-label>Output Cost ($/1M tokens)</mat-label>
-        <input matInput type="number" [(ngModel)]="outputCostPer1m" required min="0" step="0.01">
-      </mat-form-field>
+    <mat-form-field class="full-width">
+      <mat-label>Output Cost ($/1M tokens)</mat-label>
+      <input matInput type="number" [(ngModel)]="outputCostPer1m" required min="0" step="0.01">
+    </mat-form-field>
 
-      <mat-checkbox [(ngModel)]="isCustomCost">
-        Custom cost (protect from AI updates)
-      </mat-checkbox>
-    </mat-dialog-content>
-    <mat-dialog-actions align="end">
-      <button mat-button mat-dialog-close>Cancel</button>
+    <mat-checkbox [(ngModel)]="isCustomCost">
+      Custom cost (protect from AI updates)
+    </mat-checkbox>
+
+    <div class="dialog-actions" dialogFooter>
+      <button mat-button (click)="cancelled.emit()">Cancel</button>
       <button mat-raised-button color="primary" (click)="save()" [disabled]="!provider || !model">
         {{ isEdit ? 'Update' : 'Create' }}
       </button>
-    </mat-dialog-actions>
+    </div>
   `,
-  styles: [`.full-width { width: 100%; margin-bottom: 8px; }`],
+  styles: [`
+    .full-width { width: 100%; margin-bottom: 8px; }
+    .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  `],
 })
 export class ModelCostDialogComponent implements OnInit {
-  private dialogRef = inject(MatDialogRef<ModelCostDialogComponent>);
-  private data = inject<{ cost?: AiModelCost }>(MAT_DIALOG_DATA);
   private aiUsageService = inject(AiUsageService);
   private toast = inject(ToastService);
 
-  isEdit = !!this.data.cost;
-  provider = this.data.cost?.provider ?? '';
-  model = this.data.cost?.model ?? '';
-  displayName = this.data.cost?.displayName ?? '';
-  inputCostPer1m = this.data.cost?.inputCostPer1m ?? 0;
-  outputCostPer1m = this.data.cost?.outputCostPer1m ?? 0;
-  isCustomCost = this.data.cost?.isCustomCost ?? true;
+  cost = input<AiModelCost | undefined>(undefined);
+  saved = output<boolean>();
+  cancelled = output<void>();
+
+  isEdit = false;
+  provider = '';
+  model = '';
+  displayName = '';
+  inputCostPer1m = 0;
+  outputCostPer1m = 0;
+  isCustomCost = true;
 
   catalogProviders: string[] = [];
 
   ngOnInit(): void {
+    const c = this.cost();
+    if (c) {
+      this.isEdit = true;
+      this.provider = c.provider;
+      this.model = c.model;
+      this.displayName = c.displayName ?? '';
+      this.inputCostPer1m = c.inputCostPer1m;
+      this.outputCostPer1m = c.outputCostPer1m;
+      this.isCustomCost = c.isCustomCost;
+    }
+
     this.aiUsageService.getCatalog().subscribe(catalog => {
       this.catalogProviders = catalog.providers.map(p => p.provider);
-      // If editing, ensure current provider is in the list
       if (this.provider && !this.catalogProviders.includes(this.provider)) {
         this.catalogProviders.push(this.provider);
       }
-      // If no catalog (empty costs table), fall back to known providers
       if (this.catalogProviders.length === 0) {
         this.catalogProviders = ['CLAUDE', 'OPENAI', 'LOCAL', 'GROK', 'GOOGLE'];
       }
@@ -98,7 +110,7 @@ export class ModelCostDialogComponent implements OnInit {
     }).subscribe({
       next: () => {
         this.toast.success(this.isEdit ? 'Cost updated' : 'Model cost added');
-        this.dialogRef.close(true);
+        this.saved.emit(true);
       },
       error: (err) => this.toast.error(err.error?.message ?? 'Failed to save'),
     });

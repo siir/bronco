@@ -1,6 +1,5 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, input, output, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MatDialogRef, MAT_DIALOG_DATA, MatDialogModule } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
@@ -9,75 +8,88 @@ import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { UserService, type ControlPanelUser } from '../../core/services/user.service';
 import { ToastService } from '../../core/services/toast.service';
 
-interface DialogData {
-  user?: ControlPanelUser;
-  currentUserId?: string;
-}
-
 @Component({
+  selector: 'app-user-dialog-content',
   standalone: true,
-  imports: [FormsModule, MatDialogModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatButtonModule, MatSlideToggleModule],
+  imports: [FormsModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatButtonModule, MatSlideToggleModule],
   template: `
-    <h2 mat-dialog-title>{{ data.user ? 'Edit User' : 'Create User' }}</h2>
-    <mat-dialog-content>
+    <mat-form-field class="full-width">
+      <mat-label>Name</mat-label>
+      <input matInput [(ngModel)]="name" required>
+    </mat-form-field>
+    <mat-form-field class="full-width">
+      <mat-label>Email</mat-label>
+      <input matInput [(ngModel)]="email" type="email" required>
+    </mat-form-field>
+    @if (!user()) {
       <mat-form-field class="full-width">
-        <mat-label>Name</mat-label>
-        <input matInput [(ngModel)]="name" required>
+        <mat-label>Password</mat-label>
+        <input matInput [(ngModel)]="password" type="password" required minlength="8">
       </mat-form-field>
+    }
+    <mat-form-field class="full-width">
+      <mat-label>Role</mat-label>
+      <mat-select [(ngModel)]="role">
+        <mat-option value="ADMIN">Admin</mat-option>
+        <mat-option value="OPERATOR">Operator</mat-option>
+      </mat-select>
+    </mat-form-field>
+    @if (role === 'OPERATOR' || role === 'ADMIN') {
       <mat-form-field class="full-width">
-        <mat-label>Email</mat-label>
-        <input matInput [(ngModel)]="email" type="email" required>
+        <mat-label>Slack User ID</mat-label>
+        <input matInput [(ngModel)]="slackUserId" placeholder="U0123456789">
+        <mat-hint>Click user profile in Slack → More → Copy member ID</mat-hint>
       </mat-form-field>
-      @if (!data.user) {
-        <mat-form-field class="full-width">
-          <mat-label>Password</mat-label>
-          <input matInput [(ngModel)]="password" type="password" required minlength="8">
-        </mat-form-field>
-      }
-      <mat-form-field class="full-width">
-        <mat-label>Role</mat-label>
-        <mat-select [(ngModel)]="role">
-          <mat-option value="ADMIN">Admin</mat-option>
-          <mat-option value="OPERATOR">Operator</mat-option>
-        </mat-select>
-      </mat-form-field>
-      @if (role === 'OPERATOR' || role === 'ADMIN') {
-        <mat-form-field class="full-width">
-          <mat-label>Slack User ID</mat-label>
-          <input matInput [(ngModel)]="slackUserId" placeholder="U0123456789">
-          <mat-hint>Click user profile in Slack → More → Copy member ID</mat-hint>
-        </mat-form-field>
-      }
-      @if (data.user && !isSelf) {
-        <mat-slide-toggle [(ngModel)]="isActive">{{ isActive ? 'Active' : 'Inactive' }}</mat-slide-toggle>
-      }
-    </mat-dialog-content>
-    <mat-dialog-actions align="end">
-      <button mat-button mat-dialog-close>Cancel</button>
-      <button mat-raised-button color="primary" (click)="save()" [disabled]="!name || !email || (!data.user && !password)">
-        {{ data.user ? 'Update' : 'Create' }}
+    }
+    @if (user() && !isSelf) {
+      <mat-slide-toggle [(ngModel)]="isActive">{{ isActive ? 'Active' : 'Inactive' }}</mat-slide-toggle>
+    }
+
+    <div class="dialog-actions" dialogFooter>
+      <button mat-button (click)="cancelled.emit()">Cancel</button>
+      <button mat-raised-button color="primary" (click)="save()" [disabled]="!name || !email || (!user() && !password)">
+        {{ user() ? 'Update' : 'Create' }}
       </button>
-    </mat-dialog-actions>
+    </div>
   `,
-  styles: [`.full-width { width: 100%; margin-bottom: 8px; }`],
+  styles: [`
+    .full-width { width: 100%; margin-bottom: 8px; }
+    .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  `],
 })
-export class UserDialogComponent {
-  private dialogRef = inject(MatDialogRef<UserDialogComponent>);
-  data = inject<DialogData>(MAT_DIALOG_DATA);
+export class UserDialogComponent implements OnInit {
   private userService = inject(UserService);
   private toast = inject(ToastService);
 
-  name = this.data.user?.name ?? '';
-  email = this.data.user?.email ?? '';
+  user = input<ControlPanelUser | undefined>(undefined);
+  currentUserId = input<string | undefined>(undefined);
+  saved = output<boolean>();
+  cancelled = output<void>();
+
+  name = '';
+  email = '';
   password = '';
-  role = this.data.user?.role ?? 'OPERATOR';
-  slackUserId = this.data.user?.slackUserId ?? '';
-  isActive = this.data.user?.isActive ?? true;
-  isSelf = this.data.user?.id === this.data.currentUserId;
+  role: string = 'OPERATOR';
+  slackUserId = '';
+  isActive = true;
+  isSelf = false;
+
+  ngOnInit(): void {
+    const u = this.user();
+    if (u) {
+      this.name = u.name;
+      this.email = u.email;
+      this.role = u.role;
+      this.slackUserId = u.slackUserId ?? '';
+      this.isActive = u.isActive;
+      this.isSelf = u.id === this.currentUserId();
+    }
+  }
 
   save(): void {
-    if (this.data.user) {
-      this.userService.updateUser(this.data.user.id, {
+    const u = this.user();
+    if (u) {
+      this.userService.updateUser(u.id, {
         name: this.name,
         email: this.email,
         role: this.role,
@@ -86,7 +98,7 @@ export class UserDialogComponent {
       }).subscribe({
         next: () => {
           this.toast.success('User updated');
-          this.dialogRef.close(true);
+          this.saved.emit(true);
         },
         error: (err) => this.toast.error(err.error?.message ?? err.error?.error ?? 'Update failed'),
       });
@@ -100,7 +112,7 @@ export class UserDialogComponent {
       }).subscribe({
         next: () => {
           this.toast.success('User created');
-          this.dialogRef.close(true);
+          this.saved.emit(true);
         },
         error: (err) => this.toast.error(err.error?.message ?? err.error?.error ?? 'Create failed'),
       });
