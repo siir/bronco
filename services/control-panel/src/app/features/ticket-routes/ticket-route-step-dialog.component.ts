@@ -11,6 +11,7 @@ import { ToastService } from '../../core/services/toast.service';
   template: `
     <app-form-field label="Step Type">
       <select class="select-native" [(ngModel)]="stepType" (change)="onStepTypeChange()" [disabled]="isEdit">
+        <option value="" disabled>Select step type...</option>
         <optgroup label="Ingestion Steps">
           @for (st of ingestionTypes(); track st.type) {
             <option [value]="st.type">{{ st.name }}</option>
@@ -52,7 +53,7 @@ import { ToastService } from '../../core/services/toast.service';
       <app-text-input
         [value]="stepOrder.toString()"
         type="number"
-        (valueChange)="stepOrder = +$event" />
+        (valueChange)="stepOrder = +$event >= 0 ? +$event : 0" />
     </app-form-field>
 
     @if (selectedInfo()?.defaultTaskType) {
@@ -102,7 +103,7 @@ import { ToastService } from '../../core/services/toast.service';
         <app-text-input
           [value]="agenticMaxIterations.toString()"
           type="number"
-          (valueChange)="agenticMaxIterations = +$event" />
+          (valueChange)="agenticMaxIterations = +$event >= 1 ? (+$event > 50 ? 50 : +$event) : 1" />
       </app-form-field>
 
       <app-form-field label="System Prompt Override">

@@ -47,7 +47,7 @@ import { FormFieldComponent, TextInputComponent, SelectComponent, ToggleSwitchCo
 
     <div class="dialog-actions" dialogFooter>
       <app-bronco-button variant="ghost" (click)="cancelled.emit()">Cancel</app-bronco-button>
-      <app-bronco-button variant="primary" [disabled]="!name || !email || (!user() && !password)" (click)="save()">
+      <app-bronco-button variant="primary" [disabled]="!name || !email || (!user() && password.length < 8)" (click)="save()">
         {{ user() ? 'Update' : 'Create' }}
       </app-bronco-button>
     </div>

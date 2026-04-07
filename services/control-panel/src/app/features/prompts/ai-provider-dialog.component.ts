@@ -95,7 +95,7 @@ export class AiProviderDialogComponent implements OnInit {
 
     this.providerService.getTypes().subscribe({
       next: (types) => {
-        this.selectableProviders = types;
+        this.selectableProviders = types.filter(p => p.routable);
         this.loadingProviders = false;
       },
       error: () => {

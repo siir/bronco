@@ -66,7 +66,7 @@ const COMMON_TIMEZONES = [
           </app-form-field>
 
           <app-form-field label="Tool Source">
-            <app-select [value]="toolSource" [options]="toolSourceOptions" (valueChange)="toolSource = $event; onToolSourceChange()"></app-select>
+            <app-select [value]="toolSource" [options]="toolSourceOptions" (valueChange)="toolSource = $event === 'builtin' ? 'builtin' : 'mcp'; onToolSourceChange()"></app-select>
           </app-form-field>
 
           @if (toolSource === 'mcp') {
@@ -92,7 +92,7 @@ const COMMON_TIMEZONES = [
         }
 
         <app-form-field label="Schedule Type">
-          <app-select [value]="scheduleType" [options]="scheduleTypeOptions" (valueChange)="scheduleType = $event; onScheduleTypeChange()"></app-select>
+          <app-select [value]="scheduleType" [options]="scheduleTypeOptions" (valueChange)="scheduleType = $event === 'cron' ? 'cron' : 'time'; onScheduleTypeChange()"></app-select>
         </app-form-field>
 
         @if (scheduleType === 'time') {
@@ -127,7 +127,7 @@ const COMMON_TIMEZONES = [
 
         @if (scheduleType === 'cron') {
           <app-form-field label="Schedule Preset">
-            <app-select [value]="cronPreset" [options]="cronPresets" (valueChange)="cronPreset = $event; onPresetChange()"></app-select>
+            <app-select [value]="cronPreset" [options]="cronPresets" placeholder="" (valueChange)="cronPreset = $event; onPresetChange()"></app-select>
           </app-form-field>
 
           <app-form-field label="Cron Expression" [hint]="cronHumanReadable">
@@ -156,7 +156,7 @@ const COMMON_TIMEZONES = [
 
         @if (action !== 'email_direct') {
           <app-form-field label="Category" hint="Category assigned to tickets created by this probe.">
-            <app-select [value]="category ?? ''" [options]="categorySelectOptions" (valueChange)="category = $event || null"></app-select>
+            <app-select [value]="category ?? ''" [options]="categorySelectOptions" placeholder="" (valueChange)="category = $event || null"></app-select>
           </app-form-field>
         }
 

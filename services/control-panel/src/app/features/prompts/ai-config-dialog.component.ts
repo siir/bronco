@@ -140,7 +140,9 @@ export class AiConfigDialogComponent implements OnInit {
   }
 
   get providerOptions(): Array<{ value: string; label: string }> {
-    return this.providerTypes.map(p => ({ value: p.value, label: p.label + (p.routable ? '' : ' (not yet supported)') }));
+    return this.providerTypes
+      .filter(p => p.routable || (this.isEdit && p.value === this.provider))
+      .map(p => ({ value: p.value, label: p.label }));
   }
 
   get modelOptions(): Array<{ value: string; label: string }> {

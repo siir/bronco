@@ -79,7 +79,7 @@ export class ClientMemoryDialogComponent implements OnInit {
   cancelled = output<void>();
 
   memoryTypeOptions = MEMORY_TYPE_OPTIONS.map(mt => ({ value: mt.value, label: `${mt.label} — ${mt.description}` }));
-  categoryOptions = CATEGORY_OPTIONS;
+  categoryOptions = [...CATEGORY_OPTIONS];
 
   title = '';
   memoryType = 'CONTEXT';

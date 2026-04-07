@@ -39,13 +39,14 @@ const SOURCES = [
         <app-select
           [value]="routeType"
           [options]="routeTypeOptions"
-          (valueChange)="routeType = $event" />
+          (valueChange)="routeType = $event === 'INGESTION' ? 'INGESTION' : 'ANALYSIS'" />
       </app-form-field>
 
       <app-form-field label="Source Filter" [hint]="routeType === 'INGESTION' ? 'Ingestion routes should target a specific source.' : 'Optionally restrict this route to tickets from a specific source.'">
         <app-select
           [value]="source ?? ''"
           [options]="sourceOptions"
+          placeholder=""
           (valueChange)="source = $event || null" />
       </app-form-field>
 
@@ -53,6 +54,7 @@ const SOURCES = [
         <app-select
           [value]="category ?? ''"
           [options]="categorySelectOptions"
+          placeholder=""
           (valueChange)="category = $event || null" />
       </app-form-field>
 
@@ -60,6 +62,7 @@ const SOURCES = [
         <app-select
           [value]="clientId ?? ''"
           [options]="clientSelectOptions"
+          placeholder=""
           (valueChange)="clientId = $event || null" />
       </app-form-field>
 
