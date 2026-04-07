@@ -1,62 +1,62 @@
 import { Component, inject, OnInit, input, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatSelectModule } from '@angular/material/select';
-import { MatButtonModule } from '@angular/material/button';
 import { AiProviderService, AiProvider, ProviderType } from '../../core/services/ai-provider.service';
 import { ToastService } from '../../core/services/toast.service';
+import { FormFieldComponent, TextInputComponent, SelectComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({
   selector: 'app-ai-provider-dialog-content',
   standalone: true,
-  imports: [FormsModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatButtonModule],
+  imports: [FormsModule, FormFieldComponent, TextInputComponent, SelectComponent, BroncoButtonComponent],
   template: `
-    @if (!isEdit) {
-      <mat-form-field class="full-width">
-        <mat-label>Provider</mat-label>
-        <mat-select [(ngModel)]="providerVal" required (ngModelChange)="onProviderChange()">
-          @if (loadingProviders) {
-            <mat-option disabled>Loading providers...</mat-option>
-          }
-          @for (p of selectableProviders; track p.value) {
-            <mat-option [value]="p.value" [disabled]="!p.routable">{{ p.label }}{{ p.routable ? '' : ' (not yet supported)' }}</mat-option>
-          }
-        </mat-select>
-      </mat-form-field>
-    } @else {
-      <div class="provider-display">
-        <span class="label">Provider:</span>
-        <span class="provider-chip provider-{{ providerVal.toLowerCase() }}">{{ providerVal }}</span>
-      </div>
-    }
+    <div class="form-grid">
+      @if (!isEdit) {
+        <app-form-field label="Provider">
+          <app-select
+            [value]="providerVal"
+            [options]="providerOptions"
+            [disabled]="loadingProviders"
+            placeholder="Select provider..."
+            (valueChange)="providerVal = $event; onProviderChange()" />
+        </app-form-field>
+      } @else {
+        <div class="provider-display">
+          <span class="label">Provider:</span>
+          <span class="provider-chip provider-{{ providerVal.toLowerCase() }}">{{ providerVal }}</span>
+        </div>
+      }
 
-    @if (providerVal === 'LOCAL') {
-      <mat-form-field class="full-width">
-        <mat-label>Base URL</mat-label>
-        <input matInput [(ngModel)]="baseUrl" required placeholder="http://localhost:11434">
-      </mat-form-field>
-    }
+      @if (providerVal === 'LOCAL') {
+        <app-form-field label="Base URL">
+          <app-text-input
+            [value]="baseUrl"
+            placeholder="http://localhost:11434"
+            (valueChange)="baseUrl = $event" />
+        </app-form-field>
+      }
 
-    @if (providerVal && providerVal !== 'LOCAL') {
-      <mat-form-field class="full-width">
-        <mat-label>API Key</mat-label>
-        <input matInput [(ngModel)]="apiKey" type="password"
-          [required]="!isEdit" [placeholder]="isEdit ? '(unchanged)' : 'sk-...'">
-      </mat-form-field>
-    }
+      @if (providerVal && providerVal !== 'LOCAL') {
+        <app-form-field label="API Key">
+          <app-text-input
+            [value]="apiKey"
+            type="password"
+            [placeholder]="isEdit ? '(unchanged)' : 'sk-...'"
+            (valueChange)="apiKey = $event" />
+        </app-form-field>
+      }
+    </div>
 
     <div class="dialog-actions" dialogFooter>
-      <button mat-button (click)="cancelled.emit()">Cancel</button>
-      <button mat-raised-button color="primary" (click)="save()" [disabled]="!canSave()">
+      <app-bronco-button variant="ghost" (click)="cancelled.emit()">Cancel</app-bronco-button>
+      <app-bronco-button variant="primary" [disabled]="!canSave()" (click)="save()">
         {{ isEdit ? 'Update' : 'Create' }}
-      </button>
+      </app-bronco-button>
     </div>
   `,
   styles: [`
-    .full-width { width: 100%; margin-bottom: 8px; }
-    .provider-display { margin-bottom: 16px; }
-    .provider-display .label { font-size: 13px; color: #666; margin-right: 8px; }
+    .form-grid { display: flex; flex-direction: column; gap: 12px; }
+    .provider-display { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+    .provider-display .label { font-size: 13px; color: #666; }
     .provider-chip { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; background: #f5f5f5; color: #333; }
     .provider-local { background: #e8f5e9; color: #2e7d32; }
     .provider-claude { background: #fce4ec; color: #c62828; }
@@ -82,6 +82,10 @@ export class AiProviderDialogComponent implements OnInit {
 
   loadingProviders = true;
   selectableProviders: ProviderType[] = [];
+
+  get providerOptions(): Array<{ value: string; label: string }> {
+    return this.selectableProviders.map(p => ({ value: p.value, label: p.label + (p.routable ? '' : ' (not yet supported)') }));
+  }
 
   ngOnInit(): void {
     const cfg = this.config();
