@@ -13,12 +13,12 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatTabsModule } from '@angular/material/tabs';
-import { MatDialog } from '@angular/material/dialog';
 import { firstValueFrom } from 'rxjs';
-import { TicketService, Ticket, TicketEvent, type TicketAppLog, type TicketAiUsageLog, type PendingAction, type UnifiedLogEntry, type TicketCostSummary } from '../../core/services/ticket.service';
+import { TicketService, Ticket, TicketEvent, type TicketAppLog, type TicketAiUsageLog, type PendingAction, type UnifiedLogEntry, type TicketCostSummary, type AiHelpResponse } from '../../core/services/ticket.service';
 import { LogSummaryService, type LogSummary } from '../../core/services/log-summary.service';
 import { AiUsageService, type TicketCostResponse } from '../../core/services/ai-usage.service';
-import { AiHelpDialogComponent, type AiHelpDialogData } from '../../shared/components/ai-help-dialog.component';
+import { AiHelpDialogComponent } from '../../shared/components/ai-help-dialog.component';
+import { DialogComponent } from '../../shared/components/dialog.component';
 import { AiLogEntryComponent } from './ai-log-entry.component';
 import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
 import { RelativeTimePipe } from '../../shared/pipes/relative-time.pipe';
@@ -44,7 +44,7 @@ interface FlowNode {
 
 @Component({
   standalone: true,
-  imports: [CommonModule, RouterLink, DatePipe, JsonPipe, FormsModule, MatCardModule, MatButtonModule, MatIconModule, MatChipsModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatProgressBarModule, MatTooltipModule, MatTabsModule, MarkdownPipe, RelativeTimePipe, AiLogEntryComponent],
+  imports: [CommonModule, RouterLink, DatePipe, JsonPipe, FormsModule, MatCardModule, MatButtonModule, MatIconModule, MatChipsModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatProgressBarModule, MatTooltipModule, MatTabsModule, MarkdownPipe, RelativeTimePipe, AiLogEntryComponent, DialogComponent, AiHelpDialogComponent],
   template: `
     @if (ticket(); as t) {
       <div class="page-header">
@@ -989,6 +989,14 @@ interface FlowNode {
     } @else {
       <p>Loading...</p>
     }
+
+    @if (showAiHelpDialog()) {
+      <app-dialog [open]="true" [title]="aiHelpTitle()" maxWidth="600px" (openChange)="onAiHelpClosed()">
+        <app-ai-help-dialog-content
+          [submitFn]="aiHelpSubmitFn"
+          (closed)="onAiHelpClosed()" />
+      </app-dialog>
+    }
   `,
   styleUrl: './ticket-detail.component.css',
 })
@@ -1000,7 +1008,10 @@ export class TicketDetailComponent implements OnInit {
   private aiUsageService = inject(AiUsageService);
   private destroyRef = inject(DestroyRef);
   private toast = inject(ToastService);
-  private dialog = inject(MatDialog);
+
+  showAiHelpDialog = signal(false);
+  aiHelpTitle = signal('');
+  aiHelpSubmitFn: (params: { question?: string; provider?: string; model?: string }) => Promise<AiHelpResponse> = () => Promise.reject(new Error('not initialized'));
 
   private pollHandle: ReturnType<typeof setInterval> | null = null;
   private readonly POLL_INTERVAL_MS = 4_000;
@@ -1562,19 +1573,16 @@ export class TicketDetailComponent implements OnInit {
   openAiHelp(): void {
     const ticketId = this.id();
     const ticketSubject = this.ticket()?.subject ?? '';
-    const data: AiHelpDialogData = {
-      title: `Ask AI — ${ticketSubject}`,
-      submitFn: (params) => firstValueFrom(this.ticketService.askAi(ticketId, params)),
-    };
-    const ref = this.dialog.open(AiHelpDialogComponent, {
-      width: '600px',
-      data,
-    });
-    ref.afterClosed().subscribe(() => {
-      // Reload timeline to show any new AI_ANALYSIS events
-      this.load();
-      this.loadTicketCost();
-    });
+    this.aiHelpTitle.set(`Ask AI — ${ticketSubject}`);
+    this.aiHelpSubmitFn = (params) => firstValueFrom(this.ticketService.askAi(ticketId, params));
+    this.showAiHelpDialog.set(true);
+  }
+
+  onAiHelpClosed(): void {
+    this.showAiHelpDialog.set(false);
+    // Reload timeline to show any new AI_ANALYSIS events
+    this.load();
+    this.loadTicketCost();
   }
 
   addComment(): void {

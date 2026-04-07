@@ -1,6 +1,5 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, input, output, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MAT_DIALOG_DATA, MatDialogRef, MatDialogModule } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
@@ -12,15 +11,11 @@ import {
 } from '../../core/services/external-service.service';
 import { ToastService } from '../../core/services/toast.service';
 
-export interface ExternalServiceDialogData {
-  service?: ExternalService;
-}
-
 @Component({
+  selector: 'app-external-service-dialog-content',
   standalone: true,
   imports: [
     FormsModule,
-    MatDialogModule,
     MatFormFieldModule,
     MatInputModule,
     MatSelectModule,
@@ -28,70 +23,83 @@ export interface ExternalServiceDialogData {
     MatCheckboxModule,
   ],
   template: `
-    <h2 mat-dialog-title>{{ isEdit ? 'Edit' : 'Add' }} External Service</h2>
-    <mat-dialog-content>
-      <mat-form-field class="full-width">
-        <mat-label>Name</mat-label>
-        <input matInput [(ngModel)]="name" placeholder="e.g. Ollama (Local LLM)">
-        <mat-hint>Display name shown on System Status page</mat-hint>
-      </mat-form-field>
+    <mat-form-field class="full-width">
+      <mat-label>Name</mat-label>
+      <input matInput [(ngModel)]="name" placeholder="e.g. Ollama (Local LLM)">
+      <mat-hint>Display name shown on System Status page</mat-hint>
+    </mat-form-field>
 
-      <mat-form-field class="full-width">
-        <mat-label>Endpoint</mat-label>
-        <input matInput [(ngModel)]="endpoint" [placeholder]="endpointPlaceholder()">
-        <mat-hint>{{ endpointHint() }}</mat-hint>
-      </mat-form-field>
+    <mat-form-field class="full-width">
+      <mat-label>Endpoint</mat-label>
+      <input matInput [(ngModel)]="endpoint" [placeholder]="endpointPlaceholder()">
+      <mat-hint>{{ endpointHint() }}</mat-hint>
+    </mat-form-field>
 
-      <mat-form-field class="full-width">
-        <mat-label>Check Type</mat-label>
-        <mat-select [(ngModel)]="checkType">
-          <mat-option value="HTTP">HTTP — Generic health check</mat-option>
-          <mat-option value="OLLAMA">Ollama — Model info via /api/tags</mat-option>
-          <mat-option value="DOCKER">Docker — Container state check</mat-option>
-        </mat-select>
-        <mat-hint>How to verify the service is healthy</mat-hint>
-      </mat-form-field>
+    <mat-form-field class="full-width">
+      <mat-label>Check Type</mat-label>
+      <mat-select [(ngModel)]="checkType">
+        <mat-option value="HTTP">HTTP — Generic health check</mat-option>
+        <mat-option value="OLLAMA">Ollama — Model info via /api/tags</mat-option>
+        <mat-option value="DOCKER">Docker — Container state check</mat-option>
+      </mat-select>
+      <mat-hint>How to verify the service is healthy</mat-hint>
+    </mat-form-field>
 
-      <mat-form-field class="full-width">
-        <mat-label>Timeout (ms)</mat-label>
-        <input matInput type="number" [(ngModel)]="timeoutMs" min="1000" max="30000">
-      </mat-form-field>
+    <mat-form-field class="full-width">
+      <mat-label>Timeout (ms)</mat-label>
+      <input matInput type="number" [(ngModel)]="timeoutMs" min="1000" max="30000">
+    </mat-form-field>
 
-      <mat-checkbox [(ngModel)]="isMonitored" class="monitor-checkbox">
-        Include in System Status monitoring
-      </mat-checkbox>
+    <mat-checkbox [(ngModel)]="isMonitored" class="monitor-checkbox">
+      Include in System Status monitoring
+    </mat-checkbox>
 
-      <mat-form-field class="full-width">
-        <mat-label>Notes</mat-label>
-        <textarea matInput [(ngModel)]="notes" rows="2"></textarea>
-      </mat-form-field>
-    </mat-dialog-content>
-    <mat-dialog-actions align="end">
-      <button mat-button mat-dialog-close>Cancel</button>
+    <mat-form-field class="full-width">
+      <mat-label>Notes</mat-label>
+      <textarea matInput [(ngModel)]="notes" rows="2"></textarea>
+    </mat-form-field>
+
+    <div class="dialog-actions" dialogFooter>
+      <button mat-button (click)="cancelled.emit()">Cancel</button>
       <button mat-raised-button color="primary" (click)="save()" [disabled]="!name || !endpoint">
         {{ isEdit ? 'Update' : 'Create' }}
       </button>
-    </mat-dialog-actions>
+    </div>
   `,
   styles: [`
     .full-width { width: 100%; margin-bottom: 8px; }
     .monitor-checkbox { display: block; margin: 8px 0 16px; }
+    .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
   `],
 })
-export class ExternalServiceDialogComponent {
-  private dialogRef = inject(MatDialogRef<ExternalServiceDialogComponent>);
-  private data: ExternalServiceDialogData = inject(MAT_DIALOG_DATA);
+export class ExternalServiceDialogComponent implements OnInit {
   private svc = inject(ExternalServiceService);
   private toast = inject(ToastService);
 
-  isEdit = !!this.data.service;
+  service = input<ExternalService | undefined>(undefined);
+  saved = output<boolean>();
+  cancelled = output<void>();
 
-  name = this.data.service?.name ?? '';
-  endpoint = this.data.service?.endpoint ?? '';
-  checkType = this.data.service?.checkType ?? 'HTTP';
-  timeoutMs = this.data.service?.timeoutMs ?? 5000;
-  isMonitored = this.data.service?.isMonitored ?? true;
-  notes = this.data.service?.notes ?? '';
+  isEdit = false;
+  name = '';
+  endpoint = '';
+  checkType: string = 'HTTP';
+  timeoutMs = 5000;
+  isMonitored = true;
+  notes = '';
+
+  ngOnInit(): void {
+    const s = this.service();
+    if (s) {
+      this.isEdit = true;
+      this.name = s.name;
+      this.endpoint = s.endpoint;
+      this.checkType = s.checkType;
+      this.timeoutMs = s.timeoutMs;
+      this.isMonitored = s.isMonitored;
+      this.notes = s.notes ?? '';
+    }
+  }
 
   endpointPlaceholder(): string {
     switch (this.checkType) {
@@ -119,14 +127,15 @@ export class ExternalServiceDialogComponent {
       notes: this.notes || null,
     };
 
-    const op$ = this.isEdit
-      ? this.svc.update(this.data.service!.id, payload)
+    const s = this.service();
+    const op$ = this.isEdit && s
+      ? this.svc.update(s.id, payload)
       : this.svc.create(payload);
 
     op$.subscribe({
       next: () => {
         this.toast.success(`External service ${this.isEdit ? 'updated' : 'created'}`);
-        this.dialogRef.close(true);
+        this.saved.emit(true);
       },
       error: (err) =>
         this.toast.error(err.error?.error ?? err.error?.message ?? 'Failed'),

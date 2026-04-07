@@ -8,7 +8,6 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTableModule } from '@angular/material/table';
 import { MatChipsModule } from '@angular/material/chips';
-import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { ClientService, Client, System, Contact } from '../../core/services/client.service';
@@ -45,11 +44,11 @@ import { ToastService } from '../../core/services/toast.service';
   standalone: true,
   imports: [
     RouterLink, JsonPipe, DatePipe, SlicePipe, DecimalPipe, MatCardModule, MatTabsModule, MatButtonModule, MatIconModule,
-    MatTableModule, MatChipsModule, MatDialogModule, MatSlideToggleModule, MatTooltipModule, McpServerInfoComponent,
+    MatTableModule, MatChipsModule, MatSlideToggleModule, MatTooltipModule, McpServerInfoComponent,
     MatButtonToggleModule, FormsModule, MatFormFieldModule, MatInputModule, MatSelectModule,
     DialogComponent, TicketDialogComponent,
     ClientMemoryDialogComponent, ClientEnvironmentDialogComponent, ClientUserDialogComponent, GenerateInvoiceDialogComponent,
-    SystemDialogComponent, RepoDialogComponent,
+    SystemDialogComponent, RepoDialogComponent, ContactDialogComponent, IntegrationDialogComponent,
   ],
   template: `
     @if (client(); as c) {
@@ -690,6 +689,26 @@ import { ToastService } from '../../core/services/toast.service';
           (cancelled)="showRepoDialog.set(false)" />
       </app-dialog>
     }
+
+    @if (showContactDialog()) {
+      <app-dialog [open]="true" [title]="editingContact() ? 'Edit Contact' : 'Add Contact'" maxWidth="500px" (openChange)="showContactDialog.set(false)">
+        <app-contact-dialog-content
+          [clientId]="id()"
+          [contact]="editingContact() ?? undefined"
+          (saved)="onContactSaved()"
+          (cancelled)="showContactDialog.set(false)" />
+      </app-dialog>
+    }
+
+    @if (showIntegrationDialog()) {
+      <app-dialog [open]="true" [title]="editingIntegration() ? 'Edit Integration' : 'Add Integration'" maxWidth="600px" (openChange)="showIntegrationDialog.set(false)">
+        <app-integration-dialog-content
+          [clientId]="id()"
+          [integration]="editingIntegration() ?? undefined"
+          (saved)="onIntegrationSaved()"
+          (cancelled)="showIntegrationDialog.set(false)" />
+      </app-dialog>
+    }
   `,
   styles: [`
     .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
@@ -773,7 +792,6 @@ export class ClientDetailComponent implements OnInit {
   private credentialService = inject(ClientAiCredentialService);
   private aiUsageService = inject(AiUsageService);
   private destroyRef = inject(DestroyRef);
-  private dialog = inject(MatDialog);
   private toast = inject(ToastService);
   private router = inject(Router);
   private route = inject(ActivatedRoute);
@@ -919,13 +937,18 @@ export class ClientDetailComponent implements OnInit {
   }
 
   addContact(): void {
-    const ref = this.dialog.open(ContactDialogComponent, { width: '500px', data: { clientId: this.id() } });
-    ref.afterClosed().subscribe(result => { if (result) this.load(); });
+    this.editingContact.set(null);
+    this.showContactDialog.set(true);
   }
 
   editContact(contact: Contact): void {
-    const ref = this.dialog.open(ContactDialogComponent, { width: '500px', data: { clientId: this.id(), contact } });
-    ref.afterClosed().subscribe(result => { if (result) this.load(); });
+    this.editingContact.set(contact);
+    this.showContactDialog.set(true);
+  }
+
+  onContactSaved(): void {
+    this.showContactDialog.set(false);
+    this.load();
   }
 
   deleteContact(id: string): void {
@@ -967,8 +990,13 @@ export class ClientDetailComponent implements OnInit {
   }
 
   addIntegration(): void {
-    const ref = this.dialog.open(IntegrationDialogComponent, { width: '600px', data: { clientId: this.id() } });
-    ref.afterClosed().subscribe(result => { if (result) this.load(); });
+    this.editingIntegration.set(null);
+    this.showIntegrationDialog.set(true);
+  }
+
+  onIntegrationSaved(): void {
+    this.showIntegrationDialog.set(false);
+    this.load();
   }
 
   showTicketDialog = signal(false);
@@ -982,6 +1010,10 @@ export class ClientDetailComponent implements OnInit {
   showSystemDialog = signal(false);
   showRepoDialog = signal(false);
   editingRepo = signal<CodeRepo | null>(null);
+  showContactDialog = signal(false);
+  editingContact = signal<Contact | null>(null);
+  showIntegrationDialog = signal(false);
+  editingIntegration = signal<ClientIntegration | null>(null);
 
   createTicket(): void {
     this.showTicketDialog.set(true);
@@ -1009,8 +1041,8 @@ export class ClientDetailComponent implements OnInit {
   }
 
   editIntegration(integ: ClientIntegration): void {
-    const ref = this.dialog.open(IntegrationDialogComponent, { width: '600px', data: { clientId: this.id(), integration: integ } });
-    ref.afterClosed().subscribe(result => { if (result) this.load(); });
+    this.editingIntegration.set(integ);
+    this.showIntegrationDialog.set(true);
   }
 
   deleteIntegration(id: string): void {
