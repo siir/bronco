@@ -16,3 +16,9 @@ export { TabGroupComponent } from './tab-group.component';
 export { DialogComponent } from './dialog.component';
 export { ToolbarComponent } from './toolbar.component';
 export { PaginatorComponent, type PaginatorPageEvent } from './paginator.component';
+export {
+  DropdownMenuComponent,
+  DropdownItemComponent,
+  DropdownDividerComponent,
+  DropdownLabelComponent,
+} from './dropdown-menu.component';

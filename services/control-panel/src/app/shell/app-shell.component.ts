@@ -1,6 +1,6 @@
 import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
-import { RouterOutlet, ActivatedRoute, Router, NavigationEnd } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { RouterOutlet, ActivatedRoute, Router, NavigationEnd } from '@angular/router';
 import { SidebarComponent } from './sidebar.component';
 import { HeaderBarComponent } from './header-bar.component';
 import { DetailPanelComponent } from './detail-panel.component';
