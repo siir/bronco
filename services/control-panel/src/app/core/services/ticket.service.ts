@@ -166,7 +166,7 @@ export interface TicketCostSummary {
 export class TicketService {
   private api = inject(ApiService);
 
-  getTickets(filters?: { clientId?: string; status?: string; category?: string; limit?: number; offset?: number }): Observable<Ticket[]> {
+  getTickets(filters?: { clientId?: string; status?: string; category?: string; priority?: string; source?: string; analysisStatus?: string; createdFrom?: string; createdTo?: string; limit?: number; offset?: number }): Observable<Ticket[]> {
     return this.api.get<Ticket[]>('/tickets', filters as Record<string, string | number>);
   }
 
