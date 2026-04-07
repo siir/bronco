@@ -3,10 +3,11 @@ import { Component, input } from '@angular/core';
 @Component({
   selector: 'app-bronco-button',
   standalone: true,
+  host: { '[class.full-width]': 'fullWidth()' },
   template: `
     <button
       type="button"
-      [class]="'btn btn-' + variant() + ' btn-' + size()"
+      [class]="'btn btn-' + variant() + ' btn-' + size() + (fullWidth() ? ' btn-full-width' : '')"
       [disabled]="disabled()"
       [attr.aria-label]="ariaLabel() || null">
       <ng-content />
@@ -14,6 +15,7 @@ import { Component, input } from '@angular/core';
   `,
   styles: [`
     :host { display: inline-block; }
+    :host.full-width { display: block; }
 
     .btn {
       font-family: var(--font-primary);
@@ -82,6 +84,8 @@ import { Component, input } from '@angular/core';
     .btn-icon.btn-sm { width: 28px; height: 28px; padding: 0; }
     .btn-icon.btn-md { width: 32px; height: 32px; padding: 0; }
     .btn-icon.btn-lg { width: 36px; height: 36px; padding: 0; }
+
+    .btn-full-width { width: 100%; }
   `],
 })
 export class BroncoButtonComponent {
@@ -89,4 +93,5 @@ export class BroncoButtonComponent {
   size = input<'sm' | 'md' | 'lg'>('md');
   disabled = input<boolean>(false);
   ariaLabel = input<string>('');
+  fullWidth = input<boolean>(false);
 }
