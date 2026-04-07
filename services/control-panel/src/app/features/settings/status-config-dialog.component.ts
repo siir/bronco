@@ -147,9 +147,9 @@ export class StatusConfigDialogComponent implements OnInit {
       const c = this.config()!;
       this.svc
         .updateStatus(c.value, {
-          displayName: this.displayName,
-          description: this.description || null,
-          color: this.color,
+          displayName: this.displayName.trim(),
+          description: this.description.trim() || null,
+          color: this.color.trim(),
           sortOrder: this.sortOrder,
           statusClass: this.statusClass,
           isActive: this.isActive,

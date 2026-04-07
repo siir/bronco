@@ -117,6 +117,7 @@ export class AiHelpDialogComponent implements OnInit {
   submit(): void {
     this.loading.set(true);
     this.errorMsg.set(null);
+    this.response.set(null);
 
     let provider: string | undefined;
     let model: string | undefined;
