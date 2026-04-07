@@ -1,49 +1,56 @@
 import { Component, inject, OnInit, input, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatButtonModule } from '@angular/material/button';
 import { RepoService, type CodeRepo } from '../../core/services/repo.service';
 import { ToastService } from '../../core/services/toast.service';
+import { FormFieldComponent, TextInputComponent, TextareaComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({
   selector: 'app-repo-dialog-content',
   standalone: true,
-  imports: [FormsModule, MatFormFieldModule, MatInputModule, MatButtonModule],
+  imports: [FormsModule, FormFieldComponent, TextInputComponent, TextareaComponent, BroncoButtonComponent],
   template: `
-    <mat-form-field class="full-width">
-      <mat-label>Name</mat-label>
-      <input matInput [(ngModel)]="form.name" required>
-    </mat-form-field>
-    <mat-form-field class="full-width">
-      <mat-label>Repository URL</mat-label>
-      <input matInput [(ngModel)]="form.repoUrl" required placeholder="https://github.com/org/repo.git">
-    </mat-form-field>
-    <mat-form-field class="full-width">
-      <mat-label>Description (helps AI understand repo contents)</mat-label>
-      <textarea matInput [(ngModel)]="form.description" rows="2"
-        placeholder="SQL Server stored procedures, table schemas, and ETL jobs for..."></textarea>
-    </mat-form-field>
-    <div class="row">
-      <mat-form-field class="flex">
-        <mat-label>Default Branch</mat-label>
-        <input matInput [(ngModel)]="form.defaultBranch">
-      </mat-form-field>
-      <mat-form-field class="flex">
-        <mat-label>Branch Prefix</mat-label>
-        <input matInput [(ngModel)]="form.branchPrefix">
-      </mat-form-field>
+    <div class="form-grid">
+      <app-form-field label="Name">
+        <app-text-input
+          [value]="form.name"
+          (valueChange)="form.name = $event" />
+      </app-form-field>
+      <app-form-field label="Repository URL">
+        <app-text-input
+          [value]="form.repoUrl"
+          placeholder="https://github.com/org/repo.git"
+          (valueChange)="form.repoUrl = $event" />
+      </app-form-field>
+      <app-form-field label="Description (helps AI understand repo contents)">
+        <app-textarea
+          [value]="form.description"
+          [rows]="2"
+          placeholder="SQL Server stored procedures, table schemas, and ETL jobs for..."
+          (valueChange)="form.description = $event" />
+      </app-form-field>
+      <div class="row">
+        <app-form-field label="Default Branch">
+          <app-text-input
+            [value]="form.defaultBranch"
+            (valueChange)="form.defaultBranch = $event" />
+        </app-form-field>
+        <app-form-field label="Branch Prefix">
+          <app-text-input
+            [value]="form.branchPrefix"
+            (valueChange)="form.branchPrefix = $event" />
+        </app-form-field>
+      </div>
     </div>
 
     <div class="dialog-actions" dialogFooter>
-      <button mat-button (click)="cancelled.emit()">Cancel</button>
-      <button mat-raised-button color="primary" (click)="save()" [disabled]="!form.name || !form.repoUrl">{{ saveLabel }}</button>
+      <app-bronco-button variant="ghost" (click)="cancelled.emit()">Cancel</app-bronco-button>
+      <app-bronco-button variant="primary" [disabled]="!form.name || !form.repoUrl" (click)="save()">{{ saveLabel }}</app-bronco-button>
     </div>
   `,
   styles: [`
-    .full-width { width: 100%; margin-bottom: 8px; }
+    .form-grid { display: flex; flex-direction: column; gap: 12px; }
     .row { display: flex; gap: 12px; }
-    .flex { flex: 1; }
+    .row app-form-field { flex: 1; }
     .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
   `],
 })

@@ -1,13 +1,9 @@
 import { Component, inject, OnInit, input, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatSelectModule } from '@angular/material/select';
-import { MatButtonModule } from '@angular/material/button';
-import { MatCheckboxModule } from '@angular/material/checkbox';
 import { AiProviderService, AiProvider, AiProviderModel, AppScopeItem } from '../../core/services/ai-provider.service';
 import { AiUsageService, CatalogModel } from '../../core/services/ai-usage.service';
 import { ToastService } from '../../core/services/toast.service';
+import { FormFieldComponent, TextInputComponent, SelectComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 const CAPABILITY_LEVELS = [
   { value: 'SIMPLE', label: 'Simple — classification, tagging' },
@@ -20,73 +16,78 @@ const CAPABILITY_LEVELS = [
 @Component({
   selector: 'app-ai-model-dialog-content',
   standalone: true,
-  imports: [FormsModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatButtonModule, MatCheckboxModule],
+  imports: [FormsModule, FormFieldComponent, TextInputComponent, SelectComponent, BroncoButtonComponent],
   template: `
-    <mat-form-field class="full-width">
-      <mat-label>Provider</mat-label>
-      <mat-select [(ngModel)]="providerId" required (ngModelChange)="onProviderChange()">
-        @for (p of availableProviders; track p.id) {
-          <mat-option [value]="p.id">
-            {{ p.provider }}{{ p.isActive ? '' : ' (disabled)' }}
-          </mat-option>
-        }
-      </mat-select>
-    </mat-form-field>
+    <div class="form-grid">
+      <app-form-field label="Provider">
+        <app-select
+          [value]="providerId"
+          [options]="providerOptions"
+          placeholder="Select provider..."
+          (valueChange)="providerId = $event; onProviderChange()" />
+      </app-form-field>
 
-    <mat-form-field class="full-width">
-      <mat-label>Name</mat-label>
-      <input matInput [(ngModel)]="name" required placeholder="e.g. Claude Sonnet Production, Ollama Fast">
-    </mat-form-field>
+      <app-form-field label="Name">
+        <app-text-input
+          [value]="name"
+          placeholder="e.g. Claude Sonnet Production, Ollama Fast"
+          (valueChange)="name = $event" />
+      </app-form-field>
 
-    <mat-form-field class="full-width">
-      <mat-label>Model</mat-label>
       @if (modelsForProvider.length > 0) {
-        <mat-select [(ngModel)]="modelId" required>
-          @for (m of modelsForProvider; track m.model) {
-            <mat-option [value]="m.model">{{ m.displayName || m.model }}</mat-option>
-          }
-        </mat-select>
+        <app-form-field label="Model">
+          <app-select
+            [value]="modelId"
+            [options]="modelOptions"
+            (valueChange)="modelId = $event" />
+        </app-form-field>
       } @else {
-        <input matInput [(ngModel)]="modelId" required placeholder="e.g. llama3.1:8b or claude-sonnet-4-6">
+        <app-form-field label="Model">
+          <app-text-input
+            [value]="modelId"
+            placeholder="e.g. llama3.1:8b or claude-sonnet-4-6"
+            (valueChange)="modelId = $event" />
+        </app-form-field>
       }
-    </mat-form-field>
 
-    <mat-form-field class="full-width">
-      <mat-label>Capability Level</mat-label>
-      <mat-select [(ngModel)]="capabilityLevel" required>
-        @for (lvl of capabilityLevels; track lvl.value) {
-          <mat-option [value]="lvl.value">{{ lvl.label }}</mat-option>
-        }
-      </mat-select>
-    </mat-form-field>
+      <app-form-field label="Capability Level">
+        <app-select
+          [value]="capabilityLevel"
+          [options]="capabilityLevels"
+          (valueChange)="capabilityLevel = $event" />
+      </app-form-field>
 
-    <div class="enabled-apps-section">
-      <div class="section-label">Enabled For</div>
-      <div class="section-hint">Leave unchecked to allow all apps. Check specific apps to restrict availability.</div>
-      <div class="checkbox-group">
-        @for (scope of appScopes; track scope.value) {
-          <mat-checkbox
-            [checked]="enabledApps.has(scope.value)"
-            (change)="toggleAppScope(scope.value, $event.checked)">
-            {{ scope.label }}
-          </mat-checkbox>
-        }
+      <div class="enabled-apps-section">
+        <div class="section-label">Enabled For</div>
+        <div class="section-hint">Leave unchecked to allow all apps. Check specific apps to restrict availability.</div>
+        <div class="checkbox-group">
+          @for (scope of appScopes; track scope.value) {
+            <label class="checkbox-item">
+              <input type="checkbox" class="form-checkbox"
+                [checked]="enabledApps.has(scope.value)"
+                (change)="toggleAppScope(scope.value, $any($event.target).checked)">
+              {{ scope.label }}
+            </label>
+          }
+        </div>
       </div>
     </div>
 
     <div class="dialog-actions" dialogFooter>
-      <button mat-button (click)="cancelled.emit()">Cancel</button>
-      <button mat-raised-button color="primary" (click)="save()" [disabled]="!canSave()">
+      <app-bronco-button variant="ghost" (click)="cancelled.emit()">Cancel</app-bronco-button>
+      <app-bronco-button variant="primary" [disabled]="!canSave()" (click)="save()">
         {{ isEdit ? 'Update' : 'Create' }}
-      </button>
+      </app-bronco-button>
     </div>
   `,
   styles: [`
-    .full-width { width: 100%; margin-bottom: 8px; }
-    .enabled-apps-section { margin-bottom: 16px; }
-    .section-label { font-size: 13px; font-weight: 600; color: #666; margin-bottom: 4px; }
-    .section-hint { font-size: 12px; color: #999; margin-bottom: 8px; }
-    .checkbox-group { display: flex; flex-wrap: wrap; gap: 12px; }
+    .form-grid { display: flex; flex-direction: column; gap: 12px; }
+    .enabled-apps-section { display: flex; flex-direction: column; gap: 4px; }
+    .section-label { font-size: 13px; font-weight: 600; color: #666; }
+    .section-hint { font-size: 12px; color: #999; }
+    .checkbox-group { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 4px; }
+    .checkbox-item { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+    .form-checkbox { width: 15px; height: 15px; cursor: pointer; accent-color: var(--accent); }
     .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
   `],
 })
@@ -114,6 +115,14 @@ export class AiModelDialogComponent implements OnInit {
 
   private catalogMap = new Map<string, CatalogModel[]>();
   modelsForProvider: CatalogModel[] = [];
+
+  get providerOptions(): Array<{ value: string; label: string }> {
+    return this.availableProviders.map(p => ({ value: p.id, label: p.provider + (p.isActive ? '' : ' (disabled)') }));
+  }
+
+  get modelOptions(): Array<{ value: string; label: string }> {
+    return this.modelsForProvider.map(m => ({ value: m.model, label: m.displayName || m.model }));
+  }
 
   private getSelectedProviderType(): string {
     const p = this.availableProviders.find((pr) => pr.id === this.providerId);
