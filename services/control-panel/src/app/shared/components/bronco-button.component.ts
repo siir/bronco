@@ -9,7 +9,8 @@ import { Component, input } from '@angular/core';
       type="button"
       [class]="'btn btn-' + variant() + ' btn-' + size() + (fullWidth() ? ' btn-full-width' : '')"
       [disabled]="disabled()"
-      [attr.aria-label]="ariaLabel() || null">
+      [attr.aria-label]="ariaLabel() || null"
+      [attr.aria-expanded]="ariaExpanded() !== null ? ariaExpanded() : null">
       <ng-content />
     </button>
   `,
@@ -94,4 +95,5 @@ export class BroncoButtonComponent {
   disabled = input<boolean>(false);
   ariaLabel = input<string>('');
   fullWidth = input<boolean>(false);
+  ariaExpanded = input<boolean | null>(null);
 }
