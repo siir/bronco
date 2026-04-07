@@ -1,6 +1,5 @@
 import { Component, inject, OnInit, OnDestroy, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { FormsModule } from '@angular/forms';
 import { Clipboard, ClipboardModule } from '@angular/cdk/clipboard';
 import { DatePipe, DecimalPipe, SlicePipe } from '@angular/common';
 import {
@@ -25,7 +24,6 @@ import { ToastService } from '../../core/services/toast.service';
 @Component({
   standalone: true,
   imports: [
-    FormsModule,
     RouterLink,
     ClipboardModule,
     DatePipe,
@@ -44,9 +42,7 @@ import { ToastService } from '../../core/services/toast.service';
     <div class="page-wrapper">
       <div class="page-header">
         <div class="header-left">
-          <a routerLink="/scheduled-probes" class="back-link">
-            <app-bronco-button variant="ghost" size="sm">&larr; Back to Probes</app-bronco-button>
-          </a>
+          <app-bronco-button variant="ghost" size="sm" routerLink="/scheduled-probes">&larr; Back to Probes</app-bronco-button>
           @if (probe()) {
             <h1 class="page-title">
               {{ probe()!.name }}
@@ -128,6 +124,7 @@ import { ToastService } from '../../core/services/toast.service';
             <app-select
               [value]="filterStatus"
               [options]="statusOptions"
+              placeholder=""
               (valueChange)="onStatusFilter($event)" />
           </app-form-field>
         </div>
@@ -187,8 +184,8 @@ import { ToastService } from '../../core/services/toast.service';
                   variant="icon"
                   size="sm"
                   (click)="toggleExpand(r)"
-                  [attr.aria-label]="expandedRunId === r.id ? 'Collapse run details' : 'Expand run details'"
-                  [attr.aria-expanded]="expandedRunId === r.id">
+                  [ariaLabel]="expandedRunId === r.id ? 'Collapse run details' : 'Expand run details'"
+                  [ariaExpanded]="expandedRunId === r.id">
                   {{ expandedRunId === r.id ? '\u25B2' : '\u25BC' }}
                 </app-bronco-button>
               </div>
@@ -253,8 +250,7 @@ import { ToastService } from '../../core/services/toast.service';
                             <app-bronco-button
                               variant="icon"
                               size="sm"
-                              [attr.title]="'Copy to clipboard'"
-                              aria-label="Copy result to clipboard"
+                              [ariaLabel]="'Copy result to clipboard'"
                               (click)="copyToClipboard(step.detail!); $event.stopPropagation()">
                               &#x2398;
                             </app-bronco-button>
@@ -320,8 +316,7 @@ import { ToastService } from '../../core/services/toast.service';
                           <app-bronco-button
                             variant="icon"
                             size="sm"
-                            [attr.title]="'Copy to clipboard'"
-                            aria-label="Copy step output to clipboard"
+                            [ariaLabel]="'Copy step output to clipboard'"
                             (click)="copyToClipboard(step.detail!); $event.stopPropagation()">
                             &#x2398;
                           </app-bronco-button>
@@ -361,7 +356,6 @@ import { ToastService } from '../../core/services/toast.service';
       gap: 16px;
     }
     .header-left { display: flex; flex-direction: column; gap: 4px; }
-    .back-link { display: inline-block; text-decoration: none; }
     .page-title {
       margin: 8px 0 0;
       display: flex;
@@ -608,8 +602,8 @@ import { ToastService } from '../../core/services/toast.service';
       font-family: var(--font-primary);
     }
     .detail-pre {
-      background: #1d1d1f;
-      color: #f5f5f7;
+      background: var(--bg-code, #1d1d1f);
+      color: var(--text-code, #f5f5f7);
       padding: 10px 12px;
       border-radius: var(--radius-sm);
       font-size: 12px;
@@ -620,7 +614,7 @@ import { ToastService } from '../../core/services/toast.service';
       margin: 0;
       font-family: ui-monospace, 'SF Mono', Menlo, monospace;
     }
-    .detail-pre-json { color: #a8e6a3; }
+    .detail-pre-json { color: var(--color-success, #a8e6a3); }
 
     .step-output-section {
       margin-top: 8px;
@@ -743,9 +737,11 @@ export class ProbeRunsComponent implements OnInit, OnDestroy {
     return Math.ceil(this.total() / this.pageSize);
   }
 
-  parseIntSafe(value: string): number {
-    const n = Number(value);
-    return Number.isFinite(n) ? Math.trunc(n) : 0;
+  parseIntSafe(value: string, fallback = 0): number {
+    const trimmed = value.trim();
+    if (!trimmed) return fallback;
+    const n = Number(trimmed);
+    return Number.isFinite(n) ? Math.trunc(n) : fallback;
   }
 
   onStatusFilter(value: string): void {
