@@ -23,6 +23,7 @@ import { ContactDialogComponent } from '../contacts/contact-dialog.component';
 import { RepoDialogComponent } from '../repos/repo-dialog.component';
 import { IntegrationDialogComponent } from '../integrations/integration-dialog.component';
 import { TicketDialogComponent } from '../tickets/ticket-dialog.component';
+import { DialogComponent } from '../../shared/components/dialog.component';
 import { ClientMemoryService, type ClientMemory } from '../../core/services/client-memory.service';
 import { ClientMemoryDialogComponent } from './client-memory-dialog.component';
 import { McpServerInfoComponent } from '../../shared/components/mcp-server-info.component';
@@ -46,6 +47,7 @@ import { AiUsageService, type AiUsageClientSummary, type AiUsageLogEntry } from 
     RouterLink, JsonPipe, DatePipe, SlicePipe, DecimalPipe, MatCardModule, MatTabsModule, MatButtonModule, MatIconModule,
     MatTableModule, MatChipsModule, MatDialogModule, MatSlideToggleModule, MatTooltipModule, McpServerInfoComponent,
     MatButtonToggleModule, FormsModule, MatFormFieldModule, MatInputModule, MatSelectModule,
+    DialogComponent, TicketDialogComponent,
   ],
   template: `
     @if (client(); as c) {
@@ -619,6 +621,15 @@ import { AiUsageService, type AiUsageClientSummary, type AiUsageLogEntry } from 
     } @else {
       <p>Loading...</p>
     }
+
+    @if (showTicketDialog()) {
+      <app-dialog [open]="true" title="Create Ticket" maxWidth="560px" (openChange)="showTicketDialog.set(false)">
+        <app-ticket-dialog-content
+          [clientId]="id()"
+          (created)="onTicketCreated($event)"
+          (cancelled)="showTicketDialog.set(false)" />
+      </app-dialog>
+    }
   `,
   styles: [`
     .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
@@ -891,9 +902,15 @@ export class ClientDetailComponent implements OnInit {
     ref.afterClosed().subscribe(result => { if (result) this.load(); });
   }
 
+  showTicketDialog = signal(false);
+
   createTicket(): void {
-    const ref = this.dialog.open(TicketDialogComponent, { width: '600px', data: { clientId: this.id() } });
-    ref.afterClosed().subscribe(result => { if (result) this.load(); });
+    this.showTicketDialog.set(true);
+  }
+
+  onTicketCreated(_result: { id: string }): void {
+    this.showTicketDialog.set(false);
+    this.load();
   }
 
   toggleIntegration(integ: ClientIntegration, checked: boolean): void {

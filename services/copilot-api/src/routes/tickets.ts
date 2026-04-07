@@ -24,10 +24,10 @@ const VALID_SUFFICIENCY_STATUSES: Set<string> = new Set(Object.values(Sufficienc
 const VALID_LOG_LEVELS: Set<string> = new Set(Object.values(LogLevel));
 
 export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteOpts): Promise<void> {
-  fastify.get<{ Querystring: { clientId?: string; status?: string; category?: string; environmentId?: string; assignedOperatorId?: string; limit?: string; offset?: string } }>(
+  fastify.get<{ Querystring: { clientId?: string; status?: string; category?: string; priority?: string; source?: string; analysisStatus?: string; createdFrom?: string; createdTo?: string; environmentId?: string; assignedOperatorId?: string; limit?: string; offset?: string } }>(
     '/api/tickets',
     async (request) => {
-      const { clientId, status, category, environmentId, assignedOperatorId, limit: rawLimit = '50', offset: rawOffset = '0' } = request.query;
+      const { clientId, status, category, priority, source, analysisStatus, createdFrom, createdTo, environmentId, assignedOperatorId, limit: rawLimit = '50', offset: rawOffset = '0' } = request.query;
 
       const take = Math.trunc(Number(rawLimit));
       const skip = Math.trunc(Number(rawOffset));
@@ -48,6 +48,44 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
           : { in: values as TicketStatus[] };
       }
 
+      // Validate and parse priority filter (supports comma-separated values)
+      type PriorityType = (typeof Priority)[keyof typeof Priority];
+      let priorityFilter: PriorityType | { in: PriorityType[] } | undefined;
+      if (priority) {
+        const values = priority.split(',').map(s => s.trim()).filter(Boolean);
+        const invalid = values.filter(v => !VALID_PRIORITIES.has(v));
+        if (invalid.length > 0) {
+          return fastify.httpErrors.badRequest(`Invalid priority values: ${invalid.join(', ')}`);
+        }
+        priorityFilter = values.length === 1
+          ? values[0] as PriorityType
+          : { in: values as PriorityType[] };
+      }
+
+      // Validate source filter
+      if (source && !VALID_SOURCES.has(source)) {
+        return fastify.httpErrors.badRequest(`Invalid source: ${source}`);
+      }
+
+      // Validate analysisStatus filter
+      const VALID_ANALYSIS_STATUSES: Set<string> = new Set(Object.values(AnalysisStatus));
+      if (analysisStatus && !VALID_ANALYSIS_STATUSES.has(analysisStatus)) {
+        return fastify.httpErrors.badRequest(`Invalid analysisStatus: ${analysisStatus}`);
+      }
+
+      // Parse date range filters
+      const createdAtFilter: { gte?: Date; lte?: Date } = {};
+      if (createdFrom) {
+        const d = new Date(createdFrom);
+        if (isNaN(d.getTime())) return fastify.httpErrors.badRequest('Invalid createdFrom date');
+        createdAtFilter.gte = d;
+      }
+      if (createdTo) {
+        const d = new Date(createdTo);
+        if (isNaN(d.getTime())) return fastify.httpErrors.badRequest('Invalid createdTo date');
+        createdAtFilter.lte = d;
+      }
+
       // Validate assignedOperatorId is a UUID or 'unassigned'
       const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       if (assignedOperatorId !== undefined && assignedOperatorId !== 'unassigned' && !UUID_RE.test(assignedOperatorId)) {
@@ -59,6 +97,10 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
           ...(clientId && { clientId }),
           ...(statusFilter && { status: statusFilter }),
           ...(category && { category: category as TicketCategory }),
+          ...(priorityFilter && { priority: priorityFilter }),
+          ...(source && { source: source as typeof TicketSource[keyof typeof TicketSource] }),
+          ...(analysisStatus && { analysisStatus: analysisStatus as typeof AnalysisStatus[keyof typeof AnalysisStatus] }),
+          ...(Object.keys(createdAtFilter).length > 0 && { createdAt: createdAtFilter }),
           ...(environmentId && { environmentId }),
           ...(assignedOperatorId !== undefined && {
             assignedOperatorId: assignedOperatorId === 'unassigned' ? null : assignedOperatorId,
