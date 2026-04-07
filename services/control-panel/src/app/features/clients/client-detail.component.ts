@@ -48,6 +48,8 @@ import { ToastService } from '../../core/services/toast.service';
     MatTableModule, MatChipsModule, MatDialogModule, MatSlideToggleModule, MatTooltipModule, McpServerInfoComponent,
     MatButtonToggleModule, FormsModule, MatFormFieldModule, MatInputModule, MatSelectModule,
     DialogComponent, TicketDialogComponent,
+    ClientMemoryDialogComponent, ClientEnvironmentDialogComponent, ClientUserDialogComponent, GenerateInvoiceDialogComponent,
+    SystemDialogComponent, RepoDialogComponent,
   ],
   template: `
     @if (client(); as c) {
@@ -630,6 +632,64 @@ import { ToastService } from '../../core/services/toast.service';
           (cancelled)="showTicketDialog.set(false)" />
       </app-dialog>
     }
+
+    @if (showMemoryDialog()) {
+      <app-dialog [open]="true" [title]="editingMemory() ? 'Edit Client Memory' : 'Add Client Memory'" maxWidth="650px" (openChange)="showMemoryDialog.set(false)">
+        <app-client-memory-dialog-content
+          [clientId]="id()"
+          [memory]="editingMemory() ?? undefined"
+          (saved)="onMemorySaved()"
+          (cancelled)="showMemoryDialog.set(false)" />
+      </app-dialog>
+    }
+
+    @if (showEnvironmentDialog()) {
+      <app-dialog [open]="true" [title]="editingEnvironment() ? 'Edit Environment' : 'Add Environment'" maxWidth="650px" (openChange)="showEnvironmentDialog.set(false)">
+        <app-client-environment-dialog-content
+          [clientId]="id()"
+          [environment]="editingEnvironment() ?? undefined"
+          (saved)="onEnvironmentSaved()"
+          (cancelled)="showEnvironmentDialog.set(false)" />
+      </app-dialog>
+    }
+
+    @if (showUserDialog()) {
+      <app-dialog [open]="true" [title]="editingUser() ? 'Edit User' : 'Create Portal User'" maxWidth="500px" (openChange)="showUserDialog.set(false)">
+        <app-client-user-dialog-content
+          [clientId]="id()"
+          [user]="editingUser() ?? undefined"
+          (saved)="onUserSaved()"
+          (cancelled)="showUserDialog.set(false)" />
+      </app-dialog>
+    }
+
+    @if (showInvoiceDialog()) {
+      <app-dialog [open]="true" title="Generate Invoice" maxWidth="400px" (openChange)="showInvoiceDialog.set(false)">
+        <app-generate-invoice-dialog-content
+          [clientId]="id()"
+          (generated)="onInvoiceGenerated()"
+          (cancelled)="showInvoiceDialog.set(false)" />
+      </app-dialog>
+    }
+
+    @if (showSystemDialog()) {
+      <app-dialog [open]="true" title="Add Database System" maxWidth="600px" (openChange)="showSystemDialog.set(false)">
+        <app-system-dialog-content
+          [clientId]="id()"
+          (saved)="onSystemSaved()"
+          (cancelled)="showSystemDialog.set(false)" />
+      </app-dialog>
+    }
+
+    @if (showRepoDialog()) {
+      <app-dialog [open]="true" [title]="editingRepo() ? 'Edit Code Repository' : 'Add Code Repository'" maxWidth="500px" (openChange)="showRepoDialog.set(false)">
+        <app-repo-dialog-content
+          [clientId]="id()"
+          [repo]="editingRepo() ?? undefined"
+          (saved)="onRepoSaved()"
+          (cancelled)="showRepoDialog.set(false)" />
+      </app-dialog>
+    }
   `,
   styles: [`
     .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
@@ -850,8 +910,12 @@ export class ClientDetailComponent implements OnInit {
   }
 
   addSystem(): void {
-    const ref = this.dialog.open(SystemDialogComponent, { width: '600px', data: { clientId: this.id() } });
-    ref.afterClosed().subscribe(result => { if (result) this.load(); });
+    this.showSystemDialog.set(true);
+  }
+
+  onSystemSaved(): void {
+    this.showSystemDialog.set(false);
+    this.load();
   }
 
   addContact(): void {
@@ -875,13 +939,18 @@ export class ClientDetailComponent implements OnInit {
   }
 
   addRepo(): void {
-    const ref = this.dialog.open(RepoDialogComponent, { width: '500px', data: { clientId: this.id() } });
-    ref.afterClosed().subscribe(result => { if (result) this.load(); });
+    this.editingRepo.set(null);
+    this.showRepoDialog.set(true);
   }
 
   editRepo(repo: CodeRepo): void {
-    const ref = this.dialog.open(RepoDialogComponent, { width: '500px', data: { clientId: this.id(), repo } });
-    ref.afterClosed().subscribe(result => { if (result) this.load(); });
+    this.editingRepo.set(repo);
+    this.showRepoDialog.set(true);
+  }
+
+  onRepoSaved(): void {
+    this.showRepoDialog.set(false);
+    this.load();
   }
 
   deleteRepo(repo: CodeRepo): void {
@@ -903,6 +972,16 @@ export class ClientDetailComponent implements OnInit {
   }
 
   showTicketDialog = signal(false);
+  showMemoryDialog = signal(false);
+  editingMemory = signal<ClientMemory | null>(null);
+  showEnvironmentDialog = signal(false);
+  editingEnvironment = signal<ClientEnvironment | null>(null);
+  showUserDialog = signal(false);
+  editingUser = signal<ClientUser | null>(null);
+  showInvoiceDialog = signal(false);
+  showSystemDialog = signal(false);
+  showRepoDialog = signal(false);
+  editingRepo = signal<CodeRepo | null>(null);
 
   createTicket(): void {
     this.showTicketDialog.set(true);
@@ -954,13 +1033,18 @@ export class ClientDetailComponent implements OnInit {
   }
 
   addMemory(): void {
-    const ref = this.dialog.open(ClientMemoryDialogComponent, { width: '650px', data: { clientId: this.id() } });
-    ref.afterClosed().subscribe(result => { if (result) this.load(); });
+    this.editingMemory.set(null);
+    this.showMemoryDialog.set(true);
   }
 
   editMemory(mem: ClientMemory): void {
-    const ref = this.dialog.open(ClientMemoryDialogComponent, { width: '650px', data: { clientId: this.id(), memory: mem } });
-    ref.afterClosed().subscribe(result => { if (result) this.load(); });
+    this.editingMemory.set(mem);
+    this.showMemoryDialog.set(true);
+  }
+
+  onMemorySaved(): void {
+    this.showMemoryDialog.set(false);
+    this.load();
   }
 
   toggleMemory(mem: ClientMemory, checked: boolean): void {
@@ -987,13 +1071,18 @@ export class ClientDetailComponent implements OnInit {
   }
 
   addEnvironment(): void {
-    const ref = this.dialog.open(ClientEnvironmentDialogComponent, { width: '650px', data: { clientId: this.id() } });
-    ref.afterClosed().subscribe(result => { if (result) this.load(); });
+    this.editingEnvironment.set(null);
+    this.showEnvironmentDialog.set(true);
   }
 
   editEnvironment(env: ClientEnvironment): void {
-    const ref = this.dialog.open(ClientEnvironmentDialogComponent, { width: '650px', data: { clientId: this.id(), environment: env } });
-    ref.afterClosed().subscribe(result => { if (result) this.load(); });
+    this.editingEnvironment.set(env);
+    this.showEnvironmentDialog.set(true);
+  }
+
+  onEnvironmentSaved(): void {
+    this.showEnvironmentDialog.set(false);
+    this.load();
   }
 
   toggleEnvironment(env: ClientEnvironment, checked: boolean): void {
@@ -1053,13 +1142,18 @@ export class ClientDetailComponent implements OnInit {
   }
 
   addClientUser(): void {
-    const ref = this.dialog.open(ClientUserDialogComponent, { width: '500px', data: { clientId: this.id() } });
-    ref.afterClosed().subscribe(result => { if (result) this.load(); });
+    this.editingUser.set(null);
+    this.showUserDialog.set(true);
   }
 
   editClientUser(user: ClientUser): void {
-    const ref = this.dialog.open(ClientUserDialogComponent, { width: '500px', data: { clientId: this.id(), user } });
-    ref.afterClosed().subscribe(result => { if (result) this.load(); });
+    this.editingUser.set(user);
+    this.showUserDialog.set(true);
+  }
+
+  onUserSaved(): void {
+    this.showUserDialog.set(false);
+    this.load();
   }
 
   deleteClientUser(id: string): void {
@@ -1073,8 +1167,12 @@ export class ClientDetailComponent implements OnInit {
   }
 
   openGenerateInvoiceDialog(): void {
-    const ref = this.dialog.open(GenerateInvoiceDialogComponent, { width: '400px', data: { clientId: this.id() } });
-    ref.afterClosed().subscribe(result => { if (result) this.load(); });
+    this.showInvoiceDialog.set(true);
+  }
+
+  onInvoiceGenerated(): void {
+    this.showInvoiceDialog.set(false);
+    this.load();
   }
 
   getInvoiceDownloadUrl(invoiceId: string): string {

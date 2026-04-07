@@ -1,6 +1,5 @@
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { NgClass } from '@angular/common';
-import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { RouterLink } from '@angular/router';
 import {
   DataTableComponent,
@@ -10,6 +9,7 @@ import {
   SelectComponent,
   ToggleSwitchComponent,
 } from '../../shared/components/index.js';
+import { DialogComponent } from '../../shared/components/dialog.component';
 import { DetailPanelService } from '../../core/services/detail-panel.service.js';
 import { ScheduledProbeService, ScheduledProbe } from '../../core/services/scheduled-probe.service';
 import { ClientService, Client } from '../../core/services/client.service';
@@ -29,13 +29,14 @@ const ACTION_LABELS: Record<string, string> = {
   standalone: true,
   imports: [
     NgClass,
-    MatDialogModule,
     RouterLink,
     DataTableComponent,
     DataTableColumnComponent,
     BroncoButtonComponent,
     ToolbarComponent,
     SelectComponent,
+    DialogComponent,
+    ProbeDialogComponent,
     ToggleSwitchComponent,
   ],
   template: `
@@ -136,6 +137,17 @@ const ACTION_LABELS: Record<string, string> = {
 
       </app-data-table>
     </div>
+
+    @if (showProbeDialog()) {
+      <app-dialog [open]="true" [title]="editingProbe() ? 'Edit Probe' : 'Create Probe'" maxWidth="600px" (openChange)="showProbeDialog.set(false)">
+        <app-probe-dialog-content
+          [probe]="editingProbe() ?? undefined"
+          [clients]="clients()"
+          [categories]="categories"
+          (saved)="onProbeSaved()"
+          (cancelled)="showProbeDialog.set(false)" />
+      </app-dialog>
+    }
   `,
   styles: [`
     .probe-list-page { max-width: 1200px; }
@@ -154,9 +166,12 @@ const ACTION_LABELS: Record<string, string> = {
 export class ProbeListComponent implements OnInit {
   private probeService = inject(ScheduledProbeService);
   private clientService = inject(ClientService);
-  private dialog = inject(MatDialog);
   private toast = inject(ToastService);
   private detailPanel = inject(DetailPanelService);
+
+  showProbeDialog = signal(false);
+  editingProbe = signal<ScheduledProbe | null>(null);
+  categories = CATEGORIES;
 
   probes = signal<ScheduledProbe[]>([]);
   clients = signal<Client[]>([]);
@@ -230,23 +245,18 @@ export class ProbeListComponent implements OnInit {
   }
 
   addProbe(): void {
-    const ref = this.dialog.open(ProbeDialogComponent, {
-      width: '600px',
-      data: { clients: this.clients(), categories: CATEGORIES },
-    });
-    ref.afterClosed().subscribe((result) => {
-      if (result) this.loadProbes();
-    });
+    this.editingProbe.set(null);
+    this.showProbeDialog.set(true);
   }
 
   editProbe(probe: ScheduledProbe): void {
-    const ref = this.dialog.open(ProbeDialogComponent, {
-      width: '600px',
-      data: { probe, clients: this.clients(), categories: CATEGORIES },
-    });
-    ref.afterClosed().subscribe((result) => {
-      if (result) this.loadProbes();
-    });
+    this.editingProbe.set(probe);
+    this.showProbeDialog.set(true);
+  }
+
+  onProbeSaved(): void {
+    this.showProbeDialog.set(false);
+    this.loadProbes();
   }
 
   toggleActive(probe: ScheduledProbe, isActive: boolean): void {

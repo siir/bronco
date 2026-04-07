@@ -1,7 +1,6 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
-import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { PromptService, PromptSummary, PromptKeyword } from '../../core/services/prompt.service';
 import { AiConfigService, TaskTypeDefault, AiModelConfig } from '../../core/services/ai-config.service';
 import { forkJoin } from 'rxjs';
@@ -16,6 +15,7 @@ import {
   TabComponent,
   DataTableComponent,
   DataTableColumnComponent,
+  DialogComponent,
 } from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service';
 
@@ -37,7 +37,6 @@ interface MergedModelRow {
   imports: [
     RouterLink,
     FormsModule,
-    MatDialogModule,
     BroncoButtonComponent,
     SelectComponent,
     TextInputComponent,
@@ -46,6 +45,9 @@ interface MergedModelRow {
     TabComponent,
     DataTableComponent,
     DataTableColumnComponent,
+    DialogComponent,
+    KeywordDialogComponent,
+    AiConfigDialogComponent,
   ],
   template: `
     <div class="page-wrapper">
@@ -133,7 +135,7 @@ interface MergedModelRow {
                 placeholder="Search keywords..."
                 (valueChange)="keywordSearchFilter = $event; loadKeywords()">
               </app-text-input>
-              <app-bronco-button variant="primary" (click)="addKeyword()">+ Add Keyword</app-bronco-button>
+              <app-bronco-button variant="primary" (click)="showKeywordDialog.set(true)">+ Add Keyword</app-bronco-button>
               <app-bronco-button variant="secondary" [disabled]="seeding()" (click)="seedKeywords()">
                 {{ seeding() ? 'Seeding...' : 'Seed Defaults' }}
               </app-bronco-button>
@@ -253,6 +255,27 @@ interface MergedModelRow {
         </app-tab>
       </app-tab-group>
     </div>
+
+    @if (showKeywordDialog()) {
+      <app-dialog [open]="true" [title]="editingKeyword() ? 'Edit Keyword' : 'Add Keyword'" maxWidth="500px" (openChange)="showKeywordDialog.set(false)">
+        <app-keyword-dialog-content
+          [keyword]="editingKeyword() ?? undefined"
+          (saved)="onKeywordSaved()"
+          (cancelled)="showKeywordDialog.set(false)" />
+      </app-dialog>
+    }
+
+    @if (showAiConfigDialog()) {
+      <app-dialog [open]="true" [title]="editingConfig() ? 'Edit AI Model Config' : 'Add AI Model Config'" maxWidth="500px" (openChange)="showAiConfigDialog.set(false)">
+        <app-ai-config-dialog-content
+          [config]="editingConfig() ?? undefined"
+          [presetTaskType]="configPresetTaskType()"
+          [taskTypes]="modelTaskTypes()"
+          [codeDefault]="configCodeDefault() ?? undefined"
+          (saved)="onConfigSaved()"
+          (cancelled)="showAiConfigDialog.set(false)" />
+      </app-dialog>
+    }
   `,
   styles: [`
     .page-wrapper { max-width: 1200px; }
@@ -401,7 +424,6 @@ export class PromptListComponent implements OnInit {
   private aiConfigService = inject(AiConfigService);
   private router = inject(Router);
   private route = inject(ActivatedRoute);
-  private dialog = inject(MatDialog);
   private toast = inject(ToastService);
 
   prompts = signal<PromptSummary[]>([]);
@@ -415,9 +437,18 @@ export class PromptListComponent implements OnInit {
   modelDefaults = signal<TaskTypeDefault[]>([]);
   modelConfigs = signal<AiModelConfig[]>([]);
   mergedModelRows = signal<MergedModelRow[]>([]);
+  modelTaskTypes = computed(() => this.modelDefaults().map(d => d.taskType));
 
   selectedTab = signal(0);
   seeding = signal(false);
+
+  // Dialog state
+  showKeywordDialog = signal(false);
+  editingKeyword = signal<PromptKeyword | null>(null);
+  showAiConfigDialog = signal(false);
+  editingConfig = signal<AiModelConfig | null>(null);
+  configPresetTaskType = signal<string | undefined>(undefined);
+  configCodeDefault = signal<{ provider: string; model: string } | null>(null);
 
   taskTypeFilter = '';
   promptSearchFilter = '';
@@ -514,23 +545,18 @@ export class PromptListComponent implements OnInit {
   }
 
   addKeyword(): void {
-    const ref = this.dialog.open(KeywordDialogComponent, {
-      width: '500px',
-      data: {},
-    });
-    ref.afterClosed().subscribe(result => {
-      if (result) this.loadKeywords();
-    });
+    this.editingKeyword.set(null);
+    this.showKeywordDialog.set(true);
   }
 
   editKeyword(keyword: PromptKeyword): void {
-    const ref = this.dialog.open(KeywordDialogComponent, {
-      width: '500px',
-      data: { keyword },
-    });
-    ref.afterClosed().subscribe(result => {
-      if (result) this.loadKeywords();
-    });
+    this.editingKeyword.set(keyword);
+    this.showKeywordDialog.set(true);
+  }
+
+  onKeywordSaved(): void {
+    this.showKeywordDialog.set(false);
+    this.loadKeywords();
   }
 
   seedKeywords(): void {
@@ -561,12 +587,6 @@ export class PromptListComponent implements OnInit {
 
   // ─── AI Models ───────────────────────────────────────────────────────
 
-  /**
-   * Load both defaults and overrides, then merge into a single flat list.
-   * For each task type the primary row shows the effective config (APP_WIDE
-   * override if active, otherwise the hardcoded default). CLIENT-scoped
-   * overrides appear as indented sub-rows beneath their task type.
-   */
   loadModelData(): void {
     forkJoin({
       defaults: this.aiConfigService.getDefaults(),
@@ -578,15 +598,6 @@ export class PromptListComponent implements OnInit {
     });
   }
 
-  /**
-   * Build a single flat list with one primary row per task type showing
-   * the effective setting, followed by any CLIENT sub-rows.
-   *
-   * - Active APP_WIDE override → replaces default values, flagged as overridden
-   * - Inactive APP_WIDE override → shows default values, references override for actions
-   * - No APP_WIDE override → shows default values, no actions on primary row
-   * - CLIENT overrides → indented sub-rows beneath the task type
-   */
   private rebuildMergedRows(): void {
     const defaults = this.modelDefaults();
     const configs = this.modelConfigs();
@@ -600,7 +611,6 @@ export class PromptListComponent implements OnInit {
       const clientOverrides = overrides.filter(c => c.scope === 'CLIENT');
 
       if (appWide?.isActive) {
-        // Active APP_WIDE override replaces the default row
         rows.push({
           taskType: d.taskType,
           provider: appWide.provider,
@@ -614,7 +624,6 @@ export class PromptListComponent implements OnInit {
           defaultModel: d.model,
         });
       } else if (appWide && !appWide.isActive) {
-        // Inactive APP_WIDE override — show default but reference the override
         rows.push({
           taskType: d.taskType,
           provider: d.provider,
@@ -628,7 +637,6 @@ export class PromptListComponent implements OnInit {
           defaultModel: d.model,
         });
       } else {
-        // No APP_WIDE override — pure default
         rows.push({
           taskType: d.taskType,
           provider: d.provider,
@@ -643,7 +651,6 @@ export class PromptListComponent implements OnInit {
         });
       }
 
-      // CLIENT overrides as sub-rows
       for (const c of clientOverrides) {
         rows.push({
           taskType: d.taskType,
@@ -664,16 +671,10 @@ export class PromptListComponent implements OnInit {
   }
 
   addModelConfigForTask(taskType: string): void {
-    const ref = this.dialog.open(AiConfigDialogComponent, {
-      width: '500px',
-      data: {
-        taskType,
-        taskTypes: this.modelDefaults().map(d => d.taskType),
-      },
-    });
-    ref.afterClosed().subscribe(result => {
-      if (result) this.loadModelData();
-    });
+    this.editingConfig.set(null);
+    this.configPresetTaskType.set(taskType);
+    this.configCodeDefault.set(null);
+    this.showAiConfigDialog.set(true);
   }
 
   addModelConfig(): void {
@@ -681,32 +682,25 @@ export class PromptListComponent implements OnInit {
       this.toast.info('Model defaults not loaded yet');
       return;
     }
-    const ref = this.dialog.open(AiConfigDialogComponent, {
-      width: '500px',
-      data: {
-        taskTypes: this.modelDefaults().map(d => d.taskType),
-      },
-    });
-    ref.afterClosed().subscribe(result => {
-      if (result) this.loadModelData();
-    });
+    this.editingConfig.set(null);
+    this.configPresetTaskType.set(undefined);
+    this.configCodeDefault.set(null);
+    this.showAiConfigDialog.set(true);
   }
 
   editModelConfigById(configId: string): void {
     const config = this.modelConfigs().find(c => c.id === configId);
     if (!config) return;
     const codeDefault = this.modelDefaults().find(d => d.taskType === config.taskType);
-    const ref = this.dialog.open(AiConfigDialogComponent, {
-      width: '500px',
-      data: {
-        config,
-        taskTypes: this.modelDefaults().map(d => d.taskType),
-        codeDefault: codeDefault ? { provider: codeDefault.provider, model: codeDefault.model } : undefined,
-      },
-    });
-    ref.afterClosed().subscribe(result => {
-      if (result) this.loadModelData();
-    });
+    this.editingConfig.set(config);
+    this.configPresetTaskType.set(undefined);
+    this.configCodeDefault.set(codeDefault ? { provider: codeDefault.provider, model: codeDefault.model } : null);
+    this.showAiConfigDialog.set(true);
+  }
+
+  onConfigSaved(): void {
+    this.showAiConfigDialog.set(false);
+    this.loadModelData();
   }
 
   toggleModelConfigActiveById(configId: string, currentlyActive: boolean): void {

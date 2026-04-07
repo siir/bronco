@@ -1,9 +1,9 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { MatDialogModule, MatDialog } from '@angular/material/dialog';
 import { SystemAnalysisService, type SystemAnalysis, type SystemAnalysisStats } from '../../core/services/system-analysis.service';
 import { RejectDialogComponent } from './reject-dialog.component';
+import { DialogComponent } from '../../shared/components/dialog.component';
 import { BroncoButtonComponent, SelectComponent, PaginatorComponent, type PaginatorPageEvent } from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service';
 
@@ -18,10 +18,11 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
   imports: [
     FormsModule,
     RouterLink,
-    MatDialogModule,
     BroncoButtonComponent,
     SelectComponent,
     PaginatorComponent,
+    DialogComponent,
+    RejectDialogComponent,
   ],
   template: `
     <div class="page-wrapper">
@@ -139,6 +140,14 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
         [pageSizeOptions]="[10, 25, 50]"
         (page)="onPage($event)" />
     </div>
+
+    @if (showRejectDialog()) {
+      <app-dialog [open]="true" title="Reject Analysis" maxWidth="500px" (openChange)="showRejectDialog.set(false)">
+        <app-reject-dialog-content
+          (rejected)="onRejected($event)"
+          (cancelled)="showRejectDialog.set(false)" />
+      </app-dialog>
+    }
   `,
   styles: [`
     .page-wrapper { max-width: 1200px; }
@@ -218,12 +227,13 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
 export class SystemAnalysisComponent implements OnInit {
   private analysisService = inject(SystemAnalysisService);
   private toast = inject(ToastService);
-  private dialog = inject(MatDialog);
-
   analyses = signal<SystemAnalysis[]>([]);
   stats = signal<SystemAnalysisStats | null>(null);
   total = signal(0);
   loading = signal(false);
+
+  showRejectDialog = signal(false);
+  rejectingAnalysis = signal<SystemAnalysis | null>(null);
 
   statusFilter = '';
   pageSize = 10;
@@ -295,20 +305,23 @@ export class SystemAnalysisComponent implements OnInit {
   }
 
   openRejectDialog(a: SystemAnalysis): void {
-    const ref = this.dialog.open(RejectDialogComponent, { width: '500px' });
-    ref.afterClosed().subscribe((reason: string | undefined) => {
-      if (reason) {
-        this.analysisService.reject(a.id, reason).subscribe({
-          next: () => {
-            this.toast.success('Analysis rejected');
-            this.load();
-            this.loadStats();
-          },
-          error: (err) => {
-            this.toast.error(err.error?.error ?? 'Failed to reject');
-          },
-        });
-      }
+    this.rejectingAnalysis.set(a);
+    this.showRejectDialog.set(true);
+  }
+
+  onRejected(reason: string): void {
+    const a = this.rejectingAnalysis();
+    if (!a) return;
+    this.showRejectDialog.set(false);
+    this.analysisService.reject(a.id, reason).subscribe({
+      next: () => {
+        this.toast.success('Analysis rejected');
+        this.load();
+        this.loadStats();
+      },
+      error: (err) => {
+        this.toast.error(err.error?.error ?? 'Failed to reject');
+      },
     });
   }
 

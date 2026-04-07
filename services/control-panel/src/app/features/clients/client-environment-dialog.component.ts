@@ -1,6 +1,5 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, input, output, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MatDialogRef, MAT_DIALOG_DATA, MatDialogModule } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
@@ -9,69 +8,84 @@ import { ClientEnvironmentService, type ClientEnvironment } from '../../core/ser
 import { ToastService } from '../../core/services/toast.service';
 
 @Component({
+  selector: 'app-client-environment-dialog-content',
   standalone: true,
-  imports: [FormsModule, MatDialogModule, MatFormFieldModule, MatInputModule, MatButtonModule, MatCheckboxModule],
+  imports: [FormsModule, MatFormFieldModule, MatInputModule, MatButtonModule, MatCheckboxModule],
   template: `
-    <h2 mat-dialog-title>{{ data.environment ? 'Edit' : 'Add' }} Environment</h2>
-    <mat-dialog-content>
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Name</mat-label>
-        <input matInput [(ngModel)]="name" placeholder="e.g. Production">
+    <mat-form-field appearance="outline" class="full-width">
+      <mat-label>Name</mat-label>
+      <input matInput [(ngModel)]="name" placeholder="e.g. Production">
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="full-width">
+      <mat-label>Tag</mat-label>
+      <input matInput [(ngModel)]="tag" placeholder="e.g. production">
+      <mat-hint>Lowercase alphanumeric with hyphens only</mat-hint>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="full-width">
+      <mat-label>Description</mat-label>
+      <textarea matInput [(ngModel)]="description" rows="2" placeholder="Brief description of this environment"></textarea>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="full-width">
+      <mat-label>Operational Instructions (Markdown)</mat-label>
+      <textarea matInput [(ngModel)]="operationalInstructions" rows="8"
+        placeholder="Instructions injected into AI prompts when analyzing tickets scoped to this environment."></textarea>
+    </mat-form-field>
+
+    <div class="row">
+      <mat-form-field appearance="outline" class="half-width">
+        <mat-label>Sort Order</mat-label>
+        <input matInput type="number" [(ngModel)]="sortOrder">
       </mat-form-field>
+      <mat-checkbox [(ngModel)]="isDefault">Default environment</mat-checkbox>
+    </div>
 
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Tag</mat-label>
-        <input matInput [(ngModel)]="tag" placeholder="e.g. production">
-        <mat-hint>Lowercase alphanumeric with hyphens only</mat-hint>
-      </mat-form-field>
-
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Description</mat-label>
-        <textarea matInput [(ngModel)]="description" rows="2" placeholder="Brief description of this environment"></textarea>
-      </mat-form-field>
-
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Operational Instructions (Markdown)</mat-label>
-        <textarea matInput [(ngModel)]="operationalInstructions" rows="8"
-          placeholder="Instructions injected into AI prompts when analyzing tickets scoped to this environment."></textarea>
-      </mat-form-field>
-
-      <div class="row">
-        <mat-form-field appearance="outline" class="half-width">
-          <mat-label>Sort Order</mat-label>
-          <input matInput type="number" [(ngModel)]="sortOrder">
-        </mat-form-field>
-        <mat-checkbox [(ngModel)]="isDefault">Default environment</mat-checkbox>
-      </div>
-    </mat-dialog-content>
-
-    <mat-dialog-actions align="end">
-      <button mat-button mat-dialog-close>Cancel</button>
+    <div class="dialog-actions" dialogFooter>
+      <button mat-button (click)="cancelled.emit()">Cancel</button>
       <button mat-raised-button color="primary" (click)="save()" [disabled]="!name.trim() || !tag.trim() || saving">
-        {{ saving ? 'Saving...' : (data.environment ? 'Update' : 'Create') }}
+        {{ saving ? 'Saving...' : (environment() ? 'Update' : 'Create') }}
       </button>
-    </mat-dialog-actions>
+    </div>
   `,
   styles: [`
     .full-width { width: 100%; }
     .half-width { width: 50%; }
     .row { display: flex; align-items: center; gap: 16px; }
-    mat-dialog-content { display: flex; flex-direction: column; min-width: 500px; }
+    :host { display: flex; flex-direction: column; min-width: 500px; }
+    .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
   `],
 })
-export class ClientEnvironmentDialogComponent {
-  private dialogRef = inject(MatDialogRef<ClientEnvironmentDialogComponent>);
-  data = inject<{ clientId: string; environment?: ClientEnvironment }>(MAT_DIALOG_DATA);
+export class ClientEnvironmentDialogComponent implements OnInit {
   private envService = inject(ClientEnvironmentService);
   private toast = inject(ToastService);
 
-  name = this.data.environment?.name ?? '';
-  tag = this.data.environment?.tag ?? '';
-  description = this.data.environment?.description ?? '';
-  operationalInstructions = this.data.environment?.operationalInstructions ?? '';
-  sortOrder = this.data.environment?.sortOrder ?? 0;
-  isDefault = this.data.environment?.isDefault ?? false;
+  clientId = input.required<string>();
+  environment = input<ClientEnvironment>();
+
+  saved = output<ClientEnvironment>();
+  cancelled = output<void>();
+
+  name = '';
+  tag = '';
+  description = '';
+  operationalInstructions = '';
+  sortOrder = 0;
+  isDefault = false;
   saving = false;
+
+  ngOnInit(): void {
+    const env = this.environment();
+    if (env) {
+      this.name = env.name ?? '';
+      this.tag = env.tag ?? '';
+      this.description = env.description ?? '';
+      this.operationalInstructions = env.operationalInstructions ?? '';
+      this.sortOrder = env.sortOrder ?? 0;
+      this.isDefault = env.isDefault ?? false;
+    }
+  }
 
   save(): void {
     this.saving = true;
@@ -84,14 +98,15 @@ export class ClientEnvironmentDialogComponent {
       isDefault: this.isDefault,
     };
 
-    const op = this.data.environment
-      ? this.envService.updateEnvironment(this.data.clientId, this.data.environment.id, payload)
-      : this.envService.createEnvironment(this.data.clientId, payload);
+    const env = this.environment();
+    const op = env
+      ? this.envService.updateEnvironment(this.clientId(), env.id, payload)
+      : this.envService.createEnvironment(this.clientId(), payload);
 
     op.subscribe({
       next: (result) => {
-        this.toast.success(`Environment ${this.data.environment ? 'updated' : 'created'}`);
-        this.dialogRef.close(result);
+        this.toast.success(`Environment ${env ? 'updated' : 'created'}`);
+        this.saved.emit(result);
       },
       error: (err) => {
         this.saving = false;

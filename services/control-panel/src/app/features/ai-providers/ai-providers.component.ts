@@ -1,6 +1,5 @@
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { AiProviderService, AiProvider, AiProviderModel } from '../../core/services/ai-provider.service';
 import { AiProviderDialogComponent } from '../prompts/ai-provider-dialog.component';
 import { AiModelDialogComponent } from '../prompts/ai-model-dialog.component';
@@ -9,12 +8,13 @@ import {
   ToggleSwitchComponent,
   DataTableComponent,
   DataTableColumnComponent,
+  DialogComponent,
 } from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   standalone: true,
-  imports: [FormsModule, MatDialogModule, BroncoButtonComponent, ToggleSwitchComponent, DataTableComponent, DataTableColumnComponent],
+  imports: [FormsModule, BroncoButtonComponent, ToggleSwitchComponent, DataTableComponent, DataTableColumnComponent, DialogComponent, AiProviderDialogComponent, AiModelDialogComponent],
   template: `
     <div class="page-wrapper">
       <div class="page-header">
@@ -162,6 +162,25 @@ import { ToastService } from '../../core/services/toast.service';
         </app-data-table>
       </div>
     </div>
+
+    @if (showProviderDialog()) {
+      <app-dialog [open]="true" [title]="editingProvider() ? 'Edit Provider' : 'Add Provider'" maxWidth="500px" (openChange)="showProviderDialog.set(false)">
+        <app-ai-provider-dialog-content
+          [config]="editingProvider() ?? undefined"
+          (saved)="onProviderSaved()"
+          (cancelled)="showProviderDialog.set(false)" />
+      </app-dialog>
+    }
+
+    @if (showModelDialog()) {
+      <app-dialog [open]="true" [title]="editingModel() ? 'Edit Model' : 'Add Model'" maxWidth="500px" (openChange)="showModelDialog.set(false)">
+        <app-ai-model-dialog-content
+          [model]="editingModel() ?? undefined"
+          [providers]="providers()"
+          (saved)="onModelSaved()"
+          (cancelled)="showModelDialog.set(false)" />
+      </app-dialog>
+    }
   `,
   styles: [`
     .page-wrapper { max-width: 1200px; }
@@ -281,11 +300,16 @@ import { ToastService } from '../../core/services/toast.service';
 })
 export class AiProvidersComponent implements OnInit {
   private aiProviderService = inject(AiProviderService);
-  private dialog = inject(MatDialog);
   private toast = inject(ToastService);
 
   providers = signal<AiProvider[]>([]);
   models = signal<AiProviderModel[]>([]);
+
+  // Dialog state
+  showProviderDialog = signal(false);
+  editingProvider = signal<AiProvider | null>(null);
+  showModelDialog = signal(false);
+  editingModel = signal<AiProviderModel | null>(null);
 
   private appScopeLabels = signal<Record<string, string>>({});
 
@@ -317,13 +341,18 @@ export class AiProvidersComponent implements OnInit {
   // --- Provider actions ---
 
   addProvider(): void {
-    const ref = this.dialog.open(AiProviderDialogComponent, { width: '500px', data: {} });
-    ref.afterClosed().subscribe(result => { if (result) this.loadAll(); });
+    this.editingProvider.set(null);
+    this.showProviderDialog.set(true);
   }
 
   editProvider(config: AiProvider): void {
-    const ref = this.dialog.open(AiProviderDialogComponent, { width: '500px', data: { config } });
-    ref.afterClosed().subscribe(result => { if (result) this.loadAll(); });
+    this.editingProvider.set(config);
+    this.showProviderDialog.set(true);
+  }
+
+  onProviderSaved(): void {
+    this.showProviderDialog.set(false);
+    this.loadAll();
   }
 
   toggleProviderActive(config: AiProvider): void {
@@ -362,13 +391,18 @@ export class AiProvidersComponent implements OnInit {
   // --- Model actions ---
 
   addModel(): void {
-    const ref = this.dialog.open(AiModelDialogComponent, { width: '500px', data: { providers: this.providers() } });
-    ref.afterClosed().subscribe(result => { if (result) this.loadAll(); });
+    this.editingModel.set(null);
+    this.showModelDialog.set(true);
   }
 
   editModel(model: AiProviderModel): void {
-    const ref = this.dialog.open(AiModelDialogComponent, { width: '500px', data: { model, providers: this.providers() } });
-    ref.afterClosed().subscribe(result => { if (result) this.loadAll(); });
+    this.editingModel.set(model);
+    this.showModelDialog.set(true);
+  }
+
+  onModelSaved(): void {
+    this.showModelDialog.set(false);
+    this.loadAll();
   }
 
   toggleModelActive(model: AiProviderModel): void {
