@@ -1,7 +1,6 @@
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { NgClass } from '@angular/common';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { RouterLink } from '@angular/router';
 import {
   DataTableComponent,
@@ -16,6 +15,7 @@ import { ScheduledProbeService, ScheduledProbe } from '../../core/services/sched
 import { ClientService, Client } from '../../core/services/client.service';
 import { CATEGORY_OPTIONS } from '../../core/services/client-memory.service';
 import { ProbeDialogComponent } from './probe-dialog.component';
+import { ToastService } from '../../core/services/toast.service';
 
 const CATEGORIES = CATEGORY_OPTIONS;
 
@@ -155,7 +155,7 @@ export class ProbeListComponent implements OnInit {
   private probeService = inject(ScheduledProbeService);
   private clientService = inject(ClientService);
   private dialog = inject(MatDialog);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
   private detailPanel = inject(DetailPanelService);
 
   probes = signal<ScheduledProbe[]>([]);
@@ -164,7 +164,7 @@ export class ProbeListComponent implements OnInit {
 
   filterClientId = signal('');
 
-  trackById = (item: any) => item.id;
+  trackById = (item: ScheduledProbe) => item.id;
 
   clientOptions = computed(() => [
     { value: '', label: 'All Clients' },
@@ -192,7 +192,7 @@ export class ProbeListComponent implements OnInit {
     this.filterClientId.set(value);
   }
 
-  onProbeClick(probe: any): void {
+  onProbeClick(probe: ScheduledProbe): void {
     this.detailPanel.open('probe', probe.id);
   }
 
@@ -252,17 +252,17 @@ export class ProbeListComponent implements OnInit {
   toggleActive(probe: ScheduledProbe, isActive: boolean): void {
     this.probeService.updateProbe(probe.id, { isActive }).subscribe({
       next: () => {
-        this.snackBar.open(`Probe ${isActive ? 'activated' : 'deactivated'}`, 'OK', { duration: 3000 });
+        this.toast.success(`Probe ${isActive ? 'activated' : 'deactivated'}`);
         this.loadProbes();
       },
-      error: () => this.snackBar.open('Failed to update probe', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: () => this.toast.error('Failed to update probe'),
     });
   }
 
   runNow(probe: ScheduledProbe): void {
     this.probeService.runProbe(probe.id).subscribe({
-      next: () => this.snackBar.open('Probe execution queued', 'OK', { duration: 3000 }),
-      error: () => this.snackBar.open('Failed to queue probe', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      next: () => this.toast.success('Probe execution queued'),
+      error: () => this.toast.error('Failed to queue probe'),
     });
   }
 
@@ -270,10 +270,10 @@ export class ProbeListComponent implements OnInit {
     if (!confirm(`Delete probe "${probe.name}"?`)) return;
     this.probeService.deleteProbe(probe.id).subscribe({
       next: () => {
-        this.snackBar.open('Probe deleted', 'OK', { duration: 3000 });
+        this.toast.success('Probe deleted');
         this.loadProbes();
       },
-      error: () => this.snackBar.open('Failed to delete probe', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: () => this.toast.error('Failed to delete probe'),
     });
   }
 }

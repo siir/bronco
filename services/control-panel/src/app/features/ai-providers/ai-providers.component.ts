@@ -1,7 +1,6 @@
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { AiProviderService, AiProvider, AiProviderModel } from '../../core/services/ai-provider.service';
 import { AiProviderDialogComponent } from '../prompts/ai-provider-dialog.component';
 import { AiModelDialogComponent } from '../prompts/ai-model-dialog.component';
@@ -11,6 +10,7 @@ import {
   DataTableComponent,
   DataTableColumnComponent,
 } from '../../shared/components/index.js';
+import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   standalone: true,
@@ -282,7 +282,7 @@ import {
 export class AiProvidersComponent implements OnInit {
   private aiProviderService = inject(AiProviderService);
   private dialog = inject(MatDialog);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
   providers = signal<AiProvider[]>([]);
   models = signal<AiProviderModel[]>([]);
@@ -329,24 +329,24 @@ export class AiProvidersComponent implements OnInit {
   toggleProviderActive(config: AiProvider): void {
     this.aiProviderService.updateProvider(config.id, { isActive: !config.isActive }).subscribe({
       next: () => {
-        this.snackBar.open(`Provider ${config.isActive ? 'deactivated' : 'activated'}`, 'OK', { duration: 3000 });
+        this.toast.success(`Provider ${config.isActive ? 'deactivated' : 'activated'}`);
         this.loadAll();
       },
-      error: () => this.snackBar.open('Failed to update provider', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: () => this.toast.error('Failed to update provider'),
     });
   }
 
   testProvider(config: AiProvider): void {
-    this.snackBar.open('Testing connection...', '', { duration: 10000 });
+    this.toast.info('Testing connection...');
     this.aiProviderService.testConnection(config.id).subscribe({
       next: (result) => {
         if (result.success) {
-          this.snackBar.open(result.note ?? 'Connection successful', 'OK', { duration: 3000, panelClass: 'success-snackbar' });
+          this.toast.success(result.note ?? 'Connection successful');
         } else {
-          this.snackBar.open(result.error ?? 'Connection failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+          this.toast.error(result.error ?? 'Connection failed');
         }
       },
-      error: (err) => this.snackBar.open(err.error?.message ?? 'Test failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: (err) => this.toast.error(err.error?.message ?? 'Test failed'),
     });
   }
 
@@ -354,8 +354,8 @@ export class AiProvidersComponent implements OnInit {
     const modelWarning = config.modelCount > 0 ? ` This will also delete ${config.modelCount} model(s).` : '';
     if (!confirm(`Delete provider "${config.provider}"?${modelWarning}`)) return;
     this.aiProviderService.deleteProvider(config.id).subscribe({
-      next: () => { this.snackBar.open('Provider deleted', 'OK', { duration: 3000 }); this.loadAll(); },
-      error: () => this.snackBar.open('Failed to delete provider', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      next: () => { this.toast.success('Provider deleted'); this.loadAll(); },
+      error: () => this.toast.error('Failed to delete provider'),
     });
   }
 
@@ -374,18 +374,18 @@ export class AiProvidersComponent implements OnInit {
   toggleModelActive(model: AiProviderModel): void {
     this.aiProviderService.updateModel(model.id, { isActive: !model.isActive }).subscribe({
       next: () => {
-        this.snackBar.open(`Model ${model.isActive ? 'deactivated' : 'activated'}`, 'OK', { duration: 3000 });
+        this.toast.success(`Model ${model.isActive ? 'deactivated' : 'activated'}`);
         this.loadAll();
       },
-      error: () => this.snackBar.open('Failed to update model', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: () => this.toast.error('Failed to update model'),
     });
   }
 
   deleteModel(model: AiProviderModel): void {
     if (!confirm(`Delete model "${model.name}"?`)) return;
     this.aiProviderService.deleteModel(model.id).subscribe({
-      next: () => { this.snackBar.open('Model deleted', 'OK', { duration: 3000 }); this.loadAll(); },
-      error: () => this.snackBar.open('Failed to delete model', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      next: () => { this.toast.success('Model deleted'); this.loadAll(); },
+      error: () => this.toast.error('Failed to delete model'),
     });
   }
 }

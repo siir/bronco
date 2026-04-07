@@ -7,8 +7,8 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { TicketService, Ticket } from '../../core/services/ticket.service';
+import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   standalone: true,
@@ -64,7 +64,7 @@ export class TicketQuickActionsDialogComponent {
   private dialogRef = inject(MatDialogRef<TicketQuickActionsDialogComponent>);
   data: { ticket: Ticket } = inject(MAT_DIALOG_DATA);
   private ticketService = inject(TicketService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
   private destroyRef = inject(DestroyRef);
 
   status = this.data.ticket.status;
@@ -89,10 +89,10 @@ export class TicketQuickActionsDialogComponent {
 
     this.ticketService.updateTicket(this.data.ticket.id, patch as Partial<Ticket>).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (updated) => {
-        this.snackBar.open('Ticket updated', 'OK', { duration: 3000 });
+        this.toast.success('Ticket updated');
         this.dialogRef.close(updated);
       },
-      error: (err) => this.snackBar.open(err.error?.message ?? 'Failed to update ticket', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: (err) => this.toast.error(err.error?.message ?? 'Failed to update ticket'),
     });
   }
 }

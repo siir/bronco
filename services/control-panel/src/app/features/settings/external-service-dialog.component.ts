@@ -6,11 +6,11 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import {
   ExternalServiceService,
   ExternalService,
 } from '../../core/services/external-service.service';
+import { ToastService } from '../../core/services/toast.service';
 
 export interface ExternalServiceDialogData {
   service?: ExternalService;
@@ -82,7 +82,7 @@ export class ExternalServiceDialogComponent {
   private dialogRef = inject(MatDialogRef<ExternalServiceDialogComponent>);
   private data: ExternalServiceDialogData = inject(MAT_DIALOG_DATA);
   private svc = inject(ExternalServiceService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
   isEdit = !!this.data.service;
 
@@ -125,19 +125,11 @@ export class ExternalServiceDialogComponent {
 
     op$.subscribe({
       next: () => {
-        this.snackBar.open(
-          `External service ${this.isEdit ? 'updated' : 'created'}`,
-          'OK',
-          { duration: 3000, panelClass: 'success-snackbar' },
-        );
+        this.toast.success(`External service ${this.isEdit ? 'updated' : 'created'}`);
         this.dialogRef.close(true);
       },
       error: (err) =>
-        this.snackBar.open(
-          err.error?.error ?? err.error?.message ?? 'Failed',
-          'OK',
-          { duration: 5000, panelClass: 'error-snackbar' },
-        ),
+        this.toast.error(err.error?.error ?? err.error?.message ?? 'Failed'),
     });
   }
 }

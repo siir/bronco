@@ -5,8 +5,8 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatButtonModule } from '@angular/material/button';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { ClientMemoryService, type ClientMemory, MEMORY_TYPE_OPTIONS, CATEGORY_OPTIONS } from '../../core/services/client-memory.service';
+import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   standalone: true,
@@ -71,7 +71,7 @@ export class ClientMemoryDialogComponent {
   private dialogRef = inject(MatDialogRef<ClientMemoryDialogComponent>);
   data = inject<{ clientId: string; memory?: ClientMemory }>(MAT_DIALOG_DATA);
   private memoryService = inject(ClientMemoryService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
   memoryTypes = MEMORY_TYPE_OPTIONS;
   categories = CATEGORY_OPTIONS;
@@ -102,12 +102,12 @@ export class ClientMemoryDialogComponent {
 
     op.subscribe({
       next: (result) => {
-        this.snackBar.open(`Memory ${this.data.memory ? 'updated' : 'created'}`, 'OK', { duration: 3000 });
+        this.toast.success(`Memory ${this.data.memory ? 'updated' : 'created'}`);
         this.dialogRef.close(result);
       },
       error: (err) => {
         this.saving = false;
-        this.snackBar.open(err.error?.message ?? 'Save failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+        this.toast.error(err.error?.message ?? 'Save failed');
       },
     });
   }

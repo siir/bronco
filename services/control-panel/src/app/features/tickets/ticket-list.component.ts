@@ -1,7 +1,6 @@
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { TicketService, Ticket, ACTIVE_STATUS_FILTER } from '../../core/services/ticket.service';
 import { TicketFilterPresetService, TicketFilterPreset } from '../../core/services/ticket-filter-preset.service';
 import { DetailPanelService } from '../../core/services/detail-panel.service';
@@ -18,6 +17,7 @@ import {
   SelectComponent,
   ToggleSwitchComponent,
 } from '../../shared/components/index.js';
+import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   standalone: true,
@@ -215,7 +215,7 @@ export class TicketListComponent implements OnInit {
   private detailPanel = inject(DetailPanelService);
   private route = inject(ActivatedRoute);
   private dialog = inject(MatDialog);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
   tickets = signal<Ticket[]>([]);
   presets = signal<TicketFilterPreset[]>([]);
@@ -322,10 +322,10 @@ export class TicketListComponent implements OnInit {
         clientIdFilter: this.clientIdFilter() || null,
       }).subscribe({
         next: () => {
-          this.snackBar.open(`Preset "${selected.name}" updated`, 'OK', { duration: 2000 });
+          this.toast.success(`Preset "${selected.name}" updated`);
           this.loadPresets();
         },
-        error: (err) => this.snackBar.open(err.error?.error ?? 'Failed to update preset', 'OK', { duration: 3000 }),
+        error: (err) => this.toast.error(err.error?.error ?? 'Failed to update preset'),
       });
     } else {
       const name = window.prompt('Preset name:');
@@ -337,10 +337,10 @@ export class TicketListComponent implements OnInit {
         clientIdFilter: this.clientIdFilter() || null,
       }).subscribe({
         next: (preset) => {
-          this.snackBar.open(`Preset "${preset.name}" created`, 'OK', { duration: 2000 });
+          this.toast.success(`Preset "${preset.name}" created`);
           this.loadPresets({ next: () => { this.selectedPresetId.set(preset.id); } });
         },
-        error: (err) => this.snackBar.open(err.error?.error ?? 'Failed to create preset', 'OK', { duration: 3000 }),
+        error: (err) => this.toast.error(err.error?.error ?? 'Failed to create preset'),
       });
     }
   }
@@ -351,11 +351,11 @@ export class TicketListComponent implements OnInit {
     if (!confirm(`Delete preset "${selected.name}"?`)) return;
     this.presetService.deletePreset(selected.id).subscribe({
       next: () => {
-        this.snackBar.open(`Preset "${selected.name}" deleted`, 'OK', { duration: 2000 });
+        this.toast.success(`Preset "${selected.name}" deleted`);
         this.selectedPresetId.set('');
         this.loadPresets();
       },
-      error: (err) => this.snackBar.open(err.error?.error ?? 'Failed to delete preset', 'OK', { duration: 3000 }),
+      error: (err) => this.toast.error(err.error?.error ?? 'Failed to delete preset'),
     });
   }
 
@@ -364,10 +364,10 @@ export class TicketListComponent implements OnInit {
     if (!selected) return;
     this.presetService.updatePreset(selected.id, { isDefault: checked }).subscribe({
       next: () => {
-        this.snackBar.open(checked ? `"${selected.name}" set as default` : 'Default cleared', 'OK', { duration: 2000 });
+        this.toast.success(checked ? `"${selected.name}" set as default` : 'Default cleared');
         this.loadPresets();
       },
-      error: (err) => this.snackBar.open(err.error?.error ?? 'Failed to update preset', 'OK', { duration: 3000 }),
+      error: (err) => this.toast.error(err.error?.error ?? 'Failed to update preset'),
     });
   }
 

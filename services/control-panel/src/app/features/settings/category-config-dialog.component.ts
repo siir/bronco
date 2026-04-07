@@ -5,11 +5,11 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import {
   SettingsService,
   TicketCategoryConfig,
 } from '../../core/services/settings.service';
+import { ToastService } from '../../core/services/toast.service';
 
 export interface CategoryConfigDialogData {
   config?: TicketCategoryConfig;
@@ -86,7 +86,7 @@ export class CategoryConfigDialogComponent {
   private dialogRef = inject(MatDialogRef<CategoryConfigDialogComponent>);
   data: CategoryConfigDialogData = inject(MAT_DIALOG_DATA);
   private svc = inject(SettingsService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
   isCreate = !this.data.config;
 
@@ -115,15 +115,11 @@ export class CategoryConfigDialogComponent {
         })
         .subscribe({
           next: () => {
-            this.snackBar.open('Category created', 'OK', { duration: 3000, panelClass: 'success-snackbar' });
+            this.toast.success('Category created');
             this.dialogRef.close(true);
           },
           error: (err) =>
-            this.snackBar.open(
-              err.error?.error ?? err.error?.message ?? 'Failed to create',
-              'OK',
-              { duration: 5000 },
-            ),
+            this.toast.error(err.error?.error ?? err.error?.message ?? 'Failed to create'),
         });
     } else {
       this.svc
@@ -136,15 +132,11 @@ export class CategoryConfigDialogComponent {
         })
         .subscribe({
           next: () => {
-            this.snackBar.open('Category updated', 'OK', { duration: 3000, panelClass: 'success-snackbar' });
+            this.toast.success('Category updated');
             this.dialogRef.close(true);
           },
           error: (err) =>
-            this.snackBar.open(
-              err.error?.error ?? err.error?.message ?? 'Failed to update',
-              'OK',
-              { duration: 5000 },
-            ),
+            this.toast.error(err.error?.error ?? err.error?.message ?? 'Failed to update'),
         });
     }
   }
