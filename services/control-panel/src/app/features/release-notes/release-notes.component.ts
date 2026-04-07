@@ -1,10 +1,9 @@
 import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MatPaginatorModule, type PageEvent } from '@angular/material/paginator';
 import { MatDialogModule, MatDialog } from '@angular/material/dialog';
 import { ReleaseNotesService, type ReleaseNote, type ReleaseNoteType } from '../../core/services/release-notes.service';
 import { BackfillDialogComponent } from './backfill-dialog.component';
-import { BroncoButtonComponent, SelectComponent } from '../../shared/components/index.js';
+import { BroncoButtonComponent, SelectComponent, PaginatorComponent, type PaginatorPageEvent } from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service';
 
 const CHANGE_TYPE_META: Record<ReleaseNoteType, { label: string; color: string }> = {
@@ -18,10 +17,10 @@ const CHANGE_TYPE_META: Record<ReleaseNoteType, { label: string; color: string }
   standalone: true,
   imports: [
     FormsModule,
-    MatPaginatorModule,
     MatDialogModule,
     BroncoButtonComponent,
     SelectComponent,
+    PaginatorComponent,
   ],
   template: `
     <div class="page-wrapper">
@@ -131,14 +130,12 @@ const CHANGE_TYPE_META: Record<ReleaseNoteType, { label: string; color: string }
         }
       </div>
 
-      <mat-paginator
+      <app-paginator
         [length]="total()"
         [pageSize]="pageSize"
         [pageIndex]="pageIndex"
         [pageSizeOptions]="[25, 50, 100]"
-        (page)="onPage($event)"
-        showFirstLastButtons>
-      </mat-paginator>
+        (page)="onPage($event)" />
     </div>
   `,
   styles: [`
@@ -343,7 +340,7 @@ export class ReleaseNotesComponent implements OnInit {
     this.load();
   }
 
-  onPage(event: PageEvent): void {
+  onPage(event: PaginatorPageEvent): void {
     this.pageSize = event.pageSize;
     this.pageIndex = event.pageIndex;
     this.load();

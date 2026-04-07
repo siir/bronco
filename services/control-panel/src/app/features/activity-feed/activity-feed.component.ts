@@ -2,9 +2,8 @@ import { Component, OnInit, OnDestroy, inject, signal } from '@angular/core';
 import { NgClass } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { MatPaginatorModule, type PageEvent } from '@angular/material/paginator';
 import { LogSummaryService, type LogSummary, type LogSummaryType, type AttentionLevel } from '../../core/services/log-summary.service';
-import { BroncoButtonComponent, SelectComponent } from '../../shared/components/index.js';
+import { BroncoButtonComponent, SelectComponent, PaginatorComponent, type PaginatorPageEvent } from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service';
 
 const TYPE_META: Record<LogSummaryType, { label: string; color: string }> = {
@@ -20,9 +19,9 @@ const TYPE_META: Record<LogSummaryType, { label: string; color: string }> = {
     NgClass,
     FormsModule,
     RouterLink,
-    MatPaginatorModule,
     BroncoButtonComponent,
     SelectComponent,
+    PaginatorComponent,
   ],
   template: `
     <div class="page-wrapper">
@@ -92,14 +91,12 @@ const TYPE_META: Record<LogSummaryType, { label: string; color: string }> = {
         }
       </div>
 
-      <mat-paginator
+      <app-paginator
         [length]="total()"
         [pageSize]="pageSize"
         [pageIndex]="pageIndex"
         [pageSizeOptions]="[20, 50, 100]"
-        (page)="onPage($event)"
-        showFirstLastButtons>
-      </mat-paginator>
+        (page)="onPage($event)" />
     </div>
   `,
   styles: [`
@@ -225,7 +222,7 @@ export class ActivityFeedComponent implements OnInit, OnDestroy {
     this.load();
   }
 
-  onPage(event: PageEvent): void {
+  onPage(event: PaginatorPageEvent): void {
     this.pageSize = event.pageSize;
     this.pageIndex = event.pageIndex;
     this.load();

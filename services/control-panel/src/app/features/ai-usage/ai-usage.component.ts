@@ -5,7 +5,6 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Subject, debounceTime } from 'rxjs';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import {
   AiUsageService, AiUsageSummary, AiModelCost, AiUsageLogEntry, AiUsageLogDetail,
 } from '../../core/services/ai-usage.service';
@@ -17,6 +16,8 @@ import {
   TabGroupComponent,
   DataTableComponent,
   DataTableColumnComponent,
+  PaginatorComponent,
+  type PaginatorPageEvent,
 } from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service';
 
@@ -63,13 +64,13 @@ const DATE_PRESETS: DatePreset[] = [
     CommonModule,
     FormsModule,
     MatDialogModule,
-    MatPaginatorModule,
     BroncoButtonComponent,
     SelectComponent,
     TabComponent,
     TabGroupComponent,
     DataTableComponent,
     DataTableColumnComponent,
+    PaginatorComponent,
   ],
   template: `
     <div class="page-wrapper">
@@ -477,14 +478,12 @@ const DATE_PRESETS: DatePreset[] = [
                 </table>
               }
 
-              <mat-paginator
+              <app-paginator
                 [length]="logTotal()"
                 [pageSize]="logPageSize"
                 [pageIndex]="logPageIndex"
                 [pageSizeOptions]="[50, 100, 200]"
-                (page)="onLogPage($event)"
-                showFirstLastButtons>
-              </mat-paginator>
+                (page)="onLogPage($event)" />
             </div>
           </div>
         </app-tab>
@@ -1097,7 +1096,7 @@ export class AiUsageComponent implements OnInit {
     this.resetAndLoadLogs();
   }
 
-  onLogPage(event: PageEvent): void {
+  onLogPage(event: PaginatorPageEvent): void {
     this.logPageSize = event.pageSize;
     this.logPageIndex = event.pageIndex;
     this.loadLogs();

@@ -2,7 +2,6 @@ import { Component, inject, signal, OnInit } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { MatMenuModule } from '@angular/material/menu';
 import {
   ExternalServiceService,
   ExternalService,
@@ -27,6 +26,8 @@ import {
   TabGroupComponent,
   DataTableComponent,
   DataTableColumnComponent,
+  DropdownMenuComponent,
+  DropdownItemComponent,
 } from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service';
 
@@ -35,7 +36,6 @@ import { ToastService } from '../../core/services/toast.service';
   imports: [
     FormsModule,
     MatDialogModule,
-    MatMenuModule,
     BroncoButtonComponent,
     CardComponent,
     FormFieldComponent,
@@ -45,6 +45,8 @@ import { ToastService } from '../../core/services/toast.service';
     TabGroupComponent,
     DataTableComponent,
     DataTableColumnComponent,
+    DropdownMenuComponent,
+    DropdownItemComponent,
   ],
   template: `
     <div class="page-wrapper">
@@ -265,16 +267,16 @@ import { ToastService } from '../../core/services/toast.service';
                 </app-data-column>
                 <app-data-column key="actions" header="" [sortable]="false" width="60px">
                   <ng-template #cell let-svc>
-                    <app-bronco-button variant="icon" size="sm" [matMenuTriggerFor]="svcMenu" title="Actions">
+                    <app-bronco-button variant="icon" size="sm" title="Actions" #svcTrigger (click)="svcMenu.toggle()">
                       ...
                     </app-bronco-button>
-                    <mat-menu #svcMenu="matMenu">
-                      <button mat-menu-item (click)="editService(svc)">Edit</button>
-                      <button mat-menu-item (click)="toggleMonitored(svc)">
+                    <app-dropdown-menu #svcMenu [trigger]="svcTrigger">
+                      <app-dropdown-item (action)="editService(svc)">Edit</app-dropdown-item>
+                      <app-dropdown-item (action)="toggleMonitored(svc)">
                         {{ svc.isMonitored ? 'Disable Monitoring' : 'Enable Monitoring' }}
-                      </button>
-                      <button mat-menu-item (click)="deleteService(svc)" class="delete-action">Delete</button>
-                    </mat-menu>
+                      </app-dropdown-item>
+                      <app-dropdown-item (action)="deleteService(svc)" [destructive]="true">Delete</app-dropdown-item>
+                    </app-dropdown-menu>
                   </ng-template>
                 </app-data-column>
               </app-data-table>

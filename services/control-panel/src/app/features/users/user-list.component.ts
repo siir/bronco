@@ -1,7 +1,6 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
-import { MatMenuModule } from '@angular/material/menu';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { UserService, type ControlPanelUser } from '../../core/services/user.service';
 import { AuthService } from '../../core/services/auth.service';
@@ -10,6 +9,8 @@ import {
   BroncoButtonComponent,
   CardComponent,
   FormFieldComponent,
+  DropdownMenuComponent,
+  DropdownItemComponent,
 } from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service';
 
@@ -18,11 +19,12 @@ import { ToastService } from '../../core/services/toast.service';
   imports: [
     FormsModule,
     DatePipe,
-    MatMenuModule,
     MatDialogModule,
     BroncoButtonComponent,
     CardComponent,
     FormFieldComponent,
+    DropdownMenuComponent,
+    DropdownItemComponent,
   ],
   template: `
     <div class="page-wrapper">
@@ -47,20 +49,20 @@ import { ToastService } from '../../core/services/toast.service';
                   <div class="user-name">{{ user.name }}</div>
                   <div class="user-email">{{ user.email }}</div>
                 </div>
-                <app-bronco-button variant="icon" size="sm" [matMenuTriggerFor]="menu" class="card-menu" title="Actions">
+                <app-bronco-button variant="icon" size="sm" class="card-menu" [attr.aria-label]="'Actions for ' + user.name" #menuTrigger (click)="menu.toggle()">
                   ...
                 </app-bronco-button>
-                <mat-menu #menu="matMenu">
-                  <button mat-menu-item (click)="openEdit(user)">Edit</button>
-                  <button mat-menu-item (click)="openResetPassword(user)">Reset Password</button>
+                <app-dropdown-menu #menu [trigger]="menuTrigger">
+                  <app-dropdown-item (action)="openEdit(user)">Edit</app-dropdown-item>
+                  <app-dropdown-item (action)="openResetPassword(user)">Reset Password</app-dropdown-item>
                   @if (user.id !== currentUserId()) {
                     @if (user.isActive) {
-                      <button mat-menu-item (click)="deactivate(user)">Deactivate</button>
+                      <app-dropdown-item (action)="deactivate(user)">Deactivate</app-dropdown-item>
                     } @else {
-                      <button mat-menu-item (click)="activate(user)">Activate</button>
+                      <app-dropdown-item (action)="activate(user)">Activate</app-dropdown-item>
                     }
                   }
-                </mat-menu>
+                </app-dropdown-menu>
               </div>
               <div class="user-details">
                 <div class="detail-row">

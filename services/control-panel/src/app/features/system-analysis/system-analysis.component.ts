@@ -1,11 +1,10 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { MatPaginatorModule, type PageEvent } from '@angular/material/paginator';
 import { MatDialogModule, MatDialog } from '@angular/material/dialog';
 import { SystemAnalysisService, type SystemAnalysis, type SystemAnalysisStats } from '../../core/services/system-analysis.service';
 import { RejectDialogComponent } from './reject-dialog.component';
-import { BroncoButtonComponent, SelectComponent } from '../../shared/components/index.js';
+import { BroncoButtonComponent, SelectComponent, PaginatorComponent, type PaginatorPageEvent } from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service';
 
 const STATUS_META: Record<string, { label: string; color: string }> = {
@@ -19,10 +18,10 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
   imports: [
     FormsModule,
     RouterLink,
-    MatPaginatorModule,
     MatDialogModule,
     BroncoButtonComponent,
     SelectComponent,
+    PaginatorComponent,
   ],
   template: `
     <div class="page-wrapper">
@@ -133,14 +132,12 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
         }
       </div>
 
-      <mat-paginator
+      <app-paginator
         [length]="total()"
         [pageSize]="pageSize"
         [pageIndex]="pageIndex"
         [pageSizeOptions]="[10, 25, 50]"
-        (page)="onPage($event)"
-        showFirstLastButtons>
-      </mat-paginator>
+        (page)="onPage($event)" />
     </div>
   `,
   styles: [`
@@ -278,7 +275,7 @@ export class SystemAnalysisComponent implements OnInit {
     this.load();
   }
 
-  onPage(event: PageEvent): void {
+  onPage(event: PaginatorPageEvent): void {
     this.pageSize = event.pageSize;
     this.pageIndex = event.pageIndex;
     this.load();
