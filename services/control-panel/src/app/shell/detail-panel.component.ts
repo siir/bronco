@@ -3,10 +3,10 @@ import { Subscription } from 'rxjs';
 import { Router, RouterLink } from '@angular/router';
 import { DatePipe, SlicePipe } from '@angular/common';
 import { DetailPanelService, DetailEntityType } from '../core/services/detail-panel.service';
-import { TicketService, Ticket } from '../core/services/ticket.service';
+import { TicketService, Ticket, TicketEvent, TicketAiUsageLog, UnifiedLogEntry } from '../core/services/ticket.service';
 import { ClientService, Client } from '../core/services/client.service';
 import { ScheduledProbeService, ScheduledProbe } from '../core/services/scheduled-probe.service';
-import { SystemStatusService, ComponentStatus, QueueStats } from '../core/services/system-status.service';
+import { SystemStatusService, ComponentStatus, QueueStats, SystemStatusResponse } from '../core/services/system-status.service';
 import { SystemAnalysisService, SystemAnalysis } from '../core/services/system-analysis.service';
 import { IngestionService, IngestionRunDetail } from '../core/services/ingestion.service';
 import {
@@ -99,7 +99,7 @@ const STATUS_MAP: Record<string, 'open' | 'in_progress' | 'analyzing' | 'resolve
         </div>
 
         @if (detailPanel.mode() === 'full') {
-        <app-tab-group [selectedIndex]="selectedTab()" (selectedIndexChange)="selectedTab.set($event)">
+        <app-tab-group [selectedIndex]="selectedTab()" (selectedIndexChange)="onTabChange($event)">
           <app-tab label="Details">
             <div class="detail-fields">
               <div class="field-row">
@@ -138,9 +138,100 @@ const STATUS_MAP: Record<string, 'open' | 'in_progress' | 'analyzing' | 'resolve
                 <p class="summary-text">{{ t.summary }}</p>
               </div>
             }
+
+            <!-- AI Analysis Cards -->
+            @if (aiUsageLogs().length) {
+              <div class="detail-section">
+                <span class="section-label">AI Analysis</span>
+                @for (log of aiUsageLogs(); track log.id) {
+                  <div class="ai-card">
+                    <div class="ai-card-header">
+                      <span class="ai-badge">{{ log.taskType }}</span>
+                      <span class="ai-model">{{ log.provider }}/{{ log.model }} · {{ log.inputTokens + log.outputTokens }} tokens · {{ formatDuration(log.durationMs) }}</span>
+                    </div>
+                    @if (log.costUsd != null) {
+                      <div class="ai-card-cost">{{ formatCost(log.costUsd) }}</div>
+                    }
+                  </div>
+                }
+              </div>
+            }
+
+            <!-- Services Health Grid -->
+            @if (serviceComponents().length) {
+              <div class="detail-section">
+                <span class="section-label">Services</span>
+                <div class="service-grid">
+                  @for (comp of serviceComponents(); track comp.name) {
+                    <div class="service-item">
+                      <span class="service-dot" [class]="'dot-' + comp.status.toLowerCase()"></span>
+                      {{ comp.name }}
+                    </div>
+                  }
+                </div>
+              </div>
+            }
           </app-tab>
           <app-tab label="Events">
-            <p class="placeholder-text">Events view coming soon</p>
+            @if (ticketEvents().length) {
+              @for (event of ticketEvents(); track event.id) {
+                <div class="event-item" [class]="'event-border-' + eventColorClass(event.eventType)">
+                  <div class="event-header">
+                    <span class="event-type">{{ formatEventType(event.eventType) }}</span>
+                    <span class="event-time">{{ event.createdAt | date:'short' }}</span>
+                  </div>
+                  @if (event.content) {
+                    <div class="event-content">{{ event.content }}</div>
+                  }
+                  <div class="event-actor">{{ event.actor }}</div>
+                </div>
+              }
+            } @else {
+              <p class="placeholder-text">No events</p>
+            }
+          </app-tab>
+          <app-tab label="Logs">
+            @if (logsLoading()) {
+              <p class="placeholder-text">Loading logs...</p>
+            } @else if (unifiedLogs().length) {
+              @for (entry of unifiedLogs(); track entry.id) {
+                <div class="log-entry" [class]="'log-' + entry.type">
+                  <span class="log-time">{{ entry.timestamp | date:'shortTime' }}</span>
+                  <span class="log-type-badge">{{ entry.type }}</span>
+                  @if (entry.type === 'ai') {
+                    <span class="log-detail">{{ entry.taskType }} · {{ entry.model }}</span>
+                  } @else {
+                    <span class="log-detail">{{ entry.message ?? entry.taskType ?? '—' }}</span>
+                  }
+                </div>
+              }
+            } @else {
+              <p class="placeholder-text">No logs</p>
+            }
+          </app-tab>
+          <app-tab label="AI Calls">
+            @if (aiCallsLoading()) {
+              <p class="placeholder-text">Loading AI calls...</p>
+            } @else if (aiCallLogs().length) {
+              @for (log of aiCallLogs(); track log.id) {
+                <div class="ai-call-card">
+                  <div class="ai-call-header">
+                    <span class="ai-badge">{{ log.taskType }}</span>
+                    <span class="ai-call-time">{{ log.createdAt | date:'short' }}</span>
+                  </div>
+                  <div class="ai-call-meta">
+                    <span>{{ log.provider }}/{{ log.model }}</span>
+                    <span>{{ log.inputTokens + log.outputTokens }} tokens</span>
+                    <span>{{ formatDuration(log.durationMs) }}</span>
+                    @if (log.costUsd != null) {
+                      <span>{{ formatCost(log.costUsd) }}</span>
+                    }
+                  </div>
+                </div>
+              }
+            } @else {
+              <p class="placeholder-text">No AI calls</p>
+            }
           </app-tab>
         </app-tab-group>
         } @else {
@@ -855,6 +946,173 @@ const STATUS_MAP: Record<string, 'open' | 'in_progress' | 'analyzing' | 'resolve
       margin: 2px 0 0;
       line-height: 1.4;
     }
+
+    /* AI Analysis Cards */
+    .ai-card {
+      background: var(--bg-muted);
+      border-radius: var(--radius-lg);
+      padding: 14px;
+      margin-top: 10px;
+    }
+    .ai-card-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+    .ai-badge {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: var(--radius-pill);
+      background: var(--bg-active);
+      color: var(--accent);
+      white-space: nowrap;
+    }
+    .ai-model {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      font-weight: 400;
+    }
+    .ai-card-cost {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      margin-top: 2px;
+    }
+
+    /* Services Health Grid */
+    .service-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .service-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      background: var(--bg-muted);
+      border-radius: var(--radius-md);
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+    .service-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .dot-up { background: var(--color-success); }
+    .dot-down { background: var(--color-error); }
+    .dot-degraded { background: var(--color-warning, #ff9500); }
+    .dot-unknown { background: var(--text-tertiary); }
+
+    /* Events Timeline */
+    .event-item {
+      padding: 10px 20px;
+      border-left: 3px solid var(--border-light);
+      font-size: 13px;
+    }
+    .event-item + .event-item {
+      border-top: 1px solid var(--border-light);
+    }
+    .event-border-blue { border-left-color: var(--accent); }
+    .event-border-green { border-left-color: var(--color-success); }
+    .event-border-orange { border-left-color: var(--color-warning, #ff9500); }
+    .event-border-red { border-left-color: var(--color-error); }
+    .event-border-purple { border-left-color: #af52de; }
+    .event-border-gray { border-left-color: var(--text-tertiary); }
+    .event-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+    .event-type {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .event-time {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      white-space: nowrap;
+    }
+    .event-content {
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+      margin-bottom: 4px;
+    }
+    .event-actor {
+      font-size: 11px;
+      color: var(--text-tertiary);
+    }
+
+    /* Logs */
+    .log-entry {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 20px;
+      font-size: 12px;
+      border-bottom: 1px solid var(--border-light);
+    }
+    .log-entry:last-child { border-bottom: none; }
+    .log-time {
+      font-family: ui-monospace, monospace;
+      font-size: 11px;
+      color: var(--text-tertiary);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .log-type-badge {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: var(--radius-sm);
+      background: var(--bg-muted);
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .log-ai .log-type-badge { background: var(--bg-active); color: var(--accent); }
+    .log-error .log-type-badge { background: rgba(255,59,48,0.08); color: var(--color-error); }
+    .log-detail {
+      font-size: 12px;
+      color: var(--text-secondary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* AI Calls tab */
+    .ai-call-card {
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border-light);
+    }
+    .ai-call-card:last-child { border-bottom: none; }
+    .ai-call-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+    .ai-call-time {
+      font-size: 11px;
+      color: var(--text-tertiary);
+    }
+    .ai-call-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      font-size: 12px;
+      color: var(--text-tertiary);
+    }
   `],
 })
 export class DetailPanelComponent {
@@ -878,6 +1136,20 @@ export class DetailPanelComponent {
   loading = signal(false);
   error = signal(false);
 
+  // Ticket enrichment signals
+  ticketEvents = signal<TicketEvent[]>([]);
+  aiUsageLogs = signal<TicketAiUsageLog[]>([]);
+  serviceComponents = signal<ComponentStatus[]>([]);
+  unifiedLogs = signal<UnifiedLogEntry[]>([]);
+  logsLoading = signal(false);
+  aiCallLogs = signal<TicketAiUsageLog[]>([]);
+  aiCallsLoading = signal(false);
+
+  // Cache for system status (shared across tickets)
+  private cachedSystemStatus: SystemStatusResponse | null = null;
+  private logsLoaded = false;
+  private aiCallsLoaded = false;
+
   constructor() {
     effect((onCleanup) => {
       const type = this.detailPanel.entityType();
@@ -892,18 +1164,46 @@ export class DetailPanelComponent {
       this.job.set(null);
       this.error.set(false);
       this.selectedTab.set(0);
+      this.ticketEvents.set([]);
+      this.aiUsageLogs.set([]);
+      this.unifiedLogs.set([]);
+      this.aiCallLogs.set([]);
+      this.logsLoaded = false;
+      this.aiCallsLoaded = false;
 
       if (!type || !id) return;
       this.loading.set(true);
 
       let sub: Subscription | undefined;
       switch (type) {
-        case 'ticket':
-          sub = this.ticketService.getTicket(id).subscribe({
-            next: (t) => { this.ticket.set(t); this.loading.set(false); },
+        case 'ticket': {
+          const subs: Subscription[] = [];
+          subs.push(this.ticketService.getTicket(id).subscribe({
+            next: (t) => {
+              this.ticket.set(t);
+              this.ticketEvents.set(t.events ?? []);
+              this.loading.set(false);
+            },
             error: () => { this.error.set(true); this.loading.set(false); },
-          });
+          }));
+          // Load AI usage for Details tab cards
+          subs.push(this.ticketService.getTicketAiUsage(id, { limit: 5 }).subscribe({
+            next: (res) => this.aiUsageLogs.set(res.logs),
+          }));
+          // Load services status (cached)
+          if (this.cachedSystemStatus) {
+            this.serviceComponents.set(this.cachedSystemStatus.components ?? []);
+          } else {
+            subs.push(this.systemStatusService.getStatus().subscribe({
+              next: (res) => {
+                this.cachedSystemStatus = res;
+                this.serviceComponents.set(res.components ?? []);
+              },
+            }));
+          }
+          sub = { unsubscribe: () => subs.forEach(s => s.unsubscribe()) } as Subscription;
           break;
+        }
         case 'client':
           sub = this.clientService.getClient(id).subscribe({
             next: (c) => { this.client.set(c); this.loading.set(false); },
@@ -957,6 +1257,61 @@ export class DetailPanelComponent {
     if (type && id) {
       this.detailPanel.close();
       this.router.navigate(entityRoute(type, id));
+    }
+  }
+
+  /** Handle tab changes — lazy-load Logs and AI Calls data */
+  onTabChange(index: number): void {
+    this.selectedTab.set(index);
+    const t = this.ticket();
+    if (!t) return;
+
+    // Logs tab (index 2 in the ticket full-mode tab group)
+    if (index === 2 && !this.logsLoaded) {
+      this.logsLoaded = true;
+      this.logsLoading.set(true);
+      this.ticketService.getUnifiedLogs(t.id, { limit: 20 }).subscribe({
+        next: (res) => { this.unifiedLogs.set(res.entries); this.logsLoading.set(false); },
+        error: () => this.logsLoading.set(false),
+      });
+    }
+
+    // AI Calls tab (index 3)
+    if (index === 3 && !this.aiCallsLoaded) {
+      this.aiCallsLoaded = true;
+      this.aiCallsLoading.set(true);
+      this.ticketService.getTicketAiUsage(t.id, { limit: 10 }).subscribe({
+        next: (res) => { this.aiCallLogs.set(res.logs); this.aiCallsLoading.set(false); },
+        error: () => this.aiCallsLoading.set(false),
+      });
+    }
+  }
+
+  formatCost(costUsd: number | null): string {
+    if (costUsd == null) return '—';
+    return '$' + costUsd.toFixed(4);
+  }
+
+  formatDuration(ms: number | null): string {
+    if (ms == null) return '—';
+    if (ms < 1000) return `${ms}ms`;
+    return `${(ms / 1000).toFixed(1)}s`;
+  }
+
+  formatEventType(eventType: string): string {
+    return eventType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  eventColorClass(eventType: string): string {
+    switch (eventType) {
+      case 'AI_ANALYSIS':
+      case 'AI_RECOMMENDATION': return 'purple';
+      case 'STATUS_CHANGE': return 'blue';
+      case 'EMAIL_INBOUND': return 'green';
+      case 'EMAIL_OUTBOUND': return 'green';
+      case 'CODE_CHANGE': return 'orange';
+      case 'COMMENT': return 'blue';
+      default: return 'gray';
     }
   }
 
