@@ -15,3 +15,4 @@ export { TabComponent } from './tab.component';
 export { TabGroupComponent } from './tab-group.component';
 export { DialogComponent } from './dialog.component';
 export { ToolbarComponent } from './toolbar.component';
+export { PaginatorComponent, type PaginatorPageEvent } from './paginator.component';

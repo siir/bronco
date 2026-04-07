@@ -2,7 +2,6 @@ import { Component, inject, OnInit, signal, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { Subject, EMPTY, switchMap, timer } from 'rxjs';
@@ -14,6 +13,8 @@ import {
   StatCardComponent,
   DataTableComponent,
   DataTableColumnComponent,
+  PaginatorComponent,
+  type PaginatorPageEvent,
 } from '../../shared/components/index.js';
 
 @Component({
@@ -22,13 +23,13 @@ import {
     CommonModule,
     FormsModule,
     RouterLink,
-    MatPaginatorModule,
     MatMenuModule,
     BroncoButtonComponent,
     SelectComponent,
     StatCardComponent,
     DataTableComponent,
     DataTableColumnComponent,
+    PaginatorComponent,
   ],
   template: `
     <div class="page-wrapper">
@@ -191,13 +192,12 @@ import {
           }
         }
 
-        <mat-paginator
+        <app-paginator
           [length]="total()"
           [pageSize]="pageSize"
+          [pageIndex]="pageIndex"
           [pageSizeOptions]="[50, 100, 200]"
-          (page)="onPage($event)"
-          showFirstLastButtons>
-        </mat-paginator>
+          (page)="onPage($event)" />
       </div>
     </div>
   `,
@@ -407,7 +407,7 @@ export class EmailLogComponent implements OnInit, OnDestroy {
     this.load();
   }
 
-  onPage(event: PageEvent): void {
+  onPage(event: PaginatorPageEvent): void {
     this.pageSize = event.pageSize;
     this.pageIndex = event.pageIndex;
     this.load();
