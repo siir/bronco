@@ -3,7 +3,6 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
-import { MatMenuModule } from '@angular/material/menu';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { Subject, EMPTY, switchMap, timer } from 'rxjs';
 import { catchError, takeUntil } from 'rxjs/operators';
@@ -14,6 +13,10 @@ import {
   StatCardComponent,
   DataTableComponent,
   DataTableColumnComponent,
+  DropdownMenuComponent,
+  DropdownItemComponent,
+  DropdownDividerComponent,
+  DropdownLabelComponent,
 } from '../../shared/components/index.js';
 
 @Component({
@@ -23,12 +26,15 @@ import {
     FormsModule,
     RouterLink,
     MatPaginatorModule,
-    MatMenuModule,
     BroncoButtonComponent,
     SelectComponent,
     StatCardComponent,
     DataTableComponent,
     DataTableColumnComponent,
+    DropdownMenuComponent,
+    DropdownItemComponent,
+    DropdownDividerComponent,
+    DropdownLabelComponent,
   ],
   template: `
     <div class="page-wrapper">
@@ -135,20 +141,19 @@ import {
 
           <app-data-column key="actions" header="" [sortable]="false" width="48px">
             <ng-template #cell let-log>
-              <button type="button" class="icon-btn" aria-label="Open actions menu" [matMenuTriggerFor]="menu" (click)="$event.stopPropagation()">···</button>
-              <mat-menu #menu="matMenu">
+              <button type="button" class="icon-btn" aria-label="Open actions menu" #menuTrigger (click)="$event.stopPropagation(); menu.toggle()">···</button>
+              <app-dropdown-menu #menu [trigger]="menuTrigger">
                 @if (log.status === 'failed' || log.classification === 'NOISE' || log.classification === 'AUTO_REPLY') {
-                  <button mat-menu-item (click)="retryEmail(log)">Retry</button>
+                  <app-dropdown-item (action)="retryEmail(log)">Retry</app-dropdown-item>
                 }
-                <button mat-menu-item [matMenuTriggerFor]="reclassifyMenu">Reclassify</button>
-                <button mat-menu-item (click)="toggleExpand(log.id)">Details</button>
-              </mat-menu>
-              <mat-menu #reclassifyMenu="matMenu">
-                <button mat-menu-item (click)="reclassify(log, 'TICKET_WORTHY')">Ticket Worthy</button>
-                <button mat-menu-item (click)="reclassify(log, 'THREAD_REPLY')">Thread Reply</button>
-                <button mat-menu-item (click)="reclassify(log, 'NOISE')">Noise</button>
-                <button mat-menu-item (click)="reclassify(log, 'AUTO_REPLY')">Auto Reply</button>
-              </mat-menu>
+                <app-dropdown-item (action)="toggleExpand(log.id)">Details</app-dropdown-item>
+                <app-dropdown-divider />
+                <app-dropdown-label>Reclassify as:</app-dropdown-label>
+                <app-dropdown-item (action)="reclassify(log, 'TICKET_WORTHY')">Ticket Worthy</app-dropdown-item>
+                <app-dropdown-item (action)="reclassify(log, 'THREAD_REPLY')">Thread Reply</app-dropdown-item>
+                <app-dropdown-item (action)="reclassify(log, 'NOISE')">Noise</app-dropdown-item>
+                <app-dropdown-item (action)="reclassify(log, 'AUTO_REPLY')">Auto Reply</app-dropdown-item>
+              </app-dropdown-menu>
             </ng-template>
           </app-data-column>
         </app-data-table>
