@@ -88,11 +88,11 @@ import { FormFieldComponent, TextInputComponent, SelectComponent, BroncoButtonCo
   `,
   styles: [`
     .form-grid { display: flex; flex-direction: column; gap: 12px; }
-    .code-default-info { display: flex; align-items: center; gap: 8px; padding: 8px 12px; margin-bottom: 12px; background: #f5f5f5; border-radius: 4px; border-left: 3px solid #9e9e9e; font-size: 13px; }
-    .info-label { font-weight: 600; color: #666; }
-    .info-value { font-family: monospace; color: #333; }
+    .code-default-info { display: flex; align-items: center; gap: 8px; padding: 8px 12px; margin-bottom: 12px; background: var(--bg-muted); border-radius: 4px; border-left: 3px solid var(--text-tertiary); font-size: 13px; }
+    .info-label { font-weight: 600; color: var(--text-tertiary); }
+    .info-value { font-family: monospace; color: var(--text-primary); }
     .field-label { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-    .code-chip { font-size: 12px; padding: 2px 8px; background: #e8eaf6; border-radius: 4px; color: #3f51b5; font-family: monospace; }
+    .code-chip { font-size: 12px; padding: 2px 8px; background: var(--color-info-subtle); border-radius: 4px; color: var(--color-info); font-family: monospace; }
     .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
   `],
 })

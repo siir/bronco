@@ -13,6 +13,8 @@ body.theme-sentry {
   --bg-hover: #362d59;
   --bg-active: #422082;
   --bg-muted: #150f23;
+  --bg-code: #150f23;
+  --text-code: #ffffff;
 
   --text-primary: #ffffff;
   --text-secondary: #e5e7eb;
@@ -27,6 +29,12 @@ body.theme-sentry {
   --color-warning: #ffb287;
   --color-error: #fa7faa;
   --color-info: #6a5fc1;
+  --color-success-subtle: rgba(194, 239, 78, 0.14);
+  --color-warning-subtle: rgba(255, 178, 135, 0.14);
+  --color-error-subtle: rgba(250, 127, 170, 0.14);
+  --color-info-subtle: rgba(106, 95, 193, 0.14);
+  --color-purple: #9b72cf;
+  --color-purple-subtle: rgba(155, 114, 207, 0.14);
 
   --border-light: #362d59;
   --border-medium: #584674;

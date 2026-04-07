@@ -13,6 +13,8 @@ body.theme-vercel {
   --bg-hover: #fafafa;
   --bg-active: #f0f0f0;
   --bg-muted: #fafafa;
+  --bg-code: #171717;
+  --text-code: #fafafa;
 
   --text-primary: #171717;
   --text-secondary: #4d4d4d;
@@ -27,6 +29,12 @@ body.theme-vercel {
   --color-warning: #ef9100;
   --color-error: #ff5b4f;
   --color-info: #0072f5;
+  --color-success-subtle: rgba(39, 166, 68, 0.08);
+  --color-warning-subtle: rgba(239, 145, 0, 0.08);
+  --color-error-subtle: rgba(255, 91, 79, 0.08);
+  --color-info-subtle: rgba(0, 114, 245, 0.08);
+  --color-purple: #7c3aed;
+  --color-purple-subtle: rgba(124, 58, 237, 0.08);
 
   --border-light: #ebebeb;
   --border-medium: #d4d4d4;
