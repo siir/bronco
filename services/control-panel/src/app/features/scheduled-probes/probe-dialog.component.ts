@@ -1,11 +1,6 @@
 import { Component, inject, OnInit, input, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatSelectModule } from '@angular/material/select';
-import { MatButtonModule } from '@angular/material/button';
-import { MatSlideToggleModule } from '@angular/material/slide-toggle';
-import { MatCheckboxModule } from '@angular/material/checkbox';
+import { FormFieldComponent, TextInputComponent, TextareaComponent, SelectComponent, ToggleSwitchComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 import { ScheduledProbeService, ScheduledProbe, CreateProbeRequest, UpdateProbeRequest } from '../../core/services/scheduled-probe.service';
 import { IntegrationService, ClientIntegration } from '../../core/services/integration.service';
 import { Client } from '../../core/services/client.service';
@@ -53,222 +48,152 @@ const COMMON_TIMEZONES = [
 @Component({
   selector: 'app-probe-dialog-content',
   standalone: true,
-  imports: [FormsModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatButtonModule, MatSlideToggleModule, MatCheckboxModule],
+  imports: [FormsModule, FormFieldComponent, TextInputComponent, TextareaComponent, SelectComponent, ToggleSwitchComponent, BroncoButtonComponent],
   template: `
     <div class="dialog-content">
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Name</mat-label>
-        <input matInput [(ngModel)]="name" required placeholder="e.g. Daily Blocking Check">
-      </mat-form-field>
+      <div class="form-grid">
+        <app-form-field label="Name">
+          <app-text-input [value]="name" (valueChange)="name = $event" placeholder="e.g. Daily Blocking Check"></app-text-input>
+        </app-form-field>
 
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Description</mat-label>
-        <textarea matInput [(ngModel)]="description" rows="2" placeholder="Optional description"></textarea>
-      </mat-form-field>
+        <app-form-field label="Description">
+          <app-textarea [value]="description" (valueChange)="description = $event" placeholder="Optional description"></app-textarea>
+        </app-form-field>
 
-      @if (!isEdit) {
-        <mat-form-field appearance="outline" class="full-width">
-          <mat-label>Client</mat-label>
-          <mat-select [(ngModel)]="clientId" (selectionChange)="onClientChange()" required>
-            @for (c of clientsList; track c.id) {
-              <mat-option [value]="c.id">{{ c.name }} ({{ c.shortCode }})</mat-option>
-            }
-          </mat-select>
-        </mat-form-field>
+        @if (!isEdit) {
+          <app-form-field label="Client">
+            <app-select [value]="clientId" [options]="clientSelectOptions" (valueChange)="clientId = $event; onClientChange()"></app-select>
+          </app-form-field>
 
-        <mat-form-field appearance="outline" class="full-width">
-          <mat-label>Tool Source</mat-label>
-          <mat-select [(ngModel)]="toolSource" (selectionChange)="onToolSourceChange()">
-            <mat-option value="mcp">MCP Integration</mat-option>
-            <mat-option value="builtin">Built-in</mat-option>
-          </mat-select>
-        </mat-form-field>
+          <app-form-field label="Tool Source">
+            <app-select [value]="toolSource" [options]="toolSourceOptions" (valueChange)="toolSource = $event === 'builtin' ? 'builtin' : 'mcp'; onToolSourceChange()"></app-select>
+          </app-form-field>
 
-        @if (toolSource === 'mcp') {
-          <mat-form-field appearance="outline" class="full-width">
-            <mat-label>Integration</mat-label>
-            <mat-select [(ngModel)]="integrationId" (selectionChange)="onIntegrationChange()" required [disabled]="!clientId">
-              @for (integ of filteredIntegrations; track integ.id) {
-                <mat-option [value]="integ.id">{{ integ.label }} ({{ integ.type }})</mat-option>
-              }
-            </mat-select>
-          </mat-form-field>
+          @if (toolSource === 'mcp') {
+            <app-form-field label="Integration">
+              <app-select [value]="integrationId" [options]="integrationSelectOptions" [disabled]="!clientId" (valueChange)="integrationId = $event; onIntegrationChange()"></app-select>
+            </app-form-field>
+          }
         }
 
-      }
+        <app-form-field label="Tool">
+          <app-select [value]="toolName" [options]="toolSelectOptions" [disabled]="toolSource === 'mcp' ? !integrationId : false" (valueChange)="toolName = $event; onToolChange()"></app-select>
+        </app-form-field>
 
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Tool</mat-label>
-        <mat-select [(ngModel)]="toolName" (selectionChange)="onToolChange()" required [disabled]="toolSource === 'mcp' ? !integrationId : false">
-          @for (t of availableTools; track t.name) {
-            <mat-option [value]="t.name">{{ t.name }} — {{ t.description }}</mat-option>
-          }
-        </mat-select>
-      </mat-form-field>
-
-      @if (toolParamFields.length > 0) {
-        <div class="params-section">
-          <h4>Tool Parameters</h4>
-          @for (field of toolParamFields; track field.name) {
-            <mat-form-field appearance="outline" class="full-width">
-              <mat-label>{{ field.name }}</mat-label>
-              @if (field.type === 'number') {
-                <input matInput type="number" [(ngModel)]="toolParams[field.name]" [placeholder]="field.description">
-              } @else {
-                <input matInput [(ngModel)]="toolParams[field.name]" [placeholder]="field.description">
-              }
-              @if (field.description) {
-                <mat-hint>{{ field.description }}</mat-hint>
-              }
-            </mat-form-field>
-          }
-        </div>
-      }
-
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Schedule Type</mat-label>
-        <mat-select [(ngModel)]="scheduleType" (selectionChange)="onScheduleTypeChange()">
-          <mat-option value="time">Time-based (recommended)</mat-option>
-          <mat-option value="cron">Custom cron</mat-option>
-        </mat-select>
-      </mat-form-field>
-
-      @if (scheduleType === 'time') {
-        <div class="time-row">
-          <mat-form-field appearance="outline" class="time-field">
-            <mat-label>Hour</mat-label>
-            <mat-select [(ngModel)]="scheduleHour">
-              @for (h of hourOptions; track h.value) {
-                <mat-option [value]="h.value">{{ h.label }}</mat-option>
-              }
-            </mat-select>
-          </mat-form-field>
-          <mat-form-field appearance="outline" class="time-field">
-            <mat-label>Minute</mat-label>
-            <mat-select [(ngModel)]="scheduleMinute">
-              @for (m of minuteOptions; track m.value) {
-                <mat-option [value]="m.value">{{ m.label }}</mat-option>
-              }
-            </mat-select>
-          </mat-form-field>
-        </div>
-
-        <div class="days-section">
-          <label class="days-label">Days</label>
-          <div class="days-row">
-            @for (day of dayNames; track $index) {
-              <mat-checkbox
-                [checked]="selectedDays[$index]"
-                (change)="selectedDays[$index] = $event.checked"
-                color="primary">
-                {{ day }}
-              </mat-checkbox>
+        @if (toolParamFields.length > 0) {
+          <div class="params-section">
+            <h4>Tool Parameters</h4>
+            @for (field of toolParamFields; track field.name) {
+              <app-form-field [label]="field.name" [hint]="field.description">
+                <app-text-input [value]="getToolParam(field.name)" [type]="field.type === 'number' ? 'number' : 'text'" [placeholder]="field.description" (valueChange)="setToolParam(field.name, $event, field.type)"></app-text-input>
+              </app-form-field>
             }
           </div>
-          <span class="days-hint">Leave all unchecked for every day</span>
-        </div>
+        }
 
-        <mat-form-field appearance="outline" class="full-width">
-          <mat-label>Timezone</mat-label>
-          <mat-select [(ngModel)]="scheduleTimezone">
-            @for (tz of commonTimezones; track tz.value) {
-              <mat-option [value]="tz.value">{{ tz.label }}</mat-option>
-            }
-          </mat-select>
-        </mat-form-field>
+        <app-form-field label="Schedule Type">
+          <app-select [value]="scheduleType" [options]="scheduleTypeOptions" (valueChange)="scheduleType = $event === 'cron' ? 'cron' : 'time'; onScheduleTypeChange()"></app-select>
+        </app-form-field>
 
-        <div class="utc-hint">Next run: {{ computedUtcTime }} UTC</div>
-      }
-
-      @if (scheduleType === 'cron') {
-        <mat-form-field appearance="outline" class="full-width">
-          <mat-label>Schedule Preset</mat-label>
-          <mat-select [(ngModel)]="cronPreset" (selectionChange)="onPresetChange()">
-            @for (p of cronPresets; track p.value) {
-              <mat-option [value]="p.value">{{ p.label }}</mat-option>
-            }
-          </mat-select>
-        </mat-form-field>
-
-        <mat-form-field appearance="outline" class="full-width">
-          <mat-label>Cron Expression</mat-label>
-          <input matInput [(ngModel)]="cronExpression" required placeholder="0 * * * *">
-          <mat-hint>{{ cronHumanReadable }}</mat-hint>
-        </mat-form-field>
-      }
-
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Action</mat-label>
-        <mat-select [(ngModel)]="action">
-          @for (a of actions; track a.value) {
-            <mat-option [value]="a.value">{{ a.label }}</mat-option>
-          }
-        </mat-select>
-      </mat-form-field>
-
-      @if (action === 'create_ticket' || action === 'silent') {
-        <mat-form-field appearance="outline" class="full-width">
-          <mat-label>Operator Email</mat-label>
-          <input matInput [(ngModel)]="operatorEmail" type="email" placeholder="operator@example.com">
-          <mat-hint>Operator who will receive ticket updates and findings</mat-hint>
-        </mat-form-field>
-      }
-
-      @if (action === 'email_direct') {
-        <mat-form-field appearance="outline" class="full-width">
-          <mat-label>Email To</mat-label>
-          <input matInput [(ngModel)]="emailTo" type="email" placeholder="recipient@example.com">
-        </mat-form-field>
-        <mat-form-field appearance="outline" class="full-width">
-          <mat-label>Email Subject</mat-label>
-          <input matInput [(ngModel)]="emailSubject" placeholder="Optional custom subject">
-        </mat-form-field>
-      }
-
-      @if (action !== 'email_direct') {
-        <mat-form-field appearance="outline" class="full-width">
-          <mat-label>Category</mat-label>
-          <mat-select [(ngModel)]="category">
-            <mat-option [value]="null">None</mat-option>
-            @for (cat of categoriesList; track cat.value) {
-              <mat-option [value]="cat.value">{{ cat.label }}</mat-option>
-            }
-          </mat-select>
-          <mat-hint>Category assigned to tickets created by this probe.</mat-hint>
-        </mat-form-field>
-      }
-
-      @if (isEdit) {
-        <div class="retention-section">
-          <h4>Retention Settings</h4>
-          <div class="retention-row">
-            <mat-form-field appearance="outline" class="retention-field">
-              <mat-label>Retention Days</mat-label>
-              <input matInput type="number" [(ngModel)]="retentionDays" min="1" max="365">
-            </mat-form-field>
-            <mat-form-field appearance="outline" class="retention-field">
-              <mat-label>Max Runs</mat-label>
-              <input matInput type="number" [(ngModel)]="retentionMaxRuns" min="5" max="10000">
-            </mat-form-field>
+        @if (scheduleType === 'time') {
+          <div class="time-row">
+            <app-form-field label="Hour">
+              <app-select [value]="scheduleHour.toString()" [options]="hourSelectOptions" (valueChange)="scheduleHour = +$event"></app-select>
+            </app-form-field>
+            <app-form-field label="Minute">
+              <app-select [value]="scheduleMinute.toString()" [options]="minuteSelectOptions" (valueChange)="scheduleMinute = +$event"></app-select>
+            </app-form-field>
           </div>
-        </div>
-      }
+
+          <div class="days-section">
+            <label class="days-label">Days</label>
+            <div class="days-row">
+              @for (day of dayNames; track $index) {
+                <label class="checkbox-item">
+                  <input type="checkbox" class="form-checkbox" [(ngModel)]="selectedDays[$index]">
+                  {{ day }}
+                </label>
+              }
+            </div>
+            <span class="days-hint">Leave all unchecked for every day</span>
+          </div>
+
+          <app-form-field label="Timezone">
+            <app-select [value]="scheduleTimezone" [options]="commonTimezones" (valueChange)="scheduleTimezone = $event"></app-select>
+          </app-form-field>
+
+          <div class="utc-hint">Next run: {{ computedUtcTime }} UTC</div>
+        }
+
+        @if (scheduleType === 'cron') {
+          <app-form-field label="Schedule Preset">
+            <app-select [value]="cronPreset" [options]="cronPresets" placeholder="" (valueChange)="cronPreset = $event; onPresetChange()"></app-select>
+          </app-form-field>
+
+          <app-form-field label="Cron Expression" [hint]="cronHumanReadable">
+            <app-text-input [value]="cronExpression" (valueChange)="cronExpression = $event" placeholder="0 * * * *"></app-text-input>
+          </app-form-field>
+        }
+
+        <app-form-field label="Action">
+          <app-select [value]="action" [options]="actions" (valueChange)="action = $event"></app-select>
+        </app-form-field>
+
+        @if (action === 'create_ticket' || action === 'silent') {
+          <app-form-field label="Operator Email" hint="Operator who will receive ticket updates and findings">
+            <app-text-input [value]="operatorEmail" (valueChange)="operatorEmail = $event" type="email" placeholder="operator@example.com"></app-text-input>
+          </app-form-field>
+        }
+
+        @if (action === 'email_direct') {
+          <app-form-field label="Email To">
+            <app-text-input [value]="emailTo" (valueChange)="emailTo = $event" type="email" placeholder="recipient@example.com"></app-text-input>
+          </app-form-field>
+          <app-form-field label="Email Subject">
+            <app-text-input [value]="emailSubject" (valueChange)="emailSubject = $event" placeholder="Optional custom subject"></app-text-input>
+          </app-form-field>
+        }
+
+        @if (action !== 'email_direct') {
+          <app-form-field label="Category" hint="Category assigned to tickets created by this probe.">
+            <app-select [value]="category ?? ''" [options]="categorySelectOptions" placeholder="" (valueChange)="category = $event || null"></app-select>
+          </app-form-field>
+        }
+
+        @if (isEdit) {
+          <div class="retention-section">
+            <h4>Retention Settings</h4>
+            <div class="retention-row">
+              <div class="retention-field">
+                <app-form-field label="Retention Days">
+                  <app-text-input type="number" [value]="retentionDays.toString()" (valueChange)="retentionDays = +$event"></app-text-input>
+                </app-form-field>
+              </div>
+              <div class="retention-field">
+                <app-form-field label="Max Runs">
+                  <app-text-input type="number" [value]="retentionMaxRuns.toString()" (valueChange)="retentionMaxRuns = +$event"></app-text-input>
+                </app-form-field>
+              </div>
+            </div>
+          </div>
+        }
+      </div>
     </div>
 
     <div class="dialog-actions" dialogFooter>
-      <button mat-button (click)="cancelled.emit()">Cancel</button>
-      <button mat-raised-button color="primary" (click)="save()" [disabled]="!canSave() || saving">
+      <app-bronco-button variant="ghost" (click)="cancelled.emit()">Cancel</app-bronco-button>
+      <app-bronco-button variant="primary" (click)="save()" [disabled]="!canSave() || saving">
         {{ saving ? 'Saving...' : (isEdit ? 'Update' : 'Create') }}
-      </button>
+      </app-bronco-button>
     </div>
   `,
   styles: [`
     .dialog-content { min-width: 450px; }
-    .full-width { width: 100%; margin-bottom: 8px; }
+    .form-grid { display: flex; flex-direction: column; gap: 12px; }
     .params-section { margin-bottom: 8px; }
     .params-section h4 { margin: 0 0 8px; font-size: 14px; color: #555; }
     .time-row { display: flex; gap: 12px; }
-    .time-field { flex: 1; }
+    .time-row app-form-field { flex: 1; }
     .days-section { margin-bottom: 16px; }
     .days-label { font-size: 12px; color: rgba(0,0,0,.6); display: block; margin-bottom: 4px; }
     .days-row { display: flex; gap: 4px; flex-wrap: wrap; }
@@ -278,7 +203,10 @@ const COMMON_TIMEZONES = [
     .retention-section h4 { margin: 0 0 8px; font-size: 14px; color: #555; }
     .retention-row { display: flex; gap: 12px; }
     .retention-field { flex: 1; }
+    .retention-field app-form-field { flex: 1; }
     .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+    .checkbox-item { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+    .form-checkbox { width: 15px; height: 15px; cursor: pointer; accent-color: var(--accent); }
   `],
 })
 export class ProbeDialogComponent implements OnInit {
@@ -335,12 +263,54 @@ export class ProbeDialogComponent implements OnInit {
   clientsList: Client[] = [];
   categoriesList: ReadonlyArray<{ readonly value: string; readonly label: string }> = [];
 
+  toolSourceOptions = [
+    { value: 'mcp', label: 'MCP Integration' },
+    { value: 'builtin', label: 'Built-in' },
+  ];
+
+  scheduleTypeOptions = [
+    { value: 'time', label: 'Time-based (recommended)' },
+    { value: 'cron', label: 'Custom cron' },
+  ];
+
+  get clientSelectOptions() {
+    return this.clientsList.map((c) => ({ value: c.id, label: c.name + ' (' + c.shortCode + ')' }));
+  }
+
+  get integrationSelectOptions() {
+    return this.filteredIntegrations.map((i) => ({ value: i.id, label: i.label + ' (' + i.type + ')' }));
+  }
+
+  get toolSelectOptions() {
+    return this.availableTools.map((t) => ({ value: t.name, label: t.name + ' — ' + t.description }));
+  }
+
+  get hourSelectOptions() {
+    return this.hourOptions.map((h) => ({ value: h.value.toString(), label: h.label }));
+  }
+
+  get minuteSelectOptions() {
+    return this.minuteOptions.map((m) => ({ value: m.value.toString(), label: m.label }));
+  }
+
+  get categorySelectOptions() {
+    return [{ value: '', label: 'None' }, ...this.categoriesList.map((c) => ({ value: c.value, label: c.label }))];
+  }
+
   get cronHumanReadable(): string {
     return describeCron(this.cronExpression);
   }
 
   get computedUtcTime(): string {
     return computeUtcPreview(this.scheduleHour, this.scheduleMinute, this.selectedDays, this.scheduleTimezone);
+  }
+
+  getToolParam(name: string): string {
+    return String(this.toolParams[name] ?? '');
+  }
+
+  setToolParam(name: string, val: string, type: string): void {
+    this.toolParams = { ...this.toolParams, [name]: type === 'number' ? +val : val };
   }
 
   ngOnInit(): void {

@@ -1,59 +1,73 @@
 import { Component, inject, input, output, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatButtonModule } from '@angular/material/button';
-import { MatCheckboxModule } from '@angular/material/checkbox';
 import { ClientEnvironmentService, type ClientEnvironment } from '../../core/services/client-environment.service';
 import { ToastService } from '../../core/services/toast.service';
+import { FormFieldComponent, TextInputComponent, TextareaComponent, ToggleSwitchComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({
   selector: 'app-client-environment-dialog-content',
   standalone: true,
-  imports: [FormsModule, MatFormFieldModule, MatInputModule, MatButtonModule, MatCheckboxModule],
+  imports: [FormsModule, FormFieldComponent, TextInputComponent, TextareaComponent, ToggleSwitchComponent, BroncoButtonComponent],
   template: `
-    <mat-form-field appearance="outline" class="full-width">
-      <mat-label>Name</mat-label>
-      <input matInput [(ngModel)]="name" placeholder="e.g. Production">
-    </mat-form-field>
+    <div class="form-grid">
+      <app-form-field label="Name">
+        <app-text-input
+          [value]="name"
+          placeholder="e.g. Production"
+          (valueChange)="name = $event" />
+      </app-form-field>
 
-    <mat-form-field appearance="outline" class="full-width">
-      <mat-label>Tag</mat-label>
-      <input matInput [(ngModel)]="tag" placeholder="e.g. production">
-      <mat-hint>Lowercase alphanumeric with hyphens only</mat-hint>
-    </mat-form-field>
+      <app-form-field label="Tag" hint="Lowercase alphanumeric with hyphens only">
+        <app-text-input
+          [value]="tag"
+          placeholder="e.g. production"
+          (valueChange)="tag = $event" />
+      </app-form-field>
 
-    <mat-form-field appearance="outline" class="full-width">
-      <mat-label>Description</mat-label>
-      <textarea matInput [(ngModel)]="description" rows="2" placeholder="Brief description of this environment"></textarea>
-    </mat-form-field>
+      <app-form-field label="Description">
+        <app-textarea
+          [value]="description"
+          [rows]="2"
+          placeholder="Brief description of this environment"
+          (valueChange)="description = $event" />
+      </app-form-field>
 
-    <mat-form-field appearance="outline" class="full-width">
-      <mat-label>Operational Instructions (Markdown)</mat-label>
-      <textarea matInput [(ngModel)]="operationalInstructions" rows="8"
-        placeholder="Instructions injected into AI prompts when analyzing tickets scoped to this environment."></textarea>
-    </mat-form-field>
+      <app-form-field label="Operational Instructions (Markdown)">
+        <app-textarea
+          [value]="operationalInstructions"
+          [rows]="8"
+          placeholder="Instructions injected into AI prompts when analyzing tickets scoped to this environment."
+          (valueChange)="operationalInstructions = $event" />
+      </app-form-field>
 
-    <div class="row">
-      <mat-form-field appearance="outline" class="half-width">
-        <mat-label>Sort Order</mat-label>
-        <input matInput type="number" [(ngModel)]="sortOrder">
-      </mat-form-field>
-      <mat-checkbox [(ngModel)]="isDefault">Default environment</mat-checkbox>
+      <div class="row">
+        <app-form-field label="Sort Order">
+          <app-text-input
+            [value]="sortOrder.toString()"
+            type="number"
+            (valueChange)="sortOrder = +$event" />
+        </app-form-field>
+        <div class="toggle-field">
+          <app-toggle-switch
+            [checked]="isDefault"
+            label="Default environment"
+            (checkedChange)="isDefault = $event" />
+        </div>
+      </div>
     </div>
 
     <div class="dialog-actions" dialogFooter>
-      <button mat-button (click)="cancelled.emit()">Cancel</button>
-      <button mat-raised-button color="primary" (click)="save()" [disabled]="!name.trim() || !tag.trim() || saving">
+      <app-bronco-button variant="ghost" (click)="cancelled.emit()">Cancel</app-bronco-button>
+      <app-bronco-button variant="primary" [disabled]="!name.trim() || !tag.trim() || saving" (click)="save()">
         {{ saving ? 'Saving...' : (environment() ? 'Update' : 'Create') }}
-      </button>
+      </app-bronco-button>
     </div>
   `,
   styles: [`
-    .full-width { width: 100%; }
-    .half-width { width: 50%; }
-    .row { display: flex; align-items: center; gap: 16px; }
-    :host { display: flex; flex-direction: column; min-width: 500px; }
+    .form-grid { display: flex; flex-direction: column; gap: 12px; }
+    .row { display: flex; align-items: flex-end; gap: 16px; }
+    .row app-form-field { flex: 1; }
+    .toggle-field { display: flex; align-items: center; padding-bottom: 8px; }
     .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
   `],
 })

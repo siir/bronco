@@ -1,79 +1,97 @@
 import { Component, inject, ViewChild, ElementRef, input, output, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatSelectModule } from '@angular/material/select';
-import { MatButtonModule } from '@angular/material/button';
 import { PromptService, PromptOverride, PromptKeyword } from '../../core/services/prompt.service';
 import { ClientService, Client } from '../../core/services/client.service';
 import { ToastService } from '../../core/services/toast.service';
+import { FormFieldComponent, SelectComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({
   selector: 'app-override-dialog-content',
   standalone: true,
-  imports: [FormsModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatButtonModule],
+  imports: [FormsModule, FormFieldComponent, SelectComponent, BroncoButtonComponent],
   template: `
-    <mat-form-field class="full-width">
-      <mat-label>Scope</mat-label>
-      <mat-select [(ngModel)]="scope" [disabled]="isEdit" (ngModelChange)="onScopeChange()">
-        <mat-option value="APP_WIDE">APP_WIDE</mat-option>
-        <mat-option value="CLIENT">CLIENT</mat-option>
-      </mat-select>
-    </mat-form-field>
+    <div class="form-grid">
+      <app-form-field label="Scope">
+        <app-select
+          [value]="scope"
+          [options]="scopeOptions"
+          [disabled]="isEdit"
+          (valueChange)="scope = $event; onScopeChange()" />
+      </app-form-field>
 
-    @if (scope === 'CLIENT') {
-      <mat-form-field class="full-width">
-        <mat-label>Client</mat-label>
-        <mat-select [(ngModel)]="clientId" [disabled]="isEdit" required>
-          @for (c of clients; track c.id) {
-            <mat-option [value]="c.id">{{ c.name }} ({{ c.shortCode }})</mat-option>
-          }
-        </mat-select>
-      </mat-form-field>
-    }
-
-    <mat-form-field class="full-width">
-      <mat-label>Position</mat-label>
-      <mat-select [(ngModel)]="position">
-        <mat-option value="PREPEND">PREPEND</mat-option>
-        <mat-option value="APPEND">APPEND</mat-option>
-      </mat-select>
-    </mat-form-field>
-
-    <div class="textarea-wrapper">
-      <mat-form-field class="full-width">
-        <mat-label>Content</mat-label>
-        <textarea matInput [(ngModel)]="content" rows="8" required
-          #contentTextarea
-          (input)="onContentInput($event)"
-          (keydown)="onContentKeydown($event)"></textarea>
-      </mat-form-field>
-      @if (showKeywordPopup) {
-        <div class="keyword-popup">
-          @for (kw of filteredKeywords; track kw.id) {
-            <div class="keyword-row" (mousedown)="insertKeyword(kw, $event)">
-              <span class="keyword-token">{{ kw.token }}</span>
-              <span class="keyword-label">{{ kw.label }}</span>
-              <span class="keyword-category">{{ kw.category }}</span>
-            </div>
-          }
-          @if (filteredKeywords.length === 0) {
-            <div class="keyword-row keyword-empty">No matching keywords</div>
-          }
-        </div>
+      @if (scope === 'CLIENT') {
+        <app-form-field label="Client">
+          <app-select
+            [value]="clientId"
+            [options]="clientOptions"
+            [disabled]="isEdit"
+            placeholder="Select client..."
+            (valueChange)="clientId = $event" />
+        </app-form-field>
       }
+
+      <app-form-field label="Position">
+        <app-select
+          [value]="position"
+          [options]="positionOptions"
+          (valueChange)="position = $event" />
+      </app-form-field>
+
+      <div class="textarea-wrapper">
+        <app-form-field label="Content">
+          <textarea
+            #contentTextarea
+            class="content-textarea"
+            [(ngModel)]="content"
+            rows="8"
+            placeholder="Enter prompt override content..."
+            (input)="onContentInput($event)"
+            (keydown)="onContentKeydown($event)"></textarea>
+        </app-form-field>
+        @if (showKeywordPopup) {
+          <div class="keyword-popup">
+            @for (kw of filteredKeywords; track kw.id) {
+              <div class="keyword-row" (mousedown)="insertKeyword(kw, $event)">
+                <span class="keyword-token">{{ kw.token }}</span>
+                <span class="keyword-label">{{ kw.label }}</span>
+                <span class="keyword-category">{{ kw.category }}</span>
+              </div>
+            }
+            @if (filteredKeywords.length === 0) {
+              <div class="keyword-row keyword-empty">No matching keywords</div>
+            }
+          </div>
+        }
+      </div>
     </div>
 
     <div class="dialog-actions" dialogFooter>
-      <button mat-button (click)="cancelled.emit()">Cancel</button>
-      <button mat-raised-button color="primary" (click)="save()" [disabled]="!canSave()">
+      <app-bronco-button variant="ghost" (click)="cancelled.emit()">Cancel</app-bronco-button>
+      <app-bronco-button variant="primary" [disabled]="!canSave()" (click)="save()">
         {{ isEdit ? 'Update' : 'Create' }}
-      </button>
+      </app-bronco-button>
     </div>
   `,
   styles: [`
-    .full-width { width: 100%; margin-bottom: 8px; }
+    .form-grid { display: flex; flex-direction: column; gap: 12px; }
     .textarea-wrapper { position: relative; }
+    .content-textarea {
+      width: 100%;
+      box-sizing: border-box;
+      background: var(--bg-card);
+      border: 1px solid var(--border-medium);
+      border-radius: var(--radius-md);
+      padding: 8px 12px;
+      font-family: var(--font-primary);
+      font-size: 14px;
+      color: var(--text-primary);
+      resize: vertical;
+      outline: none;
+    }
+    .content-textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--focus-ring, rgba(0, 113, 227, 0.15));
+    }
     .keyword-popup {
       position: absolute;
       left: 0;
@@ -81,8 +99,8 @@ import { ToastService } from '../../core/services/toast.service';
       z-index: 1000;
       max-height: 210px;
       overflow-y: auto;
-      background: var(--mat-sys-surface-container, #fff);
-      border: 1px solid var(--mat-sys-outline-variant, #ccc);
+      background: var(--bg-card, #fff);
+      border: 1px solid var(--border-medium, #ccc);
       border-radius: 4px;
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     }
@@ -94,30 +112,17 @@ import { ToastService } from '../../core/services/toast.service';
       cursor: pointer;
       font-size: 13px;
     }
-    .keyword-row:hover {
-      background: var(--mat-sys-surface-container-high, #f0f0f0);
-    }
-    .keyword-token {
-      font-family: monospace;
-      font-weight: 500;
-      color: var(--mat-sys-primary, #1976d2);
-    }
-    .keyword-label {
-      flex: 1;
-      color: var(--mat-sys-on-surface-variant, #666);
-    }
+    .keyword-row:hover { background: var(--bg-hover, #f0f0f0); }
+    .keyword-token { font-family: monospace; font-weight: 500; color: var(--accent, #1976d2); }
+    .keyword-label { flex: 1; color: var(--text-secondary, #666); }
     .keyword-category {
       font-size: 11px;
       padding: 1px 6px;
       border-radius: 8px;
-      background: var(--mat-sys-secondary-container, #e0e0e0);
-      color: var(--mat-sys-on-secondary-container, #444);
+      background: var(--bg-hover, #e0e0e0);
+      color: var(--text-secondary, #444);
     }
-    .keyword-empty {
-      color: var(--mat-sys-on-surface-variant, #999);
-      font-style: italic;
-      cursor: default;
-    }
+    .keyword-empty { color: var(--text-tertiary, #999); font-style: italic; cursor: default; }
     .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
   `],
 })
@@ -134,6 +139,16 @@ export class OverrideDialogComponent implements OnInit {
 
   @ViewChild('contentTextarea') contentTextareaRef!: ElementRef<HTMLTextAreaElement>;
 
+  scopeOptions = [
+    { value: 'APP_WIDE', label: 'APP_WIDE' },
+    { value: 'CLIENT', label: 'CLIENT' },
+  ];
+
+  positionOptions = [
+    { value: 'PREPEND', label: 'PREPEND' },
+    { value: 'APPEND', label: 'APPEND' },
+  ];
+
   isEdit = false;
   scope = 'APP_WIDE';
   clientId = '';
@@ -145,6 +160,10 @@ export class OverrideDialogComponent implements OnInit {
   filteredKeywords: PromptKeyword[] = [];
   showKeywordPopup = false;
   keywordSearchStart = -1;
+
+  get clientOptions(): Array<{ value: string; label: string }> {
+    return this.clients.map(c => ({ value: c.id, label: `${c.name} (${c.shortCode})` }));
+  }
 
   ngOnInit(): void {
     const o = this.override();
