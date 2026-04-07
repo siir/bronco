@@ -1,4 +1,4 @@
-import { Component, input, output } from '@angular/core';
+import { Component, ElementRef, effect, input, output, viewChild } from '@angular/core';
 
 @Component({
   selector: 'app-dialog',
@@ -6,18 +6,22 @@ import { Component, input, output } from '@angular/core';
   template: `
     @if (open()) {
       <div class="dialog-backdrop" (click)="close()">
-        <div class="dialog-panel" role="dialog" aria-modal="true" [attr.aria-label]="title() || 'Dialog'" [style.max-width]="maxWidth()" (click)="$event.stopPropagation()">
+        <div
+          #panel
+          class="dialog-panel"
+          role="dialog"
+          aria-modal="true"
+          [attr.aria-label]="title() || 'Dialog'"
+          [style.max-width]="maxWidth()"
+          (click)="$event.stopPropagation()">
           <div class="dialog-header">
             @if (title()) {
               <h2 class="dialog-title">{{ title() }}</h2>
             }
-            <button class="dialog-close" aria-label="Close dialog" (click)="close()">&times;</button>
+            <button type="button" class="dialog-close" aria-label="Close dialog" (click)="close()">&times;</button>
           </div>
           <div class="dialog-body">
             <ng-content />
-          </div>
-          <div class="dialog-footer">
-            <ng-content select="[dialogFooter]" />
           </div>
         </div>
       </div>
@@ -84,18 +88,6 @@ import { Component, input, output } from '@angular/core';
       padding: 20px;
     }
 
-    .dialog-footer {
-      padding: 12px 20px;
-      border-top: 1px solid var(--border-light);
-      display: flex;
-      justify-content: flex-end;
-      gap: 8px;
-    }
-
-    .dialog-footer:empty {
-      display: none;
-    }
-
     @keyframes fadeIn {
       from { opacity: 0; }
       to { opacity: 1; }
@@ -113,6 +105,50 @@ export class DialogComponent {
   maxWidth = input<string>('480px');
 
   openChange = output<boolean>();
+
+  private panelRef = viewChild<ElementRef<HTMLElement>>('panel');
+  private previouslyFocused: HTMLElement | null = null;
+
+  constructor() {
+    // Manage Escape key + focus restore while the dialog is open.
+    effect((onCleanup) => {
+      if (!this.open()) return;
+
+      this.previouslyFocused = (typeof document !== 'undefined'
+        ? (document.activeElement as HTMLElement | null)
+        : null);
+
+      const onKeyDown = (event: KeyboardEvent) => {
+        if (event.key === 'Escape') {
+          event.stopPropagation();
+          this.close();
+        }
+      };
+      document.addEventListener('keydown', onKeyDown);
+
+      onCleanup(() => {
+        document.removeEventListener('keydown', onKeyDown);
+        // Restore focus to whatever was focused before the dialog opened.
+        if (this.previouslyFocused && typeof this.previouslyFocused.focus === 'function') {
+          this.previouslyFocused.focus();
+        }
+        this.previouslyFocused = null;
+      });
+    });
+
+    // Auto-focus the first focusable element when the dialog panel mounts.
+    effect(() => {
+      if (!this.open()) return;
+      const panel = this.panelRef()?.nativeElement;
+      if (!panel) return;
+      queueMicrotask(() => {
+        const focusable = panel.querySelector<HTMLElement>(
+          'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        );
+        focusable?.focus();
+      });
+    });
+  }
 
   close(): void {
     this.openChange.emit(false);

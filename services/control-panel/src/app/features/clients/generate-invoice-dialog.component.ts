@@ -53,6 +53,7 @@ export class GenerateInvoiceDialogComponent {
       finalize: this.finalize,
     }).subscribe({
       next: () => {
+        this.generating = false;
         this.toast.info('Invoice generated');
         this.generated.emit(true);
       },

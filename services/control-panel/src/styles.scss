@@ -27,6 +27,27 @@ html, body {
   flex: 1 1 auto;
 }
 
+/*
+ * app-dialog footer styling.
+ *
+ * The DialogComponent renders a single body slot via <ng-content />. Action
+ * buttons live inside *-dialog-content components (one level deeper than
+ * <app-dialog>'s direct children), so a dedicated footer projection slot
+ * cannot reach them via Angular's content projection. Instead we mark those
+ * action containers with the `dialogFooter` attribute and style them globally
+ * to mimic a real footer (top border, padding extending to the body edges).
+ * Global styles work here because they bypass component view encapsulation
+ * and reach into projected content.
+ */
+app-dialog .dialog-body [dialogFooter] {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 16px -20px -20px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border-light);
+}
+
 
 @media (max-width: 767px) {
   .mat-mdc-table {
