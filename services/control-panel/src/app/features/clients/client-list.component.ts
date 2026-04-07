@@ -1,18 +1,17 @@
 import { Component, inject, OnInit, signal } from '@angular/core';
-import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { ClientService, Client } from '../../core/services/client.service.js';
 import { ClientDialogComponent } from './client-dialog.component.js';
 import { DetailPanelService } from '../../core/services/detail-panel.service.js';
-import { DataTableComponent, DataTableColumnComponent, BroncoButtonComponent } from '../../shared/components/index.js';
+import { DataTableComponent, DataTableColumnComponent, BroncoButtonComponent, DialogComponent } from '../../shared/components/index.js';
 
 @Component({
   standalone: true,
-  imports: [MatDialogModule, DataTableComponent, DataTableColumnComponent, BroncoButtonComponent],
+  imports: [DataTableComponent, DataTableColumnComponent, BroncoButtonComponent, DialogComponent, ClientDialogComponent],
   template: `
     <div class="client-list-page">
       <div class="page-header">
         <h1 class="page-title">Clients</h1>
-        <app-bronco-button variant="primary" (click)="createClient()">+ New Client</app-bronco-button>
+        <app-bronco-button variant="primary" (click)="showClientDialog.set(true)">+ New Client</app-bronco-button>
       </div>
 
       <app-data-table
@@ -59,6 +58,14 @@ import { DataTableComponent, DataTableColumnComponent, BroncoButtonComponent } f
 
       </app-data-table>
     </div>
+
+    @if (showClientDialog()) {
+      <app-dialog [open]="true" title="New Client" maxWidth="500px" (openChange)="showClientDialog.set(false)">
+        <app-client-dialog-content
+          (created)="onClientCreated()"
+          (cancelled)="showClientDialog.set(false)" />
+      </app-dialog>
+    }
   `,
   styles: [`
     .client-list-page { max-width: 1200px; }
@@ -68,10 +75,10 @@ import { DataTableComponent, DataTableColumnComponent, BroncoButtonComponent } f
 })
 export class ClientListComponent implements OnInit {
   private clientService = inject(ClientService);
-  private dialog = inject(MatDialog);
   private detailPanel = inject(DetailPanelService);
 
   clients = signal<Client[]>([]);
+  showClientDialog = signal(false);
   trackById = (item: Client) => item.id;
 
   ngOnInit(): void {
@@ -86,10 +93,8 @@ export class ClientListComponent implements OnInit {
     this.detailPanel.open('client', client.id);
   }
 
-  createClient(): void {
-    const dialogRef = this.dialog.open(ClientDialogComponent, { width: '500px' });
-    dialogRef.afterClosed().subscribe(result => {
-      if (result) this.load();
-    });
+  onClientCreated(): void {
+    this.showClientDialog.set(false);
+    this.load();
   }
 }

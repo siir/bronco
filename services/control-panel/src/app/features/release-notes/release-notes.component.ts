@@ -1,8 +1,8 @@
 import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MatDialogModule, MatDialog } from '@angular/material/dialog';
 import { ReleaseNotesService, type ReleaseNote, type ReleaseNoteType } from '../../core/services/release-notes.service';
 import { BackfillDialogComponent } from './backfill-dialog.component';
+import { DialogComponent } from '../../shared/components/dialog.component';
 import { BroncoButtonComponent, SelectComponent, PaginatorComponent, type PaginatorPageEvent } from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service';
 
@@ -17,10 +17,11 @@ const CHANGE_TYPE_META: Record<ReleaseNoteType, { label: string; color: string }
   standalone: true,
   imports: [
     FormsModule,
-    MatDialogModule,
     BroncoButtonComponent,
     SelectComponent,
     PaginatorComponent,
+    DialogComponent,
+    BackfillDialogComponent,
   ],
   template: `
     <div class="page-wrapper">
@@ -137,6 +138,14 @@ const CHANGE_TYPE_META: Record<ReleaseNoteType, { label: string; color: string }
         [pageSizeOptions]="[25, 50, 100]"
         (page)="onPage($event)" />
     </div>
+
+    @if (showBackfillDialog()) {
+      <app-dialog [open]="true" title="Sync History" maxWidth="480px" (openChange)="showBackfillDialog.set(false)">
+        <app-backfill-dialog-content
+          (submitted)="onBackfillSubmitted($event)"
+          (cancelled)="showBackfillDialog.set(false)" />
+      </app-dialog>
+    }
   `,
   styles: [`
     .page-wrapper { max-width: 1200px; }
@@ -234,7 +243,7 @@ const CHANGE_TYPE_META: Record<ReleaseNoteType, { label: string; color: string }
 export class ReleaseNotesComponent implements OnInit {
   private releaseNotesService = inject(ReleaseNotesService);
   private toast = inject(ToastService);
-  private dialog = inject(MatDialog);
+  showBackfillDialog = signal(false);
 
   notes = signal<ReleaseNote[]>([]);
   availableServices = signal<string[]>([]);
@@ -365,23 +374,24 @@ export class ReleaseNotesComponent implements OnInit {
   }
 
   openBackfillDialog(): void {
-    const ref = this.dialog.open(BackfillDialogComponent, { width: '480px' });
-    ref.afterClosed().subscribe((result: { fromSha: string; toSha?: string } | undefined) => {
-      if (!result) return;
-      this.ingestLoading.set(true);
-      this.releaseNotesService.backfill(result.fromSha, result.toSha).subscribe({
-        next: (r) => {
-          this.ingestLoading.set(false);
-          this.toast.success(`Sync complete — ${r.ingested} ingested, ${r.skipped} skipped`);
-          this.load();
-          this.loadServices();
-          this.loadTags();
-        },
-        error: (err) => {
-          this.ingestLoading.set(false);
-          this.toast.error(err.error?.error ?? 'Backfill failed');
-        },
-      });
+    this.showBackfillDialog.set(true);
+  }
+
+  onBackfillSubmitted(result: { fromSha: string; toSha?: string }): void {
+    this.showBackfillDialog.set(false);
+    this.ingestLoading.set(true);
+    this.releaseNotesService.backfill(result.fromSha, result.toSha).subscribe({
+      next: (r) => {
+        this.ingestLoading.set(false);
+        this.toast.success(`Sync complete — ${r.ingested} ingested, ${r.skipped} skipped`);
+        this.load();
+        this.loadServices();
+        this.loadTags();
+      },
+      error: (err) => {
+        this.ingestLoading.set(false);
+        this.toast.error(err.error?.error ?? 'Backfill failed');
+      },
     });
   }
 
