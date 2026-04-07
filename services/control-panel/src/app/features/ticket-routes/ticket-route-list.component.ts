@@ -1,12 +1,12 @@
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { TicketRouteService, TicketRoute, TicketRouteStep, RouteStepTypeInfo } from '../../core/services/ticket-route.service';
 import type { RouteType } from '../../core/services/ticket-route.service';
 import { ClientService, Client } from '../../core/services/client.service';
 import { TicketRouteDialogComponent } from './ticket-route-dialog.component';
 import { TicketRouteStepDialogComponent } from './ticket-route-step-dialog.component';
+import { DialogComponent } from '../../shared/components/dialog.component';
 import {
   BroncoButtonComponent,
   SelectComponent,
@@ -31,12 +31,14 @@ const CATEGORIES = [
   imports: [
     NgTemplateOutlet,
     FormsModule,
-    MatDialogModule,
     BroncoButtonComponent,
     SelectComponent,
     TabComponent,
     TabGroupComponent,
     ToggleSwitchComponent,
+    DialogComponent,
+    TicketRouteDialogComponent,
+    TicketRouteStepDialogComponent,
   ],
   template: `
     <div class="page-wrapper">
@@ -202,6 +204,30 @@ const CATEGORIES = [
         }
       </ng-template>
     </div>
+
+    @if (showRouteDialog()) {
+      <app-dialog [open]="true" [title]="editingRoute() ? 'Edit Route' : 'Create Route'" maxWidth="550px" (openChange)="showRouteDialog.set(false)">
+        <app-ticket-route-dialog-content
+          [route]="editingRoute() ?? undefined"
+          [clients]="clients()"
+          [categories]="categories"
+          [presetRouteType]="routeDialogType()"
+          (saved)="onRouteSaved()"
+          (cancelled)="showRouteDialog.set(false)" />
+      </app-dialog>
+    }
+
+    @if (showStepDialog()) {
+      <app-dialog [open]="true" [title]="editingStep() ? 'Edit Step' : 'Add Step'" maxWidth="550px" (openChange)="showStepDialog.set(false)">
+        <app-ticket-route-step-dialog-content
+          [routeId]="stepDialogRouteId()"
+          [step]="editingStep() ?? undefined"
+          [stepTypes]="stepTypes()"
+          [nextOrder]="stepDialogNextOrder()"
+          (saved)="onStepSaved()"
+          (cancelled)="showStepDialog.set(false)" />
+      </app-dialog>
+    }
   `,
   styles: [`
     .page-wrapper { max-width: 1200px; }
@@ -430,8 +456,18 @@ const CATEGORIES = [
 export class TicketRouteListComponent implements OnInit {
   private routeService = inject(TicketRouteService);
   private clientService = inject(ClientService);
-  private dialog = inject(MatDialog);
   private toast = inject(ToastService);
+
+  // Route dialog state
+  showRouteDialog = signal(false);
+  editingRoute = signal<TicketRoute | null>(null);
+  routeDialogType = signal<RouteType>('ANALYSIS');
+
+  // Step dialog state
+  showStepDialog = signal(false);
+  editingStep = signal<TicketRouteStep | null>(null);
+  stepDialogRouteId = signal('');
+  stepDialogNextOrder = signal<number | undefined>(undefined);
 
   routes = signal<TicketRoute[]>([]);
   ingestionRoutes = signal<TicketRoute[]>([]);
@@ -494,23 +530,19 @@ export class TicketRouteListComponent implements OnInit {
   }
 
   addRoute(routeType: RouteType = 'ANALYSIS'): void {
-    const ref = this.dialog.open(TicketRouteDialogComponent, {
-      width: '550px',
-      data: { clients: this.clients(), categories: CATEGORIES, routeType },
-    });
-    ref.afterClosed().subscribe((result) => {
-      if (result) this.loadRoutes();
-    });
+    this.editingRoute.set(null);
+    this.routeDialogType.set(routeType);
+    this.showRouteDialog.set(true);
   }
 
   editRoute(route: TicketRoute): void {
-    const ref = this.dialog.open(TicketRouteDialogComponent, {
-      width: '550px',
-      data: { route, clients: this.clients(), categories: CATEGORIES },
-    });
-    ref.afterClosed().subscribe((result) => {
-      if (result) this.loadRoutes();
-    });
+    this.editingRoute.set(route);
+    this.showRouteDialog.set(true);
+  }
+
+  onRouteSaved(): void {
+    this.showRouteDialog.set(false);
+    this.loadRoutes();
   }
 
   toggleActive(route: TicketRoute): void {
@@ -554,23 +586,22 @@ export class TicketRouteListComponent implements OnInit {
     const nextOrder = route.steps.length > 0
       ? Math.max(...route.steps.map((s) => s.stepOrder)) + 1
       : 1;
-    const ref = this.dialog.open(TicketRouteStepDialogComponent, {
-      width: '550px',
-      data: { routeId: route.id, stepTypes: this.stepTypes(), nextOrder },
-    });
-    ref.afterClosed().subscribe((result) => {
-      if (result) this.loadRoutes();
-    });
+    this.editingStep.set(null);
+    this.stepDialogRouteId.set(route.id);
+    this.stepDialogNextOrder.set(nextOrder);
+    this.showStepDialog.set(true);
   }
 
   editStep(route: TicketRoute, step: TicketRouteStep): void {
-    const ref = this.dialog.open(TicketRouteStepDialogComponent, {
-      width: '550px',
-      data: { routeId: route.id, step, stepTypes: this.stepTypes() },
-    });
-    ref.afterClosed().subscribe((result) => {
-      if (result) this.loadRoutes();
-    });
+    this.editingStep.set(step);
+    this.stepDialogRouteId.set(route.id);
+    this.stepDialogNextOrder.set(undefined);
+    this.showStepDialog.set(true);
+  }
+
+  onStepSaved(): void {
+    this.showStepDialog.set(false);
+    this.loadRoutes();
   }
 
   toggleStepActive(route: TicketRoute, step: TicketRouteStep): void {

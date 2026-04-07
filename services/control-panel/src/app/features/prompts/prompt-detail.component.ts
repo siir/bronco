@@ -9,15 +9,15 @@ import { MatChipsModule } from '@angular/material/chips';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
-import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { PromptService, PromptDetail, PromptOverride, PreviewResult } from '../../core/services/prompt.service';
 import { ClientService, Client } from '../../core/services/client.service';
 import { OverrideDialogComponent } from './override-dialog.component';
+import { DialogComponent } from '../../shared/components/dialog.component';
 import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   standalone: true,
-  imports: [RouterLink, FormsModule, MatCardModule, MatButtonModule, MatIconModule, MatChipsModule, MatFormFieldModule, MatSelectModule, MatSlideToggleModule, MatDialogModule],
+  imports: [RouterLink, FormsModule, MatCardModule, MatButtonModule, MatIconModule, MatChipsModule, MatFormFieldModule, MatSelectModule, MatSlideToggleModule, DialogComponent, OverrideDialogComponent],
   template: `
     @if (detail(); as d) {
       <div class="page-header">
@@ -144,6 +144,16 @@ import { ToastService } from '../../core/services/toast.service';
     } @else {
       <p>Loading...</p>
     }
+
+    @if (showOverrideDialog()) {
+      <app-dialog [open]="true" [title]="editingOverride() ? 'Edit Override' : 'Add Override'" maxWidth="600px" (openChange)="showOverrideDialog.set(false)">
+        <app-override-dialog-content
+          [promptKey]="key()"
+          [override]="editingOverride() ?? undefined"
+          (saved)="onOverrideSaved()"
+          (cancelled)="showOverrideDialog.set(false)" />
+      </app-dialog>
+    }
   `,
   styles: [`
     .page-header { margin-bottom: 16px; }
@@ -183,13 +193,15 @@ export class PromptDetailComponent implements OnInit {
   private promptService = inject(PromptService);
   private clientService = inject(ClientService);
   private destroyRef = inject(DestroyRef);
-  private dialog = inject(MatDialog);
   private toast = inject(ToastService);
 
   detail = signal<PromptDetail | null>(null);
   preview = signal<PreviewResult | null>(null);
   clients = signal<Client[]>([]);
   selectedClientId = '';
+
+  showOverrideDialog = signal(false);
+  editingOverride = signal<PromptOverride | null>(null);
 
   ngOnInit(): void {
     this.load();
@@ -217,23 +229,18 @@ export class PromptDetailComponent implements OnInit {
   }
 
   addOverride(): void {
-    const ref = this.dialog.open(OverrideDialogComponent, {
-      width: '600px',
-      data: { promptKey: this.key() },
-    });
-    ref.afterClosed().subscribe(result => {
-      if (result) this.load();
-    });
+    this.editingOverride.set(null);
+    this.showOverrideDialog.set(true);
   }
 
   editOverride(override: PromptOverride): void {
-    const ref = this.dialog.open(OverrideDialogComponent, {
-      width: '600px',
-      data: { promptKey: this.key(), override },
-    });
-    ref.afterClosed().subscribe(result => {
-      if (result) this.load();
-    });
+    this.editingOverride.set(override);
+    this.showOverrideDialog.set(true);
+  }
+
+  onOverrideSaved(): void {
+    this.showOverrideDialog.set(false);
+    this.load();
   }
 
   toggleOverride(override: PromptOverride): void {

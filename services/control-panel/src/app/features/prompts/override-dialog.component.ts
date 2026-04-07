@@ -1,6 +1,5 @@
-import { Component, inject, ViewChild, ElementRef } from '@angular/core';
+import { Component, inject, ViewChild, ElementRef, input, output, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MAT_DIALOG_DATA, MatDialogRef, MatDialogModule } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
@@ -9,74 +8,68 @@ import { PromptService, PromptOverride, PromptKeyword } from '../../core/service
 import { ClientService, Client } from '../../core/services/client.service';
 import { ToastService } from '../../core/services/toast.service';
 
-interface DialogData {
-  promptKey: string;
-  override?: PromptOverride;
-}
-
 @Component({
+  selector: 'app-override-dialog-content',
   standalone: true,
-  imports: [FormsModule, MatDialogModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatButtonModule],
+  imports: [FormsModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatButtonModule],
   template: `
-    <h2 mat-dialog-title>{{ isEdit ? 'Edit' : 'Add' }} Override</h2>
-    <mat-dialog-content>
+    <mat-form-field class="full-width">
+      <mat-label>Scope</mat-label>
+      <mat-select [(ngModel)]="scope" [disabled]="isEdit" (ngModelChange)="onScopeChange()">
+        <mat-option value="APP_WIDE">APP_WIDE</mat-option>
+        <mat-option value="CLIENT">CLIENT</mat-option>
+      </mat-select>
+    </mat-form-field>
+
+    @if (scope === 'CLIENT') {
       <mat-form-field class="full-width">
-        <mat-label>Scope</mat-label>
-        <mat-select [(ngModel)]="scope" [disabled]="isEdit" (ngModelChange)="onScopeChange()">
-          <mat-option value="APP_WIDE">APP_WIDE</mat-option>
-          <mat-option value="CLIENT">CLIENT</mat-option>
+        <mat-label>Client</mat-label>
+        <mat-select [(ngModel)]="clientId" [disabled]="isEdit" required>
+          @for (c of clients; track c.id) {
+            <mat-option [value]="c.id">{{ c.name }} ({{ c.shortCode }})</mat-option>
+          }
         </mat-select>
       </mat-form-field>
+    }
 
-      @if (scope === 'CLIENT') {
-        <mat-form-field class="full-width">
-          <mat-label>Client</mat-label>
-          <mat-select [(ngModel)]="clientId" [disabled]="isEdit" required>
-            @for (c of clients; track c.id) {
-              <mat-option [value]="c.id">{{ c.name }} ({{ c.shortCode }})</mat-option>
-            }
-          </mat-select>
-        </mat-form-field>
+    <mat-form-field class="full-width">
+      <mat-label>Position</mat-label>
+      <mat-select [(ngModel)]="position">
+        <mat-option value="PREPEND">PREPEND</mat-option>
+        <mat-option value="APPEND">APPEND</mat-option>
+      </mat-select>
+    </mat-form-field>
+
+    <div class="textarea-wrapper">
+      <mat-form-field class="full-width">
+        <mat-label>Content</mat-label>
+        <textarea matInput [(ngModel)]="content" rows="8" required
+          #contentTextarea
+          (input)="onContentInput($event)"
+          (keydown)="onContentKeydown($event)"></textarea>
+      </mat-form-field>
+      @if (showKeywordPopup) {
+        <div class="keyword-popup">
+          @for (kw of filteredKeywords; track kw.id) {
+            <div class="keyword-row" (mousedown)="insertKeyword(kw, $event)">
+              <span class="keyword-token">{{ kw.token }}</span>
+              <span class="keyword-label">{{ kw.label }}</span>
+              <span class="keyword-category">{{ kw.category }}</span>
+            </div>
+          }
+          @if (filteredKeywords.length === 0) {
+            <div class="keyword-row keyword-empty">No matching keywords</div>
+          }
+        </div>
       }
+    </div>
 
-      <mat-form-field class="full-width">
-        <mat-label>Position</mat-label>
-        <mat-select [(ngModel)]="position">
-          <mat-option value="PREPEND">PREPEND</mat-option>
-          <mat-option value="APPEND">APPEND</mat-option>
-        </mat-select>
-      </mat-form-field>
-
-      <div class="textarea-wrapper">
-        <mat-form-field class="full-width">
-          <mat-label>Content</mat-label>
-          <textarea matInput [(ngModel)]="content" rows="8" required
-            #contentTextarea
-            (input)="onContentInput($event)"
-            (keydown)="onContentKeydown($event)"></textarea>
-        </mat-form-field>
-        @if (showKeywordPopup) {
-          <div class="keyword-popup">
-            @for (kw of filteredKeywords; track kw.id) {
-              <div class="keyword-row" (mousedown)="insertKeyword(kw, $event)">
-                <span class="keyword-token">{{ kw.token }}</span>
-                <span class="keyword-label">{{ kw.label }}</span>
-                <span class="keyword-category">{{ kw.category }}</span>
-              </div>
-            }
-            @if (filteredKeywords.length === 0) {
-              <div class="keyword-row keyword-empty">No matching keywords</div>
-            }
-          </div>
-        }
-      </div>
-    </mat-dialog-content>
-    <mat-dialog-actions align="end">
-      <button mat-button mat-dialog-close>Cancel</button>
+    <div class="dialog-actions" dialogFooter>
+      <button mat-button (click)="cancelled.emit()">Cancel</button>
       <button mat-raised-button color="primary" (click)="save()" [disabled]="!canSave()">
         {{ isEdit ? 'Update' : 'Create' }}
       </button>
-    </mat-dialog-actions>
+    </div>
   `,
   styles: [`
     .full-width { width: 100%; margin-bottom: 8px; }
@@ -125,22 +118,27 @@ interface DialogData {
       font-style: italic;
       cursor: default;
     }
+    .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
   `],
 })
-export class OverrideDialogComponent {
-  private dialogRef = inject(MatDialogRef<OverrideDialogComponent>);
-  data: DialogData = inject(MAT_DIALOG_DATA);
+export class OverrideDialogComponent implements OnInit {
   private promptService = inject(PromptService);
   private clientService = inject(ClientService);
   private toast = inject(ToastService);
 
+  promptKey = input.required<string>();
+  override = input<PromptOverride>();
+
+  saved = output<PromptOverride>();
+  cancelled = output<void>();
+
   @ViewChild('contentTextarea') contentTextareaRef!: ElementRef<HTMLTextAreaElement>;
 
-  isEdit = !!this.data.override;
-  scope = this.data.override?.scope ?? 'APP_WIDE';
-  clientId = this.data.override?.clientId ?? '';
-  position = this.data.override?.position ?? 'APPEND';
-  content = this.data.override?.content ?? '';
+  isEdit = false;
+  scope = 'APP_WIDE';
+  clientId = '';
+  position = 'APPEND';
+  content = '';
   clients: Client[] = [];
 
   keywords: PromptKeyword[] = [];
@@ -148,7 +146,16 @@ export class OverrideDialogComponent {
   showKeywordPopup = false;
   keywordSearchStart = -1;
 
-  constructor() {
+  ngOnInit(): void {
+    const o = this.override();
+    if (o) {
+      this.isEdit = true;
+      this.scope = o.scope ?? 'APP_WIDE';
+      this.clientId = o.clientId ?? '';
+      this.position = o.position ?? 'APPEND';
+      this.content = o.content ?? '';
+    }
+
     if (this.scope === 'CLIENT' || !this.isEdit) {
       this.clientService.getClients().subscribe(c => this.clients = c);
     }
@@ -170,7 +177,6 @@ export class OverrideDialogComponent {
     const cursorPos = textarea.selectionStart;
     const textBefore = this.content.slice(0, cursorPos);
 
-    // Find the last `{{` that doesn't have a closing `}}`
     const lastOpen = textBefore.lastIndexOf('{{');
     if (lastOpen === -1) {
       this.showKeywordPopup = false;
@@ -178,13 +184,11 @@ export class OverrideDialogComponent {
     }
 
     const afterOpen = textBefore.slice(lastOpen + 2);
-    // If there's a `}}` after the `{{`, the token is already closed
     if (afterOpen.includes('}}')) {
       this.showKeywordPopup = false;
       return;
     }
 
-    // Don't trigger if there's a newline between `{{` and cursor
     if (afterOpen.includes('\n')) {
       this.showKeywordPopup = false;
       return;
@@ -206,7 +210,7 @@ export class OverrideDialogComponent {
   }
 
   insertKeyword(keyword: PromptKeyword, event: MouseEvent): void {
-    event.preventDefault(); // prevent textarea blur
+    event.preventDefault();
     const textarea = this.contentTextareaRef?.nativeElement;
     if (!textarea) return;
 
@@ -217,7 +221,6 @@ export class OverrideDialogComponent {
     this.content = before + replacement + after;
     this.showKeywordPopup = false;
 
-    // Restore focus and cursor position after the inserted token
     const newCursor = before.length + replacement.length;
     setTimeout(() => {
       textarea.focus();
@@ -233,19 +236,19 @@ export class OverrideDialogComponent {
 
   save(): void {
     if (this.isEdit) {
-      this.promptService.updateOverride(this.data.override!.id, {
+      this.promptService.updateOverride(this.override()!.id, {
         position: this.position,
         content: this.content,
       }).subscribe({
         next: (result) => {
           this.toast.success('Override updated');
-          this.dialogRef.close(result);
+          this.saved.emit(result);
         },
         error: (err) => this.toast.error(err.error?.message ?? 'Failed to update override'),
       });
     } else {
       this.promptService.createOverride({
-        promptKey: this.data.promptKey,
+        promptKey: this.promptKey(),
         scope: this.scope,
         clientId: this.scope === 'CLIENT' ? this.clientId : undefined,
         position: this.position,
@@ -253,7 +256,7 @@ export class OverrideDialogComponent {
       }).subscribe({
         next: (result) => {
           this.toast.success('Override created');
-          this.dialogRef.close(result);
+          this.saved.emit(result);
         },
         error: (err) => this.toast.error(err.error?.message ?? 'Failed to create override'),
       });
