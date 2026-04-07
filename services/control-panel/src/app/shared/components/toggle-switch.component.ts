@@ -4,22 +4,23 @@ import { Component, input, output } from '@angular/core';
   selector: 'app-toggle-switch',
   standalone: true,
   template: `
-    <label class="toggle-wrapper" [class.disabled]="disabled()">
+    <span class="toggle-wrapper" [class.disabled]="disabled()">
       <button
         type="button"
         class="toggle-track"
         role="switch"
         [attr.aria-checked]="checked()"
         [attr.aria-label]="label() || 'Toggle'"
+        [attr.aria-labelledby]="label() ? toggleLabelId : null"
         [class.active]="checked()"
         [disabled]="disabled()"
         (click)="toggle()">
         <span class="toggle-thumb"></span>
       </button>
       @if (label()) {
-        <span class="toggle-label">{{ label() }}</span>
+        <span class="toggle-label" [id]="toggleLabelId">{{ label() }}</span>
       }
-    </label>
+    </span>
   `,
   styles: [`
     .toggle-wrapper {
@@ -79,6 +80,8 @@ export class ToggleSwitchComponent {
   label = input<string>('');
 
   checkedChange = output<boolean>();
+
+  readonly toggleLabelId = `toggle-label-${Math.random().toString(36).slice(2, 9)}`;
 
   toggle(): void {
     this.checkedChange.emit(!this.checked());
