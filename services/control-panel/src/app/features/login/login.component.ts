@@ -36,7 +36,7 @@ import {
           </app-form-field>
         </div>
         <div class="full-width-button-wrap">
-          <app-bronco-button variant="primary" size="lg" [disabled]="loading()" (click)="login()">
+          <app-bronco-button variant="primary" size="lg" [fullWidth]="true" [disabled]="loading()" (click)="login()">
             @if (loading()) { Signing in... } @else { Sign In }
           </app-bronco-button>
         </div>
@@ -53,6 +53,7 @@ import {
     }
 
     .login-card {
+      display: block;
       width: 100%;
       max-width: 400px;
     }
@@ -89,15 +90,6 @@ import {
       display: block;
       width: 100%;
     }
-
-    .full-width-button-wrap app-bronco-button {
-      display: block;
-      width: 100%;
-    }
-
-    .full-width-button-wrap app-bronco-button button {
-      width: 100%;
-    }
   `],
 })
 export class LoginComponent {
@@ -106,7 +98,6 @@ export class LoginComponent {
 
   email = '';
   password = '';
-  showPassword = signal(false);
   loading = signal(false);
 
   login(): void {
