@@ -5,8 +5,10 @@ import { Component, input } from '@angular/core';
   standalone: true,
   template: `
     <button
+      type="button"
       [class]="'btn btn-' + variant() + ' btn-' + size()"
-      [disabled]="disabled()">
+      [disabled]="disabled()"
+      [attr.aria-label]="ariaLabel() || null">
       <ng-content />
     </button>
   `,
@@ -86,4 +88,5 @@ export class BroncoButtonComponent {
   variant = input<'primary' | 'secondary' | 'ghost' | 'destructive' | 'icon'>('secondary');
   size = input<'sm' | 'md' | 'lg'>('md');
   disabled = input<boolean>(false);
+  ariaLabel = input<string>('');
 }
