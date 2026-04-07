@@ -1,7 +1,6 @@
 import { Component, inject, OnInit, signal, OnDestroy, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import { MatSnackBarModule, MatSnackBar } from '@angular/material/snack-bar';
 import { Subject, EMPTY } from 'rxjs';
 import { catchError, takeUntil } from 'rxjs/operators';
@@ -11,17 +10,17 @@ import {
   SlackConversationDetail,
 } from '../../core/services/slack-conversation.service';
 import { ClientService, Client } from '../../core/services/client.service';
-import { BroncoButtonComponent, SelectComponent } from '../../shared/components/index.js';
+import { BroncoButtonComponent, SelectComponent, PaginatorComponent, type PaginatorPageEvent } from '../../shared/components/index.js';
 
 @Component({
   standalone: true,
   imports: [
     CommonModule,
     FormsModule,
-    MatPaginatorModule,
     MatSnackBarModule,
     BroncoButtonComponent,
     SelectComponent,
+    PaginatorComponent,
   ],
   template: `
     <div class="page-wrapper">
@@ -144,13 +143,12 @@ import { BroncoButtonComponent, SelectComponent } from '../../shared/components/
           </table>
         }
 
-        <mat-paginator
+        <app-paginator
           [length]="total()"
           [pageSize]="pageSize"
+          [pageIndex]="pageIndex"
           [pageSizeOptions]="[25, 50, 100]"
-          (page)="onPage($event)"
-          showFirstLastButtons>
-        </mat-paginator>
+          (page)="onPage($event)" />
       </div>
     </div>
   `,
@@ -315,7 +313,7 @@ export class SlackConversationsComponent implements OnInit, OnDestroy {
     this.load();
   }
 
-  onPage(event: PageEvent): void {
+  onPage(event: PaginatorPageEvent): void {
     this.pageSize = event.pageSize;
     this.pageIndex = event.pageIndex;
     this.load();
