@@ -164,7 +164,7 @@ export class ProbeListComponent implements OnInit {
 
   filterClientId = signal('');
 
-  trackById = (item: any) => item.id;
+  trackById = (item: ScheduledProbe) => item.id;
 
   clientOptions = computed(() => [
     { value: '', label: 'All Clients' },
@@ -192,7 +192,7 @@ export class ProbeListComponent implements OnInit {
     this.filterClientId.set(value);
   }
 
-  onProbeClick(probe: any): void {
+  onProbeClick(probe: ScheduledProbe): void {
     this.detailPanel.open('probe', probe.id);
   }
 

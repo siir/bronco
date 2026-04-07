@@ -16,6 +16,13 @@ const DEFAULT_DURATIONS: Record<Toast['type'], number> = {
 
 const MAX_VISIBLE = 3;
 
+function generateId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
 @Injectable({ providedIn: 'root' })
 export class ToastService {
   readonly toasts = signal<Toast[]>([]);
@@ -42,7 +49,7 @@ export class ToastService {
 
   private add(message: string, type: Toast['type'], duration?: number): void {
     const toast: Toast = {
-      id: crypto.randomUUID(),
+      id: generateId(),
       message,
       type,
       duration: duration ?? DEFAULT_DURATIONS[type],
