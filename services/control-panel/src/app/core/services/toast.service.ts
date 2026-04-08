@@ -26,6 +26,7 @@ function generateId(): string {
 @Injectable({ providedIn: 'root' })
 export class ToastService {
   readonly toasts = signal<Toast[]>([]);
+  private readonly _timers = new Map<string, ReturnType<typeof setTimeout>>();
 
   success(message: string, duration?: number): void {
     this.add(message, 'success', duration);
@@ -44,6 +45,11 @@ export class ToastService {
   }
 
   dismiss(id: string): void {
+    const timer = this._timers.get(id);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      this._timers.delete(id);
+    }
     this.toasts.update(list => list.filter(t => t.id !== id));
   }
 
@@ -58,11 +64,19 @@ export class ToastService {
     this.toasts.update(list => {
       const next = [...list, toast];
       while (next.length > MAX_VISIBLE) {
-        next.shift();
+        const removed = next.shift();
+        if (removed) {
+          const timer = this._timers.get(removed.id);
+          if (timer !== undefined) {
+            clearTimeout(timer);
+            this._timers.delete(removed.id);
+          }
+        }
       }
       return next;
     });
 
-    setTimeout(() => this.dismiss(toast.id), toast.duration);
+    const timer = setTimeout(() => this.dismiss(toast.id), toast.duration);
+    this._timers.set(toast.id, timer);
   }
 }

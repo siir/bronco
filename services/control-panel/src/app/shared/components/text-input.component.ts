@@ -1,4 +1,7 @@
-import { Component, input, output } from '@angular/core';
+import { Component, inject, input, output } from '@angular/core';
+import { FormFieldComponent } from './form-field.component';
+
+let standaloneInputCounter = 0;
 
 @Component({
   selector: 'app-text-input',
@@ -6,6 +9,7 @@ import { Component, input, output } from '@angular/core';
   template: `
     <input
       class="text-input"
+      [id]="resolvedId()"
       [type]="type()"
       [value]="value()"
       [placeholder]="placeholder()"
@@ -46,6 +50,9 @@ import { Component, input, output } from '@angular/core';
   `],
 })
 export class TextInputComponent {
+  private parentFormField = inject(FormFieldComponent, { optional: true, skipSelf: true });
+  private fallbackId = `text-input-${++standaloneInputCounter}`;
+
   value = input<string>('');
   placeholder = input<string>('');
   type = input<string>('text');
@@ -53,6 +60,10 @@ export class TextInputComponent {
   readonly = input<boolean>(false);
 
   valueChange = output<string>();
+
+  resolvedId(): string {
+    return this.parentFormField?.inputId() ?? this.fallbackId;
+  }
 
   onInput(event: Event): void {
     this.valueChange.emit((event.target as HTMLInputElement).value);
