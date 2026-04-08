@@ -8,6 +8,7 @@ import {
   ToggleSwitchComponent,
   FormFieldComponent,
   TextInputComponent,
+  IconComponent,
 } from '../../../shared/components/index.js';
 
 @Component({
@@ -19,12 +20,13 @@ import {
     ToggleSwitchComponent,
     FormFieldComponent,
     TextInputComponent,
+    IconComponent,
   ],
   template: `
     @let c = client();
     <div class="page-header">
       <div class="header-left">
-        <app-bronco-button variant="ghost" size="sm" routerLink="/clients">&#x2190; Clients</app-bronco-button>
+        <app-bronco-button variant="ghost" size="sm" routerLink="/clients"><app-icon name="back" size="sm" /> Clients</app-bronco-button>
         <div class="title-row">
           <h1 class="page-title">{{ c.name }}</h1>
           <span class="chip chip-code">{{ c.shortCode }}</span>

@@ -1,18 +1,18 @@
 import { Component, input, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { CardComponent, BroncoButtonComponent } from '../../shared/components/index.js';
+import { CardComponent, BroncoButtonComponent, IconComponent } from '../../shared/components/index.js';
 import { type TicketCostResponse } from '../../core/services/ai-usage.service';
 
 @Component({
   selector: 'app-ticket-detail-cost',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, CardComponent, BroncoButtonComponent],
+  imports: [DatePipe, DecimalPipe, CardComponent, BroncoButtonComponent, IconComponent],
   template: `
     @if (cost(); as c) {
       @if (c.callCount > 0) {
         <app-card padding="md" class="cost-card">
           <div class="card-title-row">
-            <span class="card-title-icon" aria-hidden="true">&#9783;</span>
+            <app-icon name="bolt" size="sm" class="card-title-icon" aria-hidden="true" />
             <h3 class="card-title">AI Cost</h3>
           </div>
           <div class="cost-summary">
@@ -37,7 +37,7 @@ import { type TicketCostResponse } from '../../core/services/ai-usage.service';
           @if (c.breakdown.length > 0) {
             <app-bronco-button variant="ghost" size="sm" (click)="toggleDetails()">
               {{ detailsExpanded() ? 'Hide details' : 'Show details' }}
-              <span aria-hidden="true">{{ detailsExpanded() ? '\u25B4' : '\u25BE' }}</span>
+              <app-icon [name]="detailsExpanded() ? 'chevron-up' : 'chevron-down'" size="xs" />
             </app-bronco-button>
           }
 

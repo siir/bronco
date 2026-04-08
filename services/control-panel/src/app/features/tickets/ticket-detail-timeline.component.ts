@@ -1,6 +1,6 @@
 import { Component, computed, input, output, signal } from '@angular/core';
 import { CommonModule, DecimalPipe } from '@angular/common';
-import { CardComponent, BroncoButtonComponent, SelectComponent, FormFieldComponent } from '../../shared/components/index.js';
+import { CardComponent, BroncoButtonComponent, SelectComponent, FormFieldComponent, IconComponent, type IconName } from '../../shared/components/index.js';
 import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
 import { RelativeTimePipe } from '../../shared/pipes/relative-time.pipe';
 import { type TicketEvent } from '../../core/services/ticket.service';
@@ -17,6 +17,7 @@ import { type TicketEvent } from '../../core/services/ticket.service';
     FormFieldComponent,
     MarkdownPipe,
     RelativeTimePipe,
+    IconComponent,
   ],
   template: `
     <div class="timeline-header">
@@ -34,7 +35,7 @@ import { type TicketEvent } from '../../core/services/ticket.service';
           size="md"
           [ariaLabel]="timelineSortAsc() ? 'Oldest first' : 'Newest first'"
           (click)="toggleSort()">
-          <span aria-hidden="true">{{ timelineSortAsc() ? '\u2191' : '\u2193' }}</span>
+          <app-icon [name]="timelineSortAsc() ? 'arrow-up' : 'arrow-down'" size="xs" />
         </app-bronco-button>
       </div>
     </div>
@@ -44,7 +45,7 @@ import { type TicketEvent } from '../../core/services/ticket.service';
         <app-card padding="md" class="event-card" [ngClass]="'event-type-' + event.eventType.toLowerCase()">
           <div class="event-header">
             <span class="event-type-badge" [ngClass]="'badge-' + event.eventType.toLowerCase()">
-              <span class="evt-icon" aria-hidden="true">{{ eventGlyph(event.eventType) }}</span>
+              <app-icon [name]="eventIconName(event.eventType)" size="sm" class="evt-icon" />
               <span>{{ formatEventType(event.eventType) }}</span>
             </span>
             @if (isAiTriggered(event)) {
@@ -79,7 +80,7 @@ import { type TicketEvent } from '../../core/services/ticket.service';
 
                 @if (am.toolCalls.length > 0) {
                   <app-bronco-button variant="ghost" size="sm" (click)="toggleSection(event.id + ':tools')">
-                    <span aria-hidden="true">{{ expandedSections[event.id + ':tools'] ? '\u25B4' : '\u25BE' }}</span>
+                    <app-icon [name]="expandedSections[event.id + ':tools'] ? 'chevron-up' : 'chevron-down'" size="xs" />
                     Tool Calls ({{ am.toolCalls.length }})
                   </app-bronco-button>
                   @if (expandedSections[event.id + ':tools']) {
@@ -105,7 +106,7 @@ import { type TicketEvent } from '../../core/services/ticket.service';
 
                 @if (am.sufficiencyReason) {
                   <app-bronco-button variant="ghost" size="sm" (click)="toggleSection(event.id + ':sufficiency')">
-                    <span aria-hidden="true">{{ expandedSections[event.id + ':sufficiency'] ? '\u25B4' : '\u25BE' }}</span>
+                    <app-icon [name]="expandedSections[event.id + ':sufficiency'] ? 'chevron-up' : 'chevron-down'" size="xs" />
                     Sufficiency
                   </app-bronco-button>
                   @if (expandedSections[event.id + ':sufficiency']) {
@@ -123,7 +124,7 @@ import { type TicketEvent } from '../../core/services/ticket.service';
 
               @if (event.content) {
                 <app-bronco-button variant="ghost" size="sm" (click)="toggleSection(event.id + ':analysis')">
-                  <span aria-hidden="true">{{ expandedSections[event.id + ':analysis'] ? '\u25B4' : '\u25BE' }}</span>
+                  <app-icon [name]="expandedSections[event.id + ':analysis'] ? 'chevron-up' : 'chevron-down'" size="xs" />
                   Analysis
                 </app-bronco-button>
                 @if (expandedSections[event.id + ':analysis']) {
@@ -138,7 +139,7 @@ import { type TicketEvent } from '../../core/services/ticket.service';
           <!-- SYSTEM_NOTE with JSON probe data detection -->
           @else if (event.eventType === 'SYSTEM_NOTE' && isJsonContent(event.content)) {
             <app-bronco-button variant="ghost" size="sm" (click)="toggleEvent(event.id)">
-              <span aria-hidden="true">{{ expandedEvents[event.id] ? '\u25B4' : '\u25BE' }}</span>
+              <app-icon [name]="expandedEvents[event.id] ? 'chevron-up' : 'chevron-down'" size="xs" />
               Probe Data
             </app-bronco-button>
             @if (expandedEvents[event.id]) {
@@ -162,7 +163,7 @@ import { type TicketEvent } from '../../core/services/ticket.service';
             @if (event.eventType === 'SYSTEM_NOTE' && isJsonContent(event.content)) {
               <div class="probe-data-section">
                 <app-bronco-button variant="ghost" size="sm" (click)="toggleEvent(event.id)">
-                  <span aria-hidden="true">{{ expandedEvents[event.id] ? '\u25B4' : '\u25BE' }}</span>
+                  <app-icon [name]="expandedEvents[event.id] ? 'chevron-up' : 'chevron-down'" size="xs" />
                   {{ expandedEvents[event.id] ? 'Hide Probe Data' : 'Show Probe Data' }}
                 </app-bronco-button>
                 @if (expandedEvents[event.id]) {
@@ -184,13 +185,13 @@ import { type TicketEvent } from '../../core/services/ticket.service';
                 @for (act of getEventActions(event); track $index) {
                   <div class="rec-action-row" [class.rec-resolved]="getActionOutcome(act) !== 'pending_approval'">
                     <div class="rec-action-header" (click)="getActionOutcome(act) !== 'pending_approval' ? toggleEvent(event.id + '-act-' + $index) : null">
-                      <span class="rec-icon" aria-hidden="true">{{ recActionGlyph(act.action) }}</span>
+                      <app-icon [name]="recActionIconName(act.action)" size="sm" class="rec-icon" />
                       <span class="rec-action-type">{{ formatRecActionType(act.action) }}</span>
                       <span class="rec-status-badge" [ngClass]="'rec-badge-' + getActionOutcome(act)">
                         {{ getActionOutcomeLabel(act) }}
                       </span>
                       @if (getActionOutcome(act) !== 'pending_approval') {
-                        <span class="rec-expand-icon" aria-hidden="true">{{ expandedEvents[event.id + '-act-' + $index] ? '\u25B4' : '\u25BE' }}</span>
+                        <app-icon [name]="expandedEvents[event.id + '-act-' + $index] ? 'chevron-up' : 'chevron-down'" size="xs" class="rec-expand-icon" />
                       }
                     </div>
                     @if (getActionOutcome(act) === 'pending_approval' || expandedEvents[event.id + '-act-' + $index]) {
@@ -360,20 +361,20 @@ export class TicketDetailTimelineComponent {
     return labels[type] ?? type;
   }
 
-  eventGlyph(type: string): string {
-    const glyphs: Record<string, string> = {
-      COMMENT: '\u{1F4AC}',
-      STATUS_CHANGE: '\u21C4',
-      PRIORITY_CHANGE: '\u26A0',
-      CATEGORY_CHANGE: '\u{1F3F7}',
-      AI_ANALYSIS: '\u26AC',
-      AI_RECOMMENDATION: '\u2731',
-      EMAIL_INBOUND: '\u2709',
-      EMAIL_OUTBOUND: '\u27A4',
-      CODE_CHANGE: '\u2329\u232A',
-      SYSTEM_NOTE: '\u2139',
+  eventIconName(type: string): IconName {
+    const icons: Record<string, IconName> = {
+      COMMENT: 'comment',
+      STATUS_CHANGE: 'rotate',
+      PRIORITY_CHANGE: 'warning',
+      CATEGORY_CHANGE: 'tag',
+      AI_ANALYSIS: 'sparkles',
+      AI_RECOMMENDATION: 'bolt',
+      EMAIL_INBOUND: 'email',
+      EMAIL_OUTBOUND: 'arrow-right',
+      CODE_CHANGE: 'file',
+      SYSTEM_NOTE: 'info',
     };
-    return glyphs[type] ?? '\u25CF';
+    return icons[type] ?? 'active';
   }
 
   hasActionsMeta(event: TicketEvent): boolean {
@@ -422,19 +423,19 @@ export class TicketDetailTimelineComponent {
     return labels[outcome] ?? outcome;
   }
 
-  recActionGlyph(action: string): string {
-    const glyphs: Record<string, string> = {
-      set_status: '\u21C4',
-      set_priority: '\u26A0',
-      set_category: '\u{1F3F7}',
-      add_comment: '\u{1F4AC}',
-      trigger_code_fix: '\u2329\u232A',
-      send_followup_email: '\u2709',
-      escalate_deep_analysis: '\u26AC',
-      check_database_health: '\u2665',
-      assign_operator: '\u{1F464}',
+  recActionIconName(action: string): IconName {
+    const icons: Record<string, IconName> = {
+      set_status: 'rotate',
+      set_priority: 'warning',
+      set_category: 'tag',
+      add_comment: 'comment',
+      trigger_code_fix: 'file',
+      send_followup_email: 'email',
+      escalate_deep_analysis: 'sparkles',
+      check_database_health: 'database',
+      assign_operator: 'user',
     };
-    return glyphs[action] ?? '\u2731';
+    return icons[action] ?? 'bolt';
   }
 
   formatRecActionType(action: string): string {
