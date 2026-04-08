@@ -9,6 +9,7 @@ export interface AuthUser {
   email: string;
   name: string;
   role: string;
+  themePreference?: string;
 }
 
 interface LoginResponse {
@@ -30,6 +31,7 @@ interface MeResponse {
   isActive: boolean;
   lastLoginAt: string | null;
   createdAt: string;
+  themePreference?: string;
 }
 
 const ACCESS_TOKEN_KEY = 'rc_access_token';
@@ -115,6 +117,7 @@ export class AuthService {
           email: user.email,
           name: user.name,
           role: user.role,
+          themePreference: user.themePreference,
         });
       }),
       map(() => true),
@@ -143,6 +146,7 @@ export class AuthService {
           email: user.email,
           name: user.name,
           role: user.role,
+          themePreference: user.themePreference,
         });
         this.scheduleProactiveRefresh(token);
       }),
