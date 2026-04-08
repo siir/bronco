@@ -3,13 +3,14 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { JsonPipe, DatePipe, SlicePipe, DecimalPipe } from '@angular/common';
 import { MatCardModule } from '@angular/material/card';
-import { MatTabsModule } from '@angular/material/tabs';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTableModule } from '@angular/material/table';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { TabGroupComponent, TabComponent } from '../../shared/components/index.js';
+import { ClientHeaderComponent } from './client-detail/client-header.component';
 import { ClientService, Client, System, Contact } from '../../core/services/client.service';
 import { SystemService } from '../../core/services/system.service';
 import { ContactService } from '../../core/services/contact.service';
@@ -32,7 +33,6 @@ import { ClientEnvironmentDialogComponent } from './client-environment-dialog.co
 import { InvoiceService, type Invoice } from '../../core/services/invoice.service';
 import { GenerateInvoiceDialogComponent } from './generate-invoice-dialog.component';
 import { ClientAiCredentialService, type ClientAiCredential } from '../../core/services/client-ai-credential.service';
-import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { FormsModule } from '@angular/forms';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
@@ -59,58 +59,20 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
 @Component({
   standalone: true,
   imports: [
-    RouterLink, JsonPipe, DatePipe, SlicePipe, DecimalPipe, MatCardModule, MatTabsModule, MatButtonModule, MatIconModule,
+    RouterLink, JsonPipe, DatePipe, SlicePipe, DecimalPipe, MatCardModule, MatButtonModule, MatIconModule,
     MatTableModule, MatChipsModule, MatSlideToggleModule, MatTooltipModule, McpServerInfoComponent,
-    MatButtonToggleModule, FormsModule, MatFormFieldModule, MatInputModule, MatSelectModule,
+    FormsModule, MatFormFieldModule, MatInputModule, MatSelectModule,
+    TabGroupComponent, TabComponent, ClientHeaderComponent,
     DialogComponent, TicketDialogComponent,
     ClientMemoryDialogComponent, ClientEnvironmentDialogComponent, ClientUserDialogComponent, GenerateInvoiceDialogComponent,
     SystemDialogComponent, RepoDialogComponent, ContactDialogComponent, IntegrationDialogComponent,
   ],
   template: `
     @if (client(); as c) {
-      <div class="page-header">
-        <div>
-          <a routerLink="/clients" class="back-link">Clients</a> /
-          <h1 class="inline">{{ c.name }}</h1>
-          <span class="code-chip">{{ c.shortCode }}</span>
-        </div>
-        <div class="header-toggles">
-          <mat-slide-toggle [checked]="c.autoRouteTickets" (change)="toggleAutoRoute(c)">
-            {{ c.autoRouteTickets ? 'Auto-Route' : 'Manual Only' }}
-          </mat-slide-toggle>
-          <mat-slide-toggle [checked]="c.allowSelfRegistration" (change)="toggleSelfRegistration(c)">
-            {{ c.allowSelfRegistration ? 'Self-Registration' : 'No Self-Reg' }}
-          </mat-slide-toggle>
-          <mat-slide-toggle [checked]="c.isActive" (change)="toggleActive(c)">
-            {{ c.isActive ? 'Active' : 'Inactive' }}
-          </mat-slide-toggle>
-          <mat-button-toggle-group [value]="c.aiMode" (change)="setAiMode(c, $event.value)">
-            <mat-button-toggle value="platform">Platform</mat-button-toggle>
-            <mat-button-toggle value="byok">BYOK</mat-button-toggle>
-          </mat-button-toggle-group>
-        </div>
-      </div>
+      <app-client-header [client]="c" (clientChange)="onClientUpdated($event)" />
 
-      @if (c.domainMappings.length) {
-        <p class="domains">Domains: {{ c.domainMappings.join(', ') }}</p>
-      }
-      @if (c.notes) {
-        <p class="notes">{{ c.notes }}</p>
-      }
-
-      <div class="slack-channel-row">
-        <mat-form-field class="slack-channel-field" floatLabel="always">
-          <mat-label>Slack Channel ID</mat-label>
-          <input matInput [ngModel]="c.slackChannelId ?? ''" (ngModelChange)="pendingSlackChannelId = $event" placeholder="C0AQ0ELLGCV">
-          <mat-hint>Right-click channel in Slack → View channel details → scroll to bottom</mat-hint>
-        </mat-form-field>
-        <button mat-stroked-button (click)="saveSlackChannelId(c)" [disabled]="pendingSlackChannelId === undefined">
-          <mat-icon>save</mat-icon> Save
-        </button>
-      </div>
-
-      <mat-tab-group [selectedIndex]="selectedTab()" (selectedTabChange)="onTabChange($event.index)">
-        <mat-tab label="Systems">
+      <app-tab-group [selectedIndex]="selectedTab()" (selectedIndexChange)="onTabChange($event)">
+        <app-tab label="Systems">
           <div class="tab-content">
             <div class="tab-header">
               <h3>Database Systems</h3>
@@ -146,9 +108,9 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
             </table>
             @if (systems().length === 0) { <p class="empty">No systems configured.</p> }
           </div>
-        </mat-tab>
+        </app-tab>
 
-        <mat-tab label="Contacts">
+        <app-tab label="Contacts">
           <div class="tab-content">
             <div class="tab-header">
               <h3>Contacts</h3>
@@ -187,9 +149,9 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
             </table>
             @if (contacts().length === 0) { <p class="empty">No contacts added.</p> }
           </div>
-        </mat-tab>
+        </app-tab>
 
-        <mat-tab label="Repos">
+        <app-tab label="Repos">
           <div class="tab-content">
             <div class="tab-header">
               <h3>Code Repositories</h3>
@@ -226,9 +188,9 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
             </table>
             @if (repos().length === 0) { <p class="empty">No repositories configured.</p> }
           </div>
-        </mat-tab>
+        </app-tab>
 
-        <mat-tab label="Integrations">
+        <app-tab label="Integrations">
           <div class="tab-content">
             <div class="tab-header">
               <h3>Integrations</h3>
@@ -272,9 +234,9 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
               <p class="empty">No integrations configured. Add IMAP, Azure DevOps, or MCP Database integrations.</p>
             }
           </div>
-        </mat-tab>
+        </app-tab>
 
-        <mat-tab label="Tickets">
+        <app-tab label="Tickets">
           <div class="tab-content">
             <div class="tab-header">
               <h3>Tickets</h3>
@@ -308,9 +270,9 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
             </table>
             @if (tickets().length === 0) { <p class="empty">No tickets for this client.</p> }
           </div>
-        </mat-tab>
+        </app-tab>
 
-        <mat-tab label="Memory">
+        <app-tab label="Memory">
           <div class="tab-content">
             <div class="tab-header">
               <h3>AI Memory</h3>
@@ -360,9 +322,9 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
               <p class="empty">No memory entries. Add context, playbooks, or tool guidance to help AI analyze tickets for this client.</p>
             }
           </div>
-        </mat-tab>
+        </app-tab>
 
-        <mat-tab label="Environments">
+        <app-tab label="Environments">
           <div class="tab-content">
             <div class="tab-header">
               <h3>Environments</h3>
@@ -397,9 +359,9 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
               <p class="empty">No environments configured. Add environments (e.g. Production, Development) to group systems, repos, and integrations.</p>
             }
           </div>
-        </mat-tab>
+        </app-tab>
 
-        <mat-tab label="Users">
+        <app-tab label="Users">
           <div class="tab-content">
             <div class="tab-header">
               <h3>Portal Users</h3>
@@ -444,8 +406,8 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
             </table>
             @if (clientUsers().length === 0) { <p class="empty">No portal users for this client.</p> }
           </div>
-        </mat-tab>
-        <mat-tab label="AI Credentials">
+        </app-tab>
+        <app-tab label="AI Credentials">
           <div class="tab-content">
             <div class="tab-header">
               <h3>AI Credentials (BYOK)</h3>
@@ -510,9 +472,9 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
               </mat-card-content>
             </mat-card>
           </div>
-        </mat-tab>
+        </app-tab>
 
-        <mat-tab label="Invoices">
+        <app-tab label="Invoices">
           <div class="tab-content">
             <div class="tab-header">
               <h3>Invoices</h3>
@@ -561,9 +523,9 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
             </table>
             @if (invoices().length === 0) { <p class="empty">No invoices generated yet.</p> }
           </div>
-        </mat-tab>
+        </app-tab>
 
-        <mat-tab label="AI Usage">
+        <app-tab label="AI Usage">
           <div class="tab-content">
             <div class="tab-header">
               <h3>AI Usage</h3>
@@ -633,8 +595,8 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
               <p class="empty">No AI usage data available. Click Refresh to load.</p>
             }
           </div>
-        </mat-tab>
-      </mat-tab-group>
+        </app-tab>
+      </app-tab-group>
     } @else {
       <p>Loading...</p>
     }
@@ -727,15 +689,6 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
     }
   `,
   styles: [`
-    .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-    .header-toggles { display: flex; align-items: center; gap: 16px; }
-    .back-link { text-decoration: none; color: #666; }
-    .inline { display: inline; margin: 0 8px 0 4px; }
-    .code-chip { font-size: 12px; padding: 2px 8px; background: #e8eaf6; border-radius: 4px; color: #3f51b5; font-family: monospace; }
-    .domains { color: #555; font-family: monospace; font-size: 13px; margin-bottom: 4px; }
-    .notes { color: #666; margin-bottom: 16px; }
-    .slack-channel-row { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
-    .slack-channel-field { width: 320px; }
     .tab-content { padding: 16px 0; }
     .tab-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
     .tab-header h3 { margin: 0; }
@@ -832,7 +785,6 @@ export class ClientDetailComponent implements OnInit {
   aiUsageTotal = signal(0);
   aiUsageTotalPages = signal(1);
   selectedTab = signal(0);
-  pendingSlackChannelId: string | undefined;
 
   systemColumns = ['name', 'dbEngine', 'host', 'environment', 'status'];
   contactColumns = ['name', 'email', 'role', 'isPrimary', 'actions'];
@@ -927,29 +879,8 @@ export class ClientDetailComponent implements OnInit {
     }
   }
 
-  toggleActive(c: Client): void {
-    this.clientService.updateClient(c.id, { isActive: !c.isActive }).subscribe(updated => {
-      this.client.set({ ...c, isActive: updated.isActive });
-    });
-  }
-
-  toggleAutoRoute(c: Client): void {
-    this.clientService.updateClient(c.id, { autoRouteTickets: !c.autoRouteTickets }).subscribe(updated => {
-      this.client.set({ ...c, autoRouteTickets: updated.autoRouteTickets });
-    });
-  }
-
-  saveSlackChannelId(c: Client): void {
-    const value = this.pendingSlackChannelId;
-    if (value === undefined) return;
-    this.clientService.updateClient(c.id, { slackChannelId: value || null } as Partial<Client>).subscribe({
-      next: (updated) => {
-        this.client.set({ ...c, slackChannelId: updated.slackChannelId });
-        this.pendingSlackChannelId = undefined;
-        this.toast.success('Slack Channel ID saved');
-      },
-      error: () => this.toast.error('Failed to save Slack Channel ID'),
-    });
+  onClientUpdated(updated: Client): void {
+    this.client.set(updated);
   }
 
   addSystem(): void {
@@ -1192,12 +1123,6 @@ export class ClientDetailComponent implements OnInit {
     }
   }
 
-  toggleSelfRegistration(c: Client): void {
-    this.clientService.updateClient(c.id, { allowSelfRegistration: !c.allowSelfRegistration }).subscribe(updated => {
-      this.client.set({ ...c, allowSelfRegistration: updated.allowSelfRegistration });
-    });
-  }
-
   addClientUser(): void {
     this.editingUser.set(null);
     this.showUserDialog.set(true);
@@ -1244,13 +1169,6 @@ export class ClientDetailComponent implements OnInit {
         this.load();
       },
       error: (err) => this.toast.error(err.error?.message ?? err.error?.error ?? 'Delete failed'),
-    });
-  }
-
-  setAiMode(c: Client, mode: string): void {
-    this.clientService.updateClient(c.id, { aiMode: mode } as Partial<Client>).subscribe(updated => {
-      this.client.set({ ...c, aiMode: updated.aiMode });
-      this.toast.info(`AI mode set to ${mode}`);
     });
   }
 
