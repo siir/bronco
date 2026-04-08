@@ -1,7 +1,7 @@
 import { Injectable, effect, inject, signal } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
-import { environment } from '../../../environments/environment';
 import { AuthService } from './auth.service';
+import { ApiService } from './api.service';
+import { ToastService } from './toast.service';
 
 export interface ThemeOption {
   id: string;
@@ -25,8 +25,9 @@ const STORAGE_KEY = 'bronco-theme';
 
 @Injectable({ providedIn: 'root' })
 export class ThemeService {
-  private readonly http = inject(HttpClient);
+  private readonly api = inject(ApiService);
   private readonly auth = inject(AuthService);
+  private readonly toast = inject(ToastService);
 
   readonly themes: readonly ThemeOption[] = THEMES;
   private readonly _currentTheme = signal<ThemeOption>(this.resolveInitial());
@@ -67,8 +68,8 @@ export class ThemeService {
   }
 
   private persistToServer(themePreference: string): void {
-    this.http
-      .patch<{ themePreference: string }>(`${environment.apiUrl}/auth/me/theme`, { themePreference })
+    this.api
+      .patch<{ themePreference: string }>('/auth/me/theme', { themePreference })
       .subscribe({
         next: () => {
           // Keep the currentUser signal in sync so the effect doesn't fight us.
@@ -77,10 +78,10 @@ export class ThemeService {
             this.auth.currentUser.set({ ...user, themePreference });
           }
         },
-        error: err => {
+        error: () => {
           // Non-fatal: the theme is already applied locally and stored in
           // localStorage. It will sync on next successful save or page load.
-          console.warn('Failed to persist theme preference to server', err);
+          this.toast.warning('Theme preference could not be saved to the server');
         },
       });
   }
