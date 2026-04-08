@@ -12,6 +12,7 @@ let standaloneSelectCounter = 0;
       [id]="resolvedId()"
       [value]="value()"
       [disabled]="disabled()"
+      [attr.aria-label]="ariaLabel() || null"
       (change)="onChange($event)">
       @if (placeholder()) {
         <option value="" disabled>{{ placeholder() }}</option>
@@ -44,7 +45,7 @@ let standaloneSelectCounter = 0;
 
     .select-input:focus {
       border-color: var(--accent);
-      box-shadow: 0 0 0 2px var(--focus-ring, rgba(0, 113, 227, 0.15));
+      box-shadow: 0 0 0 2px var(--focus-ring);
     }
 
     .select-input:disabled {
@@ -61,6 +62,7 @@ export class SelectComponent {
   options = input.required<Array<{ value: string; label: string }>>();
   placeholder = input<string>('Select...');
   disabled = input<boolean>(false);
+  ariaLabel = input<string>('');
 
   valueChange = output<string>();
 

@@ -1,27 +1,32 @@
 import { Component, DestroyRef, inject, OnInit, signal, input, computed } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
-import { CommonModule, DatePipe, JsonPipe } from '@angular/common';
+import { CommonModule, DatePipe, DecimalPipe, JsonPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { MatCardModule } from '@angular/material/card';
-import { MatButtonModule } from '@angular/material/button';
-import { MatIconModule } from '@angular/material/icon';
-import { MatChipsModule } from '@angular/material/chips';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatSelectModule } from '@angular/material/select';
-import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { MatTooltipModule } from '@angular/material/tooltip';
-import { MatTabsModule } from '@angular/material/tabs';
 import { firstValueFrom } from 'rxjs';
-import { TicketService, Ticket, TicketEvent, type TicketAppLog, type TicketAiUsageLog, type PendingAction, type UnifiedLogEntry, type TicketCostSummary, type AiHelpResponse } from '../../core/services/ticket.service';
+import { TicketService, Ticket, TicketEvent, type PendingAction, type UnifiedLogEntry, type TicketCostSummary, type AiHelpResponse } from '../../core/services/ticket.service';
 import { LogSummaryService, type LogSummary } from '../../core/services/log-summary.service';
 import { AiUsageService, type TicketCostResponse } from '../../core/services/ai-usage.service';
 import { AiHelpDialogComponent } from '../../shared/components/ai-help-dialog.component';
-import { DialogComponent } from '../../shared/components/dialog.component';
+import {
+  CardComponent,
+  BroncoButtonComponent,
+  TabComponent,
+  TabGroupComponent,
+  SelectComponent,
+  FormFieldComponent,
+  TextareaComponent,
+  DialogComponent,
+} from '../../shared/components/index.js';
 import { AiLogEntryComponent } from './ai-log-entry.component';
-import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
-import { RelativeTimePipe } from '../../shared/pipes/relative-time.pipe';
+import { TicketDetailSummaryComponent } from './ticket-detail-summary.component.js';
+import { TicketDetailResolutionComponent } from './ticket-detail-resolution.component.js';
+import { TicketDetailDetailsComponent } from './ticket-detail-details.component.js';
+import { TicketDetailKnowledgeComponent } from './ticket-detail-knowledge.component.js';
+import { TicketDetailLogDigestComponent } from './ticket-detail-log-digest.component.js';
+import { TicketDetailFlowComponent, type FlowNode } from './ticket-detail-flow.component.js';
+import { TicketDetailCostComponent } from './ticket-detail-cost.component.js';
+import { TicketDetailTimelineComponent } from './ticket-detail-timeline.component.js';
 import { ToastService } from '../../core/services/toast.service';
 
 interface StepGroup {
@@ -35,135 +40,123 @@ interface StepGroup {
   expanded: boolean;
 }
 
-interface FlowNode {
-  label: string;
-  icon: string;
-  type: 'start' | 'action' | 'ai' | 'email' | 'status' | 'end';
-  children?: FlowNode[];
-}
-
 @Component({
   standalone: true,
-  imports: [CommonModule, RouterLink, DatePipe, JsonPipe, FormsModule, MatCardModule, MatButtonModule, MatIconModule, MatChipsModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatProgressBarModule, MatTooltipModule, MatTabsModule, MarkdownPipe, RelativeTimePipe, AiLogEntryComponent, DialogComponent, AiHelpDialogComponent],
+  imports: [
+    CommonModule,
+    RouterLink,
+    DatePipe,
+    DecimalPipe,
+    JsonPipe,
+    FormsModule,
+    CardComponent,
+    BroncoButtonComponent,
+    TabComponent,
+    TabGroupComponent,
+    SelectComponent,
+    FormFieldComponent,
+    TextareaComponent,
+    DialogComponent,
+    AiLogEntryComponent,
+    AiHelpDialogComponent,
+    TicketDetailSummaryComponent,
+    TicketDetailResolutionComponent,
+    TicketDetailDetailsComponent,
+    TicketDetailKnowledgeComponent,
+    TicketDetailLogDigestComponent,
+    TicketDetailFlowComponent,
+    TicketDetailCostComponent,
+    TicketDetailTimelineComponent,
+  ],
   template: `
     @if (ticket(); as t) {
-      <div class="page-header">
-        <div>
-          <a routerLink="/tickets" class="back-link">Tickets</a> /
-          <h1 class="inline">@if (t.ticketNumber) { <span class="ticket-number">#{{ t.ticketNumber }}</span> — }{{ t.subject }}</h1>
-        </div>
-      </div>
-
-      <div class="ticket-meta">
-        <mat-select [value]="t.priority" (selectionChange)="updateField('priority', $event.value)" class="priority-select" aria-label="Priority">
-          <mat-option value="LOW"><span class="priority priority-low">Low</span></mat-option>
-          <mat-option value="MEDIUM"><span class="priority priority-medium">Medium</span></mat-option>
-          <mat-option value="HIGH"><span class="priority priority-high">High</span></mat-option>
-          <mat-option value="CRITICAL"><span class="priority priority-critical">Critical</span></mat-option>
-        </mat-select>
-        <mat-select [value]="t.status" (selectionChange)="updateStatus($event.value)" class="status-select" aria-label="Status">
-          <mat-option value="OPEN">Open</mat-option>
-          <mat-option value="IN_PROGRESS">In Progress</mat-option>
-          <mat-option value="WAITING">Waiting</mat-option>
-          <mat-option value="RESOLVED">Resolved</mat-option>
-          <mat-option value="CLOSED">Closed</mat-option>
-        </mat-select>
-        <mat-select [value]="t.category ?? ''" (selectionChange)="updateField('category', $event.value || null)" class="category-select" aria-label="Category">
-          <mat-option value="">None</mat-option>
-          <mat-option value="DATABASE_PERF">Database Perf</mat-option>
-          <mat-option value="BUG_FIX">Bug Fix</mat-option>
-          <mat-option value="FEATURE_REQUEST">Feature Request</mat-option>
-          <mat-option value="SCHEMA_CHANGE">Schema Change</mat-option>
-          <mat-option value="CODE_REVIEW">Code Review</mat-option>
-          <mat-option value="ARCHITECTURE">Architecture</mat-option>
-          <mat-option value="GENERAL">General</mat-option>
-        </mat-select>
-        <span class="source">via {{ t.source }}</span>
-        <span class="date">{{ t.createdAt | date:'medium' }}</span>
-        <span class="analysis-badge analysis-{{ t.analysisStatus.toLowerCase() }}">
-          @if (t.analysisStatus === 'IN_PROGRESS') {
-            <mat-icon class="spin-icon">sync</mat-icon>
-          }
-          {{ formatAnalysisStatus(t.analysisStatus) }}
-          @if (t.analysisStatus === 'COMPLETED' && t.lastAnalyzedAt) {
-            <span class="analysis-time">{{ t.lastAnalyzedAt | date:'short' }}</span>
-          }
-        </span>
-        @if (t.analysisStatus === 'FAILED') {
-          <button mat-stroked-button color="warn" class="retry-btn" (click)="reanalyze()" [disabled]="reanalyzing()">
-            <mat-icon>replay</mat-icon> Retry Analysis
-          </button>
-        }
-      </div>
-
-      @if (t.analysisStatus === 'FAILED' && t.analysisError) {
-        <div class="analysis-error">
-          <mat-icon>error_outline</mat-icon>
-          <span>{{ t.analysisError }}</span>
-        </div>
-      }
-
-      <!-- Tab group: AI Summary, Resolution Summary, Details, Log Digest -->
-      <mat-tab-group class="info-tabs" animationDuration="0ms" (selectedTabChange)="onTabChange($event)">
-        @if (emailBlurb()) {
-          <mat-tab label="AI Summary">
-            <div class="tab-content">
-              <p class="blurb-text">{{ emailBlurb() }}</p>
-            </div>
-          </mat-tab>
-        }
-        @if (t.summary) {
-          <mat-tab label="Resolution Summary">
-            <div class="tab-content">
-              <p class="summary-text">{{ t.summary }}</p>
-            </div>
-          </mat-tab>
-        }
-        <mat-tab label="Details">
-          <div class="tab-content">
-            @if (t.description) {
-              <p class="description">{{ truncateDescription(t.description) }}</p>
-              @if (t.description.length > 300) {
-                <button mat-button class="show-more-btn" (click)="descExpanded = !descExpanded">
-                  {{ descExpanded ? 'Show less' : 'Show more' }}
-                </button>
-              }
-            }
-            @if (t.system) { <p><strong>System:</strong> {{ t.system.name }}</p> }
-            @if (t.client) { <p><strong>Client:</strong> {{ t.client.name }}</p> }
+      <div class="page-wrapper">
+        <div class="page-header">
+          <div class="header-left">
+            <a routerLink="/tickets" class="back-link">&larr; Tickets</a>
+            <h1 class="page-title">
+              @if (t.ticketNumber) { <span class="ticket-number">#{{ t.ticketNumber }}</span> }
+              {{ t.subject }}
+            </h1>
           </div>
-        </mat-tab>
-        @if (t.knowledgeDoc || editingKnowledgeDoc()) {
-          <mat-tab label="Knowledge">
-            <div class="tab-content knowledge-doc">
-              @if (editingKnowledgeDoc()) {
-                <textarea class="knowledge-editor" [(ngModel)]="knowledgeDocDraft" rows="20"></textarea>
-                <div class="knowledge-actions">
-                  <button mat-raised-button color="primary" (click)="saveKnowledgeDoc()">Save</button>
-                  <button mat-stroked-button (click)="cancelEditKnowledgeDoc()">Cancel</button>
-                </div>
-              } @else {
-                <div class="knowledge-actions">
-                  <button mat-stroked-button (click)="startEditKnowledgeDoc()">
-                    <mat-icon>edit</mat-icon> Edit
-                  </button>
-                  <button mat-stroked-button color="warn" (click)="clearKnowledgeDoc()">
-                    <mat-icon>delete</mat-icon> Clear
-                  </button>
-                </div>
-                <div [innerHTML]="t.knowledgeDoc | markdown"></div>
-              }
-            </div>
-          </mat-tab>
-        }
-        <mat-tab>
-          <ng-template mat-tab-label>
-            Logs
-            @if (unifiedLogsTotal() > 0) {
-              <span class="tab-badge">{{ unifiedLogsTotal() }}</span>
+        </div>
+
+        <div class="ticket-meta">
+          <app-select
+            ariaLabel="Priority"
+            [value]="t.priority"
+            [options]="priorityOptions"
+            placeholder=""
+            (valueChange)="updateField('priority', $event)" />
+          <app-select
+            ariaLabel="Status"
+            [value]="t.status"
+            [options]="statusOptions"
+            placeholder=""
+            (valueChange)="updateStatus($event)" />
+          <app-select
+            ariaLabel="Category"
+            [value]="t.category ?? ''"
+            [options]="categoryOptions"
+            placeholder=""
+            (valueChange)="updateField('category', $event || null)" />
+          <span class="source">via {{ t.source }}</span>
+          <span class="date">{{ t.createdAt | date:'medium' }}</span>
+          <span class="analysis-badge analysis-{{ t.analysisStatus.toLowerCase() }}">
+            @if (t.analysisStatus === 'IN_PROGRESS') {
+              <span class="spin-icon" aria-hidden="true">&#10227;</span>
             }
-          </ng-template>
-          <div class="tab-content">
+            {{ formatAnalysisStatus(t.analysisStatus) }}
+            @if (t.analysisStatus === 'COMPLETED' && t.lastAnalyzedAt) {
+              <span class="analysis-time">{{ t.lastAnalyzedAt | date:'short' }}</span>
+            }
+          </span>
+          @if (t.analysisStatus === 'FAILED') {
+            <app-bronco-button variant="destructive" size="sm" (click)="reanalyze()" [disabled]="reanalyzing()">
+              <span aria-hidden="true">&#x21bb;</span> Retry Analysis
+            </app-bronco-button>
+          }
+        </div>
+
+        @if (t.analysisStatus === 'FAILED' && t.analysisError) {
+          <div class="analysis-error">
+            <span class="error-icon" aria-hidden="true">&#9888;</span>
+            <span>{{ t.analysisError }}</span>
+          </div>
+        }
+
+        <app-tab-group
+          class="info-tabs"
+          [selectedIndex]="selectedTabIndex()"
+          (selectedIndexChange)="onTabIndexChange($event)">
+          @if (emailBlurb()) {
+            <app-tab label="AI Summary">
+              <app-ticket-detail-summary [emailBlurb]="emailBlurb()!" />
+            </app-tab>
+          }
+          @if (t.summary) {
+            <app-tab label="Resolution Summary">
+              <app-ticket-detail-resolution [summary]="t.summary" />
+            </app-tab>
+          }
+          <app-tab label="Details">
+            <app-ticket-detail-details
+              [description]="t.description"
+              [systemName]="t.system?.name ?? null"
+              [clientName]="t.client?.name ?? null" />
+          </app-tab>
+          @if (t.knowledgeDoc || editingKnowledgeDoc()) {
+            <app-tab label="Knowledge">
+              <app-ticket-detail-knowledge
+                [knowledgeDoc]="t.knowledgeDoc ?? null"
+                [editing]="editingKnowledgeDoc()"
+                (startEdit)="editingKnowledgeDoc.set(true)"
+                (cancelEdit)="editingKnowledgeDoc.set(false)"
+                (save)="saveKnowledgeDoc($event)"
+                (clear)="clearKnowledgeDoc()" />
+            </app-tab>
+          }
+          <app-tab [label]="logsTabLabel()">
             <!-- Cost summary card -->
             @if (costSummary(); as cs) {
               @if (cs.callCount > 0) {
@@ -203,41 +196,37 @@ interface FlowNode {
 
             <!-- Filter bar -->
             <div class="logs-filter-bar">
-              <mat-form-field class="logs-filter-field">
-                <mat-label>Type</mat-label>
-                <mat-select [ngModel]="unifiedTypeFilter()" (ngModelChange)="unifiedTypeFilter.set($event); loadUnifiedLogs()">
-                  <mat-option value="">All</mat-option>
-                  <mat-option value="ai">AI Calls</mat-option>
-                  <mat-option value="tool">Tool Calls</mat-option>
-                  <mat-option value="step">Steps</mat-option>
-                  <mat-option value="error">Errors</mat-option>
-                  <mat-option value="log">Logs</mat-option>
-                </mat-select>
-              </mat-form-field>
-              <mat-form-field class="logs-filter-field">
-                <mat-label>Level</mat-label>
-                <mat-select [ngModel]="logsLevelFilter()" (ngModelChange)="logsLevelFilter.set($event); loadUnifiedLogs()">
-                  <mat-option value="">All</mat-option>
-                  <mat-option value="ERROR">Error</mat-option>
-                  <mat-option value="WARN">Warn</mat-option>
-                  <mat-option value="INFO">Info</mat-option>
-                  <mat-option value="DEBUG">Debug</mat-option>
-                </mat-select>
-              </mat-form-field>
-              <mat-form-field class="logs-filter-field">
-                <mat-label>Search</mat-label>
-                <input matInput [ngModel]="logsSearchFilter()" (ngModelChange)="logsSearchFilter.set($event)" (keyup.enter)="loadUnifiedLogs()">
-              </mat-form-field>
-              <button mat-icon-button matTooltip="Search" (click)="loadUnifiedLogs()">
-                <mat-icon>search</mat-icon>
-              </button>
-              <button mat-icon-button matTooltip="Refresh" (click)="loadUnifiedLogs()">
-                <mat-icon>refresh</mat-icon>
-              </button>
+              <app-form-field label="Type">
+                <app-select
+                  [value]="unifiedTypeFilter()"
+                  [options]="typeFilterOptions"
+                  placeholder=""
+                  (valueChange)="unifiedTypeFilter.set($event); loadUnifiedLogs()" />
+              </app-form-field>
+              <app-form-field label="Level">
+                <app-select
+                  [value]="logsLevelFilter()"
+                  [options]="levelFilterOptions"
+                  placeholder=""
+                  (valueChange)="logsLevelFilter.set($event); loadUnifiedLogs()" />
+              </app-form-field>
+              <app-form-field label="Search">
+                <input
+                  type="text"
+                  class="search-input"
+                  [(ngModel)]="logsSearchInput"
+                  (keyup.enter)="onSearchEnter()" />
+              </app-form-field>
+              <app-bronco-button variant="icon" size="md" ariaLabel="Search" (click)="onSearchEnter()">
+                <span aria-hidden="true">&#x1F50D;</span>
+              </app-bronco-button>
+              <app-bronco-button variant="icon" size="md" ariaLabel="Refresh" (click)="loadUnifiedLogs()">
+                <span aria-hidden="true">&#x21bb;</span>
+              </app-bronco-button>
             </div>
 
             @if (unifiedLogsLoading()) {
-              <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+              <div class="indeterminate-bar"><span class="indeterminate-track"></span></div>
             }
 
             <!-- Unified log stream -->
@@ -246,10 +235,10 @@ interface FlowNode {
               @for (entry of ungroupedEntries(); track entry.id; let idx = $index) {
                 @if (isIterationHeader(entry)) {
                   <div class="iteration-group-header">
-                    <mat-icon class="iteration-icon">loop</mat-icon>
+                    <span class="iteration-icon" aria-hidden="true">&#x21bb;</span>
                     <span class="iteration-label">{{ extractIterationLabel(entry) }}</span>
                     <span class="log-seq">#{{ idx + 1 }}</span>
-                    <span class="log-time" [matTooltip]="entry.timestamp">{{ formatTime(entry.timestamp) }}</span>
+                    <span class="log-time" [attr.title]="entry.timestamp">{{ formatTime(entry.timestamp) }}</span>
                   </div>
                 } @else if (entry.type === 'ai') {
                   <app-ai-log-entry [entry]="entry" [idx]="idx" [iterationGrouped]="isWithinIteration(entry)" />
@@ -257,17 +246,17 @@ interface FlowNode {
                   <div class="log-entry" [ngClass]="'unified-type-' + entry.type" [class.iteration-grouped]="isWithinIteration(entry)">
                     <div class="log-entry-header">
                       <span class="log-seq">#{{ idx + 1 }}</span>
-                      <span class="log-time" [matTooltip]="entry.timestamp">{{ formatTime(entry.timestamp) }}</span>
+                      <span class="log-time" [attr.title]="entry.timestamp">{{ formatTime(entry.timestamp) }}</span>
                       <span class="unified-type-badge" [ngClass]="'ubadge-' + entry.type">{{ entry.type | uppercase }}</span>
                       @if (entry.level) { <span class="log-level-badge log-badge-{{ entry.level.toLowerCase() }}">{{ entry.level }}</span> }
                       @if (entry.service) { <span class="log-service">{{ entry.service }}</span> }
                       <span class="log-message">{{ entry.message }}</span>
                     </div>
                     @if (entry.context && hasKeys(entry.context)) {
-                      <button mat-button class="log-expand-btn" (click)="expandedLogs[entry.id] = !expandedLogs[entry.id]">
+                      <app-bronco-button variant="ghost" size="sm" class="log-expand-btn" (click)="expandedLogs[entry.id] = !expandedLogs[entry.id]">
                         {{ expandedLogs[entry.id] ? 'Hide metadata' : 'Show metadata' }}
-                        <mat-icon>{{ expandedLogs[entry.id] ? 'expand_less' : 'expand_more' }}</mat-icon>
-                      </button>
+                        <span aria-hidden="true">{{ expandedLogs[entry.id] ? '\u25B4' : '\u25BE' }}</span>
+                      </app-bronco-button>
                       @if (expandedLogs[entry.id]) { <pre class="log-metadata">{{ entry.context | json }}</pre> }
                     }
                     @if (entry.error) { <div class="log-error-detail">{{ entry.error }}</div> }
@@ -279,9 +268,13 @@ interface FlowNode {
               @for (group of stepGroups(); track $index) {
                 <div class="step-group">
                   <div class="step-group-header" (click)="group.expanded = !group.expanded">
-                    <mat-icon class="step-status-icon" [class.status-completed]="group.status === 'completed'" [class.status-failed]="group.status === 'failed'" [class.status-running]="group.status === 'running'">
-                      {{ group.status === 'completed' ? 'check_circle' : group.status === 'failed' ? 'error' : 'pending' }}
-                    </mat-icon>
+                    <span class="step-status-icon"
+                          [class.status-completed]="group.status === 'completed'"
+                          [class.status-failed]="group.status === 'failed'"
+                          [class.status-running]="group.status === 'running'"
+                          aria-hidden="true">
+                      {{ group.status === 'completed' ? '\u2713' : group.status === 'failed' ? '\u2715' : '\u25CB' }}
+                    </span>
                     <span class="step-name">{{ group.stepName }}</span>
                     @if (group.aiCallCount > 0) {
                       <span class="step-meta-chip">{{ group.aiCallCount }} AI call{{ group.aiCallCount > 1 ? 's' : '' }}</span>
@@ -291,22 +284,22 @@ interface FlowNode {
                       }
                     }
                     <span class="step-entry-count">{{ group.entries.length }} entr{{ group.entries.length === 1 ? 'y' : 'ies' }}</span>
-                    <mat-icon class="step-chevron">{{ group.expanded ? 'expand_less' : 'expand_more' }}</mat-icon>
+                    <span class="step-chevron" aria-hidden="true">{{ group.expanded ? '\u25B4' : '\u25BE' }}</span>
                   </div>
                   @if (group.expanded) {
                     <div class="step-group-entries">
                       @for (entry of group.entries; track entry.id; let idx = $index) {
                         @if (isIterationHeader(entry)) {
                           <div class="iteration-group-header">
-                            <mat-icon class="iteration-icon">loop</mat-icon>
+                            <span class="iteration-icon" aria-hidden="true">&#x21bb;</span>
                             <span class="iteration-label">{{ extractIterationLabel(entry) }}</span>
-                            <span class="log-time" [matTooltip]="entry.timestamp">{{ formatTime(entry.timestamp) }}</span>
+                            <span class="log-time" [attr.title]="entry.timestamp">{{ formatTime(entry.timestamp) }}</span>
                           </div>
                         } @else {
                           <div class="log-entry" [ngClass]="'unified-type-' + entry.type" [class.iteration-grouped]="isWithinIteration(entry)">
                             <div class="log-entry-header">
                               <span class="log-seq">#{{ idx + 1 }}</span>
-                              <span class="log-time" [matTooltip]="entry.timestamp">{{ formatTime(entry.timestamp) }}</span>
+                              <span class="log-time" [attr.title]="entry.timestamp">{{ formatTime(entry.timestamp) }}</span>
                               <span class="unified-type-badge" [ngClass]="'ubadge-' + entry.type">{{ entry.type | uppercase }}</span>
                               @if (entry.type === 'ai') {
                                 <span class="meta-chip provider-chip provider-{{ (entry.provider ?? '').toLowerCase() }}">{{ entry.provider }}</span>
@@ -323,10 +316,10 @@ interface FlowNode {
                               }
                             </div>
                             @if (entry.type === 'ai') {
-                              <button mat-button class="log-expand-btn" (click)="expandedLogs[entry.id] = !expandedLogs[entry.id]">
+                              <app-bronco-button variant="ghost" size="sm" class="log-expand-btn" (click)="expandedLogs[entry.id] = !expandedLogs[entry.id]">
                                 {{ expandedLogs[entry.id] ? 'Hide details' : 'Show details' }}
-                                <mat-icon>{{ expandedLogs[entry.id] ? 'expand_less' : 'expand_more' }}</mat-icon>
-                              </button>
+                                <span aria-hidden="true">{{ expandedLogs[entry.id] ? '\u25B4' : '\u25BE' }}</span>
+                              </app-bronco-button>
                               @if (expandedLogs[entry.id]) {
                                 <div class="ai-detail-sections">
                                   @if (entry.promptKey) { <div class="ai-detail-label">Prompt Key: <code>{{ entry.promptKey }}</code></div> }
@@ -350,10 +343,10 @@ interface FlowNode {
                             }
                             @if (entry.type !== 'ai') {
                               @if (entry.context && hasKeys(entry.context)) {
-                                <button mat-button class="log-expand-btn" (click)="expandedLogs[entry.id] = !expandedLogs[entry.id]">
+                                <app-bronco-button variant="ghost" size="sm" class="log-expand-btn" (click)="expandedLogs[entry.id] = !expandedLogs[entry.id]">
                                   {{ expandedLogs[entry.id] ? 'Hide metadata' : 'Show metadata' }}
-                                  <mat-icon>{{ expandedLogs[entry.id] ? 'expand_less' : 'expand_more' }}</mat-icon>
-                                </button>
+                                  <span aria-hidden="true">{{ expandedLogs[entry.id] ? '\u25B4' : '\u25BE' }}</span>
+                                </app-bronco-button>
                                 @if (expandedLogs[entry.id]) { <pre class="log-metadata">{{ entry.context | json }}</pre> }
                               }
                               @if (entry.error) { <div class="log-error-detail">{{ entry.error }}</div> }
@@ -375,15 +368,13 @@ interface FlowNode {
             @if (unifiedLogsTotal() > unifiedLogs().length) {
               <div class="logs-pagination">
                 <span class="logs-showing">Showing {{ unifiedLogs().length }} of {{ unifiedLogsTotal() }}</span>
-                <button mat-stroked-button (click)="loadMoreUnifiedLogs()">Load more</button>
+                <app-bronco-button variant="secondary" size="sm" (click)="loadMoreUnifiedLogs()">Load more</app-bronco-button>
               </div>
             }
-          </div>
-        </mat-tab>
-        <mat-tab label="Conversation">
-          <div class="tab-content">
+          </app-tab>
+          <app-tab label="Conversation">
             @if (conversationLoading()) {
-              <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+              <div class="indeterminate-bar"><span class="indeterminate-track"></span></div>
             } @else if (!conversationLoaded()) {
               <div class="conv-empty">
                 <p>Activate this tab to load conversation.</p>
@@ -395,7 +386,7 @@ interface FlowNode {
                 @for (group of convStepGroups(); track $index) {
                   <div class="conv-step-section">
                     <div class="conv-step-label">
-                      <mat-icon class="conv-step-icon">{{ group.status === 'completed' ? 'check_circle' : group.status === 'failed' ? 'error' : 'pending' }}</mat-icon>
+                      <span class="conv-step-icon" aria-hidden="true">{{ group.status === 'completed' ? '\u2713' : group.status === 'failed' ? '\u2715' : '\u25CB' }}</span>
                       {{ group.stepName }}
                     </div>
                     @for (entry of group.entries; track entry.id) {
@@ -411,8 +402,8 @@ interface FlowNode {
                             <div class="conv-turns">
                               @for (turn of convMessages(entry); track $index) {
                                 <div class="conv-turn" [ngClass]="'conv-turn-' + turn.role">
-                                  <span class="conv-turn-role">{{ turn.role === 'user' ? '👤' : '🤖' }}</span>
-                                  @if (turn.toolName) { <span class="conv-tool-call">🔧 {{ turn.toolName }}</span> }
+                                  <span class="conv-turn-role">{{ turn.role === 'user' ? '\u{1F464}' : '\u{1F916}' }}</span>
+                                  @if (turn.toolName) { <span class="conv-tool-call">\u{1F527} {{ turn.toolName }}</span> }
                                   @if (turn.tokenCount) { <span class="conv-token-count">{{ turn.tokenCount | number }} tokens</span> }
                                 </div>
                               }
@@ -423,10 +414,10 @@ interface FlowNode {
                               <span class="conv-final-label">Prompt</span>
                               <pre class="conv-response-text" [class.clamped]="!convPromptExpanded[entry.id]">{{ convPromptText(entry) }}</pre>
                               @if (isMultilineConvPrompt(entry)) {
-                                <button mat-button class="inline-expand-btn" (click)="convPromptExpanded[entry.id] = !convPromptExpanded[entry.id]">
+                                <app-bronco-button variant="ghost" size="sm" class="inline-expand-btn" (click)="convPromptExpanded[entry.id] = !convPromptExpanded[entry.id]">
                                   {{ convPromptExpanded[entry.id] ? 'less' : 'more' }}
-                                  <mat-icon>{{ convPromptExpanded[entry.id] ? 'keyboard_double_arrow_up' : 'keyboard_double_arrow_down' }}</mat-icon>
-                                </button>
+                                  <span aria-hidden="true">{{ convPromptExpanded[entry.id] ? '\u23F6' : '\u23F7' }}</span>
+                                </app-bronco-button>
                               }
                             </div>
                           }
@@ -435,10 +426,10 @@ interface FlowNode {
                               <span class="conv-final-label">Response</span>
                               <pre class="conv-response-text" [class.clamped]="!convExpanded[entry.id]">{{ convResponseText(entry) }}</pre>
                               @if (isMultilineConv(entry)) {
-                                <button mat-button class="inline-expand-btn" (click)="convExpanded[entry.id] = !convExpanded[entry.id]">
+                                <app-bronco-button variant="ghost" size="sm" class="inline-expand-btn" (click)="convExpanded[entry.id] = !convExpanded[entry.id]">
                                   {{ convExpanded[entry.id] ? 'less' : 'more' }}
-                                  <mat-icon>{{ convExpanded[entry.id] ? 'keyboard_double_arrow_up' : 'keyboard_double_arrow_down' }}</mat-icon>
-                                </button>
+                                  <span aria-hidden="true">{{ convExpanded[entry.id] ? '\u23F6' : '\u23F7' }}</span>
+                                </app-bronco-button>
                               }
                             </div>
                           }
@@ -447,7 +438,7 @@ interface FlowNode {
                             @for (sub of getSubTasks(group.entries, orchestrationId); track sub.id) {
                               <div class="conv-subtask">
                                 <div class="conv-ai-header">
-                                  <mat-icon class="subtask-icon">subdirectory_arrow_right</mat-icon>
+                                  <span class="subtask-icon" aria-hidden="true">\u21B3</span>
                                   <span class="conv-task-type">{{ sub.taskType }}</span>
                                   <span class="conv-model">{{ sub.model }}</span>
                                   <span class="conv-tokens">{{ sub.inputTokens | number }}in / {{ sub.outputTokens | number }}out</span>
@@ -458,10 +449,10 @@ interface FlowNode {
                                     <span class="conv-final-label">Prompt</span>
                                     <pre class="conv-response-text" [class.clamped]="!convPromptExpanded[sub.id]">{{ convPromptText(sub) }}</pre>
                                     @if (isMultilineConvPrompt(sub)) {
-                                      <button mat-button class="inline-expand-btn" (click)="convPromptExpanded[sub.id] = !convPromptExpanded[sub.id]">
+                                      <app-bronco-button variant="ghost" size="sm" class="inline-expand-btn" (click)="convPromptExpanded[sub.id] = !convPromptExpanded[sub.id]">
                                         {{ convPromptExpanded[sub.id] ? 'less' : 'more' }}
-                                        <mat-icon>{{ convPromptExpanded[sub.id] ? 'keyboard_double_arrow_up' : 'keyboard_double_arrow_down' }}</mat-icon>
-                                      </button>
+                                        <span aria-hidden="true">{{ convPromptExpanded[sub.id] ? '\u23F6' : '\u23F7' }}</span>
+                                      </app-bronco-button>
                                     }
                                   </div>
                                 }
@@ -470,10 +461,10 @@ interface FlowNode {
                                     <span class="conv-final-label">Response</span>
                                     <pre class="conv-response-text" [class.clamped]="!convExpanded[sub.id]">{{ convResponseText(sub) }}</pre>
                                     @if (isMultilineConv(sub)) {
-                                      <button mat-button class="inline-expand-btn" (click)="convExpanded[sub.id] = !convExpanded[sub.id]">
+                                      <app-bronco-button variant="ghost" size="sm" class="inline-expand-btn" (click)="convExpanded[sub.id] = !convExpanded[sub.id]">
                                         {{ convExpanded[sub.id] ? 'less' : 'more' }}
-                                        <mat-icon>{{ convExpanded[sub.id] ? 'keyboard_double_arrow_up' : 'keyboard_double_arrow_down' }}</mat-icon>
-                                      </button>
+                                        <span aria-hidden="true">{{ convExpanded[sub.id] ? '\u23F6' : '\u23F7' }}</span>
+                                      </app-bronco-button>
                                     }
                                   </div>
                                 }
@@ -498,8 +489,8 @@ interface FlowNode {
                         <div class="conv-turns">
                           @for (turn of convMessages(entry); track $index) {
                             <div class="conv-turn" [ngClass]="'conv-turn-' + turn.role">
-                              <span class="conv-turn-role">{{ turn.role === 'user' ? '👤' : '🤖' }}</span>
-                              @if (turn.toolName) { <span class="conv-tool-call">🔧 {{ turn.toolName }}</span> }
+                              <span class="conv-turn-role">{{ turn.role === 'user' ? '\u{1F464}' : '\u{1F916}' }}</span>
+                              @if (turn.toolName) { <span class="conv-tool-call">\u{1F527} {{ turn.toolName }}</span> }
                               @if (turn.tokenCount) { <span class="conv-token-count">{{ turn.tokenCount | number }} tokens</span> }
                             </div>
                           }
@@ -510,10 +501,10 @@ interface FlowNode {
                           <span class="conv-final-label">Prompt</span>
                           <pre class="conv-response-text" [class.clamped]="!convPromptExpanded[entry.id]">{{ convPromptText(entry) }}</pre>
                           @if (isMultilineConvPrompt(entry)) {
-                            <button mat-button class="inline-expand-btn" (click)="convPromptExpanded[entry.id] = !convPromptExpanded[entry.id]">
+                            <app-bronco-button variant="ghost" size="sm" class="inline-expand-btn" (click)="convPromptExpanded[entry.id] = !convPromptExpanded[entry.id]">
                               {{ convPromptExpanded[entry.id] ? 'less' : 'more' }}
-                              <mat-icon>{{ convPromptExpanded[entry.id] ? 'keyboard_double_arrow_up' : 'keyboard_double_arrow_down' }}</mat-icon>
-                            </button>
+                              <span aria-hidden="true">{{ convPromptExpanded[entry.id] ? '\u23F6' : '\u23F7' }}</span>
+                            </app-bronco-button>
                           }
                         </div>
                       }
@@ -522,10 +513,10 @@ interface FlowNode {
                           <span class="conv-final-label">Response</span>
                           <pre class="conv-response-text" [class.clamped]="!convExpanded[entry.id]">{{ convResponseText(entry) }}</pre>
                           @if (isMultilineConv(entry)) {
-                            <button mat-button class="inline-expand-btn" (click)="convExpanded[entry.id] = !convExpanded[entry.id]">
+                            <app-bronco-button variant="ghost" size="sm" class="inline-expand-btn" (click)="convExpanded[entry.id] = !convExpanded[entry.id]">
                               {{ convExpanded[entry.id] ? 'less' : 'more' }}
-                              <mat-icon>{{ convExpanded[entry.id] ? 'keyboard_double_arrow_up' : 'keyboard_double_arrow_down' }}</mat-icon>
-                            </button>
+                              <span aria-hidden="true">{{ convExpanded[entry.id] ? '\u23F6' : '\u23F7' }}</span>
+                            </app-bronco-button>
                           }
                         </div>
                       }
@@ -534,460 +525,53 @@ interface FlowNode {
                 }
               </div>
             }
-          </div>
-        </mat-tab>
-        <mat-tab>
-          <ng-template mat-tab-label>
-            Log Digest
-            <button mat-icon-button class="tab-action-btn" (click)="generateLogSummary(); $event.stopPropagation()" [disabled]="generatingLogs()" [matTooltip]="'Summarize recent logs'">
-              <mat-icon>{{ generatingLogs() ? 'hourglass_empty' : 'auto_awesome' }}</mat-icon>
-            </button>
-          </ng-template>
-          <div class="tab-content">
-            @if (generatingLogs()) {
-              <mat-progress-bar mode="indeterminate"></mat-progress-bar>
-            }
-            @for (ls of logSummaries(); track ls.id) {
-              <div class="log-summary-entry">
-                <div class="log-summary-header">
-                  <span class="log-summary-time">
-                    {{ formatTime(ls.windowStart) }} — {{ formatTime(ls.windowEnd) }}
-                  </span>
-                  <span class="log-summary-count" [matTooltip]="ls.logCount + ' log entries'">
-                    {{ ls.logCount }} logs
-                  </span>
-                </div>
-                <p class="log-summary-text">{{ ls.summary }}</p>
-                <div class="log-summary-services">
-                  @for (svc of ls.services; track svc) {
-                    <span class="service-chip">{{ svc }}</span>
-                  }
-                </div>
-              </div>
-            } @empty {
-              <p class="empty">No log summaries yet. Click the sparkle button to generate one.</p>
-            }
-          </div>
-        </mat-tab>
-      </mat-tab-group>
+          </app-tab>
+          <app-tab label="Log Digest">
+            <app-ticket-detail-log-digest
+              [summaries]="logSummaries()"
+              [generating]="generatingLogs()"
+              (generate)="generateLogSummary()" />
+          </app-tab>
+        </app-tab-group>
 
-      <!-- Process Flow -->
-      @if (flowNodes().length > 0) {
-        <mat-card class="flow-card">
-          <mat-card-header>
-            <mat-icon mat-card-avatar>account_tree</mat-icon>
-            <mat-card-title>Process Flow</mat-card-title>
-          </mat-card-header>
-          <mat-card-content>
-            <div class="flow-container">
-              @for (node of flowNodes(); track node.type + ':' + node.label + ':' + $index; let i = $index) {
-                <div class="flow-node flow-{{ node.type }}">
-                  <mat-icon class="flow-icon">{{ node.icon }}</mat-icon>
-                  <span class="flow-label">{{ node.label }}</span>
-                </div>
-                @if (node.children && node.children.length > 0) {
-                  <div class="flow-branch">
-                    @for (child of node.children; track child.type + ':' + child.label + ':' + $index; let j = $index) {
-                      <div class="flow-branch-row">
-                        <div class="flow-connector"></div>
-                        <div class="flow-node flow-{{ child.type }}">
-                          <mat-icon class="flow-icon">{{ child.icon }}</mat-icon>
-                          <span class="flow-label">{{ child.label }}</span>
-                        </div>
-                        @if (child.children && child.children.length > 0) {
-                          @for (grandchild of child.children; track grandchild.type + ':' + grandchild.label + ':' + $index) {
-                            <div class="flow-connector"></div>
-                            <div class="flow-node flow-{{ grandchild.type }}">
-                              <mat-icon class="flow-icon">{{ grandchild.icon }}</mat-icon>
-                              <span class="flow-label">{{ grandchild.label }}</span>
-                            </div>
-                          }
-                        }
-                      </div>
-                    }
-                  </div>
-                }
-                @if (i < flowNodes().length - 1 && !node.children?.length) {
-                  <div class="flow-arrow">
-                    <mat-icon>arrow_forward</mat-icon>
-                  </div>
-                }
-              }
-            </div>
-          </mat-card-content>
-        </mat-card>
-      }
-
-      <!-- AI Cost with expandable breakdown -->
-      @if (ticketCost(); as cost) {
-        @if (cost.callCount > 0) {
-          <mat-card class="cost-card">
-            <mat-card-header>
-              <mat-icon mat-card-avatar>analytics</mat-icon>
-              <mat-card-title>AI Cost</mat-card-title>
-            </mat-card-header>
-            <mat-card-content>
-              <div class="cost-summary">
-                <div class="cost-item">
-                  <span class="cost-label">Total Cost</span>
-                  <span class="cost-value">\${{ cost.totalCostUsd | number:'1.4-4' }}</span>
-                </div>
-                <div class="cost-item">
-                  <span class="cost-label">AI Calls</span>
-                  <span class="cost-value">{{ cost.callCount | number }}</span>
-                </div>
-                <div class="cost-item">
-                  <span class="cost-label">Input Tokens</span>
-                  <span class="cost-value">{{ cost.totalInputTokens | number }}</span>
-                </div>
-                <div class="cost-item">
-                  <span class="cost-label">Output Tokens</span>
-                  <span class="cost-value">{{ cost.totalOutputTokens | number }}</span>
-                </div>
-              </div>
-
-              @if (cost.breakdown.length > 0) {
-                <button mat-button class="show-details-btn" (click)="costDetailsExpanded = !costDetailsExpanded">
-                  {{ costDetailsExpanded ? 'Hide details' : 'Show details' }}
-                  <mat-icon>{{ costDetailsExpanded ? 'expand_less' : 'expand_more' }}</mat-icon>
-                </button>
-              }
-
-              @if (costDetailsExpanded) {
-                <div class="cost-breakdown">
-                  @for (item of cost.breakdown; track item.provider + ':' + item.model) {
-                    <div class="breakdown-group">
-                      <div class="breakdown-header">
-                        <span class="provider-chip provider-{{ item.provider.toLowerCase() }}">{{ item.provider }}</span>
-                        <code class="model-name">{{ item.model }}</code>
-                        <span class="breakdown-stats">
-                          {{ item.callCount }} calls &middot;
-                          \${{ item.totalCostUsd | number:'1.4-4' }}
-                        </span>
-                      </div>
-                      @if (item.calls && item.calls.length > 0) {
-                        <div class="call-list">
-                          @for (call of item.calls; track call.id) {
-                            <div class="call-row">
-                              <span class="call-task">{{ call.taskType }}</span>
-                              <span class="call-tokens">{{ call.inputTokens | number }}in / {{ call.outputTokens | number }}out</span>
-                              @if (call.costUsd != null) {
-                                <span class="call-cost">\${{ call.costUsd | number:'1.4-4' }}</span>
-                              }
-                              @if (call.durationMs != null) {
-                                <span class="call-duration">{{ call.durationMs }}ms</span>
-                              }
-                              <span class="call-time">{{ call.createdAt | date:'shortTime' }}</span>
-                            </div>
-                          }
-                        </div>
-                      }
-                    </div>
-                  }
-                </div>
-              }
-            </mat-card-content>
-          </mat-card>
+        @if (flowNodes().length > 0) {
+          <app-ticket-detail-flow [nodes]="flowNodes()" />
         }
-      }
 
-      <!-- Timeline with filter and sort controls -->
-      <div class="timeline-header">
-        <h3>Timeline</h3>
-        <div class="timeline-controls">
-          <mat-form-field class="timeline-filter-field">
-            <mat-label>Filter</mat-label>
-            <mat-select [ngModel]="timelineFilter()" (ngModelChange)="timelineFilter.set($event)">
-              <mat-option value="">All Events</mat-option>
-              <mat-option value="COMMENT">Comments</mat-option>
-              <mat-option value="AI_ANALYSIS">AI Analysis</mat-option>
-              <mat-option value="STATUS_CHANGE">Status Changes</mat-option>
-              <mat-option value="EMAIL_INBOUND">Inbound Emails</mat-option>
-              <mat-option value="EMAIL_OUTBOUND">Outbound Emails</mat-option>
-              <mat-option value="CODE_CHANGE">Code Changes</mat-option>
-              <mat-option value="SYSTEM_NOTE">System Notes</mat-option>
-            </mat-select>
-          </mat-form-field>
-          <button mat-icon-button [matTooltip]="timelineSortAsc() ? 'Oldest first' : 'Newest first'" (click)="toggleTimelineSort()">
-            <mat-icon>{{ timelineSortAsc() ? 'arrow_upward' : 'arrow_downward' }}</mat-icon>
-          </button>
+        <app-ticket-detail-cost [cost]="ticketCost()" />
+
+        <app-ticket-detail-timeline
+          [events]="events()"
+          [pendingActionMap]="pendingActionMap()"
+          (approveAction)="approvePendingAction($event)"
+          (dismissAction)="dismissPendingAction($event)" />
+
+        <app-card padding="md" class="add-comment">
+          <app-form-field label="Add comment">
+            <app-textarea
+              [value]="newComment"
+              [rows]="2"
+              (valueChange)="newComment = $event" />
+          </app-form-field>
+          <div class="comment-actions">
+            <app-bronco-button variant="primary" (click)="addComment()" [disabled]="!newComment">
+              <span aria-hidden="true">&#x27A4;</span> Add Comment
+            </app-bronco-button>
+          </div>
+        </app-card>
+
+        <div class="reanalyze-bar">
+          <app-bronco-button variant="secondary" (click)="reanalyze()" [disabled]="reanalyzing()">
+            <span aria-hidden="true">&#x21bb;</span> Re-run Analysis
+          </app-bronco-button>
         </div>
-      </div>
-      <div class="timeline">
-        @for (event of filteredEvents(); track event.id) {
-          <mat-card class="event-card" [ngClass]="'event-type-' + event.eventType.toLowerCase()">
-            <mat-card-content>
-              <div class="event-header">
-                <span class="event-type-badge" [ngClass]="'badge-' + event.eventType.toLowerCase()">
-                  <mat-icon>{{ eventIcon(event.eventType) }}</mat-icon>
-                  <span>{{ formatEventType(event.eventType) }}</span>
-                </span>
-                @if (isAiTriggered(event)) {
-                  <span class="ai-triggered-badge">AI Recommendation</span>
-                }
-                <span class="event-actor">{{ event.actor }}</span>
-                @if (isAgenticAnalysis(event)) {
-                  @if (agenticMeta(event); as am) {
-                    @if (am.totalCostUsd != null && am.totalCostUsd > 0) {
-                      <span class="cost-badge">\${{ am.totalCostUsd | number:'1.4-4' }}</span>
-                    }
-                  }
-                }
-                <span class="event-date" [matTooltip]="event.createdAt | date:'medium'">{{ event.createdAt | relativeTime }}</span>
-              </div>
 
-              <!-- Condensed Agentic Analysis card -->
-              @if (isAgenticAnalysis(event)) {
-                @if (agenticMeta(event); as am) {
-                  <div class="agentic-summary">
-                    <div class="agentic-stats">
-                      <span class="meta-chip task-chip">{{ am.taskType }}</span>
-                      <span class="meta-chip token-chip">{{ am.toolCallCount }} tool calls</span>
-                      <span class="meta-chip phase-chip">{{ am.iterationsRun }} iterations</span>
-                      @if (am.sufficiencyStatus) {
-                        <span class="meta-chip" [ngClass]="'sufficiency-' + am.sufficiencyStatus.toLowerCase()">{{ am.sufficiencyStatus }}</span>
-                      }
-                      @if (am.sufficiencyConfidence) {
-                        <span class="meta-chip duration-chip">confidence: {{ am.sufficiencyConfidence }}</span>
-                      }
-                    </div>
-
-                    <!-- Collapsible Tool Calls -->
-                    @if (am.toolCalls.length > 0) {
-                      <button mat-button class="show-more-btn" (click)="expandedSections[event.id + ':tools'] = !expandedSections[event.id + ':tools']">
-                        <mat-icon>{{ expandedSections[event.id + ':tools'] ? 'expand_less' : 'expand_more' }}</mat-icon>
-                        Tool Calls ({{ am.toolCalls.length }})
-                      </button>
-                      @if (expandedSections[event.id + ':tools']) {
-                        <div class="tool-calls-list">
-                          @for (tc of am.toolCalls; track $index) {
-                            <div class="tool-call-row">
-                              <span class="tool-name">{{ tc.tool }}</span>
-                              @if (tc.system) { <span class="meta-chip provider-chip provider-local">{{ tc.system }}</span> }
-                              @if (tc.durationMs != null) { <span class="meta-chip duration-chip">{{ tc.durationMs }}ms</span> }
-                              @if (tc.output) {
-                                <button mat-button class="show-more-btn" (click)="expandedSections[event.id + ':tc:' + $index] = !expandedSections[event.id + ':tc:' + $index]">
-                                  {{ expandedSections[event.id + ':tc:' + $index] ? 'Hide' : 'Result' }}
-                                </button>
-                              }
-                              @if (expandedSections[event.id + ':tc:' + $index] && tc.output) {
-                                <pre class="tool-result">{{ tc.output }}</pre>
-                              }
-                            </div>
-                          }
-                        </div>
-                      }
-                    }
-
-                    <!-- Collapsible Sufficiency details -->
-                    @if (am.sufficiencyReason) {
-                      <button mat-button class="show-more-btn" (click)="expandedSections[event.id + ':sufficiency'] = !expandedSections[event.id + ':sufficiency']">
-                        <mat-icon>{{ expandedSections[event.id + ':sufficiency'] ? 'expand_less' : 'expand_more' }}</mat-icon>
-                        Sufficiency
-                      </button>
-                      @if (expandedSections[event.id + ':sufficiency']) {
-                        <div class="sufficiency-detail">
-                          <p><strong>Status:</strong> {{ am.sufficiencyStatus }} &middot; <strong>Confidence:</strong> {{ am.sufficiencyConfidence }}</p>
-                          <p>{{ am.sufficiencyReason }}</p>
-                          @if (am.sufficiencyQuestions && am.sufficiencyQuestions.length > 0) {
-                            <p><strong>Questions:</strong></p>
-                            <ul>@for (q of am.sufficiencyQuestions; track $index) { <li>{{ q }}</li> }</ul>
-                          }
-                        </div>
-                      }
-                    }
-                  </div>
-
-                  <!-- Collapsible Analysis content -->
-                  @if (event.content) {
-                    <button mat-button class="show-more-btn" (click)="expandedSections[event.id + ':analysis'] = !expandedSections[event.id + ':analysis']">
-                      <mat-icon>{{ expandedSections[event.id + ':analysis'] ? 'expand_less' : 'expand_more' }}</mat-icon>
-                      Analysis
-                    </button>
-                    @if (expandedSections[event.id + ':analysis']) {
-                      <div class="event-content markdown-content">
-                        <div [innerHTML]="event.content | markdown"></div>
-                      </div>
-                    }
-                  }
-                }
-              }
-
-              <!-- SYSTEM_NOTE with JSON probe data detection -->
-              @else if (event.eventType === 'SYSTEM_NOTE' && isJsonContent(event.content)) {
-                <button mat-button class="show-more-btn" (click)="expandedEvents[event.id] = !expandedEvents[event.id]">
-                  <mat-icon>{{ expandedEvents[event.id] ? 'expand_less' : 'expand_more' }}</mat-icon>
-                  Probe Data
-                </button>
-                @if (expandedEvents[event.id]) {
-                  <pre class="probe-data">{{ formatJson(event.content!) }}</pre>
-                }
-              }
-
-              <!-- AI_RECOMMENDATION — render as action list -->
-              @else if (event.eventType === 'AI_RECOMMENDATION') {
-                @if (eventMeta(event); as meta) {
-                  @if (meta.aiProvider || meta.aiModel) {
-                    <div class="event-ai-meta">
-                      @if (meta.aiProvider) { <span class="meta-chip provider-chip provider-{{ meta.aiProvider.toLowerCase() }}">{{ meta.aiProvider }}</span> }
-                      @if (meta.aiModel) { <code class="meta-chip model-chip">{{ meta.aiModel }}</code> }
-                    </div>
-                  }
-                }
-              }
-              @if (event.content) {
-                @if (event.eventType === 'SYSTEM_NOTE' && isJsonContent(event.content)) {
-                  <!-- Probe data / JSON SYSTEM_NOTE — collapsible formatted code block -->
-                  <div class="probe-data-section">
-                    <button mat-button class="show-more-btn" (click)="expandedEvents[event.id] = !expandedEvents[event.id]">
-                      <mat-icon>{{ expandedEvents[event.id] ? 'expand_less' : 'expand_more' }}</mat-icon>
-                      {{ expandedEvents[event.id] ? 'Hide Probe Data' : 'Show Probe Data' }}
-                    </button>
-                    @if (expandedEvents[event.id]) {
-                      <pre class="probe-data-code"><code>{{ formatJson(event.content) }}</code></pre>
-                    }
-                  </div>
-                } @else if (event.eventType === 'AI_RECOMMENDATION' && hasActionsMeta(event)) {
-                  <!-- AI Recommendation summary above action cards (action bullets stripped) -->
-                  @if (recSummaryContent(event); as summary) {
-                    <div class="event-content markdown-content" [class.collapsed]="!expandedEvents[event.id + '-raw'] && summary.length > 300">
-                      <div [innerHTML]="summary | markdown"></div>
-                    </div>
-                    @if (summary.length > 300) {
-                      <button mat-button class="show-more-btn" (click)="expandedEvents[event.id + '-raw'] = !expandedEvents[event.id + '-raw']">
-                        {{ expandedEvents[event.id + '-raw'] ? 'Hide details' : 'Show details' }}
-                      </button>
-                    }
-                  }
-                  <!-- AI Recommendation action cards -->
-                  <div class="recommendation-actions">
-                    @for (act of getEventActions(event); track $index) {
-                      <div class="rec-action-row" [class.rec-resolved]="getActionOutcome(act) !== 'pending_approval'">
-                        <div class="rec-action-header" (click)="getActionOutcome(act) !== 'pending_approval' ? expandedEvents[event.id + '-act-' + $index] = !expandedEvents[event.id + '-act-' + $index] : null">
-                          <mat-icon class="rec-icon">{{ recActionIcon(act.action) }}</mat-icon>
-                          <span class="rec-action-type">{{ formatRecActionType(act.action) }}</span>
-                          <span class="rec-status-badge" [class]="'rec-badge-' + getActionOutcome(act)">
-                            {{ getActionOutcomeLabel(act) }}
-                          </span>
-                          @if (getActionOutcome(act) !== 'pending_approval') {
-                            <mat-icon class="rec-expand-icon">{{ expandedEvents[event.id + '-act-' + $index] ? 'expand_less' : 'expand_more' }}</mat-icon>
-                          }
-                        </div>
-                        @if (getActionOutcome(act) === 'pending_approval' || expandedEvents[event.id + '-act-' + $index]) {
-                          <div class="rec-action-detail">
-                            @if (act.value) {
-                              <span class="rec-action-value">{{ act.value }}</span>
-                            }
-                            <span class="rec-action-reason">{{ act.reason }}</span>
-                          </div>
-                        }
-                        @if (getActionOutcome(act) === 'pending_approval') {
-                          <div class="rec-action-buttons">
-                            <button mat-stroked-button color="primary" class="rec-approve-btn" (click)="approvePendingAction(act.pendingActionId)">Approve</button>
-                            <button mat-stroked-button class="rec-dismiss-btn" (click)="dismissPendingAction(act.pendingActionId)">Dismiss</button>
-                          </div>
-                        }
-                      </div>
-                    }
-                  </div>
-                } @else if (isMarkdownEvent(event.eventType)) {
-                  <div class="event-content markdown-content" [class.collapsed]="!expandedEvents[event.id] && event.content.length > 300">
-                    <div [innerHTML]="event.content | markdown"></div>
-                  </div>
-                  @if (event.content.length > 300) {
-                    <button mat-button class="show-more-btn" (click)="expandedEvents[event.id] = !expandedEvents[event.id]">
-                      {{ expandedEvents[event.id] ? 'Show less' : 'Show more' }}
-                    </button>
-                  }
-                }
-              }
-
-              <!-- Default rendering for all other event types -->
-              @else {
-                <!-- AI help question (if present in metadata) -->
-                @if (eventQuestion(event); as q) {
-                  <div class="event-question">
-                    <mat-icon class="question-icon">help_outline</mat-icon>
-                    <span>{{ q }}</span>
-                  </div>
-                }
-                <!-- AI metadata chips -->
-                @if (eventMeta(event); as meta) {
-                  @if (meta.aiProvider || meta.aiModel) {
-                    <div class="event-ai-meta">
-                      @if (meta.aiProvider) {
-                        <span class="meta-chip provider-chip provider-{{ meta.aiProvider.toLowerCase() }}">{{ meta.aiProvider }}</span>
-                      }
-                      @if (meta.aiModel) {
-                        <code class="meta-chip model-chip">{{ meta.aiModel }}</code>
-                      }
-                      @if (meta.phase) {
-                        <span class="meta-chip phase-chip">{{ meta.phase }}</span>
-                      }
-                      @if (meta.taskType) {
-                        <span class="meta-chip task-chip">{{ meta.taskType }}</span>
-                      }
-                      @if (meta.inputTokens != null) {
-                        <span class="meta-chip token-chip">{{ meta.inputTokens | number }}in / {{ meta.outputTokens | number }}out</span>
-                      }
-                      @if (meta.durationMs != null) {
-                        <span class="meta-chip duration-chip">{{ meta.durationMs }}ms</span>
-                      }
-                    </div>
-                  }
-                }
-                @if (event.content) {
-                  @if (isMarkdownEvent(event.eventType)) {
-                    <div class="event-content markdown-content" [class.collapsed]="!expandedEvents[event.id] && event.content.length > 300">
-                      <div [innerHTML]="event.content | markdown"></div>
-                    </div>
-                  } @else {
-                    <p class="event-content" [class.collapsed]="!expandedEvents[event.id] && event.content.length > 300">
-                      {{ expandedEvents[event.id] ? event.content : event.content.slice(0, 300) }}
-                      @if (event.content.length > 300 && !expandedEvents[event.id]) {
-                        <span class="ellipsis">...</span>
-                      }
-                    </p>
-                  }
-                  @if (event.content.length > 300) {
-                    <button mat-button class="show-more-btn" (click)="expandedEvents[event.id] = !expandedEvents[event.id]">
-                      {{ expandedEvents[event.id] ? 'Show less' : 'Show more' }}
-                    </button>
-                  }
-                }
-              }
-            </mat-card-content>
-          </mat-card>
-        } @empty {
-          <p class="empty">No events match the current filter.</p>
-        }
-      </div>
-
-      <mat-card class="add-comment">
-        <mat-card-content>
-          <mat-form-field class="full-width">
-            <mat-label>Add comment</mat-label>
-            <textarea matInput [(ngModel)]="newComment" rows="2"></textarea>
-          </mat-form-field>
-          <button mat-raised-button color="primary" (click)="addComment()" [disabled]="!newComment">
-            <mat-icon>send</mat-icon> Add Comment
-          </button>
-        </mat-card-content>
-      </mat-card>
-
-      <!-- Re-run Analysis button -->
-      <div class="reanalyze-bar">
-        <button mat-stroked-button (click)="reanalyze()" [disabled]="reanalyzing()">
-          <mat-icon>replay</mat-icon> Re-run Analysis
+        <button class="ai-fab" type="button" aria-label="Ask AI for Help" (click)="openAiHelp()">
+          <span aria-hidden="true">&#x2728;</span>
         </button>
       </div>
-
-      <!-- Floating AI Help button -->
-      <button mat-fab class="ai-fab" color="accent" (click)="openAiHelp()" matTooltip="Ask AI for Help">
-        <mat-icon>psychology</mat-icon>
-      </button>
     } @else {
-      <p>Loading...</p>
+      <p class="loading">Loading...</p>
     }
 
     @if (showAiHelpDialog()) {
@@ -1026,12 +610,8 @@ export class TicketDetailComponent implements OnInit {
   generatingLogs = signal(false);
   reanalyzing = signal(false);
   editingKnowledgeDoc = signal(false);
-  knowledgeDocDraft = '';
   newComment = '';
-  descExpanded = false;
-  costDetailsExpanded = false;
-  expandedEvents: Record<string, boolean> = {};
-  expandedSections: Record<string, boolean> = {};
+  logsSearchInput = '';
 
   // Unified logs tab state
   unifiedLogs = signal<UnifiedLogEntry[]>([]);
@@ -1053,26 +633,67 @@ export class TicketDetailComponent implements OnInit {
   convExpanded: Record<string, boolean> = {};
   convPromptExpanded: Record<string, boolean> = {};
 
-  // Legacy — still used by loadTicketAiUsage for the existing AI Cost card
-  ticketLogs = signal<TicketAppLog[]>([]);
-  ticketLogsTotal = signal(0);
-  ticketLogsLoading = signal(false);
-  ticketAiUsageLogs = signal<TicketAiUsageLog[]>([]);
+  // Tab tracking
+  selectedTabIndex = signal(0);
 
-  // Timeline filter/sort
-  timelineFilter = signal('');
-  timelineSortAsc = signal(true); // true = oldest first (matches event order from API)
-
-  filteredEvents = computed(() => {
-    let evts = this.events();
-    if (this.timelineFilter()) {
-      evts = evts.filter(e => e.eventType === this.timelineFilter());
-    }
-    if (!this.timelineSortAsc()) {
-      evts = [...evts].reverse();
-    }
-    return evts;
+  /** Dynamic tab labels (depends on which conditional tabs are visible). */
+  tabsInOrder = computed<string[]>(() => {
+    const t = this.ticket();
+    const labels: string[] = [];
+    if (this.emailBlurb()) labels.push('AI Summary');
+    if (t?.summary) labels.push('Resolution Summary');
+    labels.push('Details');
+    if (t?.knowledgeDoc || this.editingKnowledgeDoc()) labels.push('Knowledge');
+    labels.push('Logs');
+    labels.push('Conversation');
+    labels.push('Log Digest');
+    return labels;
   });
+
+  logsTabLabel = computed(() => {
+    const total = this.unifiedLogsTotal();
+    return total > 0 ? `Logs (${total})` : 'Logs';
+  });
+
+  // Static select option lists
+  readonly priorityOptions = [
+    { value: 'LOW', label: 'Low' },
+    { value: 'MEDIUM', label: 'Medium' },
+    { value: 'HIGH', label: 'High' },
+    { value: 'CRITICAL', label: 'Critical' },
+  ];
+  readonly statusOptions = [
+    { value: 'OPEN', label: 'Open' },
+    { value: 'IN_PROGRESS', label: 'In Progress' },
+    { value: 'WAITING', label: 'Waiting' },
+    { value: 'RESOLVED', label: 'Resolved' },
+    { value: 'CLOSED', label: 'Closed' },
+  ];
+  readonly categoryOptions = [
+    { value: '', label: 'None' },
+    { value: 'DATABASE_PERF', label: 'Database Perf' },
+    { value: 'BUG_FIX', label: 'Bug Fix' },
+    { value: 'FEATURE_REQUEST', label: 'Feature Request' },
+    { value: 'SCHEMA_CHANGE', label: 'Schema Change' },
+    { value: 'CODE_REVIEW', label: 'Code Review' },
+    { value: 'ARCHITECTURE', label: 'Architecture' },
+    { value: 'GENERAL', label: 'General' },
+  ];
+  readonly typeFilterOptions = [
+    { value: '', label: 'All' },
+    { value: 'ai', label: 'AI Calls' },
+    { value: 'tool', label: 'Tool Calls' },
+    { value: 'step', label: 'Steps' },
+    { value: 'error', label: 'Errors' },
+    { value: 'log', label: 'Logs' },
+  ];
+  readonly levelFilterOptions = [
+    { value: '', label: 'All' },
+    { value: 'ERROR', label: 'Error' },
+    { value: 'WARN', label: 'Warn' },
+    { value: 'INFO', label: 'Info' },
+    { value: 'DEBUG', label: 'Debug' },
+  ];
 
   /** Extract a short email blurb from the first AI_ANALYSIS triage event. */
   emailBlurb = computed(() => {
@@ -1173,14 +794,13 @@ export class TicketDetailComponent implements OnInit {
     this.loadTicketCost();
     this.loadUnifiedLogs();
     this.loadCostSummary();
-    this.loadTicketAiUsage();
     this.loadPendingActions();
     this.destroyRef.onDestroy(() => this.stopPolling());
   }
 
   loadPendingActions(): void {
     this.ticketService.getPendingActions(this.id()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (actions) => {
+      next: (actions: PendingAction[]) => {
         const map: Record<string, string> = {};
         for (const a of actions) map[a.id] = a.status;
         this.pendingActionMap.set(map);
@@ -1241,19 +861,6 @@ export class TicketDetailComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(res => {
         this.logSummaries.set(res.summaries);
-      });
-  }
-
-  // Legacy loadTicketLogs — replaced by loadUnifiedLogs
-  loadTicketLogs(): void { /* no-op */ }
-
-  loadTicketAiUsage(): void {
-    this.ticketService
-      .getTicketAiUsage(this.id(), { limit: 100 })
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (res) => this.ticketAiUsageLogs.set(res.logs),
-        error: () => {},
       });
   }
 
@@ -1352,8 +959,9 @@ export class TicketDetailComponent implements OnInit {
       });
   }
 
-  loadMoreLogs(): void {
-    // Legacy — kept for backward compatibility but loadMoreUnifiedLogs is primary
+  onSearchEnter(): void {
+    this.logsSearchFilter.set(this.logsSearchInput);
+    this.loadUnifiedLogs();
   }
 
   private buildGroups(entries: UnifiedLogEntry[]): { groups: StepGroup[]; ungrouped: UnifiedLogEntry[] } {
@@ -1432,8 +1040,10 @@ export class TicketDetailComponent implements OnInit {
       });
   }
 
-  onTabChange(event: { tab: { textLabel: string } }): void {
-    if (event.tab.textLabel === 'Conversation') {
+  onTabIndexChange(idx: number): void {
+    this.selectedTabIndex.set(idx);
+    const labels = this.tabsInOrder();
+    if (labels[idx] === 'Conversation') {
       this.loadConversationEntries();
     }
   }
@@ -1521,22 +1131,11 @@ export class TicketDetailComponent implements OnInit {
     });
   }
 
-  startEditKnowledgeDoc(): void {
-    this.knowledgeDocDraft = this.ticket()?.knowledgeDoc ?? '';
-    this.editingKnowledgeDoc.set(true);
-  }
-
-  cancelEditKnowledgeDoc(): void {
-    this.editingKnowledgeDoc.set(false);
-    this.knowledgeDocDraft = '';
-  }
-
-  saveKnowledgeDoc(): void {
-    const doc = this.knowledgeDocDraft.trim() || null;
+  saveKnowledgeDoc(draft: string): void {
+    const doc = draft.trim() || null;
     this.ticketService.updateKnowledgeDoc(this.id(), doc).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => {
         this.editingKnowledgeDoc.set(false);
-        this.knowledgeDocDraft = '';
         this.toast.success('Knowledge doc updated');
         this.load();
       },
@@ -1580,7 +1179,6 @@ export class TicketDetailComponent implements OnInit {
 
   onAiHelpClosed(): void {
     this.showAiHelpDialog.set(false);
-    // Reload timeline to show any new AI_ANALYSIS events
     this.load();
     this.loadTicketCost();
   }
@@ -1599,137 +1197,7 @@ export class TicketDetailComponent implements OnInit {
     });
   }
 
-  toggleTimelineSort(): void {
-    this.timelineSortAsc.update(v => !v);
-  }
-
-  isMarkdownEvent(eventType: string): boolean {
-    return eventType === 'AI_ANALYSIS' || eventType === 'AI_RECOMMENDATION' || eventType === 'COMMENT';
-  }
-
-  recSummaryContent(event: TicketEvent): string {
-    if (!event.content) return '';
-    const actionPrefixes = /^[-•]\s*(Auto-executed|Pending approval|Skipped):/i;
-    const headerPrefixes = /^\*\*(Auto-executed|Pending approval|Skipped):\*\*$/i;
-    return event.content
-      .split('\n')
-      .filter(line => !actionPrefixes.test(line.trim()) && !headerPrefixes.test(line.trim()))
-      .join('\n')
-      .trim();
-  }
-
-  formatEventType(type: string): string {
-    const labels: Record<string, string> = {
-      COMMENT: 'Comment',
-      STATUS_CHANGE: 'Status Change',
-      PRIORITY_CHANGE: 'Priority Change',
-      CATEGORY_CHANGE: 'Category Change',
-      AI_ANALYSIS: 'AI Analysis',
-      AI_RECOMMENDATION: 'AI Recommendation',
-      EMAIL_INBOUND: 'Email Received',
-      EMAIL_OUTBOUND: 'Email Sent',
-      CODE_CHANGE: 'Code Change',
-      SYSTEM_NOTE: 'System Note',
-    };
-    return labels[type] ?? type;
-  }
-
-  eventIcon(type: string): string {
-    const icons: Record<string, string> = {
-      COMMENT: 'comment',
-      STATUS_CHANGE: 'swap_horiz',
-      PRIORITY_CHANGE: 'priority_high',
-      CATEGORY_CHANGE: 'category',
-      AI_ANALYSIS: 'psychology',
-      AI_RECOMMENDATION: 'lightbulb',
-      EMAIL_INBOUND: 'email',
-      EMAIL_OUTBOUND: 'send',
-      CODE_CHANGE: 'code',
-      SYSTEM_NOTE: 'info',
-    };
-    return icons[type] ?? 'event';
-  }
-
-  // ─── AI Recommendation / Probe Data helpers ───
-
-  hasActionsMeta(event: TicketEvent): boolean {
-    const meta = event.metadata as Record<string, unknown> | null;
-    return Array.isArray(meta?.['actions']);
-  }
-
-  getEventActions(event: TicketEvent): Array<{ action: string; value?: string; reason: string; outcome?: string; pendingActionId?: string; recommendationType?: string }> {
-    const meta = event.metadata as Record<string, unknown> | null;
-    const actions = meta?.['actions'] as unknown[] | undefined;
-    if (!Array.isArray(actions)) return [];
-    return actions.map((a) => {
-      const obj = a as Record<string, unknown>;
-      return {
-        action: (obj['action'] as string) ?? '',
-        value: obj['value'] as string | undefined,
-        reason: (obj['reason'] as string) ?? '',
-        outcome: (obj['outcome'] as string) ?? (obj['applied'] === true ? 'auto_executed' : obj['applied'] === false ? 'skipped' : undefined),
-        pendingActionId: obj['pendingActionId'] as string | undefined,
-        recommendationType: obj['recommendationType'] as string | undefined,
-      };
-    });
-  }
-
-  getActionOutcome(act: { outcome?: string; applied?: boolean; pendingActionId?: string }): string {
-    // Check live pending action status first (reflects approve/dismiss without reload)
-    if (act.pendingActionId) {
-      const liveStatus = this.pendingActionMap()[act.pendingActionId];
-      if (liveStatus === 'approved') return 'approved';
-      if (liveStatus === 'dismissed') return 'dismissed';
-      if (liveStatus === 'pending') return 'pending_approval';
-    }
-    if (act.outcome) return act.outcome;
-    if (act.applied === true) return 'auto_executed';
-    return 'skipped';
-  }
-
-  getActionOutcomeLabel(act: { outcome?: string; applied?: boolean }): string {
-    const outcome = this.getActionOutcome(act);
-    const labels: Record<string, string> = {
-      auto_executed: 'Auto-executed',
-      pending_approval: 'Pending Approval',
-      skipped: 'Skipped',
-      dismissed: 'Dismissed',
-      approved: 'Approved',
-    };
-    return labels[outcome] ?? outcome;
-  }
-
-  recActionIcon(action: string): string {
-    const icons: Record<string, string> = {
-      set_status: 'swap_horiz',
-      set_priority: 'priority_high',
-      set_category: 'category',
-      add_comment: 'comment',
-      trigger_code_fix: 'code',
-      send_followup_email: 'email',
-      escalate_deep_analysis: 'psychology',
-      check_database_health: 'monitor_heart',
-      assign_operator: 'person',
-    };
-    return icons[action] ?? 'lightbulb';
-  }
-
-  formatRecActionType(action: string): string {
-    const labels: Record<string, string> = {
-      set_status: 'Change Status',
-      set_priority: 'Change Priority',
-      set_category: 'Change Category',
-      add_comment: 'Add Comment',
-      trigger_code_fix: 'Create Issue Job',
-      send_followup_email: 'Send Email',
-      escalate_deep_analysis: 'Escalate',
-      check_database_health: 'Check DB Health',
-      assign_operator: 'Assign Operator',
-    };
-    return labels[action] ?? action;
-  }
-
-  approvePendingAction(actionId?: string): void {
+  approvePendingAction(actionId: string): void {
     if (!actionId) return;
     const ticketId = this.ticket()?.id;
     if (!ticketId) return;
@@ -1743,7 +1211,7 @@ export class TicketDetailComponent implements OnInit {
     });
   }
 
-  dismissPendingAction(actionId?: string): void {
+  dismissPendingAction(actionId: string): void {
     if (!actionId) return;
     const ticketId = this.ticket()?.id;
     if (!ticketId) return;
@@ -1757,40 +1225,6 @@ export class TicketDetailComponent implements OnInit {
     });
   }
 
-  /** Extract AI-relevant metadata from an event for display. */
-  eventMeta(event: TicketEvent): {
-    aiProvider?: string;
-    aiModel?: string;
-    phase?: string;
-    taskType?: string;
-    inputTokens?: number;
-    outputTokens?: number;
-    durationMs?: number;
-  } | null {
-    const meta = event.metadata as Record<string, unknown> | null;
-    if (!meta) return null;
-    const aiProvider = meta['aiProvider'] as string | undefined;
-    const aiModel = meta['aiModel'] as string | undefined;
-    if (!aiProvider && !aiModel) return null;
-    const usage = meta['usage'] as { inputTokens?: number; outputTokens?: number } | undefined;
-    return {
-      aiProvider,
-      aiModel,
-      phase: meta['phase'] as string | undefined,
-      taskType: meta['taskType'] as string | undefined,
-      inputTokens: usage?.inputTokens,
-      outputTokens: usage?.outputTokens,
-      durationMs: meta['durationMs'] as number | undefined,
-    };
-  }
-
-  /** Extract question from AI_ANALYSIS ai_help event metadata. */
-  eventQuestion(event: TicketEvent): string | null {
-    const meta = event.metadata as Record<string, unknown> | null;
-    if (!meta || meta['phase'] !== 'ai_help') return null;
-    return (meta['question'] as string) ?? null;
-  }
-
   formatAnalysisStatus(status: string | undefined): string {
     const labels: Record<string, string> = {
       PENDING: 'Pending',
@@ -1800,11 +1234,6 @@ export class TicketDetailComponent implements OnInit {
       SKIPPED: 'Skipped',
     };
     return labels[status ?? ''] ?? status ?? '-';
-  }
-
-  truncateDescription(desc: string): string {
-    if (this.descExpanded || desc.length <= 300) return desc;
-    return desc.slice(0, 300) + '...';
   }
 
   formatTime(dateStr: string): string {
@@ -1819,85 +1248,18 @@ export class TicketDetailComponent implements OnInit {
     return `${(ms / 60_000).toFixed(1)}m`;
   }
 
-  /** Check if a timeline event was triggered by an AI recommendation auto-execution. */
-  isAiTriggered(event: TicketEvent): boolean {
-    const meta = event.metadata as Record<string, unknown> | null;
-    return meta?.['triggeredBy'] === 'ai_recommendation';
-  }
-
-  /** Check if an AI_ANALYSIS event is from the agentic analysis phase (has rich metadata). */
-  isAgenticAnalysis(event: TicketEvent): boolean {
-    const meta = event.metadata as Record<string, unknown> | null;
-    if (!meta || event.eventType !== 'AI_ANALYSIS') return false;
-    return meta['phase'] === 'agentic_analysis' || meta['phase'] === 'deep_analysis';
-  }
-
-  /** Extract structured metadata from agentic analysis events. */
-  agenticMeta(event: TicketEvent): {
-    taskType: string;
-    iterationsRun: number;
-    toolCallCount: number;
-    toolCalls: Array<{ tool: string; system?: string; durationMs?: number; output?: string }>;
-    sufficiencyStatus: string | null;
-    sufficiencyConfidence: string | null;
-    sufficiencyReason: string | null;
-    sufficiencyQuestions: string[] | null;
-    totalCostUsd: number | null;
-  } | null {
-    const meta = event.metadata as Record<string, unknown> | null;
-    if (!meta) return null;
-    const toolCalls = (meta['toolCalls'] as Array<{ tool: string; system?: string; durationMs?: number; output?: string }>) ?? [];
-    return {
-      taskType: (meta['taskType'] as string) ?? 'DEEP_ANALYSIS',
-      iterationsRun: (meta['iterationsRun'] as number) ?? (meta['iterationCount'] as number) ?? 0,
-      toolCallCount: (meta['toolCallCount'] as number) ?? toolCalls.length,
-      toolCalls,
-      sufficiencyStatus: (meta['sufficiencyStatus'] as string) ?? null,
-      sufficiencyConfidence: (meta['sufficiencyConfidence'] as string) ?? null,
-      sufficiencyReason: (meta['sufficiencyReason'] as string) ?? null,
-      sufficiencyQuestions: (meta['sufficiencyQuestions'] as string[]) ?? null,
-      totalCostUsd: (meta['totalCostUsd'] as number) ?? null,
-    };
-  }
-
-  /** Check if content looks like JSON (for SYSTEM_NOTE probe data detection). */
-  isJsonContent(content: string | null): boolean {
-    if (!content) return false;
-    const trimmed = content.trim();
-    return (trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'));
-  }
-
-  formatJson(content: string): string {
-    try {
-      return JSON.stringify(JSON.parse(content), null, 2);
-    } catch {
-      return content;
-    }
-  }
-
-  /** Check if a log entry is an iteration header (matches "Agentic analysis iteration N/M"). */
   isIterationHeader(entry: UnifiedLogEntry): boolean {
     return !!(entry.message && /^Agentic analysis iteration \d+\/\d+/.test(entry.message));
   }
 
-  /** Extract a display label from an iteration header log entry. */
   extractIterationLabel(entry: UnifiedLogEntry): string {
     const match = entry.message?.match(/^Agentic analysis iteration (\d+)\/(\d+)/);
     if (match) return `Iteration ${match[1]} of ${match[2]}`;
     return 'Iteration';
   }
 
-  /** Check if a log entry falls within an agentic iteration (tool/reasoning entries). */
   isWithinIteration(entry: UnifiedLogEntry): boolean {
     if (!entry.message) return false;
     return /^Agentic (tool call|reasoning)/.test(entry.message);
-  }
-
-  /** Extract recommendation actions from AI_RECOMMENDATION metadata. */
-  recommendationActions(event: TicketEvent): Array<{ action: string; applied: boolean; detail?: string }> | null {
-    const meta = event.metadata as Record<string, unknown> | null;
-    if (!meta) return null;
-    const actions = meta['actions'] as Array<{ action: string; applied: boolean; detail?: string }> | undefined;
-    return actions && actions.length > 0 ? actions : null;
   }
 }
