@@ -12,7 +12,7 @@ import { type UnifiedLogEntry } from '../../core/services/ticket.service';
       <!-- Header row -->
       <div class="log-entry-header">
         <span class="log-seq">#{{ idx() + 1 }}</span>
-        <span class="log-time" [attr.title]="entry().timestamp">{{ formatTime(entry().timestamp) }}</span>
+        <span class="log-time" tabindex="0" [attr.title]="entry().timestamp" [attr.aria-label]="entry().timestamp">{{ formatTime(entry().timestamp) }}</span>
         <span class="unified-type-badge ubadge-ai">AI</span>
         <span class="meta-chip provider-chip provider-{{ (entry().provider ?? '').toLowerCase() }}">{{ entry().provider }}</span>
         <code class="meta-chip model-chip">{{ entry().model }}</code>
@@ -32,7 +32,7 @@ import { type UnifiedLogEntry } from '../../core/services/ticket.service';
           <span class="inline-block-label">Prompt</span>
           <pre class="inline-text-content" [class.clamped]="!promptExpanded">{{ promptExpanded ? promptText() : firstLine(promptText()!) }}</pre>
           @if (isMultiline(promptText()!)) {
-            <app-bronco-button variant="ghost" size="sm" (click)="promptExpanded = !promptExpanded">
+            <app-bronco-button variant="ghost" size="sm" [ariaExpanded]="promptExpanded" [ariaLabel]="promptExpanded ? 'Collapse prompt' : 'Expand prompt'" (click)="promptExpanded = !promptExpanded">
               {{ promptExpanded ? 'less' : 'more' }}
               <span aria-hidden="true">{{ promptExpanded ? '⏶' : '⏷' }}</span>
             </app-bronco-button>
@@ -46,7 +46,7 @@ import { type UnifiedLogEntry } from '../../core/services/ticket.service';
           <span class="inline-block-label">Response</span>
           <pre class="inline-text-content" [class.clamped]="!responseExpanded">{{ responseExpanded ? responseText() : firstLine(responseText()!) }}</pre>
           @if (isMultiline(responseText()!)) {
-            <app-bronco-button variant="ghost" size="sm" (click)="responseExpanded = !responseExpanded">
+            <app-bronco-button variant="ghost" size="sm" [ariaExpanded]="responseExpanded" [ariaLabel]="responseExpanded ? 'Collapse response' : 'Expand response'" (click)="responseExpanded = !responseExpanded">
               {{ responseExpanded ? 'less' : 'more' }}
               <span aria-hidden="true">{{ responseExpanded ? '⏶' : '⏷' }}</span>
             </app-bronco-button>
@@ -56,7 +56,7 @@ import { type UnifiedLogEntry } from '../../core/services/ticket.service';
 
       <!-- More data (system prompt, prompt key, conversation metadata, archive stats) -->
       @if (hasMoreData()) {
-        <app-bronco-button variant="ghost" size="sm" (click)="moreDataExpanded = !moreDataExpanded">
+        <app-bronco-button variant="ghost" size="sm" [ariaExpanded]="moreDataExpanded" [ariaLabel]="moreDataExpanded ? 'Collapse details' : 'Expand details'" (click)="moreDataExpanded = !moreDataExpanded">
           {{ moreDataExpanded ? 'less data' : 'more data' }}
           <span aria-hidden="true">{{ moreDataExpanded ? '▴' : '▾' }}</span>
         </app-bronco-button>
@@ -67,7 +67,7 @@ import { type UnifiedLogEntry } from '../../core/services/ticket.service';
             }
             @if (systemPromptText()) {
               <div class="ai-detail-block">
-                <app-bronco-button variant="ghost" size="sm" class="sys-prompt-toggle" (click)="systemPromptExpanded = !systemPromptExpanded">
+                <app-bronco-button variant="ghost" size="sm" class="sys-prompt-toggle" [ariaExpanded]="systemPromptExpanded" (click)="systemPromptExpanded = !systemPromptExpanded">
                   System Prompt
                   <span aria-hidden="true">{{ systemPromptExpanded ? '▴' : '▾' }}</span>
                 </app-bronco-button>

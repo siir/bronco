@@ -32,7 +32,7 @@ import { ToastService } from '../../core/services/toast.service';
 
       <!-- Endpoint -->
       @if (endpoint()) {
-        <div class="endpoint-row" [attr.title]="endpoint()!">
+        <div class="endpoint-row" [attr.title]="endpoint()!" [attr.aria-label]="'Endpoint: ' + endpoint()!">
           <span class="small-icon" aria-hidden="true">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
@@ -161,7 +161,7 @@ import { ToastService } from '../../core/services/toast.service';
     .verify-action { margin-top: 4px; }
 
     /* CSS-only spinner */
-    @keyframes bronco-spin {
+    @keyframes mcp-spin {
       to { transform: rotate(360deg); }
     }
     .spinner {
@@ -171,7 +171,7 @@ import { ToastService } from '../../core/services/toast.service';
       border: 2px solid var(--border-medium);
       border-top-color: var(--accent);
       border-radius: 50%;
-      animation: bronco-spin 0.7s linear infinite;
+      animation: mcp-spin 0.7s linear infinite;
       flex-shrink: 0;
     }
   `],
