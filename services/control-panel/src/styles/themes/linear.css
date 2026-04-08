@@ -24,6 +24,7 @@ body.theme-linear {
   --accent: #5e6ad2;
   --accent-link: #7170ff;
   --accent-hover: #828fff;
+  --focus-ring: rgba(94, 106, 210, 0.3);
 
   --color-success: #27a644;
   --color-warning: #ef9100;
