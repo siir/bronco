@@ -20,8 +20,7 @@ import { ClientIntegrationsTabComponent } from './client-detail/tabs/integration
 import { ClientTicketsTabComponent } from './client-detail/tabs/tickets-tab.component';
 import { ClientMemoryTabComponent } from './client-detail/tabs/memory-tab.component';
 import { ClientEnvironmentsTabComponent } from './client-detail/tabs/environments-tab.component';
-import { ClientUserService, type ClientUser } from '../../core/services/client-user.service';
-import { ClientUserDialogComponent } from './client-user-dialog.component';
+import { ClientUsersTabComponent } from './client-detail/tabs/users-tab.component';
 import { InvoiceService, type Invoice } from '../../core/services/invoice.service';
 import { GenerateInvoiceDialogComponent } from './generate-invoice-dialog.component';
 import { ClientAiCredentialService, type ClientAiCredential } from '../../core/services/client-ai-credential.service';
@@ -56,9 +55,9 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
     FormsModule, MatFormFieldModule, MatInputModule, MatSelectModule,
     TabGroupComponent, TabComponent, ClientHeaderComponent,
     ClientSystemsTabComponent, ClientContactsTabComponent, ClientReposTabComponent, ClientIntegrationsTabComponent,
-    ClientTicketsTabComponent, ClientMemoryTabComponent, ClientEnvironmentsTabComponent,
+    ClientTicketsTabComponent, ClientMemoryTabComponent, ClientEnvironmentsTabComponent, ClientUsersTabComponent,
     DialogComponent,
-    ClientUserDialogComponent, GenerateInvoiceDialogComponent,
+    GenerateInvoiceDialogComponent,
   ],
   template: `
     @if (client(); as c) {
@@ -94,50 +93,7 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
         </app-tab>
 
         <app-tab label="Users">
-          <div class="tab-content">
-            <div class="tab-header">
-              <h3>Portal Users</h3>
-              <button mat-raised-button color="primary" (click)="addClientUser()">
-                <mat-icon>add</mat-icon> Add User
-              </button>
-            </div>
-            <table mat-table [dataSource]="clientUsers()" class="full-width">
-              <ng-container matColumnDef="name">
-                <th mat-header-cell *matHeaderCellDef>Name</th>
-                <td mat-cell *matCellDef="let u">{{ u.name }}</td>
-              </ng-container>
-              <ng-container matColumnDef="email">
-                <th mat-header-cell *matHeaderCellDef>Email</th>
-                <td mat-cell *matCellDef="let u">{{ u.email }}</td>
-              </ng-container>
-              <ng-container matColumnDef="userType">
-                <th mat-header-cell *matHeaderCellDef>Type</th>
-                <td mat-cell *matCellDef="let u">
-                  <span class="type-chip" [class.type-admin]="u.userType === 'ADMIN'">{{ u.userType }}</span>
-                </td>
-              </ng-container>
-              <ng-container matColumnDef="isActiveUser">
-                <th mat-header-cell *matHeaderCellDef>Status</th>
-                <td mat-cell *matCellDef="let u">
-                  <mat-chip [class.inactive]="!u.isActive">{{ u.isActive ? 'Active' : 'Inactive' }}</mat-chip>
-                </td>
-              </ng-container>
-              <ng-container matColumnDef="lastLogin">
-                <th mat-header-cell *matHeaderCellDef>Last Login</th>
-                <td mat-cell *matCellDef="let u">{{ u.lastLoginAt ? (u.lastLoginAt | date:'short') : 'Never' }}</td>
-              </ng-container>
-              <ng-container matColumnDef="userActions">
-                <th mat-header-cell *matHeaderCellDef></th>
-                <td mat-cell *matCellDef="let u">
-                  <button mat-icon-button (click)="editClientUser(u)"><mat-icon>edit</mat-icon></button>
-                  <button mat-icon-button color="warn" (click)="deleteClientUser(u.id)"><mat-icon>person_off</mat-icon></button>
-                </td>
-              </ng-container>
-              <tr mat-header-row *matHeaderRowDef="clientUserColumns"></tr>
-              <tr mat-row *matRowDef="let row; columns: clientUserColumns;"></tr>
-            </table>
-            @if (clientUsers().length === 0) { <p class="empty">No portal users for this client.</p> }
-          </div>
+          <app-client-users-tab [clientId]="id()" />
         </app-tab>
         <app-tab label="AI Credentials">
           <div class="tab-content">
@@ -333,16 +289,6 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
       <p>Loading...</p>
     }
 
-    @if (showUserDialog()) {
-      <app-dialog [open]="true" [title]="editingUser() ? 'Edit User' : 'Create Portal User'" maxWidth="500px" (openChange)="showUserDialog.set(false)">
-        <app-client-user-dialog-content
-          [clientId]="id()"
-          [user]="editingUser() ?? undefined"
-          (saved)="onUserSaved()"
-          (cancelled)="showUserDialog.set(false)" />
-      </app-dialog>
-    }
-
     @if (showInvoiceDialog()) {
       <app-dialog [open]="true" title="Generate Invoice" maxWidth="400px" (openChange)="showInvoiceDialog.set(false)">
         <app-generate-invoice-dialog-content
@@ -413,7 +359,6 @@ export class ClientDetailComponent implements OnInit {
   id = input.required<string>();
 
   private clientService = inject(ClientService);
-  private clientUserService = inject(ClientUserService);
   private invoiceService = inject(InvoiceService);
   private credentialService = inject(ClientAiCredentialService);
   private aiUsageService = inject(AiUsageService);
@@ -423,7 +368,6 @@ export class ClientDetailComponent implements OnInit {
   private route = inject(ActivatedRoute);
 
   client = signal<Client | null>(null);
-  clientUsers = signal<ClientUser[]>([]);
   invoices = signal<Invoice[]>([]);
   aiCredentials = signal<ClientAiCredential[]>([]);
   aiUsageSummary = signal<AiUsageClientSummary | null>(null);
@@ -434,7 +378,6 @@ export class ClientDetailComponent implements OnInit {
   aiUsageTotalPages = signal(1);
   selectedTab = signal(0);
 
-  clientUserColumns = ['name', 'email', 'userType', 'isActiveUser', 'lastLogin', 'userActions'];
   invoiceColumns = ['invoiceNumber', 'period', 'requests', 'totalBilled', 'invoiceStatus', 'invoiceActions'];
   credentialColumns = ['provider', 'label', 'key', 'credStatus', 'credActions'];
   aiUsageLogColumns = ['createdAt', 'taskType', 'model', 'provider', 'inputTokens', 'outputTokens', 'costUsd'];
@@ -472,7 +415,6 @@ export class ClientDetailComponent implements OnInit {
   load(): void {
     const cid = this.id();
     this.clientService.getClient(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(c => this.client.set(c));
-    this.clientUserService.getUsers(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(u => this.clientUsers.set(u));
     this.invoiceService.getInvoices(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(i => this.invoices.set(i));
     this.credentialService.getCredentials(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(c => this.aiCredentials.set(c));
   }
@@ -520,34 +462,7 @@ export class ClientDetailComponent implements OnInit {
     this.client.set(updated);
   }
 
-  showUserDialog = signal(false);
-  editingUser = signal<ClientUser | null>(null);
   showInvoiceDialog = signal(false);
-
-  addClientUser(): void {
-    this.editingUser.set(null);
-    this.showUserDialog.set(true);
-  }
-
-  editClientUser(user: ClientUser): void {
-    this.editingUser.set(user);
-    this.showUserDialog.set(true);
-  }
-
-  onUserSaved(): void {
-    this.showUserDialog.set(false);
-    this.load();
-  }
-
-  deleteClientUser(id: string): void {
-    this.clientUserService.deleteUser(id).subscribe({
-      next: () => {
-        this.toast.success('User deactivated');
-        this.load();
-      },
-      error: (err) => this.toast.error(err.error?.message ?? err.error?.error ?? 'Deactivation failed'),
-    });
-  }
 
   openGenerateInvoiceDialog(): void {
     this.showInvoiceDialog.set(true);
