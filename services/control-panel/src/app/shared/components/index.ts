@@ -23,3 +23,5 @@ export {
   DropdownDividerComponent,
   DropdownLabelComponent,
 } from './dropdown-menu.component';
+export { IconComponent, type IconSize } from './icon.component';
+export { ICON_REGISTRY, type IconName } from './icon-registry';
