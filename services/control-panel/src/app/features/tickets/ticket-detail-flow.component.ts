@@ -1,5 +1,5 @@
 import { Component, input } from '@angular/core';
-import { CardComponent } from '../../shared/components/index.js';
+import { CardComponent, IconComponent } from '../../shared/components/index.js';
 
 export interface FlowNode {
   label: string;
@@ -11,17 +11,17 @@ export interface FlowNode {
 @Component({
   selector: 'app-ticket-detail-flow',
   standalone: true,
-  imports: [CardComponent],
+  imports: [CardComponent, IconComponent],
   template: `
     <app-card padding="md" class="flow-card">
       <div class="card-title-row">
-        <span class="card-title-icon" aria-hidden="true">&#9783;</span>
+        <app-icon name="bolt" size="sm" class="card-title-icon" aria-hidden="true" />
         <h3 class="card-title">Process Flow</h3>
       </div>
       <div class="flow-container">
         @for (node of nodes(); track node.type + ':' + node.label + ':' + $index; let i = $index) {
           <div class="flow-node flow-{{ node.type }}">
-            <span class="flow-icon" aria-hidden="true">{{ glyphFor(node.icon) }}</span>
+            <span class="flow-icon" aria-hidden="true"><app-icon [name]="iconNameFor(node.icon)" size="sm" /></span>
             <span class="flow-label">{{ node.label }}</span>
           </div>
           @if (node.children && node.children.length > 0) {
@@ -30,14 +30,14 @@ export interface FlowNode {
                 <div class="flow-branch-row">
                   <div class="flow-connector"></div>
                   <div class="flow-node flow-{{ child.type }}">
-                    <span class="flow-icon" aria-hidden="true">{{ glyphFor(child.icon) }}</span>
+                    <span class="flow-icon" aria-hidden="true"><app-icon [name]="iconNameFor(child.icon)" size="sm" /></span>
                     <span class="flow-label">{{ child.label }}</span>
                   </div>
                   @if (child.children && child.children.length > 0) {
                     @for (grandchild of child.children; track grandchild.type + ':' + grandchild.label + ':' + $index) {
                       <div class="flow-connector"></div>
                       <div class="flow-node flow-{{ grandchild.type }}">
-                        <span class="flow-icon" aria-hidden="true">{{ glyphFor(grandchild.icon) }}</span>
+                        <span class="flow-icon" aria-hidden="true"><app-icon [name]="iconNameFor(grandchild.icon)" size="sm" /></span>
                         <span class="flow-label">{{ grandchild.label }}</span>
                       </div>
                     }
@@ -47,7 +47,7 @@ export interface FlowNode {
             </div>
           }
           @if (i < nodes().length - 1 && !node.children?.length) {
-            <span class="flow-arrow" aria-hidden="true">&rarr;</span>
+            <app-icon name="arrow-right" size="xs" class="flow-arrow" />
           }
         }
       </div>
@@ -125,16 +125,16 @@ export interface FlowNode {
 export class TicketDetailFlowComponent {
   nodes = input.required<FlowNode[]>();
 
-  glyphFor(icon: string): string {
+  iconNameFor(icon: string): string {
     const map: Record<string, string> = {
-      email: '\u2709',
-      send: '\u27a4',
-      psychology: '\u26ac',
-      lightbulb: '\u2731',
-      swap_horiz: '\u21c4',
-      account_tree: '\u22ee',
-      sync: '\u21bb',
+      email: 'email',
+      send: 'arrow-right',
+      psychology: 'sparkles',
+      lightbulb: 'bolt',
+      swap_horiz: 'rotate',
+      account_tree: 'more-vertical',
+      sync: 'refresh',
     };
-    return map[icon] ?? '\u25CF';
+    return map[icon] ?? 'active';
   }
 }

@@ -15,6 +15,7 @@ import {
   CategoryChipComponent,
   TabComponent,
   TabGroupComponent,
+  IconComponent,
 } from '../shared/components/index.js';
 
 /** Returns the route segments for a given entity type and id. */
@@ -50,6 +51,7 @@ const STATUS_MAP: Record<string, 'open' | 'in_progress' | 'analyzing' | 'resolve
     CategoryChipComponent,
     TabComponent,
     TabGroupComponent,
+    IconComponent,
   ],
   template: `
     <aside class="detail-panel">
@@ -74,10 +76,10 @@ const STATUS_MAP: Record<string, 'open' | 'in_progress' | 'analyzing' | 'resolve
         </div>
         <div class="panel-actions">
           <button class="panel-btn" (click)="expandToFullPage()" title="Open full page" aria-label="Open full page">
-            <span class="expand-icon">&#x2197;</span>
+            <app-icon name="external-link" size="sm" />
           </button>
           <button class="panel-btn" (click)="detailPanel.close()" title="Close panel" aria-label="Close panel">
-            <span class="close-icon">&times;</span>
+            <app-icon name="close" size="sm" />
           </button>
         </div>
       </div>

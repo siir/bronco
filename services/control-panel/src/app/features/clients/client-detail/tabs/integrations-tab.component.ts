@@ -8,6 +8,7 @@ import {
   CardComponent,
   ToggleSwitchComponent,
   DialogComponent,
+  IconComponent,
 } from '../../../../shared/components/index.js';
 import { McpServerInfoComponent } from '../../../../shared/components/mcp-server-info.component';
 import { IntegrationDialogComponent } from '../../../integrations/integration-dialog.component';
@@ -25,6 +26,7 @@ const SENSITIVE_KEYS = ['encryptedPassword', 'encryptedPat', 'password', 'pat', 
     DialogComponent,
     McpServerInfoComponent,
     IntegrationDialogComponent,
+    IconComponent,
   ],
   template: `
     <div class="tab-section">
@@ -36,7 +38,7 @@ const SENSITIVE_KEYS = ['encryptedPassword', 'encryptedPat', 'password', 'pat', 
       @for (integ of integrations(); track integ.id) {
         <app-card padding="md" class="integration-card" [class.inactive-card]="!integ.isActive">
           <div class="integ-header">
-            <span class="type-icon">{{ integrationIcon(integ.type) }}</span>
+            <app-icon [name]="integrationIconName(integ.type)" size="sm" class="type-icon" />
             <strong class="integ-type">{{ integ.type }}</strong>
             @if (integ.label && integ.label !== 'default') {
               <span class="label-chip">{{ integ.label }}</span>
@@ -46,8 +48,8 @@ const SENSITIVE_KEYS = ['encryptedPassword', 'encryptedPat', 'password', 'pat', 
               [label]="integ.isActive ? 'Active' : 'Inactive'"
               (checkedChange)="toggleIntegration(integ, $event)" />
             <span class="spacer"></span>
-            <app-bronco-button variant="icon" size="sm" ariaLabel="Edit integration" (click)="openEditDialog(integ)">&#x270E;</app-bronco-button>
-            <app-bronco-button variant="icon" size="sm" ariaLabel="Delete integration" (click)="deleteIntegration(integ.id)">&#x1F5D1;</app-bronco-button>
+            <app-bronco-button variant="icon" size="sm" ariaLabel="Edit integration" (click)="openEditDialog(integ)"><app-icon name="edit" size="sm" /></app-bronco-button>
+            <app-bronco-button variant="icon" size="sm" ariaLabel="Delete integration" (click)="deleteIntegration(integ.id)"><app-icon name="delete" size="sm" /></app-bronco-button>
           </div>
           @if (integ.notes) { <p class="integ-notes">{{ integ.notes }}</p> }
           @if (integ.type === 'MCP_DATABASE' && integ.metadata) {
@@ -229,13 +231,13 @@ export class ClientIntegrationsTabComponent implements OnInit {
       });
   }
 
-  integrationIcon(type: string): string {
+  integrationIconName(type: string): string {
     switch (type) {
-      case 'IMAP': return '\u2709';        // ✉
-      case 'AZURE_DEVOPS': return '\u2699'; // ⚙
-      case 'MCP_DATABASE': return '\u{1F5C4}'; // 🗄
-      case 'SLACK': return '\u{1F4AC}';     // 💬
-      default: return '\u{1F50C}';          // 🔌
+      case 'IMAP': return 'email';
+      case 'AZURE_DEVOPS': return 'gear';
+      case 'MCP_DATABASE': return 'database';
+      case 'SLACK': return 'comment';
+      default: return 'link';
     }
   }
 

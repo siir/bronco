@@ -15,6 +15,7 @@ import { ToastService } from '../../core/services/toast.service';
 import {
   DropdownMenuComponent,
   DropdownItemComponent,
+  IconComponent,
 } from '../../shared/components/index.js';
 
 @Component({
@@ -25,6 +26,7 @@ import {
     DropdownMenuComponent,
     DropdownItemComponent,
     McpServerInfoComponent,
+    IconComponent,
   ],
   template: `
     <div class="system-status-page">
@@ -34,7 +36,7 @@ import {
           @if (lastRefresh()) {
             <span class="last-refresh">Updated {{ lastRefresh() }}</span>
           }
-          <button class="btn-refresh" (click)="refresh()" [disabled]="loading()">&#x21bb; Refresh</button>
+          <button class="btn-refresh" (click)="refresh()" [disabled]="loading()"><app-icon name="refresh" size="sm" /> Refresh</button>
         </div>
       </div>
 
@@ -45,7 +47,7 @@ import {
       @if (data()) {
         <!-- Overall status banner -->
         <div class="overall-status {{ data()!.status.toLowerCase() }}">
-          <span class="overall-status-icon">{{ statusIcon(data()!.status) }}</span>
+          <app-icon class="overall-status-icon" [name]="statusIconName(data()!.status)" size="xl" />
           <div>
             <div class="overall-status-title">System {{ data()!.status === 'UP' ? 'Operational' : data()!.status === 'DEGRADED' ? 'Degraded' : 'Down' }}</div>
             <div class="overall-status-subtitle">{{ upCount() }} of {{ totalMonitored() }} components operational</div>
@@ -56,7 +58,7 @@ import {
         @if (data()!.configIssues && data()!.configIssues!.length > 0) {
           <div class="warning-banner">
             <div class="warning-banner-header">
-              <span class="warning-icon-text">&#x26A0;</span>
+              <app-icon name="warning" size="sm" class="warning-icon-text" />
               <span class="warning-title">Configuration Issues</span>
             </div>
             <ul class="config-list">
@@ -71,7 +73,7 @@ import {
         @if (noAiProviders()) {
           <div class="warning-banner">
             <div class="warning-banner-content">
-              <span class="warning-icon-text">&#x1F9E0;</span>
+              <app-icon name="sparkles" size="sm" class="warning-icon-text" />
               <div>
                 <div class="warning-title">No LLM providers configured</div>
                 <div class="warning-subtitle">AI features are unavailable. <a routerLink="/ai-providers" class="configure-link">Configure providers</a></div>
@@ -95,13 +97,13 @@ import {
                     @if (controlling() === serviceKey(comp.name)) {
                       <span class="spinner-inline"></span>
                     } @else {
-                      &#x22EE;
+                      <app-icon name="more-vertical" size="sm" />
                     }
                   </button>
                   <app-dropdown-menu #infraMenu [trigger]="infraTrigger">
-                    <app-dropdown-item (action)="control(serviceKey(comp.name), 'restart')">&#x21bb; Restart</app-dropdown-item>
-                    <app-dropdown-item (action)="control(serviceKey(comp.name), 'stop')">&#x25A0; Stop</app-dropdown-item>
-                    <app-dropdown-item (action)="control(serviceKey(comp.name), 'start')">&#x25B6; Start</app-dropdown-item>
+                    <app-dropdown-item (action)="control(serviceKey(comp.name), 'restart')"><app-icon name="refresh" size="xs" /> Restart</app-dropdown-item>
+                    <app-dropdown-item (action)="control(serviceKey(comp.name), 'stop')"><app-icon name="stop" size="xs" /> Stop</app-dropdown-item>
+                    <app-dropdown-item (action)="control(serviceKey(comp.name), 'start')"><app-icon name="play" size="xs" /> Start</app-dropdown-item>
                   </app-dropdown-menu>
                 }
               </div>
@@ -163,13 +165,13 @@ import {
                     @if (controlling() === serviceKey(comp.name)) {
                       <span class="spinner-inline"></span>
                     } @else {
-                      &#x22EE;
+                      <app-icon name="more-vertical" size="sm" />
                     }
                   </button>
                   <app-dropdown-menu #svcDropdown [trigger]="svcTrigger">
-                    <app-dropdown-item (action)="control(serviceKey(comp.name), 'restart')">&#x21bb; Restart</app-dropdown-item>
-                    <app-dropdown-item (action)="control(serviceKey(comp.name), 'stop')">&#x25A0; Stop</app-dropdown-item>
-                    <app-dropdown-item (action)="control(serviceKey(comp.name), 'start')">&#x25B6; Start</app-dropdown-item>
+                    <app-dropdown-item (action)="control(serviceKey(comp.name), 'restart')"><app-icon name="refresh" size="xs" /> Restart</app-dropdown-item>
+                    <app-dropdown-item (action)="control(serviceKey(comp.name), 'stop')"><app-icon name="stop" size="xs" /> Stop</app-dropdown-item>
+                    <app-dropdown-item (action)="control(serviceKey(comp.name), 'start')"><app-icon name="play" size="xs" /> Start</app-dropdown-item>
                   </app-dropdown-menu>
                 }
               </div>
@@ -402,7 +404,7 @@ import {
 
       @if (error()) {
         <div class="error-banner">
-          <span class="error-banner-icon">&#x26A0;</span>
+          <app-icon name="warning" size="sm" class="error-banner-icon" />
           <span>{{ error() }}</span>
           <button class="btn-retry" (click)="refresh()">Retry</button>
         </div>
@@ -466,7 +468,7 @@ import {
     .overall-status.up { background: rgba(52,199,89,0.08); border: 1px solid rgba(52,199,89,0.2); }
     .overall-status.degraded { background: rgba(255,149,0,0.08); border: 1px solid rgba(255,149,0,0.2); }
     .overall-status.down { background: rgba(255,59,48,0.08); border: 1px solid rgba(255,59,48,0.2); }
-    .overall-status-icon { font-size: 28px; line-height: 1; }
+    .overall-status-icon { flex-shrink: 0; }
     .overall-status-title {
       font-size: 18px;
       font-weight: 600;
@@ -497,7 +499,7 @@ import {
       align-items: center;
       gap: 12px;
     }
-    .warning-icon-text { font-size: 20px; }
+    .warning-icon-text { flex-shrink: 0; color: var(--color-warning); }
     .warning-title {
       font-size: 15px;
       font-weight: 600;
@@ -730,7 +732,7 @@ import {
       color: var(--color-error);
       font-size: 14px;
     }
-    .error-banner-icon { font-size: 20px; }
+    .error-banner-icon { flex-shrink: 0; }
     .btn-retry {
       background: none;
       border: 1px solid var(--color-error);
@@ -838,12 +840,12 @@ export class SystemStatusComponent implements OnInit, OnDestroy {
     });
   }
 
-  statusIcon(status: string): string {
+  statusIconName(status: string): string {
     switch (status) {
-      case 'UP': return '\u2705';
-      case 'DEGRADED': return '\u26A0\uFE0F';
-      case 'DOWN': return '\u274C';
-      default: return '\u2753';
+      case 'UP': return 'check-circle';
+      case 'DEGRADED': return 'warning';
+      case 'DOWN': return 'close-circle';
+      default: return 'question';
     }
   }
 

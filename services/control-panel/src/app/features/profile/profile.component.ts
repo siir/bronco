@@ -6,12 +6,13 @@ import {
   BroncoButtonComponent,
   CardComponent,
   FormFieldComponent,
+  IconComponent,
 } from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   standalone: true,
-  imports: [FormsModule, BroncoButtonComponent, CardComponent, FormFieldComponent],
+  imports: [FormsModule, BroncoButtonComponent, CardComponent, FormFieldComponent, IconComponent],
   template: `
     <div class="page-wrapper">
       <h1 class="page-title">Profile</h1>
@@ -48,9 +49,7 @@ import { ToastService } from '../../core/services/toast.service';
                 </div>
                 @if (theme.id === themeService.currentTheme().id) {
                   <span class="theme-check">
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                      <path d="M2.5 7.5L5.5 10.5L11.5 3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
+                    <app-icon name="check" size="sm" />
                   </span>
                 }
               </button>

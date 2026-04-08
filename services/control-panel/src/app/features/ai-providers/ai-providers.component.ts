@@ -9,12 +9,13 @@ import {
   DataTableComponent,
   DataTableColumnComponent,
   DialogComponent,
+  IconComponent,
 } from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   standalone: true,
-  imports: [FormsModule, BroncoButtonComponent, ToggleSwitchComponent, DataTableComponent, DataTableColumnComponent, DialogComponent, AiProviderDialogComponent, AiModelDialogComponent],
+  imports: [FormsModule, BroncoButtonComponent, ToggleSwitchComponent, DataTableComponent, DataTableColumnComponent, DialogComponent, AiProviderDialogComponent, AiModelDialogComponent, IconComponent],
   template: `
     <div class="page-wrapper">
       <div class="page-header">
@@ -48,7 +49,7 @@ import { ToastService } from '../../core/services/toast.service';
           <app-data-column key="apiKey" header="API Key" [sortable]="false" width="80px">
             <ng-template #cell let-p>
               @if (p.hasApiKey) {
-                <span class="key-icon" title="API key configured">&#x1F512;</span>
+                <app-icon name="lock" size="sm" title="API key configured" />
               } @else {
                 <span class="muted">—</span>
               }
@@ -90,7 +91,7 @@ import { ToastService } from '../../core/services/toast.service';
 
       @if (disabledProviderTypes().length > 0) {
         <div class="provider-warning-banner">
-          <span class="warning-icon">&#x26A0;</span>
+          <app-icon name="warning" size="sm" class="warning-icon" />
           <span>
             @for (p of disabledProviderTypes(); track p; let last = $last) {
               <strong>{{ p }}</strong>{{ last ? '' : ', ' }}
@@ -113,7 +114,7 @@ import { ToastService } from '../../core/services/toast.service';
             <ng-template #cell let-m>
               <span class="provider-chip provider-{{ m.provider.toLowerCase() }}">{{ m.provider }}</span>
               @if (!m.providerActive) {
-                <span class="inline-warn" title="Provider is disabled">&#x26A0;</span>
+                <app-icon name="warning" size="xs" class="inline-warn" title="Provider is disabled" />
               }
             </ng-template>
           </app-data-column>

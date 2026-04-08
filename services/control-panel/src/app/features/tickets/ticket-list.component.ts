@@ -14,6 +14,7 @@ import {
   DialogComponent,
   StatusBadgeComponent,
   PriorityPillComponent,
+  IconComponent,
 } from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service.js';
 
@@ -45,6 +46,7 @@ const STATUS_PILLS: StatusPill[] = [
     TicketDialogComponent,
     TicketQuickActionsDialogComponent,
     TicketFilterDialogComponent,
+    IconComponent,
   ],
   template: `
     <div class="ticket-list-page">
@@ -73,12 +75,12 @@ const STATUS_PILLS: StatusPill[] = [
           placeholder="— No preset —"
           (valueChange)="onPresetSelected($event)" />
         <app-bronco-button variant="icon" size="sm" (click)="savePreset()" title="Save current filters as preset">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13 5.5V13a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1h5.5L13 5.5z" stroke="currentColor" stroke-width="1.2"/><path d="M5 9h6M5 11h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+          <app-icon name="file" size="sm" />
         </app-bronco-button>
 
         @if (selectedPresetId()) {
           <app-bronco-button variant="icon" size="sm" (click)="deletePreset()" title="Delete preset">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M5 3V2a1 1 0 011-1h4a1 1 0 011 1v1M2 4h12M6 7v5M10 7v5M3 4l1 9a1 1 0 001 1h6a1 1 0 001-1l1-9" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <app-icon name="delete" size="sm" />
           </app-bronco-button>
           <button
             class="default-toggle"
@@ -99,7 +101,7 @@ const STATUS_PILLS: StatusPill[] = [
 
         <app-bronco-button variant="ghost" (click)="showFilterDialog.set(true)">
           <span class="filter-btn-content">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M4 8h8M6 12h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+            <app-icon name="filter" size="sm" />
             Filter
             @if (hasAdvancedFilters()) {
               <span class="filter-dot"></span>
@@ -176,7 +178,7 @@ const STATUS_PILLS: StatusPill[] = [
         <app-data-column key="actions" header="" width="48px" [sortable]="false">
           <ng-template #cell let-row>
             <app-bronco-button variant="icon" size="sm" (click)="openQuickActions(row); $event.stopPropagation()" title="Quick actions">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="3" r="1.2" fill="currentColor"/><circle cx="8" cy="8" r="1.2" fill="currentColor"/><circle cx="8" cy="13" r="1.2" fill="currentColor"/></svg>
+              <app-icon name="more-vertical" size="sm" />
             </app-bronco-button>
           </ng-template>
         </app-data-column>

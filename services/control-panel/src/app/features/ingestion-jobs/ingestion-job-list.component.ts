@@ -8,7 +8,7 @@ import {
   IngestionRunDetail,
 } from '../../core/services/ingestion.service';
 import { ClientService, Client } from '../../core/services/client.service';
-import { BroncoButtonComponent, SelectComponent } from '../../shared/components/index.js';
+import { BroncoButtonComponent, SelectComponent, IconComponent } from '../../shared/components/index.js';
 
 @Component({
   standalone: true,
@@ -18,6 +18,7 @@ import { BroncoButtonComponent, SelectComponent } from '../../shared/components/
     DatePipe,
     BroncoButtonComponent,
     SelectComponent,
+    IconComponent,
   ],
   template: `
     <div class="page-wrapper">
@@ -38,15 +39,15 @@ import { BroncoButtonComponent, SelectComponent } from '../../shared/components/
             @for (step of processingRun()!.steps; track step.id) {
               <div class="step-item" [class]="'step-' + step.status">
                 @if (step.status === 'success') {
-                  <span class="step-icon done">&#10003;</span>
+                  <span class="step-icon done"><app-icon name="check" size="xs" /></span>
                 } @else if (step.status === 'processing') {
-                  <span class="step-icon running">&#9697;</span>
+                  <span class="step-icon running"><app-icon name="spinner" size="xs" /></span>
                 } @else if (step.status === 'error') {
-                  <span class="step-icon error">&#10005;</span>
+                  <span class="step-icon error"><app-icon name="close" size="xs" /></span>
                 } @else if (step.status === 'skipped') {
-                  <span class="step-icon skipped">&#8640;</span>
+                  <span class="step-icon skipped"><app-icon name="remove" size="xs" /></span>
                 } @else {
-                  <span class="step-icon pending">&#9675;</span>
+                  <span class="step-icon pending"><app-icon name="pending" size="xs" /></span>
                 }
                 <span class="step-name">{{ step.stepName }}</span>
                 @if (step.status === 'processing') {
@@ -118,7 +119,7 @@ import { BroncoButtonComponent, SelectComponent } from '../../shared/components/
                       (click)="toggleExpand(r); $event.stopPropagation()"
                       [attr.aria-label]="expandedRunId === r.id ? 'Collapse run details' : 'Expand run details'"
                       [attr.aria-expanded]="expandedRunId === r.id">
-                      {{ expandedRunId === r.id ? '▲' : '▼' }}
+                      <app-icon [name]="expandedRunId === r.id ? 'chevron-up' : 'chevron-down'" size="sm" />
                     </button>
                   </td>
                 </tr>
