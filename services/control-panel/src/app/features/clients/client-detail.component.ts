@@ -22,8 +22,7 @@ import { ClientMemoryTabComponent } from './client-detail/tabs/memory-tab.compon
 import { ClientEnvironmentsTabComponent } from './client-detail/tabs/environments-tab.component';
 import { ClientUsersTabComponent } from './client-detail/tabs/users-tab.component';
 import { ClientAiCredentialsTabComponent } from './client-detail/tabs/ai-credentials-tab.component';
-import { InvoiceService, type Invoice } from '../../core/services/invoice.service';
-import { GenerateInvoiceDialogComponent } from './generate-invoice-dialog.component';
+import { ClientInvoicesTabComponent } from './client-detail/tabs/invoices-tab.component';
 import { FormsModule } from '@angular/forms';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
@@ -56,9 +55,8 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
     TabGroupComponent, TabComponent, ClientHeaderComponent,
     ClientSystemsTabComponent, ClientContactsTabComponent, ClientReposTabComponent, ClientIntegrationsTabComponent,
     ClientTicketsTabComponent, ClientMemoryTabComponent, ClientEnvironmentsTabComponent, ClientUsersTabComponent,
-    ClientAiCredentialsTabComponent,
+    ClientAiCredentialsTabComponent, ClientInvoicesTabComponent,
     DialogComponent,
-    GenerateInvoiceDialogComponent,
   ],
   template: `
     @if (client(); as c) {
@@ -101,54 +99,7 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
         </app-tab>
 
         <app-tab label="Invoices">
-          <div class="tab-content">
-            <div class="tab-header">
-              <h3>Invoices</h3>
-              <button mat-raised-button color="primary" (click)="openGenerateInvoiceDialog()">
-                <mat-icon>receipt_long</mat-icon> Generate Invoice
-              </button>
-            </div>
-            <table mat-table [dataSource]="invoices()" class="full-width">
-              <ng-container matColumnDef="invoiceNumber">
-                <th mat-header-cell *matHeaderCellDef>#</th>
-                <td mat-cell *matCellDef="let inv">{{ inv.invoiceNumber }}</td>
-              </ng-container>
-              <ng-container matColumnDef="period">
-                <th mat-header-cell *matHeaderCellDef>Period</th>
-                <td mat-cell *matCellDef="let inv">
-                  {{ inv.periodStart | date:'mediumDate' }} – {{ inv.periodEnd | date:'mediumDate' }}
-                </td>
-              </ng-container>
-              <ng-container matColumnDef="requests">
-                <th mat-header-cell *matHeaderCellDef>Requests</th>
-                <td mat-cell *matCellDef="let inv">{{ inv.requestCount }}</td>
-              </ng-container>
-              <ng-container matColumnDef="totalBilled">
-                <th mat-header-cell *matHeaderCellDef>Total Billed</th>
-                <td mat-cell *matCellDef="let inv">\${{ inv.totalBilledCostUsd | number:'1.2-2' }}</td>
-              </ng-container>
-              <ng-container matColumnDef="invoiceStatus">
-                <th mat-header-cell *matHeaderCellDef>Status</th>
-                <td mat-cell *matCellDef="let inv">
-                  <mat-chip [class.status-final]="inv.status === 'final'">{{ inv.status }}</mat-chip>
-                </td>
-              </ng-container>
-              <ng-container matColumnDef="invoiceActions">
-                <th mat-header-cell *matHeaderCellDef></th>
-                <td mat-cell *matCellDef="let inv">
-                  <a mat-icon-button [href]="getInvoiceDownloadUrl(inv.id)" target="_blank" rel="noopener noreferrer" matTooltip="Download PDF">
-                    <mat-icon>download</mat-icon>
-                  </a>
-                  <button mat-icon-button color="warn" (click)="deleteInvoice(inv)" matTooltip="Delete">
-                    <mat-icon>delete</mat-icon>
-                  </button>
-                </td>
-              </ng-container>
-              <tr mat-header-row *matHeaderRowDef="invoiceColumns"></tr>
-              <tr mat-row *matRowDef="let row; columns: invoiceColumns;"></tr>
-            </table>
-            @if (invoices().length === 0) { <p class="empty">No invoices generated yet.</p> }
-          </div>
+          <app-client-invoices-tab [clientId]="id()" />
         </app-tab>
 
         <app-tab label="AI Usage">
@@ -227,14 +178,6 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
       <p>Loading...</p>
     }
 
-    @if (showInvoiceDialog()) {
-      <app-dialog [open]="true" title="Generate Invoice" maxWidth="400px" (openChange)="showInvoiceDialog.set(false)">
-        <app-generate-invoice-dialog-content
-          [clientId]="id()"
-          (generated)="onInvoiceGenerated()"
-          (cancelled)="showInvoiceDialog.set(false)" />
-      </app-dialog>
-    }
   `,
   styles: [`
     .tab-content { padding: 16px 0; }
@@ -297,7 +240,6 @@ export class ClientDetailComponent implements OnInit {
   id = input.required<string>();
 
   private clientService = inject(ClientService);
-  private invoiceService = inject(InvoiceService);
   private aiUsageService = inject(AiUsageService);
   private destroyRef = inject(DestroyRef);
   private toast = inject(ToastService);
@@ -305,7 +247,6 @@ export class ClientDetailComponent implements OnInit {
   private route = inject(ActivatedRoute);
 
   client = signal<Client | null>(null);
-  invoices = signal<Invoice[]>([]);
   aiUsageSummary = signal<AiUsageClientSummary | null>(null);
   aiUsageLogs = signal<AiUsageLogEntry[]>([]);
   aiUsageLoading = signal(false);
@@ -314,7 +255,6 @@ export class ClientDetailComponent implements OnInit {
   aiUsageTotalPages = signal(1);
   selectedTab = signal(0);
 
-  invoiceColumns = ['invoiceNumber', 'period', 'requests', 'totalBilled', 'invoiceStatus', 'invoiceActions'];
   aiUsageLogColumns = ['createdAt', 'taskType', 'model', 'provider', 'inputTokens', 'outputTokens', 'costUsd'];
   private readonly AI_USAGE_PAGE_SIZE = 25;
 
@@ -346,7 +286,6 @@ export class ClientDetailComponent implements OnInit {
   load(): void {
     const cid = this.id();
     this.clientService.getClient(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(c => this.client.set(c));
-    this.invoiceService.getInvoices(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(i => this.invoices.set(i));
   }
 
   loadAiUsage(): void {
@@ -392,30 +331,5 @@ export class ClientDetailComponent implements OnInit {
     this.client.set(updated);
   }
 
-  showInvoiceDialog = signal(false);
-
-  openGenerateInvoiceDialog(): void {
-    this.showInvoiceDialog.set(true);
-  }
-
-  onInvoiceGenerated(): void {
-    this.showInvoiceDialog.set(false);
-    this.load();
-  }
-
-  getInvoiceDownloadUrl(invoiceId: string): string {
-    return this.invoiceService.getDownloadUrl(this.id(), invoiceId);
-  }
-
-  deleteInvoice(inv: Invoice): void {
-    if (!confirm(`Delete invoice #${inv.invoiceNumber}?`)) return;
-    this.invoiceService.deleteInvoice(this.id(), inv.id).subscribe({
-      next: () => {
-        this.toast.success('Invoice deleted');
-        this.load();
-      },
-      error: (err) => this.toast.error(err.error?.message ?? err.error?.error ?? 'Delete failed'),
-    });
-  }
 
 }
