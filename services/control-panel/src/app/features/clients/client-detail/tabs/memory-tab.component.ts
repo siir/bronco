@@ -8,6 +8,8 @@ import {
   DialogComponent,
   SelectComponent,
   ToggleSwitchComponent,
+  IconComponent,
+  type IconName,
 } from '../../../../shared/components/index.js';
 import { ClientMemoryDialogComponent } from '../../client-memory-dialog.component';
 
@@ -27,6 +29,7 @@ const SOURCE_OPTIONS = [
     SelectComponent,
     ToggleSwitchComponent,
     ClientMemoryDialogComponent,
+    IconComponent,
   ],
   template: `
     <div class="tab-section">
@@ -46,11 +49,11 @@ const SOURCE_OPTIONS = [
       @for (mem of filteredMemories(); track mem.id) {
         <app-card padding="md" class="memory-card" [class.inactive-card]="!mem.isActive">
           <div class="memory-header">
-            <span class="type-icon">{{ memoryTypeIcon(mem.memoryType) }}</span>
+            <app-icon [name]="memoryTypeIconName(mem.memoryType)" size="sm" class="type-icon" />
             <strong class="memory-title">{{ mem.title }}</strong>
             <span class="chip chip-type chip-type-{{ mem.memoryType.toLowerCase() }}">{{ mem.memoryType }}</span>
-            <span class="chip chip-source chip-source-{{ (mem.source ?? 'MANUAL').toLowerCase() }}">
-              {{ (mem.source ?? 'MANUAL') === 'AI_LEARNED' ? 'AI' : 'MANUAL' }}
+            <span class="chip chip-source chip-source-{{ mem.source.toLowerCase() }}">
+              {{ mem.source === 'AI_LEARNED' ? 'AI' : 'MANUAL' }}
             </span>
             @if (mem.category) {
               <span class="chip chip-category">{{ mem.category }}</span>
@@ -60,8 +63,8 @@ const SOURCE_OPTIONS = [
               [label]="mem.isActive ? 'Active' : 'Inactive'"
               (checkedChange)="toggleMemory(mem, $event)" />
             <span class="spacer"></span>
-            <app-bronco-button variant="icon" size="sm" ariaLabel="Edit memory" (click)="openEditDialog(mem)">&#x270E;</app-bronco-button>
-            <app-bronco-button variant="icon" size="sm" ariaLabel="Delete memory" (click)="deleteMemory(mem.id)">&#x1F5D1;</app-bronco-button>
+            <app-bronco-button variant="icon" size="sm" ariaLabel="Edit memory" (click)="openEditDialog(mem)"><app-icon name="edit" size="sm" /></app-bronco-button>
+            <app-bronco-button variant="icon" size="sm" ariaLabel="Delete memory" (click)="deleteMemory(mem.id)"><app-icon name="delete" size="sm" /></app-bronco-button>
           </div>
           @if (mem.tags.length) {
             <div class="tags">
@@ -302,12 +305,12 @@ export class ClientMemoryTabComponent implements OnInit {
       });
   }
 
-  memoryTypeIcon(type: string): string {
+  memoryTypeIconName(type: string): IconName {
     switch (type) {
-      case 'CONTEXT': return '\u2139';        // ℹ
-      case 'PLAYBOOK': return '\u{1F4D6}';   // 📖
-      case 'TOOL_GUIDANCE': return '\u{1F527}'; // 🔧
-      default: return '\u{1F9E0}';            // 🧠
+      case 'CONTEXT': return 'info';
+      case 'PLAYBOOK': return 'book';
+      case 'TOOL_GUIDANCE': return 'wrench';
+      default: return 'sparkles';
     }
   }
 }

@@ -76,7 +76,7 @@ import {
                   (checkedChange)="toggleActive(ch)"
                 ></app-toggle-switch>
                 <app-bronco-button variant="icon" size="sm" [attr.aria-label]="'Actions for ' + ch.name" #menuTrigger (click)="menu.toggle()">
-                  &#x22EE;
+                  <app-icon name="more-vertical" size="sm" />
                 </app-bronco-button>
                 <app-dropdown-menu #menu [trigger]="menuTrigger">
                   <app-dropdown-item (action)="openDialog(ch)">Edit</app-dropdown-item>

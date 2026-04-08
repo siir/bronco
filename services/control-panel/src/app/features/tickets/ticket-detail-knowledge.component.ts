@@ -1,12 +1,12 @@
 import { Component, input, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { BroncoButtonComponent, TextareaComponent } from '../../shared/components/index.js';
+import { BroncoButtonComponent, TextareaComponent, IconComponent } from '../../shared/components/index.js';
 import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
 
 @Component({
   selector: 'app-ticket-detail-knowledge',
   standalone: true,
-  imports: [FormsModule, BroncoButtonComponent, TextareaComponent, MarkdownPipe],
+  imports: [FormsModule, BroncoButtonComponent, TextareaComponent, MarkdownPipe, IconComponent],
   template: `
     <div class="knowledge-doc">
       @if (editing()) {
@@ -21,10 +21,10 @@ import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
       } @else {
         <div class="knowledge-actions">
           <app-bronco-button variant="secondary" (click)="onStartEdit()">
-            <span aria-hidden="true">&#9998;</span> Edit
+            <app-icon name="edit" size="sm" /> Edit
           </app-bronco-button>
           <app-bronco-button variant="destructive" (click)="onClear()">
-            <span aria-hidden="true">&#128465;</span> Clear
+            <app-icon name="delete" size="sm" /> Clear
           </app-bronco-button>
         </div>
         @if (knowledgeDoc()) {

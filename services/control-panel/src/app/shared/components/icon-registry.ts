@@ -18,6 +18,8 @@ import {
   faArrowLeft,
   faArrowRight,
   faArrowUpRightFromSquare,
+  faAnglesLeft,
+  faAnglesRight,
   faHouse,
   faTurnDownRight,
   // Status
@@ -119,6 +121,8 @@ export const ICON_REGISTRY = {
   'arrow-left': faArrowLeft,
   'arrow-right': faArrowRight,
   'external-link': faArrowUpRightFromSquare,
+  'skip-left': faAnglesLeft,
+  'skip-right': faAnglesRight,
   back: faArrowLeft,
   home: faHouse,
   subdirectory: faTurnDownRight,

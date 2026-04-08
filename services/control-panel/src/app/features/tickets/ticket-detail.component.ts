@@ -17,6 +17,7 @@ import {
   FormFieldComponent,
   TextareaComponent,
   DialogComponent,
+  IconComponent,
 } from '../../shared/components/index.js';
 import { AiLogEntryComponent } from './ai-log-entry.component';
 import { TicketDetailSummaryComponent } from './ticket-detail-summary.component.js';
@@ -67,13 +68,14 @@ interface StepGroup {
     TicketDetailFlowComponent,
     TicketDetailCostComponent,
     TicketDetailTimelineComponent,
+    IconComponent,
   ],
   template: `
     @if (ticket(); as t) {
       <div class="page-wrapper">
         <div class="page-header">
           <div class="header-left">
-            <a routerLink="/tickets" class="back-link">&larr; Tickets</a>
+            <a routerLink="/tickets" class="back-link"><app-icon name="back" size="sm" /> Tickets</a>
             <h1 class="page-title">
               @if (t.ticketNumber) { <span class="ticket-number">#{{ t.ticketNumber }}</span> }
               {{ t.subject }}
@@ -104,7 +106,7 @@ interface StepGroup {
           <span class="date">{{ t.createdAt | date:'medium' }}</span>
           <span class="analysis-badge analysis-{{ t.analysisStatus.toLowerCase() }}">
             @if (t.analysisStatus === 'IN_PROGRESS') {
-              <span class="spin-icon" aria-hidden="true">&#10227;</span>
+              <app-icon name="spinner" size="sm" class="spin-icon" />
             }
             {{ formatAnalysisStatus(t.analysisStatus) }}
             @if (t.analysisStatus === 'COMPLETED' && t.lastAnalyzedAt) {
@@ -113,14 +115,14 @@ interface StepGroup {
           </span>
           @if (t.analysisStatus === 'FAILED') {
             <app-bronco-button variant="destructive" size="sm" (click)="reanalyze()" [disabled]="reanalyzing()">
-              <span aria-hidden="true">&#x21bb;</span> Retry Analysis
+              <app-icon name="refresh" size="sm" /> Retry Analysis
             </app-bronco-button>
           }
         </div>
 
         @if (t.analysisStatus === 'FAILED' && t.analysisError) {
           <div class="analysis-error">
-            <span class="error-icon" aria-hidden="true">&#9888;</span>
+            <app-icon name="warning" size="sm" class="error-icon" />
             <span>{{ t.analysisError }}</span>
           </div>
         }
@@ -218,10 +220,10 @@ interface StepGroup {
                   (keyup.enter)="onSearchEnter()" />
               </app-form-field>
               <app-bronco-button variant="icon" size="md" ariaLabel="Search" (click)="onSearchEnter()">
-                <span aria-hidden="true">&#x1F50D;</span>
+                <app-icon name="search" size="sm" />
               </app-bronco-button>
               <app-bronco-button variant="icon" size="md" ariaLabel="Refresh" (click)="loadUnifiedLogs()">
-                <span aria-hidden="true">&#x21bb;</span>
+                <app-icon name="refresh" size="sm" />
               </app-bronco-button>
             </div>
 
@@ -235,7 +237,7 @@ interface StepGroup {
               @for (entry of ungroupedEntries(); track entry.id; let idx = $index) {
                 @if (isIterationHeader(entry)) {
                   <div class="iteration-group-header">
-                    <span class="iteration-icon" aria-hidden="true">&#x21bb;</span>
+                    <app-icon name="refresh" size="xs" class="iteration-icon" />
                     <span class="iteration-label">{{ extractIterationLabel(entry) }}</span>
                     <span class="log-seq">#{{ idx + 1 }}</span>
                     <span class="log-time" [attr.title]="entry.timestamp">{{ formatTime(entry.timestamp) }}</span>
@@ -255,7 +257,7 @@ interface StepGroup {
                     @if (entry.context && hasKeys(entry.context)) {
                       <app-bronco-button variant="ghost" size="sm" class="log-expand-btn" (click)="expandedLogs[entry.id] = !expandedLogs[entry.id]">
                         {{ expandedLogs[entry.id] ? 'Hide metadata' : 'Show metadata' }}
-                        <span aria-hidden="true">{{ expandedLogs[entry.id] ? '\u25B4' : '\u25BE' }}</span>
+                        <app-icon [name]="expandedLogs[entry.id] ? 'chevron-up' : 'chevron-down'" size="xs" />
                       </app-bronco-button>
                       @if (expandedLogs[entry.id]) { <pre class="log-metadata">{{ entry.context | json }}</pre> }
                     }
@@ -273,7 +275,7 @@ interface StepGroup {
                           [class.status-failed]="group.status === 'failed'"
                           [class.status-running]="group.status === 'running'"
                           aria-hidden="true">
-                      {{ group.status === 'completed' ? '\u2713' : group.status === 'failed' ? '\u2715' : '\u25CB' }}
+                      <app-icon [name]="group.status === 'completed' ? 'check' : group.status === 'failed' ? 'close' : 'pending'" size="xs" />
                     </span>
                     <span class="step-name">{{ group.stepName }}</span>
                     @if (group.aiCallCount > 0) {
@@ -284,14 +286,14 @@ interface StepGroup {
                       }
                     }
                     <span class="step-entry-count">{{ group.entries.length }} entr{{ group.entries.length === 1 ? 'y' : 'ies' }}</span>
-                    <span class="step-chevron" aria-hidden="true">{{ group.expanded ? '\u25B4' : '\u25BE' }}</span>
+                    <app-icon [name]="group.expanded ? 'chevron-up' : 'chevron-down'" size="xs" class="step-chevron" />
                   </div>
                   @if (group.expanded) {
                     <div class="step-group-entries">
                       @for (entry of group.entries; track entry.id; let idx = $index) {
                         @if (isIterationHeader(entry)) {
                           <div class="iteration-group-header">
-                            <span class="iteration-icon" aria-hidden="true">&#x21bb;</span>
+                            <app-icon name="refresh" size="xs" class="iteration-icon" />
                             <span class="iteration-label">{{ extractIterationLabel(entry) }}</span>
                             <span class="log-time" [attr.title]="entry.timestamp">{{ formatTime(entry.timestamp) }}</span>
                           </div>
@@ -318,7 +320,7 @@ interface StepGroup {
                             @if (entry.type === 'ai') {
                               <app-bronco-button variant="ghost" size="sm" class="log-expand-btn" (click)="expandedLogs[entry.id] = !expandedLogs[entry.id]">
                                 {{ expandedLogs[entry.id] ? 'Hide details' : 'Show details' }}
-                                <span aria-hidden="true">{{ expandedLogs[entry.id] ? '\u25B4' : '\u25BE' }}</span>
+                                <app-icon [name]="expandedLogs[entry.id] ? 'chevron-up' : 'chevron-down'" size="xs" />
                               </app-bronco-button>
                               @if (expandedLogs[entry.id]) {
                                 <div class="ai-detail-sections">
@@ -345,7 +347,7 @@ interface StepGroup {
                               @if (entry.context && hasKeys(entry.context)) {
                                 <app-bronco-button variant="ghost" size="sm" class="log-expand-btn" (click)="expandedLogs[entry.id] = !expandedLogs[entry.id]">
                                   {{ expandedLogs[entry.id] ? 'Hide metadata' : 'Show metadata' }}
-                                  <span aria-hidden="true">{{ expandedLogs[entry.id] ? '\u25B4' : '\u25BE' }}</span>
+                                  <app-icon [name]="expandedLogs[entry.id] ? 'chevron-up' : 'chevron-down'" size="xs" />
                                 </app-bronco-button>
                                 @if (expandedLogs[entry.id]) { <pre class="log-metadata">{{ entry.context | json }}</pre> }
                               }
@@ -386,7 +388,7 @@ interface StepGroup {
                 @for (group of convStepGroups(); track $index) {
                   <div class="conv-step-section">
                     <div class="conv-step-label">
-                      <span class="conv-step-icon" aria-hidden="true">{{ group.status === 'completed' ? '\u2713' : group.status === 'failed' ? '\u2715' : '\u25CB' }}</span>
+                      <app-icon [name]="group.status === 'completed' ? 'check' : group.status === 'failed' ? 'close' : 'pending'" size="xs" class="conv-step-icon" />
                       {{ group.stepName }}
                     </div>
                     @for (entry of group.entries; track entry.id) {
@@ -402,8 +404,8 @@ interface StepGroup {
                             <div class="conv-turns">
                               @for (turn of convMessages(entry); track $index) {
                                 <div class="conv-turn" [ngClass]="'conv-turn-' + turn.role">
-                                  <span class="conv-turn-role">{{ turn.role === 'user' ? '\u{1F464}' : '\u{1F916}' }}</span>
-                                  @if (turn.toolName) { <span class="conv-tool-call">\u{1F527} {{ turn.toolName }}</span> }
+                                  <app-icon [name]="turn.role === 'user' ? 'user' : 'robot'" size="xs" class="conv-turn-role" />
+                                  @if (turn.toolName) { <span class="conv-tool-call"><app-icon name="wrench" size="xs" /> {{ turn.toolName }}</span> }
                                   @if (turn.tokenCount) { <span class="conv-token-count">{{ turn.tokenCount | number }} tokens</span> }
                                 </div>
                               }
@@ -416,7 +418,7 @@ interface StepGroup {
                               @if (isMultilineConvPrompt(entry)) {
                                 <app-bronco-button variant="ghost" size="sm" class="inline-expand-btn" (click)="convPromptExpanded[entry.id] = !convPromptExpanded[entry.id]">
                                   {{ convPromptExpanded[entry.id] ? 'less' : 'more' }}
-                                  <span aria-hidden="true">{{ convPromptExpanded[entry.id] ? '\u23F6' : '\u23F7' }}</span>
+                                  <app-icon [name]="convPromptExpanded[entry.id] ? 'chevron-up' : 'chevron-down'" size="xs" />
                                 </app-bronco-button>
                               }
                             </div>
@@ -428,7 +430,7 @@ interface StepGroup {
                               @if (isMultilineConv(entry)) {
                                 <app-bronco-button variant="ghost" size="sm" class="inline-expand-btn" (click)="convExpanded[entry.id] = !convExpanded[entry.id]">
                                   {{ convExpanded[entry.id] ? 'less' : 'more' }}
-                                  <span aria-hidden="true">{{ convExpanded[entry.id] ? '\u23F6' : '\u23F7' }}</span>
+                                  <app-icon [name]="convExpanded[entry.id] ? 'chevron-up' : 'chevron-down'" size="xs" />
                                 </app-bronco-button>
                               }
                             </div>
@@ -438,7 +440,7 @@ interface StepGroup {
                             @for (sub of getSubTasks(group.entries, orchestrationId); track sub.id) {
                               <div class="conv-subtask">
                                 <div class="conv-ai-header">
-                                  <span class="subtask-icon" aria-hidden="true">\u21B3</span>
+                                  <app-icon name="subdirectory" size="xs" class="subtask-icon" />
                                   <span class="conv-task-type">{{ sub.taskType }}</span>
                                   <span class="conv-model">{{ sub.model }}</span>
                                   <span class="conv-tokens">{{ sub.inputTokens | number }}in / {{ sub.outputTokens | number }}out</span>
@@ -451,7 +453,7 @@ interface StepGroup {
                                     @if (isMultilineConvPrompt(sub)) {
                                       <app-bronco-button variant="ghost" size="sm" class="inline-expand-btn" (click)="convPromptExpanded[sub.id] = !convPromptExpanded[sub.id]">
                                         {{ convPromptExpanded[sub.id] ? 'less' : 'more' }}
-                                        <span aria-hidden="true">{{ convPromptExpanded[sub.id] ? '\u23F6' : '\u23F7' }}</span>
+                                        <app-icon [name]="convPromptExpanded[sub.id] ? 'chevron-up' : 'chevron-down'" size="xs" />
                                       </app-bronco-button>
                                     }
                                   </div>
@@ -463,7 +465,7 @@ interface StepGroup {
                                     @if (isMultilineConv(sub)) {
                                       <app-bronco-button variant="ghost" size="sm" class="inline-expand-btn" (click)="convExpanded[sub.id] = !convExpanded[sub.id]">
                                         {{ convExpanded[sub.id] ? 'less' : 'more' }}
-                                        <span aria-hidden="true">{{ convExpanded[sub.id] ? '\u23F6' : '\u23F7' }}</span>
+                                        <app-icon [name]="convExpanded[sub.id] ? 'chevron-up' : 'chevron-down'" size="xs" />
                                       </app-bronco-button>
                                     }
                                   </div>
@@ -489,8 +491,8 @@ interface StepGroup {
                         <div class="conv-turns">
                           @for (turn of convMessages(entry); track $index) {
                             <div class="conv-turn" [ngClass]="'conv-turn-' + turn.role">
-                              <span class="conv-turn-role">{{ turn.role === 'user' ? '\u{1F464}' : '\u{1F916}' }}</span>
-                              @if (turn.toolName) { <span class="conv-tool-call">\u{1F527} {{ turn.toolName }}</span> }
+                              <app-icon [name]="turn.role === 'user' ? 'user' : 'robot'" size="xs" class="conv-turn-role" />
+                              @if (turn.toolName) { <span class="conv-tool-call"><app-icon name="wrench" size="xs" /> {{ turn.toolName }}</span> }
                               @if (turn.tokenCount) { <span class="conv-token-count">{{ turn.tokenCount | number }} tokens</span> }
                             </div>
                           }
@@ -503,7 +505,7 @@ interface StepGroup {
                           @if (isMultilineConvPrompt(entry)) {
                             <app-bronco-button variant="ghost" size="sm" class="inline-expand-btn" (click)="convPromptExpanded[entry.id] = !convPromptExpanded[entry.id]">
                               {{ convPromptExpanded[entry.id] ? 'less' : 'more' }}
-                              <span aria-hidden="true">{{ convPromptExpanded[entry.id] ? '\u23F6' : '\u23F7' }}</span>
+                              <app-icon [name]="convPromptExpanded[entry.id] ? 'chevron-up' : 'chevron-down'" size="xs" />
                             </app-bronco-button>
                           }
                         </div>
@@ -515,7 +517,7 @@ interface StepGroup {
                           @if (isMultilineConv(entry)) {
                             <app-bronco-button variant="ghost" size="sm" class="inline-expand-btn" (click)="convExpanded[entry.id] = !convExpanded[entry.id]">
                               {{ convExpanded[entry.id] ? 'less' : 'more' }}
-                              <span aria-hidden="true">{{ convExpanded[entry.id] ? '\u23F6' : '\u23F7' }}</span>
+                              <app-icon [name]="convExpanded[entry.id] ? 'chevron-up' : 'chevron-down'" size="xs" />
                             </app-bronco-button>
                           }
                         </div>
@@ -555,19 +557,19 @@ interface StepGroup {
           </app-form-field>
           <div class="comment-actions">
             <app-bronco-button variant="primary" (click)="addComment()" [disabled]="!newComment">
-              <span aria-hidden="true">&#x27A4;</span> Add Comment
+              <app-icon name="arrow-right" size="sm" /> Add Comment
             </app-bronco-button>
           </div>
         </app-card>
 
         <div class="reanalyze-bar">
           <app-bronco-button variant="secondary" (click)="reanalyze()" [disabled]="reanalyzing()">
-            <span aria-hidden="true">&#x21bb;</span> Re-run Analysis
+            <app-icon name="refresh" size="sm" /> Re-run Analysis
           </app-bronco-button>
         </div>
 
         <button class="ai-fab" type="button" aria-label="Ask AI for Help" (click)="openAiHelp()">
-          <span aria-hidden="true">&#x2728;</span>
+          <app-icon name="sparkles" size="md" />
         </button>
       </div>
     } @else {
