@@ -177,8 +177,7 @@ export class ClientHeaderComponent {
 
   toggleAiMode(byok: boolean): void {
     const mode = byok ? 'byok' : 'platform';
-    this.update({ aiMode: mode } as Partial<Client>);
-    this.toast.info(`AI mode set to ${mode}`);
+    this.update({ aiMode: mode } as Partial<Client>, `AI mode set to ${mode}`);
   }
 
   saveSlackChannelId(): void {
@@ -196,12 +195,15 @@ export class ClientHeaderComponent {
       });
   }
 
-  private update(patch: Partial<Client>): void {
+  private update(patch: Partial<Client>, successToast?: string): void {
     const current = this.client();
     this.clientService.updateClient(current.id, patch)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (updated) => this.clientChange.emit({ ...current, ...updated }),
+        next: (updated) => {
+          this.clientChange.emit({ ...current, ...updated });
+          if (successToast) this.toast.info(successToast);
+        },
         error: () => this.toast.error('Update failed'),
       });
   }

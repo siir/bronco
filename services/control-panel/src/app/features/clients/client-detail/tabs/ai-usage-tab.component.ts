@@ -88,7 +88,7 @@ const PAGE_SIZE = 25;
             [length]="total()"
             [pageSize]="pageSize"
             [pageIndex]="pageIndex()"
-            [pageSizeOptions]="[25, 50, 100]"
+            [pageSizeOptions]="[pageSize]"
             (page)="onPageChange($event)" />
         }
       } @else {
@@ -228,9 +228,12 @@ export class ClientAiUsageTabComponent implements OnInit {
     const page = this.pageIndex();
     this.aiUsageService.getClientLogs(cid, { limit: this.pageSize, offset: page * this.pageSize })
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((res) => {
-        this.logs.set(res.logs);
-        this.total.set(res.total);
+      .subscribe({
+        next: (res) => {
+          this.logs.set(res.logs);
+          this.total.set(res.total);
+        },
+        error: () => this.logs.set([]),
       });
   }
 
