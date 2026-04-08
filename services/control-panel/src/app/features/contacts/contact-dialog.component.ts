@@ -1,48 +1,47 @@
 import { Component, inject, input, output, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatButtonModule } from '@angular/material/button';
-import { MatCheckboxModule } from '@angular/material/checkbox';
 import { ContactService } from '../../core/services/contact.service';
 import { Contact } from '../../core/services/client.service';
 import { ToastService } from '../../core/services/toast.service';
+import { FormFieldComponent, TextInputComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({
   selector: 'app-contact-dialog-content',
   standalone: true,
-  imports: [FormsModule, MatFormFieldModule, MatInputModule, MatButtonModule, MatCheckboxModule],
+  imports: [FormsModule, FormFieldComponent, TextInputComponent, BroncoButtonComponent],
   template: `
-    <mat-form-field class="full-width">
-      <mat-label>Name</mat-label>
-      <input matInput [(ngModel)]="form.name" required>
-    </mat-form-field>
-    <mat-form-field class="full-width">
-      <mat-label>Email</mat-label>
-      <input matInput type="email" [(ngModel)]="form.email" required>
-    </mat-form-field>
-    <mat-form-field class="full-width">
-      <mat-label>Phone</mat-label>
-      <input matInput [(ngModel)]="form.phone">
-    </mat-form-field>
-    <mat-form-field class="full-width">
-      <mat-label>Role</mat-label>
-      <input matInput [(ngModel)]="form.role" placeholder="e.g. DBA, Developer, Manager">
-    </mat-form-field>
-    <mat-form-field class="full-width">
-      <mat-label>Slack User ID</mat-label>
-      <input matInput [(ngModel)]="form.slackUserId" placeholder="U0123456789">
-      <mat-hint>Used to link Slack messages to this contact</mat-hint>
-    </mat-form-field>
-    <mat-checkbox [(ngModel)]="form.isPrimary">Primary contact</mat-checkbox>
+    <div class="form-grid">
+      <app-form-field label="Name">
+        <app-text-input [value]="form.name" (valueChange)="form.name = $event" />
+      </app-form-field>
+      <app-form-field label="Email">
+        <app-text-input [value]="form.email" type="email" (valueChange)="form.email = $event" />
+      </app-form-field>
+      <app-form-field label="Phone">
+        <app-text-input [value]="form.phone" (valueChange)="form.phone = $event" />
+      </app-form-field>
+      <app-form-field label="Role">
+        <app-text-input [value]="form.role" placeholder="e.g. DBA, Developer, Manager" (valueChange)="form.role = $event" />
+      </app-form-field>
+      <app-form-field label="Slack User ID" hint="Used to link Slack messages to this contact">
+        <app-text-input [value]="form.slackUserId" placeholder="U0123456789" (valueChange)="form.slackUserId = $event" />
+      </app-form-field>
+      <label class="checkbox-row">
+        <input type="checkbox" [(ngModel)]="form.isPrimary">
+        <span>Primary contact</span>
+      </label>
+    </div>
 
     <div class="dialog-actions" dialogFooter>
-      <button mat-button (click)="cancelled.emit()">Cancel</button>
-      <button mat-raised-button color="primary" (click)="save()" [disabled]="!form.name || !form.email">{{ isEdit ? 'Save' : 'Create' }}</button>
+      <app-bronco-button variant="ghost" (click)="cancelled.emit()">Cancel</app-bronco-button>
+      <app-bronco-button variant="primary" [disabled]="!form.name || !form.email" (click)="save()">
+        {{ isEdit ? 'Save' : 'Create' }}
+      </app-bronco-button>
     </div>
   `,
   styles: [`
-    .full-width { width: 100%; margin-bottom: 8px; }
+    .form-grid { display: flex; flex-direction: column; gap: 12px; }
+    .checkbox-row { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-secondary); cursor: pointer; }
     .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
   `],
 })

@@ -1,95 +1,82 @@
 import { Component, inject, input, output, OnInit } from '@angular/core';
-import { FormsModule } from '@angular/forms';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatSelectModule } from '@angular/material/select';
-import { MatButtonModule } from '@angular/material/button';
-import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import {
   NotificationChannelService,
   NotificationChannel,
 } from '../../core/services/notification-channel.service';
 import { ToastService } from '../../core/services/toast.service';
+import { FormFieldComponent, TextInputComponent, SelectComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({
   selector: 'app-notification-channel-dialog-content',
   standalone: true,
   imports: [
-    FormsModule,
-    MatFormFieldModule,
-    MatInputModule,
-    MatSelectModule,
-    MatButtonModule,
-    MatProgressSpinnerModule,
+    FormFieldComponent,
+    TextInputComponent,
+    SelectComponent,
+    BroncoButtonComponent,
   ],
   template: `
-    <mat-form-field appearance="outline" class="full-width">
-      <mat-label>Name</mat-label>
-      <input matInput [(ngModel)]="name" placeholder="e.g. My Email, Pushover Mobile" />
-    </mat-form-field>
+    <div class="form-grid">
+      <app-form-field label="Name">
+        <app-text-input [value]="name" placeholder="e.g. My Email, Pushover Mobile" (valueChange)="name = $event" />
+      </app-form-field>
 
-    @if (!isEdit) {
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Type</mat-label>
-        <mat-select [(ngModel)]="type">
-          <mat-option value="EMAIL">Email (SMTP)</mat-option>
-          <mat-option value="PUSHOVER">Pushover</mat-option>
-        </mat-select>
-      </mat-form-field>
-    }
+      @if (!isEdit) {
+        <app-form-field label="Type">
+          <app-select [value]="type" [options]="typeOptions" (valueChange)="type = $event" />
+        </app-form-field>
+      }
 
-    @if (type === 'EMAIL') {
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>SMTP Host</mat-label>
-        <input matInput [(ngModel)]="emailConfig.host" placeholder="smtp.gmail.com" />
-      </mat-form-field>
-      <mat-form-field appearance="outline" class="half-width">
-        <mat-label>SMTP Port</mat-label>
-        <input matInput type="number" [(ngModel)]="emailConfig.port" />
-      </mat-form-field>
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>SMTP User</mat-label>
-        <input matInput [(ngModel)]="emailConfig.user" />
-      </mat-form-field>
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>SMTP Password</mat-label>
-        <input matInput type="password" [(ngModel)]="emailConfig.password" placeholder="{{ isEdit ? '(unchanged)' : '' }}" />
-      </mat-form-field>
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>From Address</mat-label>
-        <input matInput [(ngModel)]="emailConfig.from" placeholder="alerts@example.com" />
-      </mat-form-field>
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Send Alerts To</mat-label>
-        <input matInput [(ngModel)]="emailConfig.to" placeholder="you@example.com" />
-      </mat-form-field>
-    }
+      @if (type === 'EMAIL') {
+        <app-form-field label="SMTP Host">
+          <app-text-input [value]="emailConfig.host" placeholder="smtp.gmail.com" (valueChange)="emailConfig.host = $event" />
+        </app-form-field>
+        <app-form-field label="SMTP Port">
+          <app-text-input [value]="'' + emailConfig.port" type="number" (valueChange)="emailConfig.port = +$event" />
+        </app-form-field>
+        <app-form-field label="SMTP User">
+          <app-text-input [value]="emailConfig.user" (valueChange)="emailConfig.user = $event" />
+        </app-form-field>
+        <app-form-field label="SMTP Password">
+          <app-text-input
+            [value]="emailConfig.password"
+            type="password"
+            [placeholder]="isEdit ? '(unchanged)' : ''"
+            (valueChange)="emailConfig.password = $event" />
+        </app-form-field>
+        <app-form-field label="From Address">
+          <app-text-input [value]="emailConfig.from" placeholder="alerts@example.com" (valueChange)="emailConfig.from = $event" />
+        </app-form-field>
+        <app-form-field label="Send Alerts To">
+          <app-text-input [value]="emailConfig.to" placeholder="you@example.com" (valueChange)="emailConfig.to = $event" />
+        </app-form-field>
+      }
 
-    @if (type === 'PUSHOVER') {
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>App Token</mat-label>
-        <input matInput [(ngModel)]="pushoverConfig.appToken" placeholder="{{ isEdit ? '(unchanged)' : '' }}" />
-      </mat-form-field>
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>User Key</mat-label>
-        <input matInput [(ngModel)]="pushoverConfig.userKey" placeholder="{{ isEdit ? '(unchanged)' : '' }}" />
-      </mat-form-field>
-    }
+      @if (type === 'PUSHOVER') {
+        <app-form-field label="App Token">
+          <app-text-input
+            [value]="pushoverConfig.appToken"
+            [placeholder]="isEdit ? '(unchanged)' : ''"
+            (valueChange)="pushoverConfig.appToken = $event" />
+        </app-form-field>
+        <app-form-field label="User Key">
+          <app-text-input
+            [value]="pushoverConfig.userKey"
+            [placeholder]="isEdit ? '(unchanged)' : ''"
+            (valueChange)="pushoverConfig.userKey = $event" />
+        </app-form-field>
+      }
+    </div>
 
     <div class="dialog-actions" dialogFooter>
-      <button mat-button (click)="cancelled.emit()">Cancel</button>
-      <button mat-raised-button color="primary" (click)="save()" [disabled]="saving">
-        @if (saving) {
-          <mat-spinner diameter="18"></mat-spinner>
-        } @else {
-          {{ isEdit ? 'Save' : 'Create' }}
-        }
-      </button>
+      <app-bronco-button variant="ghost" (click)="cancelled.emit()">Cancel</app-bronco-button>
+      <app-bronco-button variant="primary" [disabled]="saving" (click)="save()">
+        {{ saving ? 'Saving…' : (isEdit ? 'Save' : 'Create') }}
+      </app-bronco-button>
     </div>
   `,
   styles: [`
-    .full-width { width: 100%; }
-    .half-width { width: 50%; }
+    .form-grid { display: flex; flex-direction: column; gap: 12px; }
     .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
   `],
 })
@@ -105,6 +92,11 @@ export class NotificationChannelDialogComponent implements OnInit {
   saving = false;
   name = '';
   type: string = 'EMAIL';
+
+  typeOptions = [
+    { value: 'EMAIL', label: 'Email (SMTP)' },
+    { value: 'PUSHOVER', label: 'Pushover' },
+  ];
 
   emailConfig = {
     host: '',

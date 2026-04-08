@@ -1,16 +1,9 @@
 import { Component, DestroyRef, inject, input, output, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatSelectModule } from '@angular/material/select';
-import { MatInputModule } from '@angular/material/input';
-import { MatButtonModule } from '@angular/material/button';
-import { MatIconModule } from '@angular/material/icon';
-import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { AiProviderService } from '../../core/services/ai-provider.service';
 import type { AiHelpResponse } from '../../core/services/ticket.service';
 import { ToastService } from '../../core/services/toast.service';
+import { FormFieldComponent, TextareaComponent, SelectComponent, BroncoButtonComponent } from './index.js';
 
 /** @deprecated Use AiHelpResponse from ticket.service instead. */
 export type AiHelpDialogResult = AiHelpResponse;
@@ -25,34 +18,35 @@ interface ModelOption {
 @Component({
   selector: 'app-ai-help-dialog-content',
   standalone: true,
-  imports: [CommonModule, FormsModule, MatFormFieldModule, MatSelectModule, MatInputModule, MatButtonModule, MatIconModule, MatProgressBarModule],
+  imports: [FormFieldComponent, TextareaComponent, SelectComponent, BroncoButtonComponent],
   template: `
-    <mat-form-field class="full-width">
-      <mat-label>Model</mat-label>
-      <mat-select [(ngModel)]="selectedModel">
-        <mat-option value="">Default (auto-routed)</mat-option>
-        @for (m of modelOptions(); track m.provider + ':' + m.model) {
-          <mat-option [value]="m.provider + ':' + m.model">{{ m.label }}</mat-option>
-        }
-      </mat-select>
-    </mat-form-field>
+    <div class="form-grid">
+      <app-form-field label="Model">
+        <app-select
+          [value]="selectedModel"
+          [options]="modelSelectOptions"
+          [placeholder]="''"
+          (valueChange)="selectedModel = $event" />
+      </app-form-field>
 
-    <mat-form-field class="full-width">
-      <mat-label>Question</mat-label>
-      <textarea matInput [(ngModel)]="question" rows="4"
-        placeholder="e.g. What should I investigate first?"
-        (keydown.meta.enter)="!loading() && submit()"
-        (keydown.control.enter)="!loading() && submit()"></textarea>
-    </mat-form-field>
+      <app-form-field label="Question">
+        <app-textarea
+          [value]="question"
+          [rows]="4"
+          placeholder="e.g. What should I investigate first?"
+          (valueChange)="question = $event"
+          (keydown.meta.enter)="!loading() && submit()"
+          (keydown.control.enter)="!loading() && submit()" />
+      </app-form-field>
+    </div>
 
     @if (loading()) {
-      <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+      <div class="progress-bar"><div class="progress-bar-fill"></div></div>
     }
 
     @if (response()) {
       <div class="ai-response">
         <div class="ai-response-header">
-          <mat-icon>auto_awesome</mat-icon>
           <span>AI Response</span>
           <span class="ai-provider">{{ response()!.provider }} / {{ response()!.model }}</span>
         </div>
@@ -65,21 +59,26 @@ interface ModelOption {
     }
 
     <div class="dialog-actions" dialogFooter>
-      <button mat-button (click)="closed.emit()">Close</button>
-      <button mat-raised-button color="accent" (click)="submit()" [disabled]="loading()">
-        <mat-icon>{{ loading() ? 'hourglass_empty' : 'auto_awesome' }}</mat-icon>
+      <app-bronco-button variant="ghost" (click)="closed.emit()">Close</app-bronco-button>
+      <app-bronco-button variant="primary" [disabled]="loading()" (click)="submit()">
         {{ loading() ? 'Thinking...' : 'Ask AI' }}
-      </button>
+      </app-bronco-button>
     </div>
   `,
   styles: [`
-    .full-width { width: 100%; margin-bottom: 8px; }
-    .ai-response { margin-top: 12px; padding: 12px; background: #f3e5f5; border-radius: 8px; max-height: 400px; overflow-y: auto; }
-    .ai-response-header { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; font-weight: 500; color: #6a1b9a; }
-    .ai-response-header mat-icon { font-size: 18px; width: 18px; height: 18px; }
-    .ai-provider { font-size: 11px; color: #666; font-family: monospace; margin-left: auto; }
+    .form-grid { display: flex; flex-direction: column; gap: 12px; margin-bottom: 12px; }
+    .progress-bar { height: 3px; background: var(--bg-muted); border-radius: 2px; overflow: hidden; margin-bottom: 12px; }
+    .progress-bar-fill { height: 100%; background: var(--accent); animation: progress-indeterminate 1.5s ease-in-out infinite; transform-origin: left; }
+    @keyframes progress-indeterminate {
+      0% { transform: translateX(-100%) scaleX(0.4); }
+      50% { transform: translateX(60%) scaleX(0.4); }
+      100% { transform: translateX(200%) scaleX(0.4); }
+    }
+    .ai-response { margin-top: 12px; padding: 12px; background: var(--color-purple-subtle); border-radius: var(--radius-md); max-height: 400px; overflow-y: auto; }
+    .ai-response-header { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; font-weight: 500; color: var(--color-purple); }
+    .ai-provider { font-size: 11px; color: var(--text-tertiary); font-family: monospace; margin-left: auto; }
     .ai-response-content { white-space: pre-wrap; line-height: 1.6; font-size: 13px; }
-    .error-msg { margin-top: 12px; padding: 8px 12px; background: #ffebee; color: #c62828; border-radius: 4px; font-size: 13px; }
+    .error-msg { margin-top: 12px; padding: 8px 12px; background: var(--color-error-subtle); color: var(--color-error); border-radius: var(--radius-sm); font-size: 13px; }
     .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
   `],
 })
@@ -97,6 +96,13 @@ export class AiHelpDialogComponent implements OnInit {
   loading = signal(false);
   response = signal<AiHelpResponse | null>(null);
   errorMsg = signal<string | null>(null);
+
+  get modelSelectOptions(): Array<{ value: string; label: string }> {
+    return [
+      { value: '', label: 'Default (auto-routed)' },
+      ...this.modelOptions().map(m => ({ value: `${m.provider}:${m.model}`, label: m.label })),
+    ];
+  }
 
   ngOnInit(): void {
     this.providerService.listModels()

@@ -1,74 +1,61 @@
 import { Component, inject, input, output, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatSelectModule } from '@angular/material/select';
-import { MatButtonModule } from '@angular/material/button';
-import { MatCheckboxModule } from '@angular/material/checkbox';
 import {
   ExternalServiceService,
   ExternalService,
 } from '../../core/services/external-service.service';
 import { ToastService } from '../../core/services/toast.service';
+import { FormFieldComponent, TextInputComponent, TextareaComponent, SelectComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({
   selector: 'app-external-service-dialog-content',
   standalone: true,
   imports: [
     FormsModule,
-    MatFormFieldModule,
-    MatInputModule,
-    MatSelectModule,
-    MatButtonModule,
-    MatCheckboxModule,
+    FormFieldComponent,
+    TextInputComponent,
+    TextareaComponent,
+    SelectComponent,
+    BroncoButtonComponent,
   ],
   template: `
-    <mat-form-field class="full-width">
-      <mat-label>Name</mat-label>
-      <input matInput [(ngModel)]="name" placeholder="e.g. Ollama (Local LLM)">
-      <mat-hint>Display name shown on System Status page</mat-hint>
-    </mat-form-field>
+    <div class="form-grid">
+      <app-form-field label="Name" hint="Display name shown on System Status page">
+        <app-text-input [value]="name" placeholder="e.g. Ollama (Local LLM)" (valueChange)="name = $event" />
+      </app-form-field>
 
-    <mat-form-field class="full-width">
-      <mat-label>Endpoint</mat-label>
-      <input matInput [(ngModel)]="endpoint" [placeholder]="endpointPlaceholder()">
-      <mat-hint>{{ endpointHint() }}</mat-hint>
-    </mat-form-field>
+      <app-form-field label="Endpoint" [hint]="endpointHint()">
+        <app-text-input [value]="endpoint" [placeholder]="endpointPlaceholder()" (valueChange)="endpoint = $event" />
+      </app-form-field>
 
-    <mat-form-field class="full-width">
-      <mat-label>Check Type</mat-label>
-      <mat-select [(ngModel)]="checkType">
-        <mat-option value="HTTP">HTTP — Generic health check</mat-option>
-        <mat-option value="OLLAMA">Ollama — Model info via /api/tags</mat-option>
-        <mat-option value="DOCKER">Docker — Container state check</mat-option>
-      </mat-select>
-      <mat-hint>How to verify the service is healthy</mat-hint>
-    </mat-form-field>
+      <app-form-field label="Check Type" hint="How to verify the service is healthy">
+        <app-select [value]="checkType" [options]="checkTypeOptions" (valueChange)="checkType = $event" />
+      </app-form-field>
 
-    <mat-form-field class="full-width">
-      <mat-label>Timeout (ms)</mat-label>
-      <input matInput type="number" [(ngModel)]="timeoutMs" min="1000" max="30000">
-    </mat-form-field>
+      <app-form-field label="Timeout (ms)">
+        <app-text-input [value]="'' + timeoutMs" type="number" (valueChange)="timeoutMs = +$event" />
+      </app-form-field>
 
-    <mat-checkbox [(ngModel)]="isMonitored" class="monitor-checkbox">
-      Include in System Status monitoring
-    </mat-checkbox>
+      <label class="checkbox-row">
+        <input type="checkbox" [(ngModel)]="isMonitored">
+        <span>Include in System Status monitoring</span>
+      </label>
 
-    <mat-form-field class="full-width">
-      <mat-label>Notes</mat-label>
-      <textarea matInput [(ngModel)]="notes" rows="2"></textarea>
-    </mat-form-field>
+      <app-form-field label="Notes">
+        <app-textarea [value]="notes" [rows]="2" (valueChange)="notes = $event" />
+      </app-form-field>
+    </div>
 
     <div class="dialog-actions" dialogFooter>
-      <button mat-button (click)="cancelled.emit()">Cancel</button>
-      <button mat-raised-button color="primary" (click)="save()" [disabled]="!name || !endpoint">
+      <app-bronco-button variant="ghost" (click)="cancelled.emit()">Cancel</app-bronco-button>
+      <app-bronco-button variant="primary" [disabled]="!name || !endpoint" (click)="save()">
         {{ isEdit ? 'Update' : 'Create' }}
-      </button>
+      </app-bronco-button>
     </div>
   `,
   styles: [`
-    .full-width { width: 100%; margin-bottom: 8px; }
-    .monitor-checkbox { display: block; margin: 8px 0 16px; }
+    .form-grid { display: flex; flex-direction: column; gap: 12px; }
+    .checkbox-row { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-secondary); cursor: pointer; }
     .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
   `],
 })
@@ -87,6 +74,12 @@ export class ExternalServiceDialogComponent implements OnInit {
   timeoutMs = 5000;
   isMonitored = true;
   notes = '';
+
+  checkTypeOptions = [
+    { value: 'HTTP', label: 'HTTP — Generic health check' },
+    { value: 'OLLAMA', label: 'Ollama — Model info via /api/tags' },
+    { value: 'DOCKER', label: 'Docker — Container state check' },
+  ];
 
   ngOnInit(): void {
     const s = this.service();
