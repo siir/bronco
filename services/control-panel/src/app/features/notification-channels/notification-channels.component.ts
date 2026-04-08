@@ -210,12 +210,12 @@ import {
       font-family: monospace;
     }
     .type-chip.type-email {
-      background: var(--color-info-subtle, rgba(0, 122, 255, 0.1));
+      background: var(--color-info-subtle);
       color: var(--color-info);
     }
     .type-chip.type-pushover {
-      background: rgba(175, 82, 222, 0.1);
-      color: var(--color-purple, #af52de);
+      background: var(--color-purple-subtle);
+      color: var(--color-purple);
     }
     .inactive-chip {
       font-size: 11px;

@@ -92,7 +92,7 @@ const SOURCES = [
   styles: [`
     .form-grid { display: flex; flex-direction: column; gap: 12px; }
     .toggle-row { display: flex; align-items: center; gap: 12px; }
-    .toggle-hint { font-size: 12px; color: var(--text-tertiary, #666); }
+    .toggle-hint { font-size: 12px; color: var(--text-tertiary); }
     .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
   `],
 })

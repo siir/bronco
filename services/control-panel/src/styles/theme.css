@@ -8,6 +8,8 @@
   --bg-hover: rgba(0, 0, 0, 0.04);
   --bg-active: rgba(0, 113, 227, 0.08);
   --bg-muted: rgba(0, 0, 0, 0.06);
+  --bg-code: #1d1d1f;
+  --text-code: #f5f5f7;
 
   /* Text */
   --text-primary: #1d1d1f;
@@ -31,8 +33,13 @@
   --border-medium: rgba(0, 0, 0, 0.12);
 
   /* Status variants */
+  --color-success-subtle: rgba(52, 199, 89, 0.1);
+  --color-warning-subtle: rgba(255, 149, 0, 0.1);
+  --color-error-subtle: rgba(255, 59, 48, 0.1);
   --color-info-subtle: rgba(0, 122, 255, 0.08);
   --color-info-border: rgba(0, 122, 255, 0.3);
+  --color-purple: #af52de;
+  --color-purple-subtle: rgba(175, 82, 222, 0.1);
 
   /* Focus */
   --focus-ring: rgba(0, 113, 227, 0.15);

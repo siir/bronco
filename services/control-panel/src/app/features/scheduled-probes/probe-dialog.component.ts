@@ -191,16 +191,16 @@ const COMMON_TIMEZONES = [
     .dialog-content { min-width: 450px; }
     .form-grid { display: flex; flex-direction: column; gap: 12px; }
     .params-section { margin-bottom: 8px; }
-    .params-section h4 { margin: 0 0 8px; font-size: 14px; color: #555; }
+    .params-section h4 { margin: 0 0 8px; font-size: 14px; color: var(--text-tertiary); }
     .time-row { display: flex; gap: 12px; }
     .time-row app-form-field { flex: 1; }
     .days-section { margin-bottom: 16px; }
-    .days-label { font-size: 12px; color: rgba(0,0,0,.6); display: block; margin-bottom: 4px; }
+    .days-label { font-size: 12px; color: var(--text-tertiary); display: block; margin-bottom: 4px; }
     .days-row { display: flex; gap: 4px; flex-wrap: wrap; }
-    .days-hint { font-size: 11px; color: #999; display: block; margin-top: 2px; }
-    .utc-hint { font-size: 12px; color: #1565c0; margin-bottom: 12px; padding: 4px 8px; background: #e3f2fd; border-radius: 4px; }
+    .days-hint { font-size: 11px; color: var(--text-tertiary); display: block; margin-top: 2px; }
+    .utc-hint { font-size: 12px; color: var(--color-info); margin-bottom: 12px; padding: 4px 8px; background: var(--color-info-subtle); border-radius: 4px; }
     .retention-section { margin-top: 8px; }
-    .retention-section h4 { margin: 0 0 8px; font-size: 14px; color: #555; }
+    .retention-section h4 { margin: 0 0 8px; font-size: 14px; color: var(--text-tertiary); }
     .retention-row { display: flex; gap: 12px; }
     .retention-field { flex: 1; }
     .retention-field app-form-field { flex: 1; }
