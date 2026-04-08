@@ -303,7 +303,7 @@ const STATUS_MAP: Record<string, 'open' | 'in_progress' | 'analyzing' | 'resolve
               </div>
               <div class="field-row">
                 <span class="field-label">AI Mode</span>
-                <span class="field-value">{{ c.aiMode ?? 'Default' }}</span>
+                <span class="field-value">{{ c.aiMode }}</span>
               </div>
               <div class="field-row">
                 <span class="field-label">Auto Route</span>

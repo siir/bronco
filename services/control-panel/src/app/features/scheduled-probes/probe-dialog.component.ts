@@ -1,6 +1,6 @@
 import { Component, inject, OnInit, input, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { FormFieldComponent, TextInputComponent, TextareaComponent, SelectComponent, ToggleSwitchComponent, BroncoButtonComponent } from '../../shared/components/index.js';
+import { FormFieldComponent, TextInputComponent, TextareaComponent, SelectComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 import { ScheduledProbeService, ScheduledProbe, CreateProbeRequest, UpdateProbeRequest } from '../../core/services/scheduled-probe.service';
 import { IntegrationService, ClientIntegration } from '../../core/services/integration.service';
 import { Client } from '../../core/services/client.service';
@@ -48,7 +48,7 @@ const COMMON_TIMEZONES = [
 @Component({
   selector: 'app-probe-dialog-content',
   standalone: true,
-  imports: [FormsModule, FormFieldComponent, TextInputComponent, TextareaComponent, SelectComponent, ToggleSwitchComponent, BroncoButtonComponent],
+  imports: [FormsModule, FormFieldComponent, TextInputComponent, TextareaComponent, SelectComponent, BroncoButtonComponent],
   template: `
     <div class="dialog-content">
       <div class="form-grid">

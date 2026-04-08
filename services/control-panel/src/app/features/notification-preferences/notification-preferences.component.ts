@@ -203,7 +203,7 @@ const EMAIL_TARGET_OPTIONS = [
                 <div class="form-grid">
                   <app-form-field label="Recipient Operator">
                     <app-select
-                      [value]="alertConfig().recipientOperatorId ?? ''"
+                      [value]="alertConfig().recipientOperatorId"
                       [options]="operatorEmailOptions()"
                       placeholder="Select operator"
                       (valueChange)="setAlertRecipientOperator($event)" />
