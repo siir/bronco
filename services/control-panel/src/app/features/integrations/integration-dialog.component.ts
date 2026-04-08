@@ -1,199 +1,175 @@
 import { Component, inject, input, output, OnInit, signal } from '@angular/core';
-import { FormsModule } from '@angular/forms';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatSelectModule } from '@angular/material/select';
-import { MatButtonModule } from '@angular/material/button';
-import { MatSlideToggleModule } from '@angular/material/slide-toggle';
-import { MatIconModule } from '@angular/material/icon';
 import { IntegrationService } from '../../core/services/integration.service';
 import type { ClientIntegration } from '../../core/services/integration.service';
 import { AuthService } from '../../core/services/auth.service';
 import { McpToolVisibilityDialogComponent } from './mcp-tool-visibility-dialog.component';
 import { ToastService } from '../../core/services/toast.service';
-import { DialogComponent } from '../../shared/components/index.js';
+import { DialogComponent, FormFieldComponent, TextInputComponent, TextareaComponent, SelectComponent, ToggleSwitchComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({
   selector: 'app-integration-dialog-content',
   standalone: true,
   imports: [
-    FormsModule,
-    MatFormFieldModule,
-    MatInputModule,
-    MatSelectModule,
-    MatButtonModule,
-    MatSlideToggleModule,
-    MatIconModule,
+    FormFieldComponent,
+    TextInputComponent,
+    TextareaComponent,
+    SelectComponent,
+    ToggleSwitchComponent,
+    BroncoButtonComponent,
     DialogComponent,
     McpToolVisibilityDialogComponent,
   ],
   template: `
-    <mat-form-field class="full-width">
-      <mat-label>Type</mat-label>
-      <mat-select [(ngModel)]="type" (ngModelChange)="onTypeChange()" [disabled]="editing">
-        <mat-option value="IMAP">IMAP (Email)</mat-option>
-        <mat-option value="AZURE_DEVOPS">Azure DevOps</mat-option>
-        <mat-option value="MCP_DATABASE">MCP Database</mat-option>
-        <mat-option value="SLACK">Slack</mat-option>
-      </mat-select>
-    </mat-form-field>
+    <div class="form-grid">
+      <app-form-field label="Type">
+        <app-select
+          [value]="type"
+          [options]="typeOptions"
+          [disabled]="editing"
+          (valueChange)="type = $event; onTypeChange()" />
+      </app-form-field>
 
-    <mat-form-field class="full-width">
-      <mat-label>Label</mat-label>
-      <input matInput [(ngModel)]="label" placeholder="e.g. prod, dev, staging">
-      <mat-hint>Allows multiple integrations of the same type per client</mat-hint>
-    </mat-form-field>
+      <app-form-field label="Label" hint="Allows multiple integrations of the same type per client">
+        <app-text-input
+          [value]="label"
+          placeholder="e.g. prod, dev, staging"
+          (valueChange)="label = $event" />
+      </app-form-field>
 
-    @if (type === 'IMAP') {
-      @if (imapLoopWarning) {
-        <div class="loop-warning">
-          <strong>Warning:</strong> This inbox email matches your login email ({{ currentUserEmail }}).
-          Automated replies sent to this address will be ingested as new tickets, creating an email loop.
-          Use a separate email address for ticket ingestion.
-        </div>
-      }
-      <mat-form-field class="full-width">
-        <mat-label>IMAP Host</mat-label>
-        <input matInput [(ngModel)]="imap.host" placeholder="imap.gmail.com">
-      </mat-form-field>
-      <mat-form-field class="full-width">
-        <mat-label>IMAP Port</mat-label>
-        <input matInput type="number" [(ngModel)]="imap.port">
-      </mat-form-field>
-      <mat-form-field class="full-width">
-        <mat-label>User</mat-label>
-        <input matInput [(ngModel)]="imap.user" (ngModelChange)="checkImapLoop()">
-      </mat-form-field>
-      <mat-form-field class="full-width">
-        <mat-label>Password</mat-label>
-        <input matInput type="password" [(ngModel)]="imap.encryptedPassword" [placeholder]="editing ? '(unchanged)' : ''">
-        @if (editing) {
-          <mat-hint>Leave blank to keep existing password</mat-hint>
+      @if (type === 'IMAP') {
+        @if (imapLoopWarning) {
+          <div class="loop-warning">
+            <strong>Warning:</strong> This inbox email matches your login email ({{ currentUserEmail }}).
+            Automated replies sent to this address will be ingested as new tickets, creating an email loop.
+            Use a separate email address for ticket ingestion.
+          </div>
         }
-      </mat-form-field>
-      <mat-form-field class="full-width">
-        <mat-label>Poll Interval (seconds)</mat-label>
-        <input matInput type="number" [(ngModel)]="imap.pollIntervalSeconds">
-      </mat-form-field>
-    }
-
-    @if (type === 'AZURE_DEVOPS') {
-      <mat-form-field class="full-width">
-        <mat-label>Organization URL</mat-label>
-        <input matInput [(ngModel)]="azdo.orgUrl" placeholder="https://dev.azure.com/org">
-      </mat-form-field>
-      <mat-form-field class="full-width">
-        <mat-label>Project</mat-label>
-        <input matInput [(ngModel)]="azdo.project">
-      </mat-form-field>
-      <mat-form-field class="full-width">
-        <mat-label>Personal Access Token</mat-label>
-        <input matInput type="password" [(ngModel)]="azdo.encryptedPat" [placeholder]="editing ? '(unchanged)' : ''">
-        @if (editing) {
-          <mat-hint>Leave blank to keep existing token</mat-hint>
-        }
-      </mat-form-field>
-      <mat-form-field class="full-width">
-        <mat-label>Assigned User</mat-label>
-        <input matInput [(ngModel)]="azdo.assignedUser">
-      </mat-form-field>
-      <mat-form-field class="full-width">
-        <mat-label>Poll Interval (seconds)</mat-label>
-        <input matInput type="number" [(ngModel)]="azdo.pollIntervalSeconds">
-      </mat-form-field>
-    }
-
-    @if (type === 'MCP_DATABASE') {
-      <mat-form-field class="full-width">
-        <mat-label>MCP Database URL</mat-label>
-        <input matInput [(ngModel)]="mcp.url" placeholder="mcp-db.example.com:3100">
-        <mat-hint>https:// will be added automatically if omitted</mat-hint>
-      </mat-form-field>
-
-      @if (showAdvanced) {
-        <mat-form-field class="full-width">
-          <mat-label>Health Path</mat-label>
-          <input
-            matInput
-            [ngModel]="mcp.healthPath === null ? '' : mcp.healthPath"
-            (ngModelChange)="mcp.healthPath = $event === '' ? (editing ? null : '') : $event"
-            placeholder="/health">
-          <mat-hint>{{ editing ? 'Leave blank to disable health checks' : 'Default: /health' }}. Enter a custom path to override.</mat-hint>
-        </mat-form-field>
-        <mat-form-field class="full-width">
-          <mat-label>MCP Path</mat-label>
-          <input matInput [(ngModel)]="mcp.mcpPath" placeholder="/mcp">
-          <mat-hint>Streamable HTTP endpoint for MCP protocol calls</mat-hint>
-        </mat-form-field>
-        <mat-form-field class="full-width">
-          <mat-label>API Key</mat-label>
-          <input matInput type="password" [(ngModel)]="mcp.apiKey" [placeholder]="editing ? '(unchanged)' : '(optional)'">
-          @if (editing) {
-            <mat-hint>Leave blank to keep existing key</mat-hint>
-          }
-        </mat-form-field>
-        <mat-form-field class="full-width">
-          <mat-label>Auth Header</mat-label>
-          <mat-select [(ngModel)]="mcp.authHeader">
-            <mat-option value="bearer">Authorization: Bearer (default)</mat-option>
-            <mat-option value="x-api-key">x-api-key</mat-option>
-          </mat-select>
-          <mat-hint>How the API key is sent to the MCP server</mat-hint>
-        </mat-form-field>
+        <app-form-field label="IMAP Host">
+          <app-text-input [value]="imap.host" placeholder="imap.gmail.com" (valueChange)="imap.host = $event" />
+        </app-form-field>
+        <app-form-field label="IMAP Port">
+          <app-text-input [value]="'' + imap.port" type="number" (valueChange)="imap.port = parseIntInput($event, 993)" />
+        </app-form-field>
+        <app-form-field label="User">
+          <app-text-input [value]="imap.user" (valueChange)="imap.user = $event; checkImapLoop()" />
+        </app-form-field>
+        <app-form-field label="Password" [hint]="editing ? 'Leave blank to keep existing password' : ''">
+          <app-text-input
+            [value]="imap.encryptedPassword"
+            type="password"
+            [placeholder]="editing ? '(unchanged)' : ''"
+            (valueChange)="imap.encryptedPassword = $event" />
+        </app-form-field>
+        <app-form-field label="Poll Interval (seconds)">
+          <app-text-input [value]="'' + imap.pollIntervalSeconds" type="number" (valueChange)="imap.pollIntervalSeconds = parseIntInput($event, 60)" />
+        </app-form-field>
       }
 
-      <button mat-button type="button" (click)="showAdvanced = !showAdvanced" class="advanced-toggle">
-        {{ showAdvanced ? 'Hide' : 'Show' }} advanced options
-      </button>
-
-      @if (discoveredTools.length > 0) {
-        <div class="tool-visibility-section">
-          <span class="tool-summary">
-            {{ discoveredTools.length - disabledTools.size }}/{{ discoveredTools.length }} tools enabled
-            @if (disabledTools.size > 0) { <span class="disabled-count">({{ disabledTools.size }} hidden)</span> }
-          </span>
-          <button mat-stroked-button type="button" (click)="openToolVisibility()">
-            <mat-icon>tune</mat-icon> Manage Tools
-          </button>
-        </div>
+      @if (type === 'AZURE_DEVOPS') {
+        <app-form-field label="Organization URL">
+          <app-text-input [value]="azdo.orgUrl" placeholder="https://dev.azure.com/org" (valueChange)="azdo.orgUrl = $event" />
+        </app-form-field>
+        <app-form-field label="Project">
+          <app-text-input [value]="azdo.project" (valueChange)="azdo.project = $event" />
+        </app-form-field>
+        <app-form-field label="Personal Access Token" [hint]="editing ? 'Leave blank to keep existing token' : ''">
+          <app-text-input
+            [value]="azdo.encryptedPat"
+            type="password"
+            [placeholder]="editing ? '(unchanged)' : ''"
+            (valueChange)="azdo.encryptedPat = $event" />
+        </app-form-field>
+        <app-form-field label="Assigned User">
+          <app-text-input [value]="azdo.assignedUser" (valueChange)="azdo.assignedUser = $event" />
+        </app-form-field>
+        <app-form-field label="Poll Interval (seconds)">
+          <app-text-input [value]="'' + azdo.pollIntervalSeconds" type="number" (valueChange)="azdo.pollIntervalSeconds = parseIntInput($event, 120)" />
+        </app-form-field>
       }
-    }
 
-    @if (type === 'SLACK') {
-      <mat-form-field class="full-width">
-        <mat-label>Bot Token</mat-label>
-        <input matInput type="password" [(ngModel)]="slack.encryptedBotToken" [placeholder]="editing ? '(unchanged)' : 'xoxb-...'">
-        @if (editing) {
-          <mat-hint>Leave blank to keep existing token</mat-hint>
+      @if (type === 'MCP_DATABASE') {
+        <app-form-field label="MCP Database URL" hint="https:// will be added automatically if omitted">
+          <app-text-input [value]="mcp.url" placeholder="mcp-db.example.com:3100" (valueChange)="mcp.url = $event" />
+        </app-form-field>
+
+        @if (showAdvanced) {
+          <app-form-field label="Health Path" [hint]="editing ? 'Leave blank to disable health checks' : 'Default: /health'">
+            <app-text-input
+              [value]="mcp.healthPath === null ? '' : mcp.healthPath"
+              placeholder="/health"
+              (valueChange)="mcp.healthPath = $event === '' ? (editing ? null : '') : $event" />
+          </app-form-field>
+          <app-form-field label="MCP Path" hint="Streamable HTTP endpoint for MCP protocol calls">
+            <app-text-input [value]="mcp.mcpPath" placeholder="/mcp" (valueChange)="mcp.mcpPath = $event" />
+          </app-form-field>
+          <app-form-field label="API Key" [hint]="editing ? 'Leave blank to keep existing key' : ''">
+            <app-text-input
+              [value]="mcp.apiKey"
+              type="password"
+              [placeholder]="editing ? '(unchanged)' : '(optional)'"
+              (valueChange)="mcp.apiKey = $event" />
+          </app-form-field>
+          <app-form-field label="Auth Header" hint="How the API key is sent to the MCP server">
+            <app-select [value]="mcp.authHeader" [options]="authHeaderOptions" (valueChange)="mcp.authHeader = $event" />
+          </app-form-field>
         }
-      </mat-form-field>
-      <mat-form-field class="full-width">
-        <mat-label>App-Level Token</mat-label>
-        <input matInput type="password" [(ngModel)]="slack.encryptedAppToken" [placeholder]="editing ? '(unchanged)' : 'xapp-...'">
-        @if (editing) {
-          <mat-hint>Leave blank to keep existing token</mat-hint>
+
+        <app-bronco-button variant="ghost" (click)="showAdvanced = !showAdvanced">
+          {{ showAdvanced ? 'Hide' : 'Show' }} advanced options
+        </app-bronco-button>
+
+        @if (discoveredTools.length > 0) {
+          <div class="tool-visibility-section">
+            <span class="tool-summary">
+              {{ discoveredTools.length - disabledTools.size }}/{{ discoveredTools.length }} tools enabled
+              @if (disabledTools.size > 0) { <span class="disabled-count">({{ disabledTools.size }} hidden)</span> }
+            </span>
+            <app-bronco-button variant="secondary" (click)="openToolVisibility()">Manage Tools</app-bronco-button>
+          </div>
         }
-      </mat-form-field>
-      <mat-form-field class="full-width">
-        <mat-label>Default Channel ID</mat-label>
-        <input matInput [(ngModel)]="slack.defaultChannelId" placeholder="C0123456789">
-        <mat-hint>Channel where ticket updates are posted</mat-hint>
-      </mat-form-field>
-      <mat-slide-toggle [(ngModel)]="slack.enabled">{{ slack.enabled ? 'Enabled' : 'Disabled' }}</mat-slide-toggle>
-    }
+      }
 
-    <mat-form-field class="full-width">
-      <mat-label>Notes</mat-label>
-      <textarea matInput [(ngModel)]="notes" rows="2"></textarea>
-    </mat-form-field>
+      @if (type === 'SLACK') {
+        <app-form-field label="Bot Token" [hint]="editing ? 'Leave blank to keep existing token' : ''">
+          <app-text-input
+            [value]="slack.encryptedBotToken"
+            type="password"
+            [placeholder]="editing ? '(unchanged)' : 'xoxb-...'"
+            (valueChange)="slack.encryptedBotToken = $event" />
+        </app-form-field>
+        <app-form-field label="App-Level Token" [hint]="editing ? 'Leave blank to keep existing token' : ''">
+          <app-text-input
+            [value]="slack.encryptedAppToken"
+            type="password"
+            [placeholder]="editing ? '(unchanged)' : 'xapp-...'"
+            (valueChange)="slack.encryptedAppToken = $event" />
+        </app-form-field>
+        <app-form-field label="Default Channel ID" hint="Channel where ticket updates are posted">
+          <app-text-input [value]="slack.defaultChannelId" placeholder="C0123456789" (valueChange)="slack.defaultChannelId = $event" />
+        </app-form-field>
+        <app-toggle-switch
+          [checked]="slack.enabled"
+          [label]="slack.enabled ? 'Enabled' : 'Disabled'"
+          (checkedChange)="slack.enabled = $event" />
+      }
 
-    @if (editing) {
-      <mat-slide-toggle [(ngModel)]="isActive">{{ isActive ? 'Active' : 'Inactive' }}</mat-slide-toggle>
-    }
+      <app-form-field label="Notes">
+        <app-textarea [value]="notes" [rows]="2" (valueChange)="notes = $event" />
+      </app-form-field>
+
+      @if (editing) {
+        <app-toggle-switch
+          [checked]="isActive"
+          [label]="isActive ? 'Active' : 'Inactive'"
+          (checkedChange)="isActive = $event" />
+      }
+    </div>
 
     <div class="dialog-actions" dialogFooter>
-      <button mat-button (click)="cancelled.emit()">Cancel</button>
-      <button mat-raised-button color="primary" (click)="save()" [disabled]="!type">{{ editing ? 'Save' : 'Create' }}</button>
+      <app-bronco-button variant="ghost" (click)="cancelled.emit()">Cancel</app-bronco-button>
+      <app-bronco-button variant="primary" [disabled]="!type" (click)="save()">
+        {{ editing ? 'Save' : 'Create' }}
+      </app-bronco-button>
     </div>
 
     @if (showToolVisibility()) {
@@ -207,12 +183,11 @@ import { DialogComponent } from '../../shared/components/index.js';
     }
   `,
   styles: [`
-    .full-width { width: 100%; margin-bottom: 8px; }
-    .advanced-toggle { font-size: 13px; color: #666; margin-bottom: 8px; }
-    .loop-warning { background: #fff3e0; border: 1px solid #ff9800; border-radius: 6px; padding: 10px 14px; margin-bottom: 12px; font-size: 13px; color: #e65100; line-height: 1.4; }
-    .tool-visibility-section { display: flex; align-items: center; gap: 12px; margin-top: 12px; border-top: 1px solid #e0e0e0; padding-top: 12px; }
-    .tool-summary { font-size: 13px; color: #555; flex: 1; }
-    .disabled-count { color: #e65100; margin-left: 4px; }
+    .form-grid { display: flex; flex-direction: column; gap: 12px; }
+    .loop-warning { background: var(--color-warning-subtle); border: 1px solid var(--color-warning); border-radius: var(--radius-md); padding: 10px 14px; font-size: 13px; color: var(--color-warning); line-height: 1.4; }
+    .tool-visibility-section { display: flex; align-items: center; gap: 12px; margin-top: 4px; border-top: 1px solid var(--border-light); padding-top: 12px; }
+    .tool-summary { font-size: 13px; color: var(--text-secondary); flex: 1; }
+    .disabled-count { color: var(--color-error); margin-left: 4px; }
     .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
   `],
 })
@@ -243,6 +218,18 @@ export class IntegrationDialogComponent implements OnInit {
   disabledTools = new Set<string>();
   imapLoopWarning = false;
   currentUserEmail = '';
+
+  typeOptions = [
+    { value: 'IMAP', label: 'IMAP (Email)' },
+    { value: 'AZURE_DEVOPS', label: 'Azure DevOps' },
+    { value: 'MCP_DATABASE', label: 'MCP Database' },
+    { value: 'SLACK', label: 'Slack' },
+  ];
+
+  authHeaderOptions = [
+    { value: 'bearer', label: 'Authorization: Bearer (default)' },
+    { value: 'x-api-key', label: 'x-api-key' },
+  ];
 
   private readonly secretFields: Record<string, string[]> = {
     IMAP: ['encryptedPassword'],
@@ -311,6 +298,11 @@ export class IntegrationDialogComponent implements OnInit {
   onToolsApplied(result: Set<string>): void {
     this.disabledTools = result;
     this.showToolVisibility.set(false);
+  }
+
+  parseIntInput(val: string, fallback: number): number {
+    const n = parseInt(val, 10);
+    return Number.isNaN(n) ? fallback : n;
   }
 
   checkImapLoop(): void {
