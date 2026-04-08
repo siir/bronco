@@ -1,4 +1,7 @@
-import { Component, input, output } from '@angular/core';
+import { Component, inject, input, output } from '@angular/core';
+import { FormFieldComponent } from './form-field.component';
+
+let standaloneTextareaCounter = 0;
 
 @Component({
   selector: 'app-textarea',
@@ -6,6 +9,7 @@ import { Component, input, output } from '@angular/core';
   template: `
     <textarea
       class="textarea-input"
+      [id]="resolvedId()"
       [value]="value()"
       [placeholder]="placeholder()"
       [rows]="rows()"
@@ -47,6 +51,9 @@ import { Component, input, output } from '@angular/core';
   `],
 })
 export class TextareaComponent {
+  private parentFormField = inject(FormFieldComponent, { optional: true, skipSelf: true });
+  private fallbackId = `textarea-${++standaloneTextareaCounter}`;
+
   value = input<string>('');
   placeholder = input<string>('');
   rows = input<number>(4);
@@ -54,6 +61,10 @@ export class TextareaComponent {
   readonly = input<boolean>(false);
 
   valueChange = output<string>();
+
+  resolvedId(): string {
+    return this.parentFormField?.inputId() ?? this.fallbackId;
+  }
 
   onInput(event: Event): void {
     this.valueChange.emit((event.target as HTMLTextAreaElement).value);
