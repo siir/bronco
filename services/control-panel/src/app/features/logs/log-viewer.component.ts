@@ -2,7 +2,7 @@ import { Component, inject, OnInit, signal, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
-import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
+import { PaginatorComponent, type PaginatorPageEvent } from '../../shared/components/index.js';
 import { EMPTY, Subject, switchMap, timer } from 'rxjs';
 import { catchError, takeUntil } from 'rxjs/operators';
 import { LogService, AppLog } from '../../core/services/log.service';
@@ -19,7 +19,7 @@ import {
   imports: [
     CommonModule,
     FormsModule,
-    MatPaginatorModule,
+    PaginatorComponent,
     BroncoButtonComponent,
     SelectComponent,
     TextInputComponent,
@@ -168,14 +168,12 @@ import {
           }
         }
 
-        <mat-paginator
+        <app-paginator
           [length]="total()"
           [pageSize]="pageSize"
           [pageIndex]="pageIndex"
-          [pageSizeOptions]="[50, 100, 200]"
-          (page)="onPage($event)"
-          showFirstLastButtons>
-        </mat-paginator>
+          [pageSizeOptions]="[20, 50, 100, 200]"
+          (page)="onPage($event)" />
       </div>
     </div>
   `,
@@ -444,7 +442,7 @@ export class LogViewerComponent implements OnInit, OnDestroy {
     this.load();
   }
 
-  onPage(event: PageEvent): void {
+  onPage(event: PaginatorPageEvent): void {
     this.pageSize = event.pageSize;
     this.pageIndex = event.pageIndex;
     this.load();
