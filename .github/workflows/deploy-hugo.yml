@@ -235,6 +235,8 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           push: true
+          secrets: |
+            fontawesome_npm_auth_token=${{ secrets.FONTAWESOME_NPM_AUTH_TOKEN }}
           build-args: |
             BUILD_VERSION=${{ github.ref_name }}
           tags: |
