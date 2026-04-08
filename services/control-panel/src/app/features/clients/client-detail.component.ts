@@ -11,18 +11,17 @@ import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { TabGroupComponent, TabComponent } from '../../shared/components/index.js';
 import { ClientHeaderComponent } from './client-detail/client-header.component';
-import { ClientService, Client, System, Contact } from '../../core/services/client.service';
-import { SystemService } from '../../core/services/system.service';
+import { ClientService, Client, Contact } from '../../core/services/client.service';
 import { ContactService } from '../../core/services/contact.service';
 import { RepoService, CodeRepo } from '../../core/services/repo.service';
 import { IntegrationService, type ClientIntegration } from '../../core/services/integration.service';
 import { TicketService, Ticket } from '../../core/services/ticket.service';
-import { SystemDialogComponent } from '../systems/system-dialog.component';
 import { ContactDialogComponent } from '../contacts/contact-dialog.component';
 import { RepoDialogComponent } from '../repos/repo-dialog.component';
 import { IntegrationDialogComponent } from '../integrations/integration-dialog.component';
 import { TicketDialogComponent } from '../tickets/ticket-dialog.component';
 import { DialogComponent } from '../../shared/components/dialog.component';
+import { ClientSystemsTabComponent } from './client-detail/tabs/systems-tab.component';
 import { ClientMemoryService, type ClientMemory } from '../../core/services/client-memory.service';
 import { ClientMemoryDialogComponent } from './client-memory-dialog.component';
 import { McpServerInfoComponent } from '../../shared/components/mcp-server-info.component';
@@ -63,9 +62,10 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
     MatTableModule, MatChipsModule, MatSlideToggleModule, MatTooltipModule, McpServerInfoComponent,
     FormsModule, MatFormFieldModule, MatInputModule, MatSelectModule,
     TabGroupComponent, TabComponent, ClientHeaderComponent,
+    ClientSystemsTabComponent,
     DialogComponent, TicketDialogComponent,
     ClientMemoryDialogComponent, ClientEnvironmentDialogComponent, ClientUserDialogComponent, GenerateInvoiceDialogComponent,
-    SystemDialogComponent, RepoDialogComponent, ContactDialogComponent, IntegrationDialogComponent,
+    RepoDialogComponent, ContactDialogComponent, IntegrationDialogComponent,
   ],
   template: `
     @if (client(); as c) {
@@ -73,41 +73,7 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
 
       <app-tab-group [selectedIndex]="selectedTab()" (selectedIndexChange)="onTabChange($event)">
         <app-tab label="Systems">
-          <div class="tab-content">
-            <div class="tab-header">
-              <h3>Database Systems</h3>
-              <button mat-raised-button color="primary" (click)="addSystem()">
-                <mat-icon>add</mat-icon> Add System
-              </button>
-            </div>
-            <table mat-table [dataSource]="systems()" class="full-width">
-              <ng-container matColumnDef="name">
-                <th mat-header-cell *matHeaderCellDef>Name</th>
-                <td mat-cell *matCellDef="let s">{{ s.name }}</td>
-              </ng-container>
-              <ng-container matColumnDef="dbEngine">
-                <th mat-header-cell *matHeaderCellDef>Engine</th>
-                <td mat-cell *matCellDef="let s"><span class="engine-chip">{{ s.dbEngine }}</span></td>
-              </ng-container>
-              <ng-container matColumnDef="host">
-                <th mat-header-cell *matHeaderCellDef>Host</th>
-                <td mat-cell *matCellDef="let s"><code>{{ s.host }}:{{ s.port }}</code></td>
-              </ng-container>
-              <ng-container matColumnDef="environment">
-                <th mat-header-cell *matHeaderCellDef>Env</th>
-                <td mat-cell *matCellDef="let s">{{ s.environment }}</td>
-              </ng-container>
-              <ng-container matColumnDef="status">
-                <th mat-header-cell *matHeaderCellDef>Status</th>
-                <td mat-cell *matCellDef="let s">
-                  <mat-chip [class.inactive]="!s.isActive">{{ s.isActive ? 'Active' : 'Inactive' }}</mat-chip>
-                </td>
-              </ng-container>
-              <tr mat-header-row *matHeaderRowDef="systemColumns"></tr>
-              <tr mat-row *matRowDef="let row; columns: systemColumns;"></tr>
-            </table>
-            @if (systems().length === 0) { <p class="empty">No systems configured.</p> }
-          </div>
+          <app-client-systems-tab [clientId]="id()" />
         </app-tab>
 
         <app-tab label="Contacts">
@@ -649,15 +615,6 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
       </app-dialog>
     }
 
-    @if (showSystemDialog()) {
-      <app-dialog [open]="true" title="Add Database System" maxWidth="600px" (openChange)="showSystemDialog.set(false)">
-        <app-system-dialog-content
-          [clientId]="id()"
-          (saved)="onSystemSaved()"
-          (cancelled)="showSystemDialog.set(false)" />
-      </app-dialog>
-    }
-
     @if (showRepoDialog()) {
       <app-dialog [open]="true" [title]="editingRepo() ? 'Edit Code Repository' : 'Add Code Repository'" maxWidth="500px" (openChange)="showRepoDialog.set(false)">
         <app-repo-dialog-content
@@ -749,7 +706,6 @@ export class ClientDetailComponent implements OnInit {
   id = input.required<string>();
 
   private clientService = inject(ClientService);
-  private systemService = inject(SystemService);
   private contactService = inject(ContactService);
   private repoService = inject(RepoService);
   private integrationService = inject(IntegrationService);
@@ -766,7 +722,6 @@ export class ClientDetailComponent implements OnInit {
   private route = inject(ActivatedRoute);
 
   client = signal<Client | null>(null);
-  systems = signal<System[]>([]);
   contacts = signal<Contact[]>([]);
   repos = signal<CodeRepo[]>([]);
   integrations = signal<ClientIntegration[]>([]);
@@ -786,7 +741,6 @@ export class ClientDetailComponent implements OnInit {
   aiUsageTotalPages = signal(1);
   selectedTab = signal(0);
 
-  systemColumns = ['name', 'dbEngine', 'host', 'environment', 'status'];
   contactColumns = ['name', 'email', 'role', 'isPrimary', 'actions'];
   repoColumns = ['name', 'repoUrl', 'branch', 'prefix', 'actions'];
   ticketColumns = ['subject', 'status', 'priority', 'category'];
@@ -828,7 +782,6 @@ export class ClientDetailComponent implements OnInit {
   load(): void {
     const cid = this.id();
     this.clientService.getClient(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(c => this.client.set(c));
-    this.systemService.getSystems(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(s => this.systems.set(s));
     this.contactService.getContacts(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(c => this.contacts.set(c));
     this.repoService.getRepos(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(r => this.repos.set(r));
     this.integrationService.getIntegrations(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(i => this.integrations.set(i));
@@ -881,15 +834,6 @@ export class ClientDetailComponent implements OnInit {
 
   onClientUpdated(updated: Client): void {
     this.client.set(updated);
-  }
-
-  addSystem(): void {
-    this.showSystemDialog.set(true);
-  }
-
-  onSystemSaved(): void {
-    this.showSystemDialog.set(false);
-    this.load();
   }
 
   addContact(): void {
@@ -963,7 +907,6 @@ export class ClientDetailComponent implements OnInit {
   showUserDialog = signal(false);
   editingUser = signal<ClientUser | null>(null);
   showInvoiceDialog = signal(false);
-  showSystemDialog = signal(false);
   showRepoDialog = signal(false);
   editingRepo = signal<CodeRepo | null>(null);
   showContactDialog = signal(false);
