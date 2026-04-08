@@ -13,6 +13,8 @@ body.theme-nvidia {
   --bg-hover: #2a2a2a;
   --bg-active: #333333;
   --bg-muted: #111111;
+  --bg-code: #000000;
+  --text-code: #ffffff;
 
   --text-primary: #ffffff;
   --text-secondary: #a7a7a7;
@@ -27,6 +29,12 @@ body.theme-nvidia {
   --color-warning: #ef9100;
   --color-error: #e52020;
   --color-info: #0046a4;
+  --color-success-subtle: rgba(63, 133, 0, 0.12);
+  --color-warning-subtle: rgba(239, 145, 0, 0.12);
+  --color-error-subtle: rgba(229, 32, 32, 0.12);
+  --color-info-subtle: rgba(0, 70, 164, 0.12);
+  --color-purple: #9d7cf5;
+  --color-purple-subtle: rgba(157, 124, 245, 0.12);
 
   --border-light: #5e5e5e;
   --border-medium: #76b900;

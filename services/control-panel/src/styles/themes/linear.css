@@ -13,6 +13,8 @@ body.theme-linear {
   --bg-hover: #28282c;
   --bg-active: rgba(255, 255, 255, 0.05);
   --bg-muted: #0f1011;
+  --bg-code: #0f1011;
+  --text-code: #f7f8f8;
 
   --text-primary: #f7f8f8;
   --text-secondary: #d0d6e0;
@@ -27,6 +29,12 @@ body.theme-linear {
   --color-warning: #ef9100;
   --color-error: #e52020;
   --color-info: #7170ff;
+  --color-success-subtle: rgba(39, 166, 68, 0.12);
+  --color-warning-subtle: rgba(239, 145, 0, 0.12);
+  --color-error-subtle: rgba(229, 32, 32, 0.12);
+  --color-info-subtle: rgba(113, 112, 255, 0.12);
+  --color-purple: #a78bfa;
+  --color-purple-subtle: rgba(167, 139, 250, 0.12);
 
   --border-light: rgba(255, 255, 255, 0.05);
   --border-medium: rgba(255, 255, 255, 0.08);

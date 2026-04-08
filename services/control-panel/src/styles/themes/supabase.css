@@ -13,6 +13,8 @@ body.theme-supabase {
   --bg-hover: #242424;
   --bg-active: #2e2e2e;
   --bg-muted: #0f0f0f;
+  --bg-code: #0f0f0f;
+  --text-code: #fafafa;
 
   --text-primary: #fafafa;
   --text-secondary: #b4b4b4;
@@ -27,6 +29,12 @@ body.theme-supabase {
   --color-warning: #ef9100;
   --color-error: #e52020;
   --color-info: #3ecf8e;
+  --color-success-subtle: rgba(62, 207, 142, 0.12);
+  --color-warning-subtle: rgba(239, 145, 0, 0.12);
+  --color-error-subtle: rgba(229, 32, 32, 0.12);
+  --color-info-subtle: rgba(62, 207, 142, 0.12);
+  --color-purple: #9b72cf;
+  --color-purple-subtle: rgba(155, 114, 207, 0.12);
 
   --border-light: #2e2e2e;
   --border-medium: #363636;

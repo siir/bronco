@@ -56,13 +56,13 @@ import { FormFieldComponent, TextInputComponent, SelectComponent, BroncoButtonCo
   styles: [`
     .form-grid { display: flex; flex-direction: column; gap: 12px; }
     .provider-display { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-    .provider-display .label { font-size: 13px; color: #666; }
-    .provider-chip { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; background: #f5f5f5; color: #333; }
-    .provider-local { background: #e8f5e9; color: #2e7d32; }
-    .provider-claude { background: #fce4ec; color: #c62828; }
-    .provider-openai { background: #e3f2fd; color: #1565c0; }
-    .provider-grok { background: #fff3e0; color: #e65100; }
-    .provider-google { background: #e8f5e9; color: #1b5e20; }
+    .provider-display .label { font-size: 13px; color: var(--text-tertiary); }
+    .provider-chip { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; background: var(--bg-muted); color: var(--text-primary); }
+    .provider-local { background: var(--color-success-subtle); color: var(--color-success); }
+    .provider-claude { background: var(--color-error-subtle); color: var(--color-error); }
+    .provider-openai { background: var(--color-info-subtle); color: var(--color-info); }
+    .provider-grok { background: var(--color-warning-subtle); color: var(--color-warning); }
+    .provider-google { background: var(--color-success-subtle); color: var(--color-success); }
     .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
   `],
 })

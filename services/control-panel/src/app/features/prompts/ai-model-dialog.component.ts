@@ -83,8 +83,8 @@ const CAPABILITY_LEVELS = [
   styles: [`
     .form-grid { display: flex; flex-direction: column; gap: 12px; }
     .enabled-apps-section { display: flex; flex-direction: column; gap: 4px; }
-    .section-label { font-size: 13px; font-weight: 600; color: #666; }
-    .section-hint { font-size: 12px; color: #999; }
+    .section-label { font-size: 13px; font-weight: 600; color: var(--text-tertiary); }
+    .section-hint { font-size: 12px; color: var(--text-tertiary); }
     .checkbox-group { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 4px; }
     .checkbox-item { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
     .form-checkbox { width: 15px; height: 15px; cursor: pointer; accent-color: var(--accent); }

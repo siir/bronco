@@ -481,7 +481,7 @@ import { ToastService } from '../../core/services/toast.service';
     }
     .badge.small { font-size: 10px; padding: 1px 6px; }
     .badge-active {
-      background: rgba(52, 199, 89, 0.1);
+      background: var(--color-success-subtle);
       color: var(--color-success);
     }
     .badge-inactive {
@@ -489,15 +489,15 @@ import { ToastService } from '../../core/services/toast.service';
       color: var(--text-tertiary);
     }
     .badge-status-success {
-      background: rgba(52, 199, 89, 0.1);
+      background: var(--color-success-subtle);
       color: var(--color-success);
     }
     .badge-status-error {
-      background: rgba(255, 59, 48, 0.1);
+      background: var(--color-error-subtle);
       color: var(--color-error);
     }
     .badge-status-skipped {
-      background: rgba(255, 149, 0, 0.1);
+      background: var(--color-warning-subtle);
       color: var(--color-warning);
     }
     .badge-status-running {
@@ -509,7 +509,7 @@ import { ToastService } from '../../core/services/toast.service';
       color: var(--text-tertiary);
     }
     .badge-trigger-schedule {
-      background: rgba(0, 122, 255, 0.08);
+      background: var(--color-info-subtle);
       color: var(--color-info);
     }
     .badge-trigger-manual {
@@ -522,12 +522,12 @@ import { ToastService } from '../../core/services/toast.service';
       font-family: ui-monospace, monospace;
     }
     .badge-system {
-      background: rgba(255, 149, 0, 0.1);
+      background: var(--color-warning-subtle);
       color: var(--color-warning);
       font-family: ui-monospace, monospace;
     }
     .badge-category {
-      background: rgba(0, 122, 255, 0.08);
+      background: var(--color-info-subtle);
       color: var(--color-info);
     }
     .error-text { color: var(--color-error); }
@@ -588,7 +588,7 @@ import { ToastService } from '../../core/services/toast.service';
     .detail-step-error {
       margin-top: 6px;
       padding: 8px 10px;
-      background: rgba(255, 59, 48, 0.08);
+      background: var(--color-error-subtle);
       color: var(--color-error);
       border-radius: var(--radius-sm);
       font-size: 13px;
@@ -602,8 +602,8 @@ import { ToastService } from '../../core/services/toast.service';
       font-family: var(--font-primary);
     }
     .detail-pre {
-      background: var(--bg-code, #1d1d1f);
-      color: var(--text-code, #f5f5f7);
+      background: var(--bg-code);
+      color: var(--text-code);
       padding: 10px 12px;
       border-radius: var(--radius-sm);
       font-size: 12px;
@@ -614,7 +614,7 @@ import { ToastService } from '../../core/services/toast.service';
       margin: 0;
       font-family: ui-monospace, 'SF Mono', Menlo, monospace;
     }
-    .detail-pre-json { color: var(--color-success, #a8e6a3); }
+    .detail-pre-json { color: var(--color-success); }
 
     .step-output-section {
       margin-top: 8px;

@@ -29,7 +29,7 @@ import { FormFieldComponent, TextInputComponent, BroncoButtonComponent } from '.
     </div>
   `,
   styles: [`
-    p { color: var(--text-secondary, #666); font-size: 14px; margin-top: 0; }
+    p { color: var(--text-secondary); font-size: 14px; margin-top: 0; }
     .form-grid { display: flex; flex-direction: column; gap: 12px; }
     .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
   `],
