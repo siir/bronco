@@ -23,12 +23,11 @@ import { ClientEnvironmentsTabComponent } from './client-detail/tabs/environment
 import { ClientUsersTabComponent } from './client-detail/tabs/users-tab.component';
 import { ClientAiCredentialsTabComponent } from './client-detail/tabs/ai-credentials-tab.component';
 import { ClientInvoicesTabComponent } from './client-detail/tabs/invoices-tab.component';
+import { ClientAiUsageTabComponent } from './client-detail/tabs/ai-usage-tab.component';
 import { FormsModule } from '@angular/forms';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
-import { AiUsageService, type AiUsageClientSummary, type AiUsageLogEntry } from '../../core/services/ai-usage.service';
-import { ToastService } from '../../core/services/toast.service';
 
 const CLIENT_DETAIL_TAB_SLUGS = [
   'systems',
@@ -44,7 +43,6 @@ const CLIENT_DETAIL_TAB_SLUGS = [
   'ai-usage',
 ] as const;
 type ClientDetailTabSlug = (typeof CLIENT_DETAIL_TAB_SLUGS)[number];
-const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
 
 @Component({
   standalone: true,
@@ -55,8 +53,7 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
     TabGroupComponent, TabComponent, ClientHeaderComponent,
     ClientSystemsTabComponent, ClientContactsTabComponent, ClientReposTabComponent, ClientIntegrationsTabComponent,
     ClientTicketsTabComponent, ClientMemoryTabComponent, ClientEnvironmentsTabComponent, ClientUsersTabComponent,
-    ClientAiCredentialsTabComponent, ClientInvoicesTabComponent,
-    DialogComponent,
+    ClientAiCredentialsTabComponent, ClientInvoicesTabComponent, ClientAiUsageTabComponent,
   ],
   template: `
     @if (client(); as c) {
@@ -103,75 +100,7 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
         </app-tab>
 
         <app-tab label="AI Usage">
-          <div class="tab-content">
-            <div class="tab-header">
-              <h3>AI Usage</h3>
-              <button mat-raised-button (click)="loadAiUsage()">
-                <mat-icon>refresh</mat-icon> Refresh
-              </button>
-            </div>
-            @if (aiUsageLoading()) {
-              <p>Loading AI usage data...</p>
-            } @else if (aiUsageSummary()) {
-              <div class="kpi-grid">
-                @for (w of aiUsageSummary()!.windows; track w.label) {
-                  <mat-card class="kpi-card">
-                    <mat-card-header><mat-card-title>{{ w.label }}</mat-card-title></mat-card-header>
-                    <mat-card-content>
-                      <div class="kpi-row"><span class="kpi-label">Tokens In</span><span class="kpi-value">{{ w.inputTokens | number }}</span></div>
-                      <div class="kpi-row"><span class="kpi-label">Tokens Out</span><span class="kpi-value">{{ w.outputTokens | number }}</span></div>
-                      <div class="kpi-row"><span class="kpi-label">Base Cost</span><span class="kpi-value">\${{ w.baseCostUsd | number:'1.4-4' }}</span></div>
-                      <div class="kpi-row"><span class="kpi-label">Billed Cost</span><span class="kpi-value kpi-billed">\${{ w.billedCostUsd | number:'1.4-4' }}</span></div>
-                      <div class="kpi-row"><span class="kpi-label">Requests</span><span class="kpi-value">{{ w.requestCount | number }}</span></div>
-                    </mat-card-content>
-                  </mat-card>
-                }
-              </div>
-              <p class="markup-note">Billing markup: {{ aiUsageSummary()!.billingMarkupPercent }}x</p>
-
-              <h4>Prompt Log</h4>
-              <div class="log-nav">
-                <button mat-button [disabled]="aiUsagePage() <= 0" (click)="aiUsagePrevPage()">Previous</button>
-                <span>Page {{ aiUsagePage() + 1 }} of {{ aiUsageTotalPages() }}</span>
-                <button mat-button [disabled]="aiUsagePage() >= aiUsageTotalPages() - 1" (click)="aiUsageNextPage()">Next</button>
-              </div>
-              <table mat-table [dataSource]="aiUsageLogs()" class="full-width">
-                <ng-container matColumnDef="createdAt">
-                  <th mat-header-cell *matHeaderCellDef>Time</th>
-                  <td mat-cell *matCellDef="let l">{{ l.createdAt | date:'short' }}</td>
-                </ng-container>
-                <ng-container matColumnDef="taskType">
-                  <th mat-header-cell *matHeaderCellDef>Task</th>
-                  <td mat-cell *matCellDef="let l">{{ l.taskType }}</td>
-                </ng-container>
-                <ng-container matColumnDef="model">
-                  <th mat-header-cell *matHeaderCellDef>Model</th>
-                  <td mat-cell *matCellDef="let l">{{ l.model }}</td>
-                </ng-container>
-                <ng-container matColumnDef="provider">
-                  <th mat-header-cell *matHeaderCellDef>Provider</th>
-                  <td mat-cell *matCellDef="let l">{{ l.provider }}</td>
-                </ng-container>
-                <ng-container matColumnDef="inputTokens">
-                  <th mat-header-cell *matHeaderCellDef>In</th>
-                  <td mat-cell *matCellDef="let l">{{ l.inputTokens | number }}</td>
-                </ng-container>
-                <ng-container matColumnDef="outputTokens">
-                  <th mat-header-cell *matHeaderCellDef>Out</th>
-                  <td mat-cell *matCellDef="let l">{{ l.outputTokens | number }}</td>
-                </ng-container>
-                <ng-container matColumnDef="costUsd">
-                  <th mat-header-cell *matHeaderCellDef>Cost</th>
-                  <td mat-cell *matCellDef="let l">{{ l.costUsd != null ? '\$' + (l.costUsd | number:'1.4-4') : '-' }}</td>
-                </ng-container>
-                <tr mat-header-row *matHeaderRowDef="aiUsageLogColumns"></tr>
-                <tr mat-row *matRowDef="let row; columns: aiUsageLogColumns;"></tr>
-              </table>
-              @if (aiUsageLogs().length === 0) { <p class="empty">No AI usage logs for this client.</p> }
-            } @else {
-              <p class="empty">No AI usage data available. Click Refresh to load.</p>
-            }
-          </div>
+          <app-client-ai-usage-tab [clientId]="id()" />
         </app-tab>
       </app-tab-group>
     } @else {
@@ -240,23 +169,12 @@ export class ClientDetailComponent implements OnInit {
   id = input.required<string>();
 
   private clientService = inject(ClientService);
-  private aiUsageService = inject(AiUsageService);
   private destroyRef = inject(DestroyRef);
-  private toast = inject(ToastService);
   private router = inject(Router);
   private route = inject(ActivatedRoute);
 
   client = signal<Client | null>(null);
-  aiUsageSummary = signal<AiUsageClientSummary | null>(null);
-  aiUsageLogs = signal<AiUsageLogEntry[]>([]);
-  aiUsageLoading = signal(false);
-  aiUsagePage = signal(0);
-  aiUsageTotal = signal(0);
-  aiUsageTotalPages = signal(1);
   selectedTab = signal(0);
-
-  aiUsageLogColumns = ['createdAt', 'taskType', 'model', 'provider', 'inputTokens', 'outputTokens', 'costUsd'];
-  private readonly AI_USAGE_PAGE_SIZE = 25;
 
   ngOnInit(): void {
     const tabParam = this.route.snapshot.queryParamMap.get('tab');
@@ -273,58 +191,17 @@ export class ClientDetailComponent implements OnInit {
       }
     }
     this.load();
-    if (this.selectedTab() === AI_USAGE_TAB_INDEX) this.loadAiUsage();
   }
 
   onTabChange(index: number): void {
     this.selectedTab.set(index);
     const slug: ClientDetailTabSlug = CLIENT_DETAIL_TAB_SLUGS[index] ?? CLIENT_DETAIL_TAB_SLUGS[0];
     this.router.navigate([], { queryParams: { tab: slug }, queryParamsHandling: 'merge', replaceUrl: true });
-    if (index === AI_USAGE_TAB_INDEX && !this.aiUsageSummary()) this.loadAiUsage();
   }
 
   load(): void {
     const cid = this.id();
     this.clientService.getClient(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(c => this.client.set(c));
-  }
-
-  loadAiUsage(): void {
-    const cid = this.id();
-    this.aiUsageLoading.set(true);
-    this.aiUsageService.getClientSummary(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (summary) => {
-        this.aiUsageSummary.set(summary);
-        this.aiUsageLoading.set(false);
-      },
-      error: () => this.aiUsageLoading.set(false),
-    });
-    this.loadAiUsageLogs();
-  }
-
-  private loadAiUsageLogs(): void {
-    const cid = this.id();
-    const page = this.aiUsagePage();
-    this.aiUsageService.getClientLogs(cid, { limit: this.AI_USAGE_PAGE_SIZE, offset: page * this.AI_USAGE_PAGE_SIZE })
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((res) => {
-        this.aiUsageLogs.set(res.logs);
-        this.aiUsageTotal.set(res.total);
-        this.aiUsageTotalPages.set(Math.max(1, Math.ceil(res.total / this.AI_USAGE_PAGE_SIZE)));
-      });
-  }
-
-  aiUsagePrevPage(): void {
-    if (this.aiUsagePage() > 0) {
-      this.aiUsagePage.update(p => p - 1);
-      this.loadAiUsageLogs();
-    }
-  }
-
-  aiUsageNextPage(): void {
-    if (this.aiUsagePage() < this.aiUsageTotalPages() - 1) {
-      this.aiUsagePage.update(p => p + 1);
-      this.loadAiUsageLogs();
-    }
   }
 
   onClientUpdated(updated: Client): void {
