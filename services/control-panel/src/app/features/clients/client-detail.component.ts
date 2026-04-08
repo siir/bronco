@@ -12,17 +12,15 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { TabGroupComponent, TabComponent } from '../../shared/components/index.js';
 import { ClientHeaderComponent } from './client-detail/client-header.component';
 import { ClientService, Client } from '../../core/services/client.service';
-import { IntegrationService, type ClientIntegration } from '../../core/services/integration.service';
 import { TicketService, Ticket } from '../../core/services/ticket.service';
-import { IntegrationDialogComponent } from '../integrations/integration-dialog.component';
 import { TicketDialogComponent } from '../tickets/ticket-dialog.component';
 import { DialogComponent } from '../../shared/components/dialog.component';
 import { ClientSystemsTabComponent } from './client-detail/tabs/systems-tab.component';
 import { ClientContactsTabComponent } from './client-detail/tabs/contacts-tab.component';
 import { ClientReposTabComponent } from './client-detail/tabs/repos-tab.component';
+import { ClientIntegrationsTabComponent } from './client-detail/tabs/integrations-tab.component';
 import { ClientMemoryService, type ClientMemory } from '../../core/services/client-memory.service';
 import { ClientMemoryDialogComponent } from './client-memory-dialog.component';
-import { McpServerInfoComponent } from '../../shared/components/mcp-server-info.component';
 import { ClientUserService, type ClientUser } from '../../core/services/client-user.service';
 import { ClientUserDialogComponent } from './client-user-dialog.component';
 import { ClientEnvironmentService, type ClientEnvironment } from '../../core/services/client-environment.service';
@@ -56,14 +54,13 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
 @Component({
   standalone: true,
   imports: [
-    RouterLink, JsonPipe, DatePipe, SlicePipe, DecimalPipe, MatCardModule, MatButtonModule, MatIconModule,
-    MatTableModule, MatChipsModule, MatSlideToggleModule, MatTooltipModule, McpServerInfoComponent,
+    RouterLink, DatePipe, SlicePipe, DecimalPipe, MatCardModule, MatButtonModule, MatIconModule,
+    MatTableModule, MatChipsModule, MatSlideToggleModule, MatTooltipModule,
     FormsModule, MatFormFieldModule, MatInputModule, MatSelectModule,
     TabGroupComponent, TabComponent, ClientHeaderComponent,
-    ClientSystemsTabComponent, ClientContactsTabComponent, ClientReposTabComponent,
+    ClientSystemsTabComponent, ClientContactsTabComponent, ClientReposTabComponent, ClientIntegrationsTabComponent,
     DialogComponent, TicketDialogComponent,
     ClientMemoryDialogComponent, ClientEnvironmentDialogComponent, ClientUserDialogComponent, GenerateInvoiceDialogComponent,
-    IntegrationDialogComponent,
   ],
   template: `
     @if (client(); as c) {
@@ -83,49 +80,7 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
         </app-tab>
 
         <app-tab label="Integrations">
-          <div class="tab-content">
-            <div class="tab-header">
-              <h3>Integrations</h3>
-              <button mat-raised-button color="primary" (click)="addIntegration()">
-                <mat-icon>add</mat-icon> Add Integration
-              </button>
-            </div>
-            @for (integ of integrations(); track integ.id) {
-              <mat-card class="integration-card">
-                <mat-card-content>
-                  <div class="integ-header">
-                    <mat-icon>{{ integrationIcon(integ.type) }}</mat-icon>
-                    <strong>{{ integ.type }}</strong>
-                    @if (integ.label && integ.label !== 'default') {
-                      <span class="label-chip">{{ integ.label }}</span>
-                    }
-                    <mat-slide-toggle [checked]="integ.isActive" (change)="toggleIntegration(integ, $event.checked)">
-                      {{ integ.isActive ? 'Active' : 'Inactive' }}
-                    </mat-slide-toggle>
-                    <span class="spacer"></span>
-                    <button mat-icon-button (click)="editIntegration(integ)">
-                      <mat-icon>edit</mat-icon>
-                    </button>
-                    <button mat-icon-button color="warn" (click)="deleteIntegration(integ.id)">
-                      <mat-icon>delete</mat-icon>
-                    </button>
-                  </div>
-                  @if (integ.notes) { <p class="integ-notes">{{ integ.notes }}</p> }
-                  @if (integ.type === 'MCP_DATABASE' && integ.metadata) {
-                    <app-mcp-server-info
-                      [metadata]="integ.metadata"
-                      [integrationId]="integ.id"
-                      (verified)="load()"
-                    />
-                  } @else {
-                    <pre class="config-preview">{{ redactConfig(integ.config) | json }}</pre>
-                  }
-                </mat-card-content>
-              </mat-card>
-            } @empty {
-              <p class="empty">No integrations configured. Add IMAP, Azure DevOps, or MCP Database integrations.</p>
-            }
-          </div>
+          <app-client-integrations-tab [clientId]="id()" />
         </app-tab>
 
         <app-tab label="Tickets">
@@ -540,16 +495,6 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
           (cancelled)="showInvoiceDialog.set(false)" />
       </app-dialog>
     }
-
-    @if (showIntegrationDialog()) {
-      <app-dialog [open]="true" [title]="editingIntegration() ? 'Edit Integration' : 'Add Integration'" maxWidth="600px" (openChange)="showIntegrationDialog.set(false)">
-        <app-integration-dialog-content
-          [clientId]="id()"
-          [integration]="editingIntegration() ?? undefined"
-          (saved)="onIntegrationSaved()"
-          (cancelled)="showIntegrationDialog.set(false)" />
-      </app-dialog>
-    }
   `,
   styles: [`
     .tab-content { padding: 16px 0; }
@@ -612,7 +557,6 @@ export class ClientDetailComponent implements OnInit {
   id = input.required<string>();
 
   private clientService = inject(ClientService);
-  private integrationService = inject(IntegrationService);
   private ticketService = inject(TicketService);
   private memoryService = inject(ClientMemoryService);
   private clientUserService = inject(ClientUserService);
@@ -626,7 +570,6 @@ export class ClientDetailComponent implements OnInit {
   private route = inject(ActivatedRoute);
 
   client = signal<Client | null>(null);
-  integrations = signal<ClientIntegration[]>([]);
   tickets = signal<Ticket[]>([]);
   memories = signal<ClientMemory[]>([]);
   memSourceFilter = '';
@@ -682,7 +625,6 @@ export class ClientDetailComponent implements OnInit {
   load(): void {
     const cid = this.id();
     this.clientService.getClient(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(c => this.client.set(c));
-    this.integrationService.getIntegrations(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(i => this.integrations.set(i));
     this.ticketService.getTickets({ clientId: cid, limit: 20 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(t => this.tickets.set(t));
     this.memoryService.getMemories({ clientId: cid }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(m => { this.memories.set(m); this.filterMemories(); });
     this.clientUserService.getUsers(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(u => this.clientUsers.set(u));
@@ -734,16 +676,6 @@ export class ClientDetailComponent implements OnInit {
     this.client.set(updated);
   }
 
-  addIntegration(): void {
-    this.editingIntegration.set(null);
-    this.showIntegrationDialog.set(true);
-  }
-
-  onIntegrationSaved(): void {
-    this.showIntegrationDialog.set(false);
-    this.load();
-  }
-
   showTicketDialog = signal(false);
   showMemoryDialog = signal(false);
   editingMemory = signal<ClientMemory | null>(null);
@@ -752,8 +684,6 @@ export class ClientDetailComponent implements OnInit {
   showUserDialog = signal(false);
   editingUser = signal<ClientUser | null>(null);
   showInvoiceDialog = signal(false);
-  showIntegrationDialog = signal(false);
-  editingIntegration = signal<ClientIntegration | null>(null);
 
   createTicket(): void {
     this.showTicketDialog.set(true);
@@ -762,37 +692,6 @@ export class ClientDetailComponent implements OnInit {
   onTicketCreated(_result: { id: string }): void {
     this.showTicketDialog.set(false);
     this.load();
-  }
-
-  toggleIntegration(integ: ClientIntegration, checked: boolean): void {
-    // Optimistic update so toggle doesn't snap back
-    this.integrations.update(list => list.map(i => i.id === integ.id ? { ...i, isActive: checked } : i));
-    this.integrationService.updateIntegration(integ.id, { isActive: checked }).subscribe({
-      next: () => {
-        this.toast.success(`Integration ${checked ? 'enabled' : 'disabled'}`);
-      },
-      error: (err) => {
-        // Revert optimistic update and reload authoritative state
-        this.integrations.update(list => list.map(i => i.id === integ.id ? { ...i, isActive: !checked } : i));
-        this.toast.error(err.error?.message ?? err.error?.error ?? 'Toggle failed');
-        this.load();
-      },
-    });
-  }
-
-  editIntegration(integ: ClientIntegration): void {
-    this.editingIntegration.set(integ);
-    this.showIntegrationDialog.set(true);
-  }
-
-  deleteIntegration(id: string): void {
-    this.integrationService.deleteIntegration(id).subscribe({
-      next: () => {
-        this.toast.success('Integration deleted');
-        this.load();
-      },
-      error: (err) => this.toast.error(err.error?.message ?? err.error?.error ?? 'Delete failed'),
-    });
   }
 
   filterMemories(): void {
@@ -885,25 +784,6 @@ export class ClientDetailComponent implements OnInit {
       case 'PLAYBOOK': return 'menu_book';
       case 'TOOL_GUIDANCE': return 'build';
       default: return 'psychology';
-    }
-  }
-
-  redactConfig(config: Record<string, unknown>): Record<string, unknown> {
-    const sensitiveKeys = ['encryptedPassword', 'encryptedPat', 'password', 'pat', 'token', 'secret', 'apiKey'];
-    const redacted: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(config)) {
-      redacted[key] = sensitiveKeys.includes(key) ? '********' : value;
-    }
-    return redacted;
-  }
-
-  integrationIcon(type: string): string {
-    switch (type) {
-      case 'IMAP': return 'email';
-      case 'AZURE_DEVOPS': return 'developer_board';
-      case 'MCP_DATABASE': return 'dns';
-      case 'SLACK': return 'chat';
-      default: return 'extension';
     }
   }
 
