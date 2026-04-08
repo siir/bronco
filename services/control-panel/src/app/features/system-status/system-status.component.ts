@@ -16,6 +16,7 @@ import {
   DropdownMenuComponent,
   DropdownItemComponent,
   IconComponent,
+  type IconName,
 } from '../../shared/components/index.js';
 
 @Component({
@@ -840,7 +841,7 @@ export class SystemStatusComponent implements OnInit, OnDestroy {
     });
   }
 
-  statusIconName(status: string): string {
+  statusIconName(status: string): IconName {
     switch (status) {
       case 'UP': return 'check-circle';
       case 'DEGRADED': return 'warning';

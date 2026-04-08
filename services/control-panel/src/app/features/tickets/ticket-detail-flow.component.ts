@@ -1,5 +1,5 @@
 import { Component, input } from '@angular/core';
-import { CardComponent, IconComponent } from '../../shared/components/index.js';
+import { CardComponent, IconComponent, type IconName } from '../../shared/components/index.js';
 
 export interface FlowNode {
   label: string;
@@ -125,8 +125,8 @@ export interface FlowNode {
 export class TicketDetailFlowComponent {
   nodes = input.required<FlowNode[]>();
 
-  iconNameFor(icon: string): string {
-    const map: Record<string, string> = {
+  iconNameFor(icon: string): IconName {
+    const map: Record<string, IconName> = {
       email: 'email',
       send: 'arrow-right',
       psychology: 'sparkles',

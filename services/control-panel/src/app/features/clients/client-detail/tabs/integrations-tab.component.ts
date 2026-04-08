@@ -9,6 +9,7 @@ import {
   ToggleSwitchComponent,
   DialogComponent,
   IconComponent,
+  type IconName,
 } from '../../../../shared/components/index.js';
 import { McpServerInfoComponent } from '../../../../shared/components/mcp-server-info.component';
 import { IntegrationDialogComponent } from '../../../integrations/integration-dialog.component';
@@ -231,7 +232,7 @@ export class ClientIntegrationsTabComponent implements OnInit {
       });
   }
 
-  integrationIconName(type: string): string {
+  integrationIconName(type: string): IconName {
     switch (type) {
       case 'IMAP': return 'email';
       case 'AZURE_DEVOPS': return 'gear';

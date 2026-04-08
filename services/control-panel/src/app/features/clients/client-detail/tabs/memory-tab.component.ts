@@ -9,6 +9,7 @@ import {
   SelectComponent,
   ToggleSwitchComponent,
   IconComponent,
+  type IconName,
 } from '../../../../shared/components/index.js';
 import { ClientMemoryDialogComponent } from '../../client-memory-dialog.component';
 
@@ -304,7 +305,7 @@ export class ClientMemoryTabComponent implements OnInit {
       });
   }
 
-  memoryTypeIconName(type: string): string {
+  memoryTypeIconName(type: string): IconName {
     switch (type) {
       case 'CONTEXT': return 'info';
       case 'PLAYBOOK': return 'book';

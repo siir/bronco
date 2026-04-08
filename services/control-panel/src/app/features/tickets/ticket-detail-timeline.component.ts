@@ -1,6 +1,6 @@
 import { Component, computed, input, output, signal } from '@angular/core';
 import { CommonModule, DecimalPipe } from '@angular/common';
-import { CardComponent, BroncoButtonComponent, SelectComponent, FormFieldComponent, IconComponent } from '../../shared/components/index.js';
+import { CardComponent, BroncoButtonComponent, SelectComponent, FormFieldComponent, IconComponent, type IconName } from '../../shared/components/index.js';
 import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
 import { RelativeTimePipe } from '../../shared/pipes/relative-time.pipe';
 import { type TicketEvent } from '../../core/services/ticket.service';
@@ -361,8 +361,8 @@ export class TicketDetailTimelineComponent {
     return labels[type] ?? type;
   }
 
-  eventIconName(type: string): string {
-    const icons: Record<string, string> = {
+  eventIconName(type: string): IconName {
+    const icons: Record<string, IconName> = {
       COMMENT: 'comment',
       STATUS_CHANGE: 'rotate',
       PRIORITY_CHANGE: 'warning',
@@ -423,8 +423,8 @@ export class TicketDetailTimelineComponent {
     return labels[outcome] ?? outcome;
   }
 
-  recActionIconName(action: string): string {
-    const icons: Record<string, string> = {
+  recActionIconName(action: string): IconName {
+    const icons: Record<string, IconName> = {
       set_status: 'rotate',
       set_priority: 'warning',
       set_category: 'tag',
