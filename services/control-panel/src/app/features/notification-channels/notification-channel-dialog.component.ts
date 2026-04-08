@@ -31,7 +31,7 @@ import { ToastService } from '../../core/services/toast.service';
     @if (!isEdit) {
       <mat-form-field appearance="outline" class="full-width">
         <mat-label>Type</mat-label>
-        <mat-select [(ngModel)]="type" (ngModelChange)="onTypeChange()">
+        <mat-select [(ngModel)]="type">
           <mat-option value="EMAIL">Email (SMTP)</mat-option>
           <mat-option value="PUSHOVER">Pushover</mat-option>
         </mat-select>
@@ -119,11 +119,6 @@ export class NotificationChannelDialogComponent implements OnInit {
     appToken: '',
     userKey: '',
   };
-
-  onTypeChange(): void {
-    this.emailConfig = { host: '', port: 587, user: '', password: '', from: '', to: '' };
-    this.pushoverConfig = { appToken: '', userKey: '' };
-  }
 
   ngOnInit(): void {
     const c = this.channel();
