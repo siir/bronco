@@ -24,6 +24,7 @@ body.theme-nvidia {
   --accent: #76b900;
   --accent-link: #76b900;
   --accent-hover: #3860be;
+  --focus-ring: rgba(118, 185, 0, 0.3);
 
   --color-success: #3f8500;
   --color-warning: #ef9100;

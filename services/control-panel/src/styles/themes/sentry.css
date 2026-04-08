@@ -24,6 +24,7 @@ body.theme-sentry {
   --accent: #6a5fc1;
   --accent-link: #c2ef4e;
   --accent-hover: #7a7fad;
+  --focus-ring: rgba(106, 95, 193, 0.3);
 
   --color-success: #c2ef4e;
   --color-warning: #ffb287;

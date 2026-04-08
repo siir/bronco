@@ -24,6 +24,7 @@ body.theme-supabase {
   --accent: #3ecf8e;
   --accent-link: #00c573;
   --accent-hover: #4ae09e;
+  --focus-ring: rgba(62, 207, 142, 0.3);
 
   --color-success: #3ecf8e;
   --color-warning: #ef9100;

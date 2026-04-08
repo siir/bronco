@@ -24,6 +24,7 @@ body.theme-vercel {
   --accent: #171717;
   --accent-link: #0072f5;
   --accent-hover: #0a72ef;
+  --focus-ring: rgba(0, 114, 245, 0.2);
 
   --color-success: #27a644;
   --color-warning: #ef9100;
