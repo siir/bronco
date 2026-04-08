@@ -21,9 +21,9 @@ import { ClientTicketsTabComponent } from './client-detail/tabs/tickets-tab.comp
 import { ClientMemoryTabComponent } from './client-detail/tabs/memory-tab.component';
 import { ClientEnvironmentsTabComponent } from './client-detail/tabs/environments-tab.component';
 import { ClientUsersTabComponent } from './client-detail/tabs/users-tab.component';
+import { ClientAiCredentialsTabComponent } from './client-detail/tabs/ai-credentials-tab.component';
 import { InvoiceService, type Invoice } from '../../core/services/invoice.service';
 import { GenerateInvoiceDialogComponent } from './generate-invoice-dialog.component';
-import { ClientAiCredentialService, type ClientAiCredential } from '../../core/services/client-ai-credential.service';
 import { FormsModule } from '@angular/forms';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
@@ -56,6 +56,7 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
     TabGroupComponent, TabComponent, ClientHeaderComponent,
     ClientSystemsTabComponent, ClientContactsTabComponent, ClientReposTabComponent, ClientIntegrationsTabComponent,
     ClientTicketsTabComponent, ClientMemoryTabComponent, ClientEnvironmentsTabComponent, ClientUsersTabComponent,
+    ClientAiCredentialsTabComponent,
     DialogComponent,
     GenerateInvoiceDialogComponent,
   ],
@@ -96,70 +97,7 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
           <app-client-users-tab [clientId]="id()" />
         </app-tab>
         <app-tab label="AI Credentials">
-          <div class="tab-content">
-            <div class="tab-header">
-              <h3>AI Credentials (BYOK)</h3>
-            </div>
-            <table mat-table [dataSource]="aiCredentials()" class="full-width">
-              <ng-container matColumnDef="provider">
-                <th mat-header-cell *matHeaderCellDef>Provider</th>
-                <td mat-cell *matCellDef="let cred">{{ cred.provider }}</td>
-              </ng-container>
-              <ng-container matColumnDef="label">
-                <th mat-header-cell *matHeaderCellDef>Label</th>
-                <td mat-cell *matCellDef="let cred">{{ cred.label }}</td>
-              </ng-container>
-              <ng-container matColumnDef="key">
-                <th mat-header-cell *matHeaderCellDef>API Key</th>
-                <td mat-cell *matCellDef="let cred"><code>...{{ cred.last4 }}</code></td>
-              </ng-container>
-              <ng-container matColumnDef="credStatus">
-                <th mat-header-cell *matHeaderCellDef>Status</th>
-                <td mat-cell *matCellDef="let cred">
-                  <mat-slide-toggle [checked]="cred.isActive" (change)="toggleCredential(cred, $event.checked)">
-                    {{ cred.isActive ? 'Active' : 'Inactive' }}
-                  </mat-slide-toggle>
-                </td>
-              </ng-container>
-              <ng-container matColumnDef="credActions">
-                <th mat-header-cell *matHeaderCellDef></th>
-                <td mat-cell *matCellDef="let cred">
-                  <button mat-icon-button matTooltip="Test" (click)="testCredential(cred)"><mat-icon>play_arrow</mat-icon></button>
-                  <button mat-icon-button color="warn" matTooltip="Delete" (click)="deleteCredential(cred)"><mat-icon>delete</mat-icon></button>
-                </td>
-              </ng-container>
-              <tr mat-header-row *matHeaderRowDef="credentialColumns"></tr>
-              <tr mat-row *matRowDef="let row; columns: credentialColumns;"></tr>
-            </table>
-            @if (aiCredentials().length === 0) { <p class="empty">No AI credentials configured. Add credentials to use BYOK mode.</p> }
-
-            <mat-card class="add-cred-card">
-              <mat-card-content>
-                <h4>Add Credential</h4>
-                <div class="cred-form">
-                  <mat-form-field>
-                    <mat-label>Provider</mat-label>
-                    <mat-select [(ngModel)]="newCredProvider">
-                      <mat-option value="CLAUDE">CLAUDE</mat-option>
-                      <mat-option value="OPENAI">OPENAI</mat-option>
-                      <mat-option value="GROK">GROK</mat-option>
-                    </mat-select>
-                  </mat-form-field>
-                  <mat-form-field>
-                    <mat-label>Label</mat-label>
-                    <input matInput [(ngModel)]="newCredLabel" placeholder="e.g. Production Key">
-                  </mat-form-field>
-                  <mat-form-field>
-                    <mat-label>API Key</mat-label>
-                    <input matInput type="password" [(ngModel)]="newCredApiKey" placeholder="sk-...">
-                  </mat-form-field>
-                  <button mat-raised-button color="primary" (click)="addCredential()" [disabled]="!newCredProvider || !newCredLabel || !newCredApiKey">
-                    <mat-icon>add</mat-icon> Add
-                  </button>
-                </div>
-              </mat-card-content>
-            </mat-card>
-          </div>
+          <app-client-ai-credentials-tab [clientId]="id()" />
         </app-tab>
 
         <app-tab label="Invoices">
@@ -360,7 +298,6 @@ export class ClientDetailComponent implements OnInit {
 
   private clientService = inject(ClientService);
   private invoiceService = inject(InvoiceService);
-  private credentialService = inject(ClientAiCredentialService);
   private aiUsageService = inject(AiUsageService);
   private destroyRef = inject(DestroyRef);
   private toast = inject(ToastService);
@@ -369,7 +306,6 @@ export class ClientDetailComponent implements OnInit {
 
   client = signal<Client | null>(null);
   invoices = signal<Invoice[]>([]);
-  aiCredentials = signal<ClientAiCredential[]>([]);
   aiUsageSummary = signal<AiUsageClientSummary | null>(null);
   aiUsageLogs = signal<AiUsageLogEntry[]>([]);
   aiUsageLoading = signal(false);
@@ -379,13 +315,8 @@ export class ClientDetailComponent implements OnInit {
   selectedTab = signal(0);
 
   invoiceColumns = ['invoiceNumber', 'period', 'requests', 'totalBilled', 'invoiceStatus', 'invoiceActions'];
-  credentialColumns = ['provider', 'label', 'key', 'credStatus', 'credActions'];
   aiUsageLogColumns = ['createdAt', 'taskType', 'model', 'provider', 'inputTokens', 'outputTokens', 'costUsd'];
   private readonly AI_USAGE_PAGE_SIZE = 25;
-
-  newCredProvider = '';
-  newCredLabel = '';
-  newCredApiKey = '';
 
   ngOnInit(): void {
     const tabParam = this.route.snapshot.queryParamMap.get('tab');
@@ -416,7 +347,6 @@ export class ClientDetailComponent implements OnInit {
     const cid = this.id();
     this.clientService.getClient(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(c => this.client.set(c));
     this.invoiceService.getInvoices(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(i => this.invoices.set(i));
-    this.credentialService.getCredentials(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(c => this.aiCredentials.set(c));
   }
 
   loadAiUsage(): void {
@@ -488,51 +418,4 @@ export class ClientDetailComponent implements OnInit {
     });
   }
 
-  addCredential(): void {
-    const cid = this.id();
-    this.credentialService.createCredential(cid, {
-      provider: this.newCredProvider,
-      apiKey: this.newCredApiKey,
-      label: this.newCredLabel,
-    }).subscribe({
-      next: () => {
-        this.newCredProvider = '';
-        this.newCredLabel = '';
-        this.newCredApiKey = '';
-        this.toast.success('Credential added');
-        this.load();
-      },
-      error: (err) => this.toast.error(err.error?.error ?? 'Failed to add credential'),
-    });
-  }
-
-  toggleCredential(cred: ClientAiCredential, checked: boolean): void {
-    this.aiCredentials.update(list => list.map(c => c.id === cred.id ? { ...c, isActive: checked } : c));
-    this.credentialService.updateCredential(this.id(), cred.id, { isActive: checked }).subscribe({
-      next: () => this.toast.success(`Credential ${checked ? 'enabled' : 'disabled'}`),
-      error: (err) => {
-        this.aiCredentials.update(list => list.map(c => c.id === cred.id ? { ...c, isActive: !checked } : c));
-        this.toast.error(err.error?.error ?? 'Toggle failed');
-      },
-    });
-  }
-
-  testCredential(cred: ClientAiCredential): void {
-    this.toast.info('Testing credential...');
-    this.credentialService.testCredential(this.id(), cred.id).subscribe({
-      next: (result) => result.ok ? this.toast.success('Credential is valid') : this.toast.error(`Test failed: ${result.error}`),
-      error: (err) => this.toast.error(err.error?.error ?? 'Test failed'),
-    });
-  }
-
-  deleteCredential(cred: ClientAiCredential): void {
-    if (!confirm(`Delete credential "${cred.label}"?`)) return;
-    this.credentialService.deleteCredential(this.id(), cred.id).subscribe({
-      next: () => {
-        this.toast.success('Credential deleted');
-        this.load();
-      },
-      error: (err) => this.toast.error(err.error?.error ?? 'Delete failed'),
-    });
-  }
 }
