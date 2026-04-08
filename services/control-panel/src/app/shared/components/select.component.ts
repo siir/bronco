@@ -44,7 +44,7 @@ let standaloneSelectCounter = 0;
 
     .select-input:focus {
       border-color: var(--accent);
-      box-shadow: 0 0 0 2px var(--focus-ring, rgba(0, 113, 227, 0.15));
+      box-shadow: 0 0 0 2px var(--focus-ring);
     }
 
     .select-input:disabled {
