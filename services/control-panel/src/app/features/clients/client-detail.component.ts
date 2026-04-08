@@ -1,18 +1,9 @@
 import { Component, DestroyRef, inject, OnInit, signal, input } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { JsonPipe, DatePipe, SlicePipe, DecimalPipe } from '@angular/common';
-import { MatCardModule } from '@angular/material/card';
-import { MatButtonModule } from '@angular/material/button';
-import { MatIconModule } from '@angular/material/icon';
-import { MatTableModule } from '@angular/material/table';
-import { MatChipsModule } from '@angular/material/chips';
-import { MatSlideToggleModule } from '@angular/material/slide-toggle';
-import { MatTooltipModule } from '@angular/material/tooltip';
+import { ActivatedRoute, Router } from '@angular/router';
 import { TabGroupComponent, TabComponent } from '../../shared/components/index.js';
 import { ClientHeaderComponent } from './client-detail/client-header.component';
 import { ClientService, Client } from '../../core/services/client.service';
-import { DialogComponent } from '../../shared/components/dialog.component';
 import { ClientSystemsTabComponent } from './client-detail/tabs/systems-tab.component';
 import { ClientContactsTabComponent } from './client-detail/tabs/contacts-tab.component';
 import { ClientReposTabComponent } from './client-detail/tabs/repos-tab.component';
@@ -24,10 +15,6 @@ import { ClientUsersTabComponent } from './client-detail/tabs/users-tab.componen
 import { ClientAiCredentialsTabComponent } from './client-detail/tabs/ai-credentials-tab.component';
 import { ClientInvoicesTabComponent } from './client-detail/tabs/invoices-tab.component';
 import { ClientAiUsageTabComponent } from './client-detail/tabs/ai-usage-tab.component';
-import { FormsModule } from '@angular/forms';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatSelectModule } from '@angular/material/select';
 
 const CLIENT_DETAIL_TAB_SLUGS = [
   'systems',
@@ -47,9 +34,6 @@ type ClientDetailTabSlug = (typeof CLIENT_DETAIL_TAB_SLUGS)[number];
 @Component({
   standalone: true,
   imports: [
-    RouterLink, DatePipe, SlicePipe, DecimalPipe, MatCardModule, MatButtonModule, MatIconModule,
-    MatTableModule, MatChipsModule, MatSlideToggleModule, MatTooltipModule,
-    FormsModule, MatFormFieldModule, MatInputModule, MatSelectModule,
     TabGroupComponent, TabComponent, ClientHeaderComponent,
     ClientSystemsTabComponent, ClientContactsTabComponent, ClientReposTabComponent, ClientIntegrationsTabComponent,
     ClientTicketsTabComponent, ClientMemoryTabComponent, ClientEnvironmentsTabComponent, ClientUsersTabComponent,
@@ -91,6 +75,7 @@ type ClientDetailTabSlug = (typeof CLIENT_DETAIL_TAB_SLUGS)[number];
         <app-tab label="Users">
           <app-client-users-tab [clientId]="id()" />
         </app-tab>
+
         <app-tab label="AI Credentials">
           <app-client-ai-credentials-tab [clientId]="id()" />
         </app-tab>
@@ -104,65 +89,19 @@ type ClientDetailTabSlug = (typeof CLIENT_DETAIL_TAB_SLUGS)[number];
         </app-tab>
       </app-tab-group>
     } @else {
-      <p>Loading...</p>
+      <p class="loading">Loading…</p>
     }
-
   `,
   styles: [`
-    .tab-content { padding: 16px 0; }
-    .tab-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-    .tab-header h3 { margin: 0; }
-    .full-width { width: 100%; }
-    .link { text-decoration: none; color: #3f51b5; }
-    .engine-chip { font-size: 11px; padding: 2px 6px; background: #e0f2f1; border-radius: 4px; color: #00695c; font-family: monospace; }
-    .inactive { opacity: 0.5; }
-    .primary-icon { color: #f9a825; font-size: 20px; }
-    .empty { color: #999; padding: 16px; text-align: center; }
-    .integration-card { margin-bottom: 12px; }
-    .integ-header { display: flex; align-items: center; gap: 8px; }
-    .integ-notes { color: #666; margin: 8px 0 4px; }
-    .label-chip { font-size: 11px; padding: 2px 6px; background: #e8f5e9; border-radius: 4px; color: #2e7d32; font-family: monospace; }
-    .config-preview { background: #f5f5f5; padding: 8px 12px; border-radius: 4px; font-size: 12px; overflow-x: auto; }
-    .spacer { flex: 1; }
-    .priority { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
-    .priority-critical { background: #ffebee; color: #c62828; }
-    .priority-high { background: #fff3e0; color: #e65100; }
-    .priority-medium { background: #e3f2fd; color: #1565c0; }
-    .priority-low { background: #e8f5e9; color: #2e7d32; }
-    code { font-size: 13px; }
-    .memory-card { margin-bottom: 12px; }
-    .memory-card.inactive-card { opacity: 0.5; }
-    .memory-header { display: flex; align-items: center; gap: 8px; }
-    .type-chip { font-size: 11px; padding: 2px 6px; border-radius: 4px; font-family: monospace; }
-    .type-context { background: #e3f2fd; color: #1565c0; }
-    .type-playbook { background: #fce4ec; color: #c62828; }
-    .type-tool_guidance { background: #f3e5f5; color: #6a1b9a; }
-    .source-badge { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.3px; }
-    .source-manual { background: #f5f5f5; color: #999; }
-    .source-ai_learned { background: #ede7f6; color: #6a1b9a; }
-    .category-chip { font-size: 11px; padding: 2px 6px; background: #fff3e0; color: #e65100; border-radius: 4px; }
-    .tags { display: flex; gap: 4px; margin: 8px 0 4px; flex-wrap: wrap; }
-    .tag-chip { font-size: 11px; padding: 2px 6px; background: #f5f5f5; color: #616161; border-radius: 4px; }
-    .memory-content { background: #fafafa; padding: 8px 12px; border-radius: 4px; font-size: 12px; white-space: pre-wrap; word-wrap: break-word; max-height: 200px; overflow-y: auto; }
-    .type-admin { background: #e3f2fd; color: #1565c0; }
-    .env-card { margin-bottom: 12px; }
-    .env-card.inactive-card { opacity: 0.5; }
-    .env-header { display: flex; align-items: center; gap: 8px; }
-    .env-desc { color: #666; margin: 8px 0 4px; }
-    .default-chip { font-size: 11px; padding: 2px 6px; background: #e3f2fd; color: #1565c0; border-radius: 4px; font-weight: 600; }
-    .status-final { background: #e8f5e9; color: #2e7d32; }
-    .add-cred-card { margin-top: 16px; }
-    .add-cred-card h4 { margin: 0 0 12px; }
-    .cred-form { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
-    .cred-form mat-form-field { flex: 1; min-width: 160px; }
-    .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 12px; }
-    .kpi-card { }
-    .kpi-row { display: flex; justify-content: space-between; padding: 2px 0; }
-    .kpi-label { color: #666; font-size: 13px; }
-    .kpi-value { font-weight: 500; font-family: monospace; font-size: 13px; }
-    .kpi-billed { color: #2e7d32; font-weight: 600; }
-    .markup-note { color: #888; font-size: 12px; margin-bottom: 16px; }
-    .log-nav { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+    :host { display: block; }
+
+    .loading {
+      color: var(--text-tertiary);
+      font-family: var(--font-primary);
+      font-size: 14px;
+      padding: 32px 16px;
+      text-align: center;
+    }
   `],
 })
 export class ClientDetailComponent implements OnInit {
@@ -207,6 +146,4 @@ export class ClientDetailComponent implements OnInit {
   onClientUpdated(updated: Client): void {
     this.client.set(updated);
   }
-
-
 }
