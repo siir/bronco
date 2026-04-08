@@ -18,8 +18,7 @@ import { ClientContactsTabComponent } from './client-detail/tabs/contacts-tab.co
 import { ClientReposTabComponent } from './client-detail/tabs/repos-tab.component';
 import { ClientIntegrationsTabComponent } from './client-detail/tabs/integrations-tab.component';
 import { ClientTicketsTabComponent } from './client-detail/tabs/tickets-tab.component';
-import { ClientMemoryService, type ClientMemory } from '../../core/services/client-memory.service';
-import { ClientMemoryDialogComponent } from './client-memory-dialog.component';
+import { ClientMemoryTabComponent } from './client-detail/tabs/memory-tab.component';
 import { ClientUserService, type ClientUser } from '../../core/services/client-user.service';
 import { ClientUserDialogComponent } from './client-user-dialog.component';
 import { ClientEnvironmentService, type ClientEnvironment } from '../../core/services/client-environment.service';
@@ -58,9 +57,9 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
     FormsModule, MatFormFieldModule, MatInputModule, MatSelectModule,
     TabGroupComponent, TabComponent, ClientHeaderComponent,
     ClientSystemsTabComponent, ClientContactsTabComponent, ClientReposTabComponent, ClientIntegrationsTabComponent,
-    ClientTicketsTabComponent,
+    ClientTicketsTabComponent, ClientMemoryTabComponent,
     DialogComponent,
-    ClientMemoryDialogComponent, ClientEnvironmentDialogComponent, ClientUserDialogComponent, GenerateInvoiceDialogComponent,
+    ClientEnvironmentDialogComponent, ClientUserDialogComponent, GenerateInvoiceDialogComponent,
   ],
   template: `
     @if (client(); as c) {
@@ -88,55 +87,7 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
         </app-tab>
 
         <app-tab label="Memory">
-          <div class="tab-content">
-            <div class="tab-header">
-              <h3>AI Memory</h3>
-              <button mat-raised-button color="primary" (click)="addMemory()">
-                <mat-icon>add</mat-icon> Add Memory
-              </button>
-              <mat-form-field appearance="outline" class="compact-select">
-                <mat-label>Source</mat-label>
-                <mat-select [(ngModel)]="memSourceFilter" (ngModelChange)="filterMemories()">
-                  <mat-option value="">All</mat-option>
-                  <mat-option value="MANUAL">Manual</mat-option>
-                  <mat-option value="AI_LEARNED">AI Learned</mat-option>
-                </mat-select>
-              </mat-form-field>
-            </div>
-            @for (mem of filteredMemories(); track mem.id) {
-              <mat-card class="memory-card" [class.inactive-card]="!mem.isActive">
-                <mat-card-content>
-                  <div class="memory-header">
-                    <mat-icon>{{ memoryTypeIcon(mem.memoryType) }}</mat-icon>
-                    <strong>{{ mem.title }}</strong>
-                    <span class="type-chip type-{{ mem.memoryType.toLowerCase() }}">{{ mem.memoryType }}</span>
-                    <span class="source-badge source-{{ (mem.source ?? 'MANUAL').toLowerCase() }}">
-                      {{ (mem.source ?? 'MANUAL') === 'AI_LEARNED' ? 'AI' : 'MANUAL' }}
-                    </span>
-                    @if (mem.category) {
-                      <span class="category-chip">{{ mem.category }}</span>
-                    }
-                    <mat-slide-toggle [checked]="mem.isActive" (change)="toggleMemory(mem, $event.checked)">
-                      {{ mem.isActive ? 'Active' : 'Inactive' }}
-                    </mat-slide-toggle>
-                    <span class="spacer"></span>
-                    <button mat-icon-button (click)="editMemory(mem)"><mat-icon>edit</mat-icon></button>
-                    <button mat-icon-button color="warn" (click)="deleteMemory(mem.id)"><mat-icon>delete</mat-icon></button>
-                  </div>
-                  @if (mem.tags.length) {
-                    <div class="tags">
-                      @for (tag of mem.tags; track tag) {
-                        <span class="tag-chip">{{ tag }}</span>
-                      }
-                    </div>
-                  }
-                  <pre class="memory-content">{{ mem.content }}</pre>
-                </mat-card-content>
-              </mat-card>
-            } @empty {
-              <p class="empty">No memory entries. Add context, playbooks, or tool guidance to help AI analyze tickets for this client.</p>
-            }
-          </div>
+          <app-client-memory-tab [clientId]="id()" />
         </app-tab>
 
         <app-tab label="Environments">
@@ -416,16 +367,6 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
       <p>Loading...</p>
     }
 
-    @if (showMemoryDialog()) {
-      <app-dialog [open]="true" [title]="editingMemory() ? 'Edit Client Memory' : 'Add Client Memory'" maxWidth="650px" (openChange)="showMemoryDialog.set(false)">
-        <app-client-memory-dialog-content
-          [clientId]="id()"
-          [memory]="editingMemory() ?? undefined"
-          (saved)="onMemorySaved()"
-          (cancelled)="showMemoryDialog.set(false)" />
-      </app-dialog>
-    }
-
     @if (showEnvironmentDialog()) {
       <app-dialog [open]="true" [title]="editingEnvironment() ? 'Edit Environment' : 'Add Environment'" maxWidth="650px" (openChange)="showEnvironmentDialog.set(false)">
         <app-client-environment-dialog-content
@@ -516,7 +457,6 @@ export class ClientDetailComponent implements OnInit {
   id = input.required<string>();
 
   private clientService = inject(ClientService);
-  private memoryService = inject(ClientMemoryService);
   private clientUserService = inject(ClientUserService);
   private envService = inject(ClientEnvironmentService);
   private invoiceService = inject(InvoiceService);
@@ -528,9 +468,6 @@ export class ClientDetailComponent implements OnInit {
   private route = inject(ActivatedRoute);
 
   client = signal<Client | null>(null);
-  memories = signal<ClientMemory[]>([]);
-  memSourceFilter = '';
-  filteredMemories = signal<ClientMemory[]>([]);
   clientUsers = signal<ClientUser[]>([]);
   environments = signal<ClientEnvironment[]>([]);
   invoices = signal<Invoice[]>([]);
@@ -581,7 +518,6 @@ export class ClientDetailComponent implements OnInit {
   load(): void {
     const cid = this.id();
     this.clientService.getClient(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(c => this.client.set(c));
-    this.memoryService.getMemories({ clientId: cid }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(m => { this.memories.set(m); this.filterMemories(); });
     this.clientUserService.getUsers(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(u => this.clientUsers.set(u));
     this.envService.getEnvironments(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(e => this.environments.set(e));
     this.invoiceService.getInvoices(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(i => this.invoices.set(i));
@@ -631,60 +567,11 @@ export class ClientDetailComponent implements OnInit {
     this.client.set(updated);
   }
 
-  showMemoryDialog = signal(false);
-  editingMemory = signal<ClientMemory | null>(null);
   showEnvironmentDialog = signal(false);
   editingEnvironment = signal<ClientEnvironment | null>(null);
   showUserDialog = signal(false);
   editingUser = signal<ClientUser | null>(null);
   showInvoiceDialog = signal(false);
-
-  filterMemories(): void {
-    const all = this.memories();
-    if (!this.memSourceFilter) {
-      this.filteredMemories.set(all);
-    } else {
-      this.filteredMemories.set(all.filter(m => (m.source ?? 'MANUAL') === this.memSourceFilter));
-    }
-  }
-
-  addMemory(): void {
-    this.editingMemory.set(null);
-    this.showMemoryDialog.set(true);
-  }
-
-  editMemory(mem: ClientMemory): void {
-    this.editingMemory.set(mem);
-    this.showMemoryDialog.set(true);
-  }
-
-  onMemorySaved(): void {
-    this.showMemoryDialog.set(false);
-    this.load();
-  }
-
-  toggleMemory(mem: ClientMemory, checked: boolean): void {
-    this.memories.update(list => list.map(m => m.id === mem.id ? { ...m, isActive: checked } : m));
-    this.filterMemories();
-    this.memoryService.updateMemory(mem.id, { isActive: checked }).subscribe({
-      next: () => this.toast.success(`Memory ${checked ? 'enabled' : 'disabled'}`),
-      error: (err) => {
-        this.memories.update(list => list.map(m => m.id === mem.id ? { ...m, isActive: !checked } : m));
-        this.filterMemories();
-        this.toast.error(err.error?.message ?? err.error?.error ?? 'Toggle failed');
-      },
-    });
-  }
-
-  deleteMemory(id: string): void {
-    this.memoryService.deleteMemory(id).subscribe({
-      next: () => {
-        this.toast.success('Memory entry deleted');
-        this.load();
-      },
-      error: (err) => this.toast.error(err.error?.message ?? err.error?.error ?? 'Delete failed'),
-    });
-  }
 
   addEnvironment(): void {
     this.editingEnvironment.set(null);
@@ -721,15 +608,6 @@ export class ClientDetailComponent implements OnInit {
       },
       error: (err) => this.toast.error(err.error?.error ?? err.error?.message ?? 'Delete failed'),
     });
-  }
-
-  memoryTypeIcon(type: string): string {
-    switch (type) {
-      case 'CONTEXT': return 'info';
-      case 'PLAYBOOK': return 'menu_book';
-      case 'TOOL_GUIDANCE': return 'build';
-      default: return 'psychology';
-    }
   }
 
   addClientUser(): void {
