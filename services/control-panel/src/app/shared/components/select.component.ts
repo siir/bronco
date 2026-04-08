@@ -1,4 +1,7 @@
-import { Component, input, output } from '@angular/core';
+import { Component, inject, input, output } from '@angular/core';
+import { FormFieldComponent } from './form-field.component';
+
+let standaloneSelectCounter = 0;
 
 @Component({
   selector: 'app-select',
@@ -6,6 +9,7 @@ import { Component, input, output } from '@angular/core';
   template: `
     <select
       class="select-input"
+      [id]="resolvedId()"
       [value]="value()"
       [disabled]="disabled()"
       [attr.aria-label]="ariaLabel() || null"
@@ -51,6 +55,9 @@ import { Component, input, output } from '@angular/core';
   `],
 })
 export class SelectComponent {
+  private parentFormField = inject(FormFieldComponent, { optional: true, skipSelf: true });
+  private fallbackId = `select-${++standaloneSelectCounter}`;
+
   value = input<string>('');
   options = input.required<Array<{ value: string; label: string }>>();
   placeholder = input<string>('Select...');
@@ -58,6 +65,10 @@ export class SelectComponent {
   ariaLabel = input<string>('');
 
   valueChange = output<string>();
+
+  resolvedId(): string {
+    return this.parentFormField?.inputId() ?? this.fallbackId;
+  }
 
   onChange(event: Event): void {
     this.valueChange.emit((event.target as HTMLSelectElement).value);
