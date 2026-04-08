@@ -12,13 +12,12 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { TabGroupComponent, TabComponent } from '../../shared/components/index.js';
 import { ClientHeaderComponent } from './client-detail/client-header.component';
 import { ClientService, Client } from '../../core/services/client.service';
-import { TicketService, Ticket } from '../../core/services/ticket.service';
-import { TicketDialogComponent } from '../tickets/ticket-dialog.component';
 import { DialogComponent } from '../../shared/components/dialog.component';
 import { ClientSystemsTabComponent } from './client-detail/tabs/systems-tab.component';
 import { ClientContactsTabComponent } from './client-detail/tabs/contacts-tab.component';
 import { ClientReposTabComponent } from './client-detail/tabs/repos-tab.component';
 import { ClientIntegrationsTabComponent } from './client-detail/tabs/integrations-tab.component';
+import { ClientTicketsTabComponent } from './client-detail/tabs/tickets-tab.component';
 import { ClientMemoryService, type ClientMemory } from '../../core/services/client-memory.service';
 import { ClientMemoryDialogComponent } from './client-memory-dialog.component';
 import { ClientUserService, type ClientUser } from '../../core/services/client-user.service';
@@ -59,7 +58,8 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
     FormsModule, MatFormFieldModule, MatInputModule, MatSelectModule,
     TabGroupComponent, TabComponent, ClientHeaderComponent,
     ClientSystemsTabComponent, ClientContactsTabComponent, ClientReposTabComponent, ClientIntegrationsTabComponent,
-    DialogComponent, TicketDialogComponent,
+    ClientTicketsTabComponent,
+    DialogComponent,
     ClientMemoryDialogComponent, ClientEnvironmentDialogComponent, ClientUserDialogComponent, GenerateInvoiceDialogComponent,
   ],
   template: `
@@ -84,39 +84,7 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
         </app-tab>
 
         <app-tab label="Tickets">
-          <div class="tab-content">
-            <div class="tab-header">
-              <h3>Tickets</h3>
-              <button mat-raised-button color="primary" (click)="createTicket()">
-                <mat-icon>add</mat-icon> Create Ticket
-              </button>
-            </div>
-            <table mat-table [dataSource]="tickets()" class="full-width">
-              <ng-container matColumnDef="subject">
-                <th mat-header-cell *matHeaderCellDef>Subject</th>
-                <td mat-cell *matCellDef="let t">
-                  <a [routerLink]="['/tickets', t.id]" class="link">{{ t.subject }}</a>
-                </td>
-              </ng-container>
-              <ng-container matColumnDef="status">
-                <th mat-header-cell *matHeaderCellDef>Status</th>
-                <td mat-cell *matCellDef="let t">{{ t.status }}</td>
-              </ng-container>
-              <ng-container matColumnDef="priority">
-                <th mat-header-cell *matHeaderCellDef>Priority</th>
-                <td mat-cell *matCellDef="let t">
-                  <span class="priority priority-{{ t.priority.toLowerCase() }}">{{ t.priority }}</span>
-                </td>
-              </ng-container>
-              <ng-container matColumnDef="category">
-                <th mat-header-cell *matHeaderCellDef>Category</th>
-                <td mat-cell *matCellDef="let t">{{ t.category ?? '-' }}</td>
-              </ng-container>
-              <tr mat-header-row *matHeaderRowDef="ticketColumns"></tr>
-              <tr mat-row *matRowDef="let row; columns: ticketColumns;"></tr>
-            </table>
-            @if (tickets().length === 0) { <p class="empty">No tickets for this client.</p> }
-          </div>
+          <app-client-tickets-tab [clientId]="id()" />
         </app-tab>
 
         <app-tab label="Memory">
@@ -448,15 +416,6 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
       <p>Loading...</p>
     }
 
-    @if (showTicketDialog()) {
-      <app-dialog [open]="true" title="Create Ticket" maxWidth="560px" (openChange)="showTicketDialog.set(false)">
-        <app-ticket-dialog-content
-          [clientId]="id()"
-          (created)="onTicketCreated($event)"
-          (cancelled)="showTicketDialog.set(false)" />
-      </app-dialog>
-    }
-
     @if (showMemoryDialog()) {
       <app-dialog [open]="true" [title]="editingMemory() ? 'Edit Client Memory' : 'Add Client Memory'" maxWidth="650px" (openChange)="showMemoryDialog.set(false)">
         <app-client-memory-dialog-content
@@ -557,7 +516,6 @@ export class ClientDetailComponent implements OnInit {
   id = input.required<string>();
 
   private clientService = inject(ClientService);
-  private ticketService = inject(TicketService);
   private memoryService = inject(ClientMemoryService);
   private clientUserService = inject(ClientUserService);
   private envService = inject(ClientEnvironmentService);
@@ -570,7 +528,6 @@ export class ClientDetailComponent implements OnInit {
   private route = inject(ActivatedRoute);
 
   client = signal<Client | null>(null);
-  tickets = signal<Ticket[]>([]);
   memories = signal<ClientMemory[]>([]);
   memSourceFilter = '';
   filteredMemories = signal<ClientMemory[]>([]);
@@ -586,7 +543,6 @@ export class ClientDetailComponent implements OnInit {
   aiUsageTotalPages = signal(1);
   selectedTab = signal(0);
 
-  ticketColumns = ['subject', 'status', 'priority', 'category'];
   clientUserColumns = ['name', 'email', 'userType', 'isActiveUser', 'lastLogin', 'userActions'];
   invoiceColumns = ['invoiceNumber', 'period', 'requests', 'totalBilled', 'invoiceStatus', 'invoiceActions'];
   credentialColumns = ['provider', 'label', 'key', 'credStatus', 'credActions'];
@@ -625,7 +581,6 @@ export class ClientDetailComponent implements OnInit {
   load(): void {
     const cid = this.id();
     this.clientService.getClient(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(c => this.client.set(c));
-    this.ticketService.getTickets({ clientId: cid, limit: 20 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(t => this.tickets.set(t));
     this.memoryService.getMemories({ clientId: cid }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(m => { this.memories.set(m); this.filterMemories(); });
     this.clientUserService.getUsers(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(u => this.clientUsers.set(u));
     this.envService.getEnvironments(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(e => this.environments.set(e));
@@ -676,7 +631,6 @@ export class ClientDetailComponent implements OnInit {
     this.client.set(updated);
   }
 
-  showTicketDialog = signal(false);
   showMemoryDialog = signal(false);
   editingMemory = signal<ClientMemory | null>(null);
   showEnvironmentDialog = signal(false);
@@ -684,15 +638,6 @@ export class ClientDetailComponent implements OnInit {
   showUserDialog = signal(false);
   editingUser = signal<ClientUser | null>(null);
   showInvoiceDialog = signal(false);
-
-  createTicket(): void {
-    this.showTicketDialog.set(true);
-  }
-
-  onTicketCreated(_result: { id: string }): void {
-    this.showTicketDialog.set(false);
-    this.load();
-  }
 
   filterMemories(): void {
     const all = this.memories();
