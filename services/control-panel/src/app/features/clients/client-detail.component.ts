@@ -12,15 +12,14 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { TabGroupComponent, TabComponent } from '../../shared/components/index.js';
 import { ClientHeaderComponent } from './client-detail/client-header.component';
 import { ClientService, Client } from '../../core/services/client.service';
-import { RepoService, CodeRepo } from '../../core/services/repo.service';
 import { IntegrationService, type ClientIntegration } from '../../core/services/integration.service';
 import { TicketService, Ticket } from '../../core/services/ticket.service';
-import { RepoDialogComponent } from '../repos/repo-dialog.component';
 import { IntegrationDialogComponent } from '../integrations/integration-dialog.component';
 import { TicketDialogComponent } from '../tickets/ticket-dialog.component';
 import { DialogComponent } from '../../shared/components/dialog.component';
 import { ClientSystemsTabComponent } from './client-detail/tabs/systems-tab.component';
 import { ClientContactsTabComponent } from './client-detail/tabs/contacts-tab.component';
+import { ClientReposTabComponent } from './client-detail/tabs/repos-tab.component';
 import { ClientMemoryService, type ClientMemory } from '../../core/services/client-memory.service';
 import { ClientMemoryDialogComponent } from './client-memory-dialog.component';
 import { McpServerInfoComponent } from '../../shared/components/mcp-server-info.component';
@@ -61,10 +60,10 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
     MatTableModule, MatChipsModule, MatSlideToggleModule, MatTooltipModule, McpServerInfoComponent,
     FormsModule, MatFormFieldModule, MatInputModule, MatSelectModule,
     TabGroupComponent, TabComponent, ClientHeaderComponent,
-    ClientSystemsTabComponent, ClientContactsTabComponent,
+    ClientSystemsTabComponent, ClientContactsTabComponent, ClientReposTabComponent,
     DialogComponent, TicketDialogComponent,
     ClientMemoryDialogComponent, ClientEnvironmentDialogComponent, ClientUserDialogComponent, GenerateInvoiceDialogComponent,
-    RepoDialogComponent, IntegrationDialogComponent,
+    IntegrationDialogComponent,
   ],
   template: `
     @if (client(); as c) {
@@ -80,42 +79,7 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
         </app-tab>
 
         <app-tab label="Repos">
-          <div class="tab-content">
-            <div class="tab-header">
-              <h3>Code Repositories</h3>
-              <button mat-raised-button color="primary" (click)="addRepo()">
-                <mat-icon>add</mat-icon> Add Repo
-              </button>
-            </div>
-            <table mat-table [dataSource]="repos()" class="full-width">
-              <ng-container matColumnDef="name">
-                <th mat-header-cell *matHeaderCellDef>Name</th>
-                <td mat-cell *matCellDef="let r">{{ r.name }}</td>
-              </ng-container>
-              <ng-container matColumnDef="repoUrl">
-                <th mat-header-cell *matHeaderCellDef>URL</th>
-                <td mat-cell *matCellDef="let r"><code>{{ r.repoUrl }}</code></td>
-              </ng-container>
-              <ng-container matColumnDef="branch">
-                <th mat-header-cell *matHeaderCellDef>Branch</th>
-                <td mat-cell *matCellDef="let r">{{ r.defaultBranch }}</td>
-              </ng-container>
-              <ng-container matColumnDef="prefix">
-                <th mat-header-cell *matHeaderCellDef>Prefix</th>
-                <td mat-cell *matCellDef="let r">{{ r.branchPrefix }}/</td>
-              </ng-container>
-              <ng-container matColumnDef="actions">
-                <th mat-header-cell *matHeaderCellDef></th>
-                <td mat-cell *matCellDef="let r">
-                  <button mat-icon-button aria-label="Edit repository" (click)="editRepo(r)" matTooltip="Edit"><mat-icon>edit</mat-icon></button>
-                  <button mat-icon-button color="warn" aria-label="Delete repository" (click)="deleteRepo(r)" matTooltip="Delete"><mat-icon>delete</mat-icon></button>
-                </td>
-              </ng-container>
-              <tr mat-header-row *matHeaderRowDef="repoColumns"></tr>
-              <tr mat-row *matRowDef="let row; columns: repoColumns;"></tr>
-            </table>
-            @if (repos().length === 0) { <p class="empty">No repositories configured.</p> }
-          </div>
+          <app-client-repos-tab [clientId]="id()" />
         </app-tab>
 
         <app-tab label="Integrations">
@@ -577,16 +541,6 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
       </app-dialog>
     }
 
-    @if (showRepoDialog()) {
-      <app-dialog [open]="true" [title]="editingRepo() ? 'Edit Code Repository' : 'Add Code Repository'" maxWidth="500px" (openChange)="showRepoDialog.set(false)">
-        <app-repo-dialog-content
-          [clientId]="id()"
-          [repo]="editingRepo() ?? undefined"
-          (saved)="onRepoSaved()"
-          (cancelled)="showRepoDialog.set(false)" />
-      </app-dialog>
-    }
-
     @if (showIntegrationDialog()) {
       <app-dialog [open]="true" [title]="editingIntegration() ? 'Edit Integration' : 'Add Integration'" maxWidth="600px" (openChange)="showIntegrationDialog.set(false)">
         <app-integration-dialog-content
@@ -658,7 +612,6 @@ export class ClientDetailComponent implements OnInit {
   id = input.required<string>();
 
   private clientService = inject(ClientService);
-  private repoService = inject(RepoService);
   private integrationService = inject(IntegrationService);
   private ticketService = inject(TicketService);
   private memoryService = inject(ClientMemoryService);
@@ -673,7 +626,6 @@ export class ClientDetailComponent implements OnInit {
   private route = inject(ActivatedRoute);
 
   client = signal<Client | null>(null);
-  repos = signal<CodeRepo[]>([]);
   integrations = signal<ClientIntegration[]>([]);
   tickets = signal<Ticket[]>([]);
   memories = signal<ClientMemory[]>([]);
@@ -691,7 +643,6 @@ export class ClientDetailComponent implements OnInit {
   aiUsageTotalPages = signal(1);
   selectedTab = signal(0);
 
-  repoColumns = ['name', 'repoUrl', 'branch', 'prefix', 'actions'];
   ticketColumns = ['subject', 'status', 'priority', 'category'];
   clientUserColumns = ['name', 'email', 'userType', 'isActiveUser', 'lastLogin', 'userActions'];
   invoiceColumns = ['invoiceNumber', 'period', 'requests', 'totalBilled', 'invoiceStatus', 'invoiceActions'];
@@ -731,7 +682,6 @@ export class ClientDetailComponent implements OnInit {
   load(): void {
     const cid = this.id();
     this.clientService.getClient(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(c => this.client.set(c));
-    this.repoService.getRepos(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(r => this.repos.set(r));
     this.integrationService.getIntegrations(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(i => this.integrations.set(i));
     this.ticketService.getTickets({ clientId: cid, limit: 20 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(t => this.tickets.set(t));
     this.memoryService.getMemories({ clientId: cid }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(m => { this.memories.set(m); this.filterMemories(); });
@@ -784,34 +734,6 @@ export class ClientDetailComponent implements OnInit {
     this.client.set(updated);
   }
 
-  addRepo(): void {
-    this.editingRepo.set(null);
-    this.showRepoDialog.set(true);
-  }
-
-  editRepo(repo: CodeRepo): void {
-    this.editingRepo.set(repo);
-    this.showRepoDialog.set(true);
-  }
-
-  onRepoSaved(): void {
-    this.showRepoDialog.set(false);
-    this.load();
-  }
-
-  deleteRepo(repo: CodeRepo): void {
-    if (!confirm(`Delete repo "${repo.name}"?`)) return;
-    this.repoService.deleteRepo(repo.id).subscribe({
-      next: () => {
-        this.toast.success('Repository deleted');
-        this.load();
-      },
-      error: (err) => {
-        this.toast.error(err.error?.message ?? err.error?.error ?? 'Delete failed');
-      },
-    });
-  }
-
   addIntegration(): void {
     this.editingIntegration.set(null);
     this.showIntegrationDialog.set(true);
@@ -830,8 +752,6 @@ export class ClientDetailComponent implements OnInit {
   showUserDialog = signal(false);
   editingUser = signal<ClientUser | null>(null);
   showInvoiceDialog = signal(false);
-  showRepoDialog = signal(false);
-  editingRepo = signal<CodeRepo | null>(null);
   showIntegrationDialog = signal(false);
   editingIntegration = signal<ClientIntegration | null>(null);
 
