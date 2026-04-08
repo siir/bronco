@@ -345,10 +345,10 @@ const STATUS_PILLS: StatusPill[] = [
     }
 
     .analysis-pending { background: var(--bg-muted); color: var(--text-tertiary); }
-    .analysis-in_progress { background: rgba(0, 113, 227, 0.08); color: var(--accent); }
-    .analysis-completed { background: rgba(52, 199, 89, 0.1); color: var(--color-success); }
-    .analysis-failed { background: rgba(255, 59, 48, 0.08); color: var(--color-error); }
-    .analysis-skipped { background: var(--bg-muted); color: var(--text-quaternary, var(--text-tertiary)); }
+    .analysis-in_progress { background: var(--bg-active); color: var(--accent); }
+    .analysis-completed { background: var(--color-success-subtle); color: var(--color-success); }
+    .analysis-failed { background: var(--color-error-subtle); color: var(--color-error); }
+    .analysis-skipped { background: var(--bg-muted); color: var(--text-tertiary); }
     .analysis-none { background: transparent; color: var(--text-tertiary); }
   `],
 })
