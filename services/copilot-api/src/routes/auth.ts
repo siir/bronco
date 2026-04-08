@@ -85,6 +85,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
           email: user.email,
           name: user.name,
           role: user.role,
+          themePreference: user.themePreference,
         },
       };
     },
@@ -190,6 +191,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         isActive: true,
         lastLoginAt: true,
         createdAt: true,
+        themePreference: true,
       },
     });
 
@@ -233,10 +235,42 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
           ...(name && { name: name.trim() }),
           ...(email && { email: email.toLowerCase() }),
         },
-        select: { id: true, email: true, name: true, role: true },
+        select: { id: true, email: true, name: true, role: true, themePreference: true },
       });
 
       return updated;
+    },
+  );
+
+  /**
+   * PATCH /api/auth/me/theme
+   * Body: { themePreference: string }
+   * Updates the current user's theme preference.
+   */
+  const VALID_THEMES = ['apple', 'linear', 'nvidia', 'sentry', 'supabase', 'vercel'];
+
+  fastify.patch<{ Body: { themePreference: string } }>(
+    '/api/auth/me/theme',
+    async (request, reply) => {
+      const authUser = request.user as AuthUser | undefined;
+      if (!authUser) {
+        return reply.code(401).send({ error: 'JWT authentication required' });
+      }
+
+      const { themePreference } = request.body ?? {};
+      if (!themePreference || !VALID_THEMES.includes(themePreference)) {
+        return reply.code(400).send({
+          error: `Invalid theme. Must be one of: ${VALID_THEMES.join(', ')}`,
+        });
+      }
+
+      const updated = await fastify.db.user.update({
+        where: { id: authUser.id },
+        data: { themePreference },
+        select: { themePreference: true },
+      });
+
+      return { themePreference: updated.themePreference };
     },
   );
 

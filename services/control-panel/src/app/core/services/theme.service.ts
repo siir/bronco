@@ -1,4 +1,7 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, effect, inject, signal } from '@angular/core';
+import { AuthService } from './auth.service';
+import { ApiService } from './api.service';
+import { ToastService } from './toast.service';
 
 export interface ThemeOption {
   id: string;
@@ -22,11 +25,37 @@ const STORAGE_KEY = 'bronco-theme';
 
 @Injectable({ providedIn: 'root' })
 export class ThemeService {
+  private readonly api = inject(ApiService);
+  private readonly auth = inject(AuthService);
+  private readonly toast = inject(ToastService);
+
   readonly themes: readonly ThemeOption[] = THEMES;
   private readonly _currentTheme = signal<ThemeOption>(this.resolveInitial());
   readonly currentTheme = this._currentTheme.asReadonly();
 
+  private initialized = false;
+
+  constructor() {
+    // When the auth user arrives (or changes), sync the theme from the server
+    // value if it differs from what we applied optimistically.
+    effect(() => {
+      const user = this.auth.currentUser();
+      if (!user?.themePreference) return;
+      const serverTheme = THEMES.find(t => t.id === user.themePreference);
+      if (!serverTheme) return;
+      if (serverTheme.id !== this._currentTheme().id) {
+        this._currentTheme.set(serverTheme);
+        this.applyTheme();
+      }
+    });
+  }
+
   init(): void {
+    if (this.initialized) return;
+    this.initialized = true;
+    // Apply immediately from the localStorage-resolved initial theme to avoid
+    // a flash between page load and the auth/me response. The constructor
+    // effect will reconcile with the server value once it's available.
     this.applyTheme();
   }
 
@@ -35,6 +64,26 @@ export class ThemeService {
     if (!theme) return;
     this._currentTheme.set(theme);
     this.applyTheme();
+    this.persistToServer(theme.id);
+  }
+
+  private persistToServer(themePreference: string): void {
+    this.api
+      .patch<{ themePreference: string }>('/auth/me/theme', { themePreference })
+      .subscribe({
+        next: () => {
+          // Keep the currentUser signal in sync so the effect doesn't fight us.
+          const user = this.auth.currentUser();
+          if (user && user.themePreference !== themePreference) {
+            this.auth.currentUser.set({ ...user, themePreference });
+          }
+        },
+        error: () => {
+          // Non-fatal: the theme is already applied locally and stored in
+          // localStorage. It will sync on next successful save or page load.
+          this.toast.warning('Theme preference could not be saved to the server');
+        },
+      });
   }
 
   private applyTheme(): void {
