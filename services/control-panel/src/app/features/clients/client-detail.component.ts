@@ -19,10 +19,9 @@ import { ClientReposTabComponent } from './client-detail/tabs/repos-tab.componen
 import { ClientIntegrationsTabComponent } from './client-detail/tabs/integrations-tab.component';
 import { ClientTicketsTabComponent } from './client-detail/tabs/tickets-tab.component';
 import { ClientMemoryTabComponent } from './client-detail/tabs/memory-tab.component';
+import { ClientEnvironmentsTabComponent } from './client-detail/tabs/environments-tab.component';
 import { ClientUserService, type ClientUser } from '../../core/services/client-user.service';
 import { ClientUserDialogComponent } from './client-user-dialog.component';
-import { ClientEnvironmentService, type ClientEnvironment } from '../../core/services/client-environment.service';
-import { ClientEnvironmentDialogComponent } from './client-environment-dialog.component';
 import { InvoiceService, type Invoice } from '../../core/services/invoice.service';
 import { GenerateInvoiceDialogComponent } from './generate-invoice-dialog.component';
 import { ClientAiCredentialService, type ClientAiCredential } from '../../core/services/client-ai-credential.service';
@@ -57,9 +56,9 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
     FormsModule, MatFormFieldModule, MatInputModule, MatSelectModule,
     TabGroupComponent, TabComponent, ClientHeaderComponent,
     ClientSystemsTabComponent, ClientContactsTabComponent, ClientReposTabComponent, ClientIntegrationsTabComponent,
-    ClientTicketsTabComponent, ClientMemoryTabComponent,
+    ClientTicketsTabComponent, ClientMemoryTabComponent, ClientEnvironmentsTabComponent,
     DialogComponent,
-    ClientEnvironmentDialogComponent, ClientUserDialogComponent, GenerateInvoiceDialogComponent,
+    ClientUserDialogComponent, GenerateInvoiceDialogComponent,
   ],
   template: `
     @if (client(); as c) {
@@ -91,40 +90,7 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
         </app-tab>
 
         <app-tab label="Environments">
-          <div class="tab-content">
-            <div class="tab-header">
-              <h3>Environments</h3>
-              <button mat-raised-button color="primary" (click)="addEnvironment()">
-                <mat-icon>add</mat-icon> Add Environment
-              </button>
-            </div>
-            @for (env of environments(); track env.id) {
-              <mat-card class="env-card" [class.inactive-card]="!env.isActive">
-                <mat-card-content>
-                  <div class="env-header">
-                    <mat-icon>cloud</mat-icon>
-                    <strong>{{ env.name }}</strong>
-                    <span class="tag-chip">{{ env.tag }}</span>
-                    @if (env.isDefault) {
-                      <span class="default-chip">Default</span>
-                    }
-                    <mat-slide-toggle [checked]="env.isActive" (change)="toggleEnvironment(env, $event.checked)">
-                      {{ env.isActive ? 'Active' : 'Inactive' }}
-                    </mat-slide-toggle>
-                    <span class="spacer"></span>
-                    <button mat-icon-button (click)="editEnvironment(env)"><mat-icon>edit</mat-icon></button>
-                    <button mat-icon-button color="warn" (click)="deleteEnvironment(env)"><mat-icon>delete</mat-icon></button>
-                  </div>
-                  @if (env.description) { <p class="env-desc">{{ env.description }}</p> }
-                  @if (env.operationalInstructions) {
-                    <pre class="memory-content">{{ env.operationalInstructions | slice:0:200 }}{{ env.operationalInstructions.length > 200 ? '...' : '' }}</pre>
-                  }
-                </mat-card-content>
-              </mat-card>
-            } @empty {
-              <p class="empty">No environments configured. Add environments (e.g. Production, Development) to group systems, repos, and integrations.</p>
-            }
-          </div>
+          <app-client-environments-tab [clientId]="id()" />
         </app-tab>
 
         <app-tab label="Users">
@@ -367,16 +333,6 @@ const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
       <p>Loading...</p>
     }
 
-    @if (showEnvironmentDialog()) {
-      <app-dialog [open]="true" [title]="editingEnvironment() ? 'Edit Environment' : 'Add Environment'" maxWidth="650px" (openChange)="showEnvironmentDialog.set(false)">
-        <app-client-environment-dialog-content
-          [clientId]="id()"
-          [environment]="editingEnvironment() ?? undefined"
-          (saved)="onEnvironmentSaved()"
-          (cancelled)="showEnvironmentDialog.set(false)" />
-      </app-dialog>
-    }
-
     @if (showUserDialog()) {
       <app-dialog [open]="true" [title]="editingUser() ? 'Edit User' : 'Create Portal User'" maxWidth="500px" (openChange)="showUserDialog.set(false)">
         <app-client-user-dialog-content
@@ -458,7 +414,6 @@ export class ClientDetailComponent implements OnInit {
 
   private clientService = inject(ClientService);
   private clientUserService = inject(ClientUserService);
-  private envService = inject(ClientEnvironmentService);
   private invoiceService = inject(InvoiceService);
   private credentialService = inject(ClientAiCredentialService);
   private aiUsageService = inject(AiUsageService);
@@ -469,7 +424,6 @@ export class ClientDetailComponent implements OnInit {
 
   client = signal<Client | null>(null);
   clientUsers = signal<ClientUser[]>([]);
-  environments = signal<ClientEnvironment[]>([]);
   invoices = signal<Invoice[]>([]);
   aiCredentials = signal<ClientAiCredential[]>([]);
   aiUsageSummary = signal<AiUsageClientSummary | null>(null);
@@ -519,7 +473,6 @@ export class ClientDetailComponent implements OnInit {
     const cid = this.id();
     this.clientService.getClient(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(c => this.client.set(c));
     this.clientUserService.getUsers(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(u => this.clientUsers.set(u));
-    this.envService.getEnvironments(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(e => this.environments.set(e));
     this.invoiceService.getInvoices(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(i => this.invoices.set(i));
     this.credentialService.getCredentials(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(c => this.aiCredentials.set(c));
   }
@@ -567,48 +520,9 @@ export class ClientDetailComponent implements OnInit {
     this.client.set(updated);
   }
 
-  showEnvironmentDialog = signal(false);
-  editingEnvironment = signal<ClientEnvironment | null>(null);
   showUserDialog = signal(false);
   editingUser = signal<ClientUser | null>(null);
   showInvoiceDialog = signal(false);
-
-  addEnvironment(): void {
-    this.editingEnvironment.set(null);
-    this.showEnvironmentDialog.set(true);
-  }
-
-  editEnvironment(env: ClientEnvironment): void {
-    this.editingEnvironment.set(env);
-    this.showEnvironmentDialog.set(true);
-  }
-
-  onEnvironmentSaved(): void {
-    this.showEnvironmentDialog.set(false);
-    this.load();
-  }
-
-  toggleEnvironment(env: ClientEnvironment, checked: boolean): void {
-    this.environments.update(list => list.map(e => e.id === env.id ? { ...e, isActive: checked } : e));
-    this.envService.updateEnvironment(this.id(), env.id, { isActive: checked }).subscribe({
-      next: () => this.toast.success(`Environment ${checked ? 'enabled' : 'disabled'}`),
-      error: (err) => {
-        this.environments.update(list => list.map(e => e.id === env.id ? { ...e, isActive: !checked } : e));
-        this.toast.error(err.error?.error ?? err.error?.message ?? 'Toggle failed');
-      },
-    });
-  }
-
-  deleteEnvironment(env: ClientEnvironment): void {
-    if (!confirm(`Delete environment "${env.name}"? Linked integrations, repos, and systems will be unlinked.`)) return;
-    this.envService.deleteEnvironment(this.id(), env.id).subscribe({
-      next: () => {
-        this.toast.success('Environment deleted');
-        this.load();
-      },
-      error: (err) => this.toast.error(err.error?.error ?? err.error?.message ?? 'Delete failed'),
-    });
-  }
 
   addClientUser(): void {
     this.editingUser.set(null);
