@@ -41,9 +41,9 @@ import { type TicketEvent } from '../../core/services/ticket.service';
 
     <div class="timeline">
       @for (event of filteredEvents(); track event.id) {
-        <app-card padding="md" class="event-card" [class]="'event-type-' + event.eventType.toLowerCase()">
+        <app-card padding="md" class="event-card" [ngClass]="'event-type-' + event.eventType.toLowerCase()">
           <div class="event-header">
-            <span class="event-type-badge" [class]="'badge-' + event.eventType.toLowerCase()">
+            <span class="event-type-badge" [ngClass]="'badge-' + event.eventType.toLowerCase()">
               <span class="evt-icon" aria-hidden="true">{{ eventGlyph(event.eventType) }}</span>
               <span>{{ formatEventType(event.eventType) }}</span>
             </span>
@@ -70,7 +70,7 @@ import { type TicketEvent } from '../../core/services/ticket.service';
                   <span class="meta-chip token-chip">{{ am.toolCallCount }} tool calls</span>
                   <span class="meta-chip phase-chip">{{ am.iterationsRun }} iterations</span>
                   @if (am.sufficiencyStatus) {
-                    <span class="meta-chip" [class]="'sufficiency-' + am.sufficiencyStatus.toLowerCase()">{{ am.sufficiencyStatus }}</span>
+                    <span class="meta-chip" [ngClass]="'sufficiency-' + am.sufficiencyStatus.toLowerCase()">{{ am.sufficiencyStatus }}</span>
                   }
                   @if (am.sufficiencyConfidence) {
                     <span class="meta-chip duration-chip">confidence: {{ am.sufficiencyConfidence }}</span>
@@ -186,7 +186,7 @@ import { type TicketEvent } from '../../core/services/ticket.service';
                     <div class="rec-action-header" (click)="getActionOutcome(act) !== 'pending_approval' ? toggleEvent(event.id + '-act-' + $index) : null">
                       <span class="rec-icon" aria-hidden="true">{{ recActionGlyph(act.action) }}</span>
                       <span class="rec-action-type">{{ formatRecActionType(act.action) }}</span>
-                      <span class="rec-status-badge" [class]="'rec-badge-' + getActionOutcome(act)">
+                      <span class="rec-status-badge" [ngClass]="'rec-badge-' + getActionOutcome(act)">
                         {{ getActionOutcomeLabel(act) }}
                       </span>
                       @if (getActionOutcome(act) !== 'pending_approval') {

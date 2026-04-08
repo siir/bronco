@@ -1,4 +1,4 @@
-import { Component, input, output, signal, effect } from '@angular/core';
+import { Component, input, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { BroncoButtonComponent, TextareaComponent } from '../../shared/components/index.js';
 import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
@@ -88,15 +88,6 @@ export class TicketDetailKnowledgeComponent {
   clear = output<void>();
 
   draft = signal('');
-
-  constructor() {
-    // Sync draft with knowledgeDoc when entering edit mode
-    effect(() => {
-      if (this.editing()) {
-        this.draft.set(this.knowledgeDoc() ?? '');
-      }
-    });
-  }
 
   onStartEdit(): void {
     this.draft.set(this.knowledgeDoc() ?? '');

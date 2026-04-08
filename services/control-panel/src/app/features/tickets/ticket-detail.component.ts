@@ -83,16 +83,19 @@ interface StepGroup {
 
         <div class="ticket-meta">
           <app-select
+            ariaLabel="Priority"
             [value]="t.priority"
             [options]="priorityOptions"
             placeholder=""
             (valueChange)="updateField('priority', $event)" />
           <app-select
+            ariaLabel="Status"
             [value]="t.status"
             [options]="statusOptions"
             placeholder=""
             (valueChange)="updateStatus($event)" />
           <app-select
+            ariaLabel="Category"
             [value]="t.category ?? ''"
             [options]="categoryOptions"
             placeholder=""
@@ -240,11 +243,11 @@ interface StepGroup {
                 } @else if (entry.type === 'ai') {
                   <app-ai-log-entry [entry]="entry" [idx]="idx" [iterationGrouped]="isWithinIteration(entry)" />
                 } @else {
-                  <div class="log-entry" [class]="'unified-type-' + entry.type" [class.iteration-grouped]="isWithinIteration(entry)">
+                  <div class="log-entry" [ngClass]="'unified-type-' + entry.type" [class.iteration-grouped]="isWithinIteration(entry)">
                     <div class="log-entry-header">
                       <span class="log-seq">#{{ idx + 1 }}</span>
                       <span class="log-time" [attr.title]="entry.timestamp">{{ formatTime(entry.timestamp) }}</span>
-                      <span class="unified-type-badge" [class]="'ubadge-' + entry.type">{{ entry.type | uppercase }}</span>
+                      <span class="unified-type-badge" [ngClass]="'ubadge-' + entry.type">{{ entry.type | uppercase }}</span>
                       @if (entry.level) { <span class="log-level-badge log-badge-{{ entry.level.toLowerCase() }}">{{ entry.level }}</span> }
                       @if (entry.service) { <span class="log-service">{{ entry.service }}</span> }
                       <span class="log-message">{{ entry.message }}</span>
@@ -293,11 +296,11 @@ interface StepGroup {
                             <span class="log-time" [attr.title]="entry.timestamp">{{ formatTime(entry.timestamp) }}</span>
                           </div>
                         } @else {
-                          <div class="log-entry" [class]="'unified-type-' + entry.type" [class.iteration-grouped]="isWithinIteration(entry)">
+                          <div class="log-entry" [ngClass]="'unified-type-' + entry.type" [class.iteration-grouped]="isWithinIteration(entry)">
                             <div class="log-entry-header">
                               <span class="log-seq">#{{ idx + 1 }}</span>
                               <span class="log-time" [attr.title]="entry.timestamp">{{ formatTime(entry.timestamp) }}</span>
-                              <span class="unified-type-badge" [class]="'ubadge-' + entry.type">{{ entry.type | uppercase }}</span>
+                              <span class="unified-type-badge" [ngClass]="'ubadge-' + entry.type">{{ entry.type | uppercase }}</span>
                               @if (entry.type === 'ai') {
                                 <span class="meta-chip provider-chip provider-{{ (entry.provider ?? '').toLowerCase() }}">{{ entry.provider }}</span>
                                 <code class="meta-chip model-chip">{{ entry.model }}</code>
@@ -398,7 +401,7 @@ interface StepGroup {
                           @if (convMessages(entry).length > 0) {
                             <div class="conv-turns">
                               @for (turn of convMessages(entry); track $index) {
-                                <div class="conv-turn" [class]="'conv-turn-' + turn.role">
+                                <div class="conv-turn" [ngClass]="'conv-turn-' + turn.role">
                                   <span class="conv-turn-role">{{ turn.role === 'user' ? '\u{1F464}' : '\u{1F916}' }}</span>
                                   @if (turn.toolName) { <span class="conv-tool-call">\u{1F527} {{ turn.toolName }}</span> }
                                   @if (turn.tokenCount) { <span class="conv-token-count">{{ turn.tokenCount | number }} tokens</span> }
@@ -485,7 +488,7 @@ interface StepGroup {
                       @if (convMessages(entry).length > 0) {
                         <div class="conv-turns">
                           @for (turn of convMessages(entry); track $index) {
-                            <div class="conv-turn" [class]="'conv-turn-' + turn.role">
+                            <div class="conv-turn" [ngClass]="'conv-turn-' + turn.role">
                               <span class="conv-turn-role">{{ turn.role === 'user' ? '\u{1F464}' : '\u{1F916}' }}</span>
                               @if (turn.toolName) { <span class="conv-tool-call">\u{1F527} {{ turn.toolName }}</span> }
                               @if (turn.tokenCount) { <span class="conv-token-count">{{ turn.tokenCount | number }} tokens</span> }
