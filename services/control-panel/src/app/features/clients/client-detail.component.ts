@@ -836,16 +836,16 @@ export class ClientDetailComponent implements OnInit {
     const tabParam = this.route.snapshot.queryParamMap.get('tab');
     if (tabParam !== null) {
       const tab = Number(tabParam);
-      if (Number.isInteger(tab) && tab >= 0 && tab <= 7) this.selectedTab.set(tab);
+      if (Number.isInteger(tab) && tab >= 0 && tab <= 10) this.selectedTab.set(tab);
     }
     this.load();
-    if (this.selectedTab() === 7) this.loadAiUsage();
+    if (this.selectedTab() === 10) this.loadAiUsage();
   }
 
   onTabChange(index: number): void {
     this.selectedTab.set(index);
     this.router.navigate([], { queryParams: { tab: index }, queryParamsHandling: 'merge', replaceUrl: true });
-    if (index === 7 && !this.aiUsageSummary()) this.loadAiUsage();
+    if (index === 10 && !this.aiUsageSummary()) this.loadAiUsage();
   }
 
   load(): void {
