@@ -1,89 +1,74 @@
 import { Component, inject, input, output, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatSelectModule } from '@angular/material/select';
-import { MatButtonModule } from '@angular/material/button';
-import { MatCheckboxModule } from '@angular/material/checkbox';
 import {
   SettingsService,
   TicketStatusConfig,
 } from '../../core/services/settings.service';
 import { ToastService } from '../../core/services/toast.service';
+import { FormFieldComponent, TextInputComponent, TextareaComponent, SelectComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({
   selector: 'app-status-config-dialog-content',
   standalone: true,
   imports: [
     FormsModule,
-    MatFormFieldModule,
-    MatInputModule,
-    MatSelectModule,
-    MatButtonModule,
-    MatCheckboxModule,
+    FormFieldComponent,
+    TextInputComponent,
+    TextareaComponent,
+    SelectComponent,
+    BroncoButtonComponent,
   ],
   template: `
-    @if (isCreate) {
-      <mat-form-field class="full-width">
-        <mat-label>Value</mat-label>
-        <input matInput [(ngModel)]="value" placeholder="e.g. OPEN" required>
-        <mat-hint>Must match a valid TicketStatus enum value</mat-hint>
-      </mat-form-field>
-    }
+    <div class="form-grid">
+      @if (isCreate) {
+        <app-form-field label="Value" hint="Must match a valid TicketStatus enum value">
+          <app-text-input [value]="value" placeholder="e.g. OPEN" (valueChange)="value = $event" />
+        </app-form-field>
+      }
 
-    <mat-form-field class="full-width">
-      <mat-label>Display Name</mat-label>
-      <input matInput [(ngModel)]="displayName">
-    </mat-form-field>
+      <app-form-field label="Display Name">
+        <app-text-input [value]="displayName" (valueChange)="displayName = $event" />
+      </app-form-field>
 
-    <mat-form-field class="full-width">
-      <mat-label>Description</mat-label>
-      <textarea matInput [(ngModel)]="description" rows="2"></textarea>
-    </mat-form-field>
+      <app-form-field label="Description">
+        <app-textarea [value]="description" [rows]="2" (valueChange)="description = $event" />
+      </app-form-field>
 
-    <mat-form-field class="full-width">
-      <mat-label>Color</mat-label>
-      <input matInput [(ngModel)]="color" placeholder="#2196f3">
-      <div matSuffix class="color-preview" [style.background]="color"></div>
-    </mat-form-field>
+      <app-form-field label="Color">
+        <div class="color-row">
+          <app-text-input [value]="color" placeholder="#2196f3" (valueChange)="color = $event" />
+          <span class="color-preview" [style.background]="color"></span>
+        </div>
+      </app-form-field>
 
-    <mat-form-field class="full-width">
-      <mat-label>Sort Order</mat-label>
-      <input matInput type="number" [(ngModel)]="sortOrder" min="0">
-    </mat-form-field>
+      <app-form-field label="Sort Order">
+        <app-text-input [value]="'' + sortOrder" type="number" (valueChange)="sortOrder = parseSortOrder($event)" />
+      </app-form-field>
 
-    <mat-form-field class="full-width">
-      <mat-label>Status Class</mat-label>
-      <mat-select [(ngModel)]="statusClass">
-        <mat-option value="open">Open</mat-option>
-        <mat-option value="closed">Closed</mat-option>
-      </mat-select>
-      <mat-hint>Determines whether tickets with this status are considered active or terminal</mat-hint>
-    </mat-form-field>
+      <app-form-field label="Status Class" hint="Determines whether tickets with this status are considered active or terminal">
+        <app-select [value]="statusClass" [options]="statusClassOptions" (valueChange)="setStatusClass($event)" />
+      </app-form-field>
 
-    @if (!isCreate) {
-      <mat-checkbox [(ngModel)]="isActive" class="active-checkbox">
-        Active
-      </mat-checkbox>
-    }
+      @if (!isCreate) {
+        <label class="checkbox-row">
+          <input type="checkbox" [(ngModel)]="isActive">
+          <span>Active</span>
+        </label>
+      }
+    </div>
 
     <div class="dialog-actions" dialogFooter>
-      <button mat-button (click)="cancelled.emit()">Cancel</button>
-      <button mat-raised-button color="primary" (click)="save()" [disabled]="!canSave()">
+      <app-bronco-button variant="ghost" (click)="cancelled.emit()">Cancel</app-bronco-button>
+      <app-bronco-button variant="primary" [disabled]="!canSave()" (click)="save()">
         {{ isCreate ? 'Create' : 'Update' }}
-      </button>
+      </app-bronco-button>
     </div>
   `,
   styles: [`
-    .full-width { width: 100%; margin-bottom: 8px; }
-    .active-checkbox { display: block; margin: 8px 0 16px; }
-    .color-preview {
-      width: 24px;
-      height: 24px;
-      border-radius: 4px;
-      border: 1px solid #ccc;
-      display: inline-block;
-    }
+    .form-grid { display: flex; flex-direction: column; gap: 12px; }
+    .color-row { display: flex; align-items: center; gap: 8px; }
+    .color-preview { width: 24px; height: 24px; border-radius: var(--radius-sm); border: 1px solid var(--border-medium); display: inline-block; flex-shrink: 0; }
+    .checkbox-row { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-secondary); cursor: pointer; }
     .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
   `],
 })
@@ -104,6 +89,11 @@ export class StatusConfigDialogComponent implements OnInit {
   statusClass: 'open' | 'closed' = 'open';
   isActive = true;
 
+  statusClassOptions = [
+    { value: 'open', label: 'Open' },
+    { value: 'closed', label: 'Closed' },
+  ];
+
   ngOnInit(): void {
     const c = this.config();
     if (c) {
@@ -116,6 +106,15 @@ export class StatusConfigDialogComponent implements OnInit {
       this.statusClass = (c.statusClass as 'open' | 'closed') ?? 'open';
       this.isActive = c.isActive;
     }
+  }
+
+  parseSortOrder(val: string): number {
+    const n = parseInt(val, 10);
+    return Number.isNaN(n) ? 0 : n;
+  }
+
+  setStatusClass(val: string): void {
+    this.statusClass = val as 'open' | 'closed';
   }
 
   canSave(): boolean {
