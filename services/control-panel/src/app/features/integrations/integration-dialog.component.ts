@@ -48,7 +48,7 @@ import { DialogComponent, FormFieldComponent, TextInputComponent, TextareaCompon
           <app-text-input [value]="imap.host" placeholder="imap.gmail.com" (valueChange)="imap.host = $event" />
         </app-form-field>
         <app-form-field label="IMAP Port">
-          <app-text-input [value]="'' + imap.port" type="number" (valueChange)="imap.port = +$event" />
+          <app-text-input [value]="'' + imap.port" type="number" (valueChange)="imap.port = parseIntInput($event, 993)" />
         </app-form-field>
         <app-form-field label="User">
           <app-text-input [value]="imap.user" (valueChange)="imap.user = $event; checkImapLoop()" />
@@ -61,7 +61,7 @@ import { DialogComponent, FormFieldComponent, TextInputComponent, TextareaCompon
             (valueChange)="imap.encryptedPassword = $event" />
         </app-form-field>
         <app-form-field label="Poll Interval (seconds)">
-          <app-text-input [value]="'' + imap.pollIntervalSeconds" type="number" (valueChange)="imap.pollIntervalSeconds = +$event" />
+          <app-text-input [value]="'' + imap.pollIntervalSeconds" type="number" (valueChange)="imap.pollIntervalSeconds = parseIntInput($event, 60)" />
         </app-form-field>
       }
 
@@ -83,7 +83,7 @@ import { DialogComponent, FormFieldComponent, TextInputComponent, TextareaCompon
           <app-text-input [value]="azdo.assignedUser" (valueChange)="azdo.assignedUser = $event" />
         </app-form-field>
         <app-form-field label="Poll Interval (seconds)">
-          <app-text-input [value]="'' + azdo.pollIntervalSeconds" type="number" (valueChange)="azdo.pollIntervalSeconds = +$event" />
+          <app-text-input [value]="'' + azdo.pollIntervalSeconds" type="number" (valueChange)="azdo.pollIntervalSeconds = parseIntInput($event, 120)" />
         </app-form-field>
       }
 
@@ -184,7 +184,7 @@ import { DialogComponent, FormFieldComponent, TextInputComponent, TextareaCompon
   `,
   styles: [`
     .form-grid { display: flex; flex-direction: column; gap: 12px; }
-    .loop-warning { background: var(--color-warning-subtle); border: 1px solid var(--color-warning); border-radius: var(--radius-md); padding: 10px 14px; font-size: 13px; color: var(--color-error); line-height: 1.4; }
+    .loop-warning { background: var(--color-warning-subtle); border: 1px solid var(--color-warning); border-radius: var(--radius-md); padding: 10px 14px; font-size: 13px; color: var(--color-warning); line-height: 1.4; }
     .tool-visibility-section { display: flex; align-items: center; gap: 12px; margin-top: 4px; border-top: 1px solid var(--border-light); padding-top: 12px; }
     .tool-summary { font-size: 13px; color: var(--text-secondary); flex: 1; }
     .disabled-count { color: var(--color-error); margin-left: 4px; }
@@ -298,6 +298,11 @@ export class IntegrationDialogComponent implements OnInit {
   onToolsApplied(result: Set<string>): void {
     this.disabledTools = result;
     this.showToolVisibility.set(false);
+  }
+
+  parseIntInput(val: string, fallback: number): number {
+    const n = parseInt(val, 10);
+    return Number.isNaN(n) ? fallback : n;
   }
 
   checkImapLoop(): void {

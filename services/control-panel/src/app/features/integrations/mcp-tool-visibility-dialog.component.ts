@@ -17,7 +17,7 @@ import { FormFieldComponent, SelectComponent, BroncoButtonComponent } from '../.
           @for (name of disabledToolList(); track name) {
             <span class="chip">
               {{ name }}
-              <button type="button" class="chip-remove" (click)="enable(name)">&times;</button>
+              <button type="button" class="chip-remove" [attr.aria-label]="'Enable ' + name" (click)="enable(name)">&times;</button>
             </span>
           }
         </div>

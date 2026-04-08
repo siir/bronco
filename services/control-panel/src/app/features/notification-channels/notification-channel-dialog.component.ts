@@ -32,7 +32,7 @@ import { FormFieldComponent, TextInputComponent, SelectComponent, BroncoButtonCo
           <app-text-input [value]="emailConfig.host" placeholder="smtp.gmail.com" (valueChange)="emailConfig.host = $event" />
         </app-form-field>
         <app-form-field label="SMTP Port">
-          <app-text-input [value]="'' + emailConfig.port" type="number" (valueChange)="emailConfig.port = +$event" />
+          <app-text-input [value]="'' + emailConfig.port" type="number" (valueChange)="emailConfig.port = parsePort($event)" />
         </app-form-field>
         <app-form-field label="SMTP User">
           <app-text-input [value]="emailConfig.user" (valueChange)="emailConfig.user = $event" />
@@ -129,6 +129,11 @@ export class NotificationChannelDialogComponent implements OnInit {
         };
       }
     }
+  }
+
+  parsePort(val: string): number {
+    const n = parseInt(val, 10);
+    return Number.isNaN(n) ? 587 : n;
   }
 
   save(): void {

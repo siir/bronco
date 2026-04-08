@@ -41,7 +41,7 @@ import { FormFieldComponent, TextInputComponent, TextareaComponent, BroncoButton
       </app-form-field>
 
       <app-form-field label="Sort Order">
-        <app-text-input [value]="'' + sortOrder" type="number" (valueChange)="sortOrder = +$event" />
+        <app-text-input [value]="'' + sortOrder" type="number" (valueChange)="sortOrder = parseSortOrder($event)" />
       </app-form-field>
 
       @if (!isCreate) {
@@ -94,6 +94,11 @@ export class CategoryConfigDialogComponent implements OnInit {
       this.sortOrder = c.sortOrder;
       this.isActive = c.isActive;
     }
+  }
+
+  parseSortOrder(val: string): number {
+    const n = parseInt(val, 10);
+    return Number.isNaN(n) ? 0 : n;
   }
 
   canSave(): boolean {

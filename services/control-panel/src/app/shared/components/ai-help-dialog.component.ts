@@ -41,7 +41,7 @@ interface ModelOption {
     </div>
 
     @if (loading()) {
-      <div class="progress-bar"><div class="progress-bar-fill"></div></div>
+      <div class="progress-bar" role="progressbar" aria-label="Loading AI response" aria-busy="true"><div class="progress-bar-fill"></div></div>
     }
 
     @if (response()) {

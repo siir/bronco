@@ -37,14 +37,14 @@ import { FormFieldComponent, TextInputComponent, SelectComponent, BroncoButtonCo
         <app-text-input
           [value]="'' + inputCostPer1m"
           type="number"
-          (valueChange)="inputCostPer1m = +$event" />
+          (valueChange)="inputCostPer1m = parseCost($event)" />
       </app-form-field>
 
       <app-form-field label="Output Cost ($/1M tokens)">
         <app-text-input
           [value]="'' + outputCostPer1m"
           type="number"
-          (valueChange)="outputCostPer1m = +$event" />
+          (valueChange)="outputCostPer1m = parseCost($event)" />
       </app-form-field>
 
       <label class="checkbox-row">
@@ -106,6 +106,11 @@ export class ModelCostDialogComponent implements OnInit {
       }
       this.providerOptions = providers.map(p => ({ value: p, label: p }));
     });
+  }
+
+  parseCost(val: string): number {
+    const n = parseFloat(val);
+    return Number.isNaN(n) ? 0 : n;
   }
 
   save(): void {

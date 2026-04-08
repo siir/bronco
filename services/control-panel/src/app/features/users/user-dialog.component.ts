@@ -84,6 +84,10 @@ export class UserDialogComponent implements OnInit {
 
   save(): void {
     const u = this.user();
+    if (!u && this.password.length < 8) {
+      this.toast.error('Password must be at least 8 characters');
+      return;
+    }
     if (u) {
       this.userService.updateUser(u.id, {
         name: this.name,

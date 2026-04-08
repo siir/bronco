@@ -33,7 +33,7 @@ import { FormFieldComponent, TextInputComponent, TextareaComponent, SelectCompon
       </app-form-field>
 
       <app-form-field label="Timeout (ms)">
-        <app-text-input [value]="'' + timeoutMs" type="number" (valueChange)="timeoutMs = +$event" />
+        <app-text-input [value]="'' + timeoutMs" type="number" (valueChange)="timeoutMs = parseTimeout($event)" />
       </app-form-field>
 
       <label class="checkbox-row">
@@ -108,6 +108,11 @@ export class ExternalServiceDialogComponent implements OnInit {
       case 'DOCKER': return 'Docker container name';
       default: return 'Full URL to probe';
     }
+  }
+
+  parseTimeout(val: string): number {
+    const n = parseInt(val, 10);
+    return Number.isNaN(n) || n <= 0 ? 5000 : n;
   }
 
   save(): void {
