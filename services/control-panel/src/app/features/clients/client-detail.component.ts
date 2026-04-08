@@ -40,6 +40,22 @@ import { MatSelectModule } from '@angular/material/select';
 import { AiUsageService, type AiUsageClientSummary, type AiUsageLogEntry } from '../../core/services/ai-usage.service';
 import { ToastService } from '../../core/services/toast.service';
 
+const CLIENT_DETAIL_TAB_SLUGS = [
+  'systems',
+  'contacts',
+  'repos',
+  'integrations',
+  'tickets',
+  'memory',
+  'environments',
+  'users',
+  'ai-credentials',
+  'invoices',
+  'ai-usage',
+] as const;
+type ClientDetailTabSlug = (typeof CLIENT_DETAIL_TAB_SLUGS)[number];
+const AI_USAGE_TAB_INDEX = CLIENT_DETAIL_TAB_SLUGS.indexOf('ai-usage');
+
 @Component({
   standalone: true,
   imports: [
@@ -835,17 +851,26 @@ export class ClientDetailComponent implements OnInit {
   ngOnInit(): void {
     const tabParam = this.route.snapshot.queryParamMap.get('tab');
     if (tabParam !== null) {
-      const tab = Number(tabParam);
-      if (Number.isInteger(tab) && tab >= 0 && tab <= 10) this.selectedTab.set(tab);
+      const slugIdx = (CLIENT_DETAIL_TAB_SLUGS as readonly string[]).indexOf(tabParam);
+      if (slugIdx >= 0) {
+        this.selectedTab.set(slugIdx);
+      } else {
+        // Backwards compat: numeric ?tab=N from older bookmarks.
+        const tab = Number(tabParam);
+        if (Number.isInteger(tab) && tab >= 0 && tab < CLIENT_DETAIL_TAB_SLUGS.length) {
+          this.selectedTab.set(tab);
+        }
+      }
     }
     this.load();
-    if (this.selectedTab() === 10) this.loadAiUsage();
+    if (this.selectedTab() === AI_USAGE_TAB_INDEX) this.loadAiUsage();
   }
 
   onTabChange(index: number): void {
     this.selectedTab.set(index);
-    this.router.navigate([], { queryParams: { tab: index }, queryParamsHandling: 'merge', replaceUrl: true });
-    if (index === 10 && !this.aiUsageSummary()) this.loadAiUsage();
+    const slug: ClientDetailTabSlug = CLIENT_DETAIL_TAB_SLUGS[index] ?? CLIENT_DETAIL_TAB_SLUGS[0];
+    this.router.navigate([], { queryParams: { tab: slug }, queryParamsHandling: 'merge', replaceUrl: true });
+    if (index === AI_USAGE_TAB_INDEX && !this.aiUsageSummary()) this.loadAiUsage();
   }
 
   load(): void {
