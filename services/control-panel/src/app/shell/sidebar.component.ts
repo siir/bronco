@@ -95,8 +95,8 @@ import { FailedJobsService } from '../core/services/failed-jobs.service';
       padding: 16px 16px 12px;
     }
     .brand-logo {
-      width: 28px;
-      height: 28px;
+      width: 100px;
+      height: 100px;
       border-radius: var(--radius-sm);
       flex-shrink: 0;
       object-fit: cover;
@@ -106,7 +106,7 @@ import { FailedJobsService } from '../core/services/failed-jobs.service';
       flex-direction: column;
     }
     .brand-name {
-      font-size: 16px;
+      font-size: 20px;
       font-weight: 600;
       color: var(--text-primary);
       line-height: 1.2;
