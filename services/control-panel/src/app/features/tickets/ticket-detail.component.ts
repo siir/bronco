@@ -125,6 +125,10 @@ interface StepGroup {
           </div>
         }
 
+        @if (flowNodes().length > 0) {
+          <app-ticket-detail-flow [nodes]="flowNodes()" />
+        }
+
         <app-tab-group
           class="info-tabs"
           [selectedIndex]="selectedTabIndex()"
@@ -556,10 +560,6 @@ interface StepGroup {
             </app-card>
           </app-tab>
         </app-tab-group>
-
-        @if (flowNodes().length > 0) {
-          <app-ticket-detail-flow [nodes]="flowNodes()" />
-        }
 
         <div class="reanalyze-bar">
           <app-bronco-button variant="secondary" (click)="reanalyze()" [disabled]="reanalyzing()">
