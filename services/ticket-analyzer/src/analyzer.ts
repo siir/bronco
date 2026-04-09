@@ -2040,7 +2040,7 @@ async function executeOrchestratedSubTask(
   agenticTools: AIToolDefinition[],
   mcpIntegrations: Map<string, McpIntegrationInfo>,
   repoIdByPrefix: Map<string, string>,
-  orchestration?: { id: string; iteration: number },
+  orchestration?: { id: string; iteration: number; parentLogId?: string },
   modelMap?: Record<string, string>,
 ): Promise<SubTaskResult> {
   const { ai } = deps;
@@ -2105,7 +2105,10 @@ async function executeOrchestratedSubTask(
     let hasToolError = false;
 
     if (tools.length > 0) {
-      const orchCtx = orchestration ? { orchestrationId: orchestration.id, orchestrationIteration: orchestration.iteration, isSubTask: true } : {};
+      const subTaskLogId = randomUUID();
+      const orchCtx = orchestration
+        ? { orchestrationId: orchestration.id, orchestrationIteration: orchestration.iteration, isSubTask: true, logId: subTaskLogId, ...(orchestration.parentLogId ? { parentLogId: orchestration.parentLogId, parentLogType: 'ai' } : {}) }
+        : { logId: subTaskLogId };
       const response = await ai.generateWithTools({
         taskType: TaskType.DEEP_ANALYSIS,
         context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, ...orchCtx },
@@ -2154,11 +2157,32 @@ async function executeOrchestratedSubTask(
             });
           }
           if (result.isError) hasToolError = true;
+
+          // Write AppLog so tool calls appear in the conversation tree
+          appLog.info(
+            `Orchestrated tool call: ${toolUse.name} (${elapsed}ms)`,
+            {
+              ticketId,
+              tool: toolUse.name,
+              durationMs: elapsed,
+              params: toolUse.input ? JSON.stringify(toolUse.input).slice(0, 1000) : null,
+              resultPreview: result.result?.slice(0, 500) ?? null,
+              isError: result.isError ?? false,
+              parentLogId: subTaskLogId,
+              parentLogType: 'ai',
+            },
+            ticketId,
+            'ticket',
+          );
         }
 
+        const summaryLogId = randomUUID();
+        const summaryOrchCtx = orchestration
+          ? { orchestrationId: orchestration.id, orchestrationIteration: orchestration.iteration, isSubTask: true, logId: summaryLogId, parentLogId: subTaskLogId, parentLogType: 'ai' }
+          : { logId: summaryLogId, parentLogId: subTaskLogId, parentLogType: 'ai' };
         const summaryResponse = await ai.generateWithTools({
           taskType: TaskType.DEEP_ANALYSIS,
-          context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, ...orchCtx },
+          context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, ...summaryOrchCtx },
           messages: [
             { role: 'user', content: task.prompt },
             { role: 'assistant', content: response.contentBlocks },
@@ -2204,7 +2228,10 @@ async function executeOrchestratedSubTask(
     }
 
     // No tools — pure analysis
-    const orchCtx = orchestration ? { orchestrationId: orchestration.id, orchestrationIteration: orchestration.iteration, isSubTask: true } : {};
+    const pureLogId = randomUUID();
+    const orchCtx = orchestration
+      ? { orchestrationId: orchestration.id, orchestrationIteration: orchestration.iteration, isSubTask: true, logId: pureLogId, ...(orchestration.parentLogId ? { parentLogId: orchestration.parentLogId, parentLogType: 'ai' } : {}) }
+      : { logId: pureLogId };
     const response = await ai.generate({
       taskType: TaskType.DEEP_ANALYSIS,
       context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, ...orchCtx },
@@ -2998,9 +3025,10 @@ async function executeRoutePipeline(
               strategistPrompt = `Continue the investigation. Here is the knowledge document so far:\n\n${currentRunContent}\n\n## Next Investigation Step\n${orchNextPrompt}`;
             }
 
+            const strategistLogId = randomUUID();
             const strategistResponse = await ai.generate({
               taskType: (step.taskTypeOverride ?? TaskType.DEEP_ANALYSIS) as TaskType,
-              context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!clientContext, orchestrationId, orchestrationIteration: i + 1 },
+              context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!clientContext, orchestrationId, orchestrationIteration: i + 1, logId: strategistLogId },
               prompt: strategistPrompt,
               systemPrompt: ORCHESTRATED_SYSTEM_PROMPT,
               providerOverride: 'CLAUDE',
@@ -3034,7 +3062,7 @@ async function executeRoutePipeline(
             const taskBatches = chunkArray(plan.tasks, maxParallelTasks);
             for (const batch of taskBatches) {
               const results = await Promise.allSettled(
-                batch.map(task => executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, environmentContext, task, agenticTools, mcpIntegrations, repoIdByPrefix, { id: orchestrationId, iteration: i + 1 }, orchModelMap)),
+                batch.map(task => executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, environmentContext, task, agenticTools, mcpIntegrations, repoIdByPrefix, { id: orchestrationId, iteration: i + 1, parentLogId: strategistLogId }, orchModelMap)),
               );
 
               for (let j = 0; j < results.length; j++) {
@@ -3048,7 +3076,7 @@ async function executeRoutePipeline(
                 } else {
                   // Retry once on failure
                   try {
-                    const retryResult = await executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, environmentContext, task, agenticTools, mcpIntegrations, repoIdByPrefix);
+                    const retryResult = await executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, environmentContext, task, agenticTools, mcpIntegrations, repoIdByPrefix, { id: orchestrationId, iteration: i + 1, parentLogId: strategistLogId }, orchModelMap);
                     knowledgeDoc += `\n\n#### ${task.prompt} (retry)\n${retryResult.content}`;
                     orchTotalInputTokens += retryResult.inputTokens;
                     orchTotalOutputTokens += retryResult.outputTokens;
@@ -3196,8 +3224,10 @@ async function executeRoutePipeline(
 
         let finalAnalysis = '';
         let iterationsRun = 0;
+        let previousAiCallId: string | undefined;
         for (let i = 0; i < maxIterations; i++) {
           iterationsRun = i + 1;
+          const aiCallId = randomUUID();
           appLog.info(`Agentic analysis iteration ${i + 1}/${maxIterations}`, { ticketId, iteration: i + 1 }, ticketId, 'ticket');
 
           let response: AIToolResponse;
@@ -3207,7 +3237,7 @@ async function executeRoutePipeline(
               systemPrompt: agenticSystemPrompt,
               tools: agenticTools,
               messages,
-              context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!(clientContext || environmentContext) },
+              context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!(clientContext || environmentContext), logId: aiCallId, ...(previousAiCallId ? { parentLogId: previousAiCallId, parentLogType: 'ai' } : {}) },
               maxTokens: 4096,
             });
           } catch (error) {
@@ -3303,6 +3333,8 @@ async function executeRoutePipeline(
                 params: toolUse.input ? JSON.stringify(toolUse.input).slice(0, 1000) : null,
                 resultPreview: result.result?.slice(0, 2000) ?? null,
                 isError: result.isError ?? false,
+                parentLogId: aiCallId,
+                parentLogType: 'ai',
               },
               ticketId,
               'ticket',
@@ -3311,6 +3343,7 @@ async function executeRoutePipeline(
 
           // Append tool results as user message
           messages.push({ role: 'user', content: toolResults as AIToolResultBlock[] });
+          previousAiCallId = aiCallId;
         }
 
         if (!finalAnalysis) {
