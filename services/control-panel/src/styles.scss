@@ -1,55 +1,40 @@
-@use '@angular/material' as mat;
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 html, body {
   height: 100%;
   margin: 0;
-  font-family: Roboto, "Helvetica Neue", sans-serif;
-}
-
-:root {
-  @include mat.all-component-themes(mat.define-theme((
-    color: (
-      theme-type: light,
-      primary: mat.$azure-palette,
-      tertiary: mat.$blue-palette,
-    ),
-    density: (
-      scale: -1,
-    ),
-  )));
+  font-family: var(--font-primary, -apple-system, 'SF Pro Text', 'Helvetica Neue', Helvetica, Arial, sans-serif);
 }
 
 .spacer {
   flex: 1 1 auto;
 }
 
-.mat-mdc-snack-bar-container {
-  &.error-snackbar {
-    --mdc-snackbar-container-color: #d32f2f;
-    --mdc-snackbar-supporting-text-color: white;
-  }
-  &.success-snackbar {
-    --mdc-snackbar-container-color: #388e3c;
-    --mdc-snackbar-supporting-text-color: white;
-  }
-  &.warn-snackbar {
-    --mdc-snackbar-container-color: #f57c00;
-    --mdc-snackbar-supporting-text-color: white;
-  }
+/*
+ * app-dialog footer styling.
+ *
+ * The DialogComponent renders a single body slot via <ng-content />. Action
+ * buttons live inside *-dialog-content components (one level deeper than
+ * <app-dialog>'s direct children), so a dedicated footer projection slot
+ * cannot reach them via Angular's content projection. Instead we mark those
+ * action containers with the `dialogFooter` attribute and style them globally
+ * to mimic a real footer (top border, padding extending to the body edges).
+ * Global styles work here because they bypass component view encapsulation
+ * and reach into projected content.
+ */
+app-dialog .dialog-body [dialogFooter] {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 16px -20px -20px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border-light);
 }
 
+
 @media (max-width: 767px) {
-  .mat-mdc-table {
-    display: block;
-    overflow-x: auto;
-  }
-  .mat-mdc-dialog-container {
-    max-width: 95vw !important;
-  }
-  .mat-mdc-card {
-    margin-left: 0 !important;
-    margin-right: 0 !important;
-  }
   h1 { font-size: 1.5rem; }
   h2 { font-size: 1.25rem; }
 }

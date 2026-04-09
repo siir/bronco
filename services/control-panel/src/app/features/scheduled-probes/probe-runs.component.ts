@@ -1,448 +1,679 @@
 import { Component, inject, OnInit, OnDestroy, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { FormsModule } from '@angular/forms';
 import { Clipboard, ClipboardModule } from '@angular/cdk/clipboard';
-import { MatCardModule } from '@angular/material/card';
-import { MatTableModule } from '@angular/material/table';
-import { MatButtonModule } from '@angular/material/button';
-import { MatIconModule } from '@angular/material/icon';
-import { MatSelectModule } from '@angular/material/select';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatTooltipModule } from '@angular/material/tooltip';
-import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { DatePipe, DecimalPipe, SlicePipe } from '@angular/common';
+import {
+  BroncoButtonComponent,
+  CardComponent,
+  DataTableComponent,
+  DataTableColumnComponent,
+  FormFieldComponent,
+  TextInputComponent,
+  SelectComponent,
+  PaginatorComponent,
+  IconComponent,
+  type PaginatorPageEvent,
+} from '../../shared/components/index.js';
 import {
   ScheduledProbeService,
   ScheduledProbe,
   ProbeRun,
   ProbeRunStep,
 } from '../../core/services/scheduled-probe.service';
+import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   standalone: true,
   imports: [
-    FormsModule,
     RouterLink,
     ClipboardModule,
-    MatCardModule,
-    MatTableModule,
-    MatButtonModule,
-    MatIconModule,
-    MatSelectModule,
-    MatFormFieldModule,
-    MatInputModule,
-    MatTooltipModule,
-    MatProgressSpinnerModule,
     DatePipe,
     DecimalPipe,
     SlicePipe,
+    BroncoButtonComponent,
+    CardComponent,
+    DataTableComponent,
+    DataTableColumnComponent,
+    FormFieldComponent,
+    TextInputComponent,
+    SelectComponent,
+    PaginatorComponent,
+    IconComponent,
   ],
   template: `
-    <div class="page-header">
-      <div>
-        <a routerLink="/scheduled-probes" class="back-link">
-          <mat-icon>arrow_back</mat-icon> Back to Probes
-        </a>
-        @if (probe()) {
-          <h1>
-            {{ probe()!.name }}
-            <span class="badge" [class]="probe()!.isActive ? 'badge-active' : 'badge-inactive'">
-              {{ probe()!.isActive ? 'Active' : 'Inactive' }}
-            </span>
-          </h1>
-          @if (probe()!.description) {
-            <p class="probe-desc">{{ probe()!.description }}</p>
+    <div class="page-wrapper">
+      <div class="page-header">
+        <div class="header-left">
+          <app-bronco-button variant="ghost" size="sm" routerLink="/scheduled-probes"><app-icon name="back" size="sm" /> Back to Probes</app-bronco-button>
+          @if (probe()) {
+            <h1 class="page-title">
+              {{ probe()!.name }}
+              <span class="badge" [class]="probe()!.isActive ? 'badge-active' : 'badge-inactive'">
+                {{ probe()!.isActive ? 'Active' : 'Inactive' }}
+              </span>
+            </h1>
+            @if (probe()!.description) {
+              <p class="probe-desc">{{ probe()!.description }}</p>
+            }
           }
-        }
+        </div>
+        <div class="header-actions">
+          <app-bronco-button variant="destructive" size="sm" (click)="purgeHistory()" [disabled]="purging">
+            Purge History
+          </app-bronco-button>
+        </div>
       </div>
-      <div class="header-actions">
-        <button mat-stroked-button color="warn" (click)="purgeHistory()" [disabled]="purging">
-          <mat-icon>delete_sweep</mat-icon> Purge History
-        </button>
-      </div>
-    </div>
 
-    <!-- Retention settings -->
-    @if (probe()) {
-      <mat-card class="retention-card">
-        <mat-card-content>
+      <!-- Retention settings -->
+      @if (probe()) {
+        <app-card padding="md" class="retention-card">
           <div class="retention-row">
-            <span class="retention-label">Retention:</span>
-            <mat-form-field appearance="outline" class="retention-field">
-              <mat-label>Days</mat-label>
-              <input matInput type="number" [(ngModel)]="retentionDays" min="1" max="365">
-            </mat-form-field>
-            <mat-form-field appearance="outline" class="retention-field">
-              <mat-label>Max Runs</mat-label>
-              <input matInput type="number" [(ngModel)]="retentionMaxRuns" min="5" max="10000">
-            </mat-form-field>
-            <button mat-raised-button color="primary" (click)="saveRetention()" [disabled]="!canSaveRetention">
+            <span class="retention-label">Retention</span>
+            <app-form-field label="Days">
+              <app-text-input
+                type="number"
+                [value]="retentionDays + ''"
+                (valueChange)="retentionDays = parseIntSafe($event)" />
+            </app-form-field>
+            <app-form-field label="Max Runs">
+              <app-text-input
+                type="number"
+                [value]="retentionMaxRuns + ''"
+                (valueChange)="retentionMaxRuns = parseIntSafe($event)" />
+            </app-form-field>
+            <app-bronco-button variant="primary" size="sm" (click)="saveRetention()" [disabled]="!canSaveRetention">
               Save
-            </button>
+            </app-bronco-button>
           </div>
-        </mat-card-content>
-      </mat-card>
-    }
+        </app-card>
+      }
 
-    <!-- Live status banner -->
-    @if (currentRun()) {
-      <mat-card class="live-banner">
-        <mat-card-content>
+      <!-- Live status banner -->
+      @if (currentRun()) {
+        <app-card padding="md" class="live-banner">
           <div class="live-header">
-            <mat-progress-spinner diameter="20" mode="indeterminate"></mat-progress-spinner>
+            <span class="spinner"></span>
             <span class="live-title">Running</span>
             <span class="live-elapsed">{{ getElapsed(currentRun()!) }}</span>
           </div>
           <div class="step-list">
             @for (step of currentRun()!.steps ?? []; track step.id) {
-              <div class="step-item" [class]="'step-' + step.status">
+              <div class="step-item">
                 @if (step.status === 'success') {
-                  <mat-icon class="step-icon done">check_circle</mat-icon>
+                  <span class="step-icon step-success" aria-hidden="true"><app-icon name="check" size="xs" /></span>
                 } @else if (step.status === 'running') {
-                  <mat-icon class="step-icon running">sync</mat-icon>
+                  <span class="step-icon step-running" aria-hidden="true">
+                    <span class="spinner spinner-sm"></span>
+                  </span>
                 } @else if (step.status === 'error') {
-                  <mat-icon class="step-icon error">error</mat-icon>
+                  <span class="step-icon step-error" aria-hidden="true"><app-icon name="close" size="xs" /></span>
                 } @else if (step.status === 'skipped') {
-                  <mat-icon class="step-icon skipped">skip_next</mat-icon>
+                  <span class="step-icon step-skipped" aria-hidden="true"><app-icon name="rotate" size="xs" /></span>
                 } @else {
-                  <mat-icon class="step-icon pending">radio_button_unchecked</mat-icon>
+                  <span class="step-icon step-pending" aria-hidden="true"><app-icon name="pending" size="xs" /></span>
                 }
                 <span class="step-name">{{ step.stepName }}</span>
-                @if (step.status === 'running') {
-                  <mat-progress-spinner diameter="14" mode="indeterminate" class="step-spinner"></mat-progress-spinner>
-                }
               </div>
             }
           </div>
-        </mat-card-content>
-      </mat-card>
-    }
+        </app-card>
+      }
 
-    <!-- Filters -->
-    <div class="filters">
-      <mat-form-field appearance="outline" class="filter-field">
-        <mat-label>Status</mat-label>
-        <mat-select [(ngModel)]="filterStatus" (selectionChange)="page = 0; loadRuns()">
-          <mat-option value="">All</mat-option>
-          <mat-option value="success">Success</mat-option>
-          <mat-option value="error">Error</mat-option>
-          <mat-option value="skipped">Skipped</mat-option>
-          <mat-option value="running">Running</mat-option>
-        </mat-select>
-      </mat-form-field>
-      <span class="total-count">{{ total() }} runs total</span>
-    </div>
+      <!-- Filters -->
+      <div class="filters">
+        <div class="filter-field">
+          <app-form-field label="Status">
+            <app-select
+              [value]="filterStatus"
+              [options]="statusOptions"
+              (valueChange)="onStatusFilter($event)" />
+          </app-form-field>
+        </div>
+        <span class="total-count">{{ total() }} runs total</span>
+      </div>
 
-    <!-- History table -->
-    @if (runs().length === 0) {
-      <mat-card class="empty-card">
-        <p class="empty">No probe runs found.</p>
-      </mat-card>
-    } @else {
-      <table mat-table [dataSource]="runs()" class="full-width runs-table" multiTemplateDataRows>
-        <ng-container matColumnDef="status">
-          <th mat-header-cell *matHeaderCellDef>Status</th>
-          <td mat-cell *matCellDef="let r">
-            <span class="badge" [class]="'badge-status-' + r.status">{{ r.status }}</span>
-          </td>
-        </ng-container>
+      <!-- History table -->
+      @if (runs().length === 0) {
+        <app-card padding="md">
+          <p class="empty-state">No probe runs found.</p>
+        </app-card>
+      } @else {
+        <app-data-table
+          [data]="runs()"
+          [trackBy]="trackByRunId"
+          (rowClick)="toggleExpand($event)"
+          emptyMessage="No probe runs found">
 
-        <ng-container matColumnDef="startedAt">
-          <th mat-header-cell *matHeaderCellDef>Started</th>
-          <td mat-cell *matCellDef="let r">{{ r.startedAt | date:'short' }}</td>
-        </ng-container>
+          <app-data-column key="status" header="Status" width="100px" [sortable]="false">
+            <ng-template #cell let-r>
+              <span class="badge" [class]="'badge-status-' + r.status">{{ r.status }}</span>
+            </ng-template>
+          </app-data-column>
 
-        <ng-container matColumnDef="duration">
-          <th mat-header-cell *matHeaderCellDef>Duration</th>
-          <td mat-cell *matCellDef="let r">{{ formatDuration(r.durationMs) }}</td>
-        </ng-container>
+          <app-data-column key="startedAt" header="Started" width="160px" [sortable]="false">
+            <ng-template #cell let-r>{{ r.startedAt | date:'short' }}</ng-template>
+          </app-data-column>
 
-        <ng-container matColumnDef="triggeredBy">
-          <th mat-header-cell *matHeaderCellDef>Triggered</th>
-          <td mat-cell *matCellDef="let r">
-            <span class="badge" [class]="'badge-trigger-' + r.triggeredBy">{{ r.triggeredBy }}</span>
-          </td>
-        </ng-container>
+          <app-data-column key="duration" header="Duration" width="100px" [sortable]="false">
+            <ng-template #cell let-r>{{ formatDuration(r.durationMs) }}</ng-template>
+          </app-data-column>
 
-        <ng-container matColumnDef="result">
-          <th mat-header-cell *matHeaderCellDef>Result</th>
-          <td mat-cell *matCellDef="let r">
-            @if (r.error) {
-              <span class="error-text" [matTooltip]="r.error">{{ r.error | slice:0:80 }}</span>
-            } @else if (r.result) {
-              <span [matTooltip]="r.result">{{ r.result | slice:0:80 }}</span>
-            }
-          </td>
-        </ng-container>
+          <app-data-column key="triggeredBy" header="Triggered" width="120px" [sortable]="false">
+            <ng-template #cell let-r>
+              <span class="badge" [class]="'badge-trigger-' + r.triggeredBy">{{ r.triggeredBy }}</span>
+            </ng-template>
+          </app-data-column>
 
-        <ng-container matColumnDef="steps">
-          <th mat-header-cell *matHeaderCellDef>Steps</th>
-          <td mat-cell *matCellDef="let r">{{ r._count?.steps ?? 0 }}</td>
-        </ng-container>
+          <app-data-column key="result" header="Result" [sortable]="false">
+            <ng-template #cell let-r>
+              @if (r.error) {
+                <span class="error-text" [attr.title]="r.error">{{ r.error | slice:0:80 }}</span>
+              } @else if (r.result) {
+                <span [attr.title]="r.result">{{ r.result | slice:0:80 }}</span>
+              }
+            </ng-template>
+          </app-data-column>
 
-        <ng-container matColumnDef="expand">
-          <th mat-header-cell *matHeaderCellDef></th>
-          <td mat-cell *matCellDef="let r">
-            <button mat-icon-button (click)="toggleExpand(r); $event.stopPropagation()"
-              [attr.aria-label]="expandedRunId === r.id ? 'Collapse run details' : 'Expand run details'"
-              [attr.aria-expanded]="expandedRunId === r.id">
-              <mat-icon>{{ expandedRunId === r.id ? 'expand_less' : 'expand_more' }}</mat-icon>
-            </button>
-          </td>
-        </ng-container>
+          <app-data-column key="steps" header="Steps" width="80px" [sortable]="false">
+            <ng-template #cell let-r>{{ r._count?.steps ?? 0 }}</ng-template>
+          </app-data-column>
 
-        <!-- Expanded detail row -->
-        <ng-container matColumnDef="expandedDetail">
-          <td mat-cell *matCellDef="let r" [attr.colspan]="columns.length">
-            @if (expandedRunId === r.id && expandedRun()) {
-              <div class="expanded-detail">
-                @for (step of expandedRun()!.steps ?? []; track step.id) {
-                  <div class="detail-step" [class]="'detail-step-' + step.status">
-                    <div class="detail-step-header">
-                      <span class="detail-step-order">{{ step.stepOrder }}.</span>
-                      <span class="detail-step-name">{{ step.stepName }}</span>
-                      <span class="badge small" [class]="'badge-status-' + step.status">{{ step.status }}</span>
-                      @if (step.startedAt && step.completedAt) {
-                        <span class="detail-step-duration">{{ formatStepDuration(step) }}</span>
-                      }
-                    </div>
-                    @if (step.error) {
-                      <div class="detail-step-error">{{ step.error }}</div>
+          <app-data-column key="expand" header="" width="60px" [sortable]="false">
+            <ng-template #cell let-r>
+              <div (click)="$event.stopPropagation()">
+                <app-bronco-button
+                  variant="icon"
+                  size="sm"
+                  (click)="toggleExpand(r)"
+                  [ariaLabel]="expandedRunId === r.id ? 'Collapse run details' : 'Expand run details'"
+                  [ariaExpanded]="expandedRunId === r.id">
+                  <app-icon [name]="expandedRunId === r.id ? 'chevron-up' : 'chevron-down'" size="sm" />
+                </app-bronco-button>
+              </div>
+            </ng-template>
+          </app-data-column>
+        </app-data-table>
+
+        <!-- Pagination -->
+        @if (total() > pageSize) {
+          <app-paginator
+            [length]="total()"
+            [pageSize]="pageSize"
+            [pageIndex]="page"
+            [pageSizeOptions]="[20, 50, 100]"
+            (page)="onPageChange($event)" />
+        }
+
+        <!-- Expanded run detail (rendered below table since data-table doesn't support expandable rows) -->
+        @if (expandedRunId && expandedRun()) {
+          <app-card padding="md" class="expanded-detail-panel">
+            <div class="expanded-detail-header">
+              <h3 class="expanded-detail-title">Run Detail</h3>
+              <app-bronco-button variant="ghost" size="sm" (click)="closeExpand()">Close</app-bronco-button>
+            </div>
+            <div class="expanded-detail">
+              @for (step of expandedRun()!.steps ?? []; track step.id) {
+                <div class="detail-step" [class]="'detail-step-' + step.status">
+                  <div class="detail-step-header">
+                    <span class="detail-step-order">{{ step.stepOrder }}.</span>
+                    <span class="detail-step-name">{{ step.stepName }}</span>
+                    <span class="badge small" [class]="'badge-status-' + step.status">{{ step.status }}</span>
+                    @if (step.startedAt && step.completedAt) {
+                      <span class="detail-step-duration">{{ formatStepDuration(step) }}</span>
                     }
-                    @if (step.detail) {
-                      <!-- Step-specific rich output -->
-                      @if (isIntegrationStep(step)) {
-                        <div class="step-output-section">
-                          <div class="step-meta-row">
-                            <span class="meta-label">MCP Server URL</span>
-                            <code class="meta-value">{{ step.detail }}</code>
-                          </div>
+                  </div>
+                  @if (step.error) {
+                    <div class="detail-step-error">{{ step.error }}</div>
+                  }
+                  @if (step.detail) {
+                    @if (isIntegrationStep(step)) {
+                      <div class="step-output-section">
+                        <div class="step-meta-row">
+                          <span class="meta-label">MCP Server URL</span>
+                          <code class="meta-value">{{ step.detail }}</code>
                         </div>
-                      } @else if (isToolResultStep(step)) {
-                        <div class="step-output-section">
-                          <div class="step-meta-row">
-                            <span class="meta-label">Tool (current config)</span>
-                            <span class="badge badge-tool">{{ probe()?.toolName }}</span>
-                          </div>
-                          @if (getSystemParam()) {
-                            <div class="step-meta-row">
-                              <span class="meta-label">System (current config)</span>
-                              <span class="badge badge-system">{{ getSystemParam() }}</span>
-                            </div>
-                          }
-                          <div class="step-result-block">
-                            <div class="result-toolbar">
-                              <span class="result-label">Result</span>
-                              <button mat-icon-button class="copy-btn" matTooltip="Copy to clipboard"
-                                aria-label="Copy result to clipboard"
-                                (click)="copyToClipboard(step.detail); $event.stopPropagation()">
-                                <mat-icon class="copy-icon">content_copy</mat-icon>
-                              </button>
-                            </div>
-                            @if (step.detail.length > 500 && !isStepExpanded(step.id)) {
-                              <pre class="detail-pre">{{ step.detail.slice(0, 500) }}…</pre>
-                              <button mat-button class="expand-btn" (click)="toggleStepExpand(step.id); $event.stopPropagation()">
-                                Show full result ({{ step.detail.length | number }} chars)
-                              </button>
-                            } @else {
-                              @if (getFormattedJson(step.id) !== null) {
-                                <pre class="detail-pre detail-pre-json">{{ getFormattedJson(step.id) }}</pre>
-                              } @else {
-                                <pre class="detail-pre">{{ step.detail }}</pre>
-                              }
-                              @if (step.detail.length > 500) {
-                                <button mat-button class="expand-btn" (click)="toggleStepExpand(step.id); $event.stopPropagation()">
-                                  Collapse
-                                </button>
-                              }
-                            }
-                          </div>
+                      </div>
+                    } @else if (isToolResultStep(step)) {
+                      <div class="step-output-section">
+                        <div class="step-meta-row">
+                          <span class="meta-label">Tool (current config)</span>
+                          <span class="badge badge-tool">{{ probe()?.toolName }}</span>
                         </div>
-                      } @else if (isEvaluateStep(step)) {
-                        <div class="step-output-section">
+                        @if (getSystemParam()) {
                           <div class="step-meta-row">
-                            <span class="meta-label">Evaluation</span>
-                            <span class="eval-result" [class.eval-nonempty]="step.detail.includes('non-empty')"
-                              [class.eval-empty]="step.status === 'skipped'">
-                              {{ step.detail }}
-                            </span>
+                            <span class="meta-label">System (current config)</span>
+                            <span class="badge badge-system">{{ getSystemParam() }}</span>
                           </div>
-                        </div>
-                      } @else if (isIngestStep(step)) {
-                        <div class="step-output-section">
-                          <div class="step-meta-row">
-                            <span class="meta-label">Status</span>
-                            <span class="badge badge-status-success">{{ step.detail }}</span>
-                          </div>
-                          @if (probe()?.toolName) {
-                            <div class="step-meta-row">
-                              <span class="meta-label">Tool</span>
-                              <span class="badge badge-tool">{{ probe()?.toolName }}</span>
-                            </div>
-                          }
-                          @if (probe()?.category) {
-                            <div class="step-meta-row">
-                              <span class="meta-label">Category</span>
-                              <span class="badge badge-category">{{ probe()?.category }}</span>
-                            </div>
-                          }
-                          <div class="step-meta-row">
-                            <span class="meta-label">Source</span>
-                            <span class="badge badge-trigger-schedule">SCHEDULED</span>
-                          </div>
-                        </div>
-                      } @else {
-                        <!-- Generic fallback for other steps -->
-                        <details class="detail-step-output">
-                          <summary>Output</summary>
+                        }
+                        <div class="step-result-block">
                           <div class="result-toolbar">
-                            <span></span>
-                            <button mat-icon-button class="copy-btn" matTooltip="Copy to clipboard"
-                              aria-label="Copy step output to clipboard"
-                              (click)="copyToClipboard(step.detail); $event.stopPropagation()">
-                              <mat-icon class="copy-icon">content_copy</mat-icon>
-                            </button>
+                            <span class="result-label">Result</span>
+                            <app-bronco-button
+                              variant="icon"
+                              size="sm"
+                              [ariaLabel]="'Copy result to clipboard'"
+                              (click)="copyToClipboard(step.detail!); $event.stopPropagation()">
+                              <app-icon name="copy" size="sm" />
+                            </app-bronco-button>
                           </div>
                           @if (step.detail.length > 500 && !isStepExpanded(step.id)) {
                             <pre class="detail-pre">{{ step.detail.slice(0, 500) }}…</pre>
-                            <button mat-button class="expand-btn" (click)="toggleStepExpand(step.id); $event.stopPropagation()">
-                              Show full output ({{ step.detail.length | number }} chars)
-                            </button>
+                            <app-bronco-button variant="ghost" size="sm" (click)="toggleStepExpand(step.id); $event.stopPropagation()">
+                              Show full result ({{ step.detail.length | number }} chars)
+                            </app-bronco-button>
                           } @else {
-                            <pre class="detail-pre">{{ step.detail }}</pre>
+                            @if (getFormattedJson(step.id) !== null) {
+                              <pre class="detail-pre detail-pre-json">{{ getFormattedJson(step.id) }}</pre>
+                            } @else {
+                              <pre class="detail-pre">{{ step.detail }}</pre>
+                            }
                             @if (step.detail.length > 500) {
-                              <button mat-button class="expand-btn" (click)="toggleStepExpand(step.id); $event.stopPropagation()">
+                              <app-bronco-button variant="ghost" size="sm" (click)="toggleStepExpand(step.id); $event.stopPropagation()">
                                 Collapse
-                              </button>
+                              </app-bronco-button>
                             }
                           }
-                        </details>
-                      }
+                        </div>
+                      </div>
+                    } @else if (isEvaluateStep(step)) {
+                      <div class="step-output-section">
+                        <div class="step-meta-row">
+                          <span class="meta-label">Evaluation</span>
+                          <span class="eval-result"
+                            [class.eval-nonempty]="step.detail.includes('non-empty')"
+                            [class.eval-empty]="step.status === 'skipped'">
+                            {{ step.detail }}
+                          </span>
+                        </div>
+                      </div>
+                    } @else if (isIngestStep(step)) {
+                      <div class="step-output-section">
+                        <div class="step-meta-row">
+                          <span class="meta-label">Status</span>
+                          <span class="badge badge-status-success">{{ step.detail }}</span>
+                        </div>
+                        @if (probe()?.toolName) {
+                          <div class="step-meta-row">
+                            <span class="meta-label">Tool</span>
+                            <span class="badge badge-tool">{{ probe()?.toolName }}</span>
+                          </div>
+                        }
+                        @if (probe()?.category) {
+                          <div class="step-meta-row">
+                            <span class="meta-label">Category</span>
+                            <span class="badge badge-category">{{ probe()?.category }}</span>
+                          </div>
+                        }
+                        <div class="step-meta-row">
+                          <span class="meta-label">Source</span>
+                          <span class="badge badge-trigger-schedule">SCHEDULED</span>
+                        </div>
+                      </div>
+                    } @else {
+                      <details class="detail-step-output">
+                        <summary>Output</summary>
+                        <div class="result-toolbar">
+                          <span></span>
+                          <app-bronco-button
+                            variant="icon"
+                            size="sm"
+                            [ariaLabel]="'Copy step output to clipboard'"
+                            (click)="copyToClipboard(step.detail!); $event.stopPropagation()">
+                            <app-icon name="copy" size="sm" />
+                          </app-bronco-button>
+                        </div>
+                        @if (step.detail.length > 500 && !isStepExpanded(step.id)) {
+                          <pre class="detail-pre">{{ step.detail.slice(0, 500) }}…</pre>
+                          <app-bronco-button variant="ghost" size="sm" (click)="toggleStepExpand(step.id); $event.stopPropagation()">
+                            Show full output ({{ step.detail.length | number }} chars)
+                          </app-bronco-button>
+                        } @else {
+                          <pre class="detail-pre">{{ step.detail }}</pre>
+                          @if (step.detail.length > 500) {
+                            <app-bronco-button variant="ghost" size="sm" (click)="toggleStepExpand(step.id); $event.stopPropagation()">
+                              Collapse
+                            </app-bronco-button>
+                          }
+                        }
+                      </details>
                     }
-                  </div>
-                }
-              </div>
-            }
-          </td>
-        </ng-container>
-
-        <tr mat-header-row *matHeaderRowDef="columns"></tr>
-        <tr mat-row *matRowDef="let row; columns: columns;"
-            class="run-row"
-            [class.expanded-row]="expandedRunId === row.id"
-            (click)="toggleExpand(row)"></tr>
-        <tr mat-row *matRowDef="let row; columns: ['expandedDetail']"
-            class="detail-row"
-            [class.detail-row-visible]="expandedRunId === row.id"></tr>
-      </table>
-
-      <!-- Pagination -->
-      @if (total() > pageSize) {
-        <div class="pagination">
-          <button mat-button [disabled]="page === 0" (click)="page = page - 1; loadRuns()">Previous</button>
-          <span>Page {{ page + 1 }} of {{ totalPages() }}</span>
-          <button mat-button [disabled]="page >= totalPages() - 1" (click)="page = page + 1; loadRuns()">Next</button>
-        </div>
+                  }
+                </div>
+              }
+            </div>
+          </app-card>
+        }
       }
-    }
+    </div>
   `,
   styles: [`
-    .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
-    .page-header h1 { margin: 8px 0 0; display: flex; align-items: center; gap: 8px; }
-    .back-link { display: inline-flex; align-items: center; gap: 4px; text-decoration: none; color: #1565c0; font-size: 14px; }
-    .probe-desc { color: #666; margin: 4px 0 0; }
+    .page-wrapper { max-width: 1200px; }
+
+    .page-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      gap: 16px;
+    }
+    .header-left { display: flex; flex-direction: column; gap: 4px; }
+    .page-title {
+      margin: 8px 0 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--font-primary);
+      font-size: 24px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .probe-desc {
+      color: var(--text-tertiary);
+      margin: 4px 0 0;
+      font-family: var(--font-primary);
+      font-size: 13px;
+    }
     .header-actions { display: flex; gap: 8px; align-items: center; }
 
     .retention-card { margin-bottom: 16px; }
-    .retention-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-    .retention-label { font-weight: 500; font-size: 14px; }
-    .retention-field { width: 120px; }
+    .retention-row {
+      display: flex;
+      align-items: flex-end;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .retention-label {
+      font-weight: 500;
+      font-size: 13px;
+      color: var(--text-secondary);
+      padding-bottom: 10px;
+    }
 
-    .live-banner { margin-bottom: 16px; background: #e3f2fd; border-left: 4px solid #1565c0; }
-    .live-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-    .live-title { font-weight: 600; color: #1565c0; }
-    .live-elapsed { color: #555; font-size: 13px; }
-    .step-list { display: flex; flex-direction: column; gap: 4px; }
-    .step-item { display: flex; align-items: center; gap: 6px; font-size: 13px; }
-    .step-icon { font-size: 18px; width: 18px; height: 18px; }
-    .step-icon.done { color: #2e7d32; }
-    .step-icon.running { color: #1565c0; animation: spin 1s linear infinite; }
-    .step-icon.error { color: #c62828; }
-    .step-icon.skipped { color: #e65100; }
-    .step-icon.pending { color: #999; }
-    .step-spinner { margin-left: 4px; }
-    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    .live-banner {
+      margin-bottom: 16px;
+      border-left: 4px solid var(--accent);
+    }
+    .live-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .live-title {
+      font-weight: 600;
+      color: var(--accent);
+      font-family: var(--font-primary);
+      font-size: 14px;
+    }
+    .live-elapsed {
+      color: var(--text-tertiary);
+      font-size: 13px;
+      font-family: var(--font-primary);
+    }
+    .step-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .step-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-family: var(--font-primary);
+      color: var(--text-secondary);
+    }
+    .step-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      font-size: 14px;
+      line-height: 1;
+    }
+    .step-success { color: var(--color-success); }
+    .step-running { color: var(--accent); }
+    .step-error { color: var(--color-error); }
+    .step-skipped { color: var(--color-warning); }
+    .step-pending { color: var(--text-tertiary); }
+    .step-name { font-weight: 500; }
 
-    .filters { display: flex; gap: 16px; align-items: center; margin-bottom: 16px; }
-    .filter-field { min-width: 160px; }
-    .total-count { color: #666; font-size: 13px; }
+    /* CSS-only spinner */
+    .spinner {
+      display: inline-block;
+      width: 18px;
+      height: 18px;
+      border: 2px solid var(--border-light);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    .spinner-sm {
+      width: 12px;
+      height: 12px;
+      border-width: 2px;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
 
-    .runs-table { width: 100%; }
-    .run-row { cursor: pointer; }
-    .run-row:hover { background: #f5f5f5; }
-    .expanded-row { background: #fafafa; }
-    .detail-row { height: 0; overflow: hidden; }
-    .detail-row td { padding: 0 !important; border-bottom: none; }
-    .detail-row-visible { height: auto; overflow: visible; }
-    .detail-row-visible td { padding: 8px 16px !important; border-bottom: 1px solid #e0e0e0; }
+    .filters {
+      display: flex;
+      gap: 16px;
+      align-items: flex-end;
+      margin-bottom: 16px;
+    }
+    .filter-field { min-width: 180px; }
+    .total-count {
+      color: var(--text-tertiary);
+      font-size: 13px;
+      font-family: var(--font-primary);
+      padding-bottom: 10px;
+    }
 
-    .badge { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; white-space: nowrap; }
+    .badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: var(--radius-sm);
+      white-space: nowrap;
+      font-family: var(--font-primary);
+    }
     .badge.small { font-size: 10px; padding: 1px 6px; }
-    .badge-active { background: #e8f5e9; color: #2e7d32; }
-    .badge-inactive { background: #f5f5f5; color: #777; }
-    .badge-status-success { background: #e8f5e9; color: #2e7d32; }
-    .badge-status-error { background: #ffebee; color: #c62828; }
-    .badge-status-skipped { background: #fff3e0; color: #e65100; }
-    .badge-status-running { background: #e3f2fd; color: #1565c0; }
-    .badge-status-pending { background: #f5f5f5; color: #777; }
-    .badge-trigger-schedule { background: #f3e5f5; color: #7b1fa2; }
-    .badge-trigger-manual { background: #e8eaf6; color: #3f51b5; }
-    .error-text { color: #c62828; }
+    .badge-active {
+      background: var(--color-success-subtle);
+      color: var(--color-success);
+    }
+    .badge-inactive {
+      background: var(--bg-muted);
+      color: var(--text-tertiary);
+    }
+    .badge-status-success {
+      background: var(--color-success-subtle);
+      color: var(--color-success);
+    }
+    .badge-status-error {
+      background: var(--color-error-subtle);
+      color: var(--color-error);
+    }
+    .badge-status-skipped {
+      background: var(--color-warning-subtle);
+      color: var(--color-warning);
+    }
+    .badge-status-running {
+      background: var(--bg-active);
+      color: var(--accent);
+    }
+    .badge-status-pending {
+      background: var(--bg-muted);
+      color: var(--text-tertiary);
+    }
+    .badge-trigger-schedule {
+      background: var(--color-info-subtle);
+      color: var(--color-info);
+    }
+    .badge-trigger-manual {
+      background: var(--bg-muted);
+      color: var(--text-secondary);
+    }
+    .badge-tool {
+      background: var(--bg-active);
+      color: var(--accent);
+      font-family: ui-monospace, monospace;
+    }
+    .badge-system {
+      background: var(--color-warning-subtle);
+      color: var(--color-warning);
+      font-family: ui-monospace, monospace;
+    }
+    .badge-category {
+      background: var(--color-info-subtle);
+      color: var(--color-info);
+    }
+    .error-text { color: var(--color-error); }
 
-    .expanded-detail { padding: 8px 0; }
-    .detail-step { padding: 6px 0; border-bottom: 1px solid #f0f0f0; }
+    .empty-state {
+      color: var(--text-tertiary);
+      text-align: center;
+      padding: 24px 16px;
+      margin: 0;
+      font-family: var(--font-primary);
+      font-size: 14px;
+    }
+
+    .expanded-detail-panel { margin-top: 16px; }
+    .expanded-detail-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border-light);
+    }
+    .expanded-detail-title {
+      margin: 0;
+      font-family: var(--font-primary);
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .expanded-detail { padding: 4px 0; }
+
+    .detail-step {
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border-light);
+    }
     .detail-step:last-child { border-bottom: none; }
-    .detail-step-header { display: flex; align-items: center; gap: 8px; }
-    .detail-step-order { font-weight: 600; color: #999; min-width: 20px; }
-    .detail-step-name { font-weight: 500; }
-    .detail-step-duration { font-size: 12px; color: #777; }
-    .detail-step-error { margin-top: 4px; padding: 6px 8px; background: #ffebee; color: #c62828; border-radius: 4px; font-size: 13px; }
+    .detail-step-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--font-primary);
+    }
+    .detail-step-order {
+      font-weight: 600;
+      color: var(--text-tertiary);
+      min-width: 20px;
+      font-size: 13px;
+    }
+    .detail-step-name {
+      font-weight: 500;
+      color: var(--text-primary);
+      font-size: 13px;
+    }
+    .detail-step-duration {
+      font-size: 12px;
+      color: var(--text-tertiary);
+    }
+    .detail-step-error {
+      margin-top: 6px;
+      padding: 8px 10px;
+      background: var(--color-error-subtle);
+      color: var(--color-error);
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-family: var(--font-primary);
+    }
     .detail-step-output { margin-top: 4px; }
-    .detail-step-output summary { cursor: pointer; color: #1565c0; font-size: 12px; }
-    .detail-pre { background: #263238; color: #eeffff; padding: 8px 12px; border-radius: 4px; font-size: 12px; overflow-x: auto; max-height: 400px; white-space: pre-wrap; word-break: break-word; margin: 0; }
-    .detail-pre-json { color: #c3e88d; }
+    .detail-step-output summary {
+      cursor: pointer;
+      color: var(--accent);
+      font-size: 12px;
+      font-family: var(--font-primary);
+    }
+    .detail-pre {
+      background: var(--bg-code);
+      color: var(--text-code);
+      padding: 10px 12px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      overflow-x: auto;
+      max-height: 400px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin: 0;
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    }
+    .detail-pre-json { color: var(--color-success); }
 
-    .step-output-section { margin-top: 6px; padding: 6px 8px; background: #fafafa; border-radius: 4px; border: 1px solid #e8e8e8; }
-    .step-meta-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px; }
-    .meta-label { font-weight: 500; color: #666; min-width: 90px; flex-shrink: 0; }
-    .meta-value { font-size: 12px; color: #333; background: #f0f0f0; padding: 2px 6px; border-radius: 3px; }
-    .badge-tool { background: #e8eaf6; color: #3f51b5; font-family: monospace; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
-    .badge-system { background: #fff3e0; color: #e65100; font-family: monospace; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
-    .badge-category { background: #f3e5f5; color: #7b1fa2; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
+    .step-output-section {
+      margin-top: 8px;
+      padding: 8px 10px;
+      background: var(--bg-muted);
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-light);
+    }
+    .step-meta-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 3px 0;
+      font-size: 13px;
+      font-family: var(--font-primary);
+    }
+    .meta-label {
+      font-weight: 500;
+      color: var(--text-tertiary);
+      min-width: 100px;
+      flex-shrink: 0;
+    }
+    .meta-value {
+      font-size: 12px;
+      color: var(--text-primary);
+      background: var(--bg-card);
+      padding: 2px 6px;
+      border-radius: var(--radius-sm);
+      font-family: ui-monospace, monospace;
+    }
 
     .step-result-block { margin-top: 6px; }
-    .result-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px; }
-    .result-label { font-size: 12px; font-weight: 500; color: #666; }
-    .copy-btn { width: 28px; height: 28px; line-height: 28px; }
-    .copy-icon { font-size: 16px; width: 16px; height: 16px; }
-    .expand-btn { font-size: 11px; color: #1565c0; padding: 0 8px; min-height: 28px; line-height: 28px; }
+    .result-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+    .result-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-tertiary);
+      font-family: var(--font-primary);
+    }
 
-    .eval-result { font-size: 13px; font-weight: 500; }
-    .eval-nonempty { color: #2e7d32; }
-    .eval-empty { color: #e65100; }
-
-    .pagination { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 16px 0; }
-    .empty { color: #999; text-align: center; padding: 24px 16px; margin: 0; }
-    .empty-card { margin-bottom: 16px; }
-    .full-width { width: 100%; }
+    .eval-result {
+      font-size: 13px;
+      font-weight: 500;
+      font-family: var(--font-primary);
+    }
+    .eval-nonempty { color: var(--color-success); }
+    .eval-empty { color: var(--color-warning); }
   `],
 })
 export class ProbeRunsComponent implements OnInit, OnDestroy {
   private route = inject(ActivatedRoute);
   private probeService = inject(ScheduledProbeService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
   private clipboard = inject(Clipboard);
 
   probe = signal<ScheduledProbe | null>(null);
@@ -463,7 +694,15 @@ export class ProbeRunsComponent implements OnInit, OnDestroy {
   retentionDays = 30;
   retentionMaxRuns = 100;
 
-  columns = ['status', 'startedAt', 'duration', 'triggeredBy', 'result', 'steps', 'expand'];
+  statusOptions = [
+    { value: '', label: 'All' },
+    { value: 'success', label: 'Success' },
+    { value: 'error', label: 'Error' },
+    { value: 'skipped', label: 'Skipped' },
+    { value: 'running', label: 'Running' },
+  ];
+
+  trackByRunId = (item: ProbeRun) => item.id;
 
   private probeId = '';
   private pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -499,12 +738,35 @@ export class ProbeRunsComponent implements OnInit, OnDestroy {
     return Math.ceil(this.total() / this.pageSize);
   }
 
+  parseIntSafe(value: string, fallback = 0): number {
+    const trimmed = value.trim();
+    if (!trimmed) return fallback;
+    const n = Number(trimmed);
+    return Number.isFinite(n) ? Math.trunc(n) : fallback;
+  }
+
+  onStatusFilter(value: string): void {
+    this.filterStatus = value;
+    this.page = 0;
+    this.loadRuns();
+  }
+
+  onPageChange(event: PaginatorPageEvent): void {
+    this.page = event.pageIndex;
+    this.pageSize = event.pageSize;
+    this.loadRuns();
+  }
+
+  closeExpand(): void {
+    this.expandedRunId = null;
+    this.expandedRun.set(null);
+    this.expandedStepIds.clear();
+    this.formattedJsonCache.clear();
+  }
+
   toggleExpand(run: ProbeRun): void {
     if (this.expandedRunId === run.id) {
-      this.expandedRunId = null;
-      this.expandedRun.set(null);
-      this.expandedStepIds.clear();
-      this.formattedJsonCache.clear();
+      this.closeExpand();
       return;
     }
     this.expandedRunId = run.id;
@@ -605,9 +867,9 @@ export class ProbeRunsComponent implements OnInit, OnDestroy {
   copyToClipboard(text: string): void {
     const ok = this.clipboard.copy(text);
     if (ok) {
-      this.snackBar.open('Copied to clipboard', 'OK', { duration: 2000 });
+      this.toast.success('Copied to clipboard');
     } else {
-      this.snackBar.open('Failed to copy to clipboard', 'OK', { duration: 4000, panelClass: 'error-snackbar' });
+      this.toast.error('Failed to copy to clipboard');
     }
   }
 
@@ -625,12 +887,12 @@ export class ProbeRunsComponent implements OnInit, OnDestroy {
     this.probeService.purgeRuns(this.probeId).subscribe({
       next: (res) => {
         this.purging = false;
-        this.snackBar.open(`Deleted ${res.deleted} runs`, 'OK', { duration: 3000 });
+        this.toast.success(`Deleted ${res.deleted} runs`);
         this.loadRuns();
       },
       error: () => {
         this.purging = false;
-        this.snackBar.open('Failed to purge history', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+        this.toast.error('Failed to purge history');
       },
     });
   }
@@ -657,11 +919,11 @@ export class ProbeRunsComponent implements OnInit, OnDestroy {
       next: (p) => {
         this.savingRetention = false;
         this.probe.set(p);
-        this.snackBar.open('Retention settings saved', 'OK', { duration: 3000 });
+        this.toast.success('Retention settings saved');
       },
       error: () => {
         this.savingRetention = false;
-        this.snackBar.open('Failed to save retention settings', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+        this.toast.error('Failed to save retention settings');
       },
     });
   }

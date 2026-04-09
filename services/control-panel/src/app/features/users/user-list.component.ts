@@ -1,224 +1,236 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
-import { MatCardModule } from '@angular/material/card';
-import { MatButtonModule } from '@angular/material/button';
-import { MatIconModule } from '@angular/material/icon';
-import { MatChipsModule } from '@angular/material/chips';
-import { MatMenuModule } from '@angular/material/menu';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatSnackBar } from '@angular/material/snack-bar';
-import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
-import { MatTooltipModule } from '@angular/material/tooltip';
 import { UserService, type ControlPanelUser } from '../../core/services/user.service';
 import { AuthService } from '../../core/services/auth.service';
 import { UserDialogComponent } from './user-dialog.component';
+import {
+  BroncoButtonComponent,
+  CardComponent,
+  FormFieldComponent,
+  DropdownMenuComponent,
+  DropdownItemComponent,
+  DialogComponent,
+} from '../../shared/components/index.js';
+import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   standalone: true,
   imports: [
     FormsModule,
     DatePipe,
-    MatCardModule,
-    MatButtonModule,
-    MatIconModule,
-    MatChipsModule,
-    MatMenuModule,
-    MatFormFieldModule,
-    MatInputModule,
-    MatProgressSpinnerModule,
-    MatTooltipModule,
-    MatDialogModule,
+    BroncoButtonComponent,
+    CardComponent,
+    FormFieldComponent,
+    DropdownMenuComponent,
+    DropdownItemComponent,
+    DialogComponent,
+    UserDialogComponent,
   ],
   template: `
-    <div class="page-header">
-      <h1>User Maintenance</h1>
-      <button mat-raised-button color="primary" (click)="openCreate()">
-        <mat-icon>person_add</mat-icon>
-        Create User
-      </button>
-    </div>
-
-    @if (loading()) {
-      <div class="loading">
-        <mat-spinner diameter="40" />
+    <div class="page-wrapper">
+      <div class="page-header">
+        <h1 class="page-title">User Maintenance</h1>
+        <app-bronco-button variant="primary" (click)="openCreate()">
+          Create User
+        </app-bronco-button>
       </div>
-    } @else {
-      <div class="user-grid">
-        @for (user of users(); track user.id) {
-          <mat-card [class.inactive]="!user.isActive">
-            <mat-card-header>
-              <mat-icon mat-card-avatar class="user-avatar">
-                {{ user.role === 'ADMIN' ? 'admin_panel_settings' : 'person' }}
-              </mat-icon>
-              <mat-card-title>{{ user.name }}</mat-card-title>
-              <mat-card-subtitle>{{ user.email }}</mat-card-subtitle>
-              <button mat-icon-button [matMenuTriggerFor]="menu" class="card-menu">
-                <mat-icon>more_vert</mat-icon>
-              </button>
-              <mat-menu #menu="matMenu">
-                <button mat-menu-item (click)="openEdit(user)">
-                  <mat-icon>edit</mat-icon>
-                  <span>Edit</span>
-                </button>
-                <button mat-menu-item (click)="openResetPassword(user)">
-                  <mat-icon>lock_reset</mat-icon>
-                  <span>Reset Password</span>
-                </button>
-                @if (user.id !== currentUserId()) {
-                  @if (user.isActive) {
-                    <button mat-menu-item (click)="deactivate(user)">
-                      <mat-icon>block</mat-icon>
-                      <span>Deactivate</span>
-                    </button>
-                  } @else {
-                    <button mat-menu-item (click)="activate(user)">
-                      <mat-icon>check_circle</mat-icon>
-                      <span>Activate</span>
-                    </button>
+
+      @if (loading()) {
+        <div class="loading-wrapper"><span class="loading-text">Loading...</span></div>
+      } @else {
+        <div class="user-grid">
+          @for (user of users(); track user.id) {
+            <div class="user-card" [class.inactive]="!user.isActive">
+              <div class="card-header">
+                <div class="avatar" [class.admin-avatar]="user.role === 'ADMIN'">
+                  {{ user.name.charAt(0).toUpperCase() }}
+                </div>
+                <div class="header-text">
+                  <div class="user-name">{{ user.name }}</div>
+                  <div class="user-email">{{ user.email }}</div>
+                </div>
+                <app-bronco-button variant="icon" size="sm" class="card-menu" [attr.aria-label]="'Actions for ' + user.name" #menuTrigger (click)="menu.toggle()">
+                  ...
+                </app-bronco-button>
+                <app-dropdown-menu #menu [trigger]="menuTrigger">
+                  <app-dropdown-item (action)="openEdit(user)">Edit</app-dropdown-item>
+                  <app-dropdown-item (action)="openResetPassword(user)">Reset Password</app-dropdown-item>
+                  @if (user.id !== currentUserId()) {
+                    @if (user.isActive) {
+                      <app-dropdown-item (action)="deactivate(user)">Deactivate</app-dropdown-item>
+                    } @else {
+                      <app-dropdown-item (action)="activate(user)">Activate</app-dropdown-item>
+                    }
                   }
-                }
-              </mat-menu>
-            </mat-card-header>
-            <mat-card-content>
+                </app-dropdown-menu>
+              </div>
               <div class="user-details">
                 <div class="detail-row">
-                  <mat-chip-set>
-                    <mat-chip [highlighted]="user.role === 'ADMIN'" [class]="'role-' + user.role.toLowerCase()">
-                      {{ user.role }}
-                    </mat-chip>
-                    @if (!user.isActive) {
-                      <mat-chip class="role-inactive">INACTIVE</mat-chip>
-                    }
-                  </mat-chip-set>
+                  <span class="chip" [class]="'role-' + user.role.toLowerCase()">{{ user.role }}</span>
+                  @if (!user.isActive) {
+                    <span class="chip role-inactive">INACTIVE</span>
+                  }
                 </div>
                 <div class="detail-row muted">
-                  <mat-icon class="detail-icon">schedule</mat-icon>
-                  <span>Last login: {{ user.lastLoginAt ? (user.lastLoginAt | date:'short') : 'Never' }}</span>
+                  Last login: {{ user.lastLoginAt ? (user.lastLoginAt | date:'short') : 'Never' }}
                 </div>
                 <div class="detail-row muted">
-                  <mat-icon class="detail-icon">calendar_today</mat-icon>
-                  <span>Created: {{ user.createdAt | date:'mediumDate' }}</span>
+                  Created: {{ user.createdAt | date:'mediumDate' }}
                 </div>
               </div>
-            </mat-card-content>
-          </mat-card>
-        } @empty {
-          <p class="empty-state">No users found.</p>
-        }
-      </div>
-    }
+            </div>
+          } @empty {
+            <p class="empty-state">No users found.</p>
+          }
+        </div>
+      }
 
-    <!-- Reset Password Dialog (inline) -->
-    @if (resetUser()) {
-      <div class="overlay" (click)="resetUser.set(null)">
-        <mat-card class="reset-dialog" (click)="$event.stopPropagation()">
-          <mat-card-header>
-            <mat-card-title>Reset Password</mat-card-title>
-            <mat-card-subtitle>{{ resetUser()!.name }} ({{ resetUser()!.email }})</mat-card-subtitle>
-          </mat-card-header>
-          <mat-card-content>
-            <mat-form-field class="full-width">
-              <mat-label>New Password</mat-label>
-              <input matInput [(ngModel)]="resetPassword" type="password" minlength="8">
-              <mat-hint>Minimum 8 characters</mat-hint>
-            </mat-form-field>
-          </mat-card-content>
-          <mat-card-actions align="end">
-            <button mat-button (click)="resetUser.set(null)">Cancel</button>
-            <button mat-raised-button color="primary" (click)="submitResetPassword()" [disabled]="resetPassword.length < 8">
-              Reset
-            </button>
-          </mat-card-actions>
-        </mat-card>
-      </div>
-    }
+      @if (showUserDialog()) {
+        <app-dialog [open]="true" [title]="editingUser() ? 'Edit User' : 'Create User'" maxWidth="450px" (openChange)="showUserDialog.set(false)">
+          <app-user-dialog-content
+            [user]="editingUser() ?? undefined"
+            [currentUserId]="currentUserId() ?? undefined"
+            (saved)="onUserSaved()"
+            (cancelled)="showUserDialog.set(false)" />
+        </app-dialog>
+      }
+
+      <!-- Reset Password Dialog (inline) -->
+      @if (resetUser()) {
+        <div class="overlay" (click)="resetUser.set(null)">
+          <div class="reset-dialog" (click)="$event.stopPropagation()">
+            <app-card>
+              <h2 class="section-title">Reset Password</h2>
+              <p class="reset-subtitle">{{ resetUser()!.name }} ({{ resetUser()!.email }})</p>
+              <app-form-field label="New Password" hint="Minimum 8 characters">
+                <input class="text-input" [(ngModel)]="resetPassword" type="password" minlength="8">
+              </app-form-field>
+              <div class="card-actions">
+                <app-bronco-button variant="ghost" (click)="resetUser.set(null)">Cancel</app-bronco-button>
+                <app-bronco-button variant="primary" (click)="submitResetPassword()" [disabled]="resetPassword.length < 8">
+                  Reset
+                </app-bronco-button>
+              </div>
+            </app-card>
+          </div>
+        </div>
+      }
+    </div>
   `,
   styles: [`
+    .page-wrapper { max-width: 1200px; }
     .page-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
       margin-bottom: 24px;
     }
-    .page-header h1 {
+    .page-title {
       margin: 0;
       font-size: 24px;
-      font-weight: 500;
+      font-weight: 600;
+      color: var(--text-primary);
     }
-    .loading {
+
+    .loading-wrapper {
       display: flex;
       justify-content: center;
       padding: 48px;
     }
+    .loading-text { color: var(--text-tertiary); font-size: 13px; }
+
     .user-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
       gap: 16px;
     }
-    mat-card {
+    .user-card {
+      background: var(--bg-card);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      box-shadow: var(--shadow-card);
       position: relative;
     }
-    mat-card.inactive {
-      opacity: 0.6;
+    .user-card.inactive { opacity: 0.6; }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
     }
-    .user-avatar {
-      font-size: 40px;
+    .avatar {
       width: 40px;
       height: 40px;
-      color: #5c6bc0;
+      border-radius: 50%;
+      background: var(--accent);
+      color: var(--text-on-accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 17px;
+      font-weight: 600;
+      flex-shrink: 0;
     }
-    .card-menu {
-      position: absolute;
-      top: 8px;
-      right: 8px;
+    .admin-avatar { background: #5856d6; }
+    .header-text { flex: 1; min-width: 0; }
+    .user-name {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
+    .user-email {
+      font-size: 13px;
+      color: var(--text-tertiary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .card-menu { flex-shrink: 0; }
+
     .user-details {
       display: flex;
       flex-direction: column;
       gap: 8px;
-      margin-top: 8px;
     }
     .detail-row {
       display: flex;
       align-items: center;
       gap: 6px;
     }
-    .detail-icon {
-      font-size: 16px;
-      width: 16px;
-      height: 16px;
-    }
     .muted {
-      color: #757575;
+      color: var(--text-tertiary);
       font-size: 13px;
     }
-    .role-admin {
-      background: #e8eaf6 !important;
-      color: #283593 !important;
+
+    .chip {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 10px;
+      border-radius: var(--radius-pill);
+      text-transform: uppercase;
     }
-    .role-operator {
-      background: #e0f2f1 !important;
-      color: #00695c !important;
-    }
-    .role-inactive {
-      background: #fce4ec !important;
-      color: #c62828 !important;
-    }
+    .role-admin { background: rgba(88, 86, 214, 0.1); color: #5856d6; }
+    .role-operator { background: rgba(52, 199, 89, 0.1); color: var(--color-success); }
+    .role-inactive { background: rgba(255, 59, 48, 0.1); color: var(--color-error); }
+
     .empty-state {
       text-align: center;
-      color: #757575;
+      color: var(--text-tertiary);
       padding: 48px;
     }
+
     .overlay {
       position: fixed;
       top: 0;
       left: 0;
       width: 100%;
       height: 100%;
-      background: rgba(0,0,0,0.4);
+      background: rgba(0, 0, 0, 0.4);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -228,21 +240,57 @@ import { UserDialogComponent } from './user-dialog.component';
       width: 400px;
       max-width: 90vw;
     }
-    .full-width {
+    .section-title {
+      margin: 0 0 4px;
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .reset-subtitle {
+      font-size: 13px;
+      color: var(--text-tertiary);
+      margin: 0 0 16px;
+    }
+
+    .text-input {
       width: 100%;
+      box-sizing: border-box;
+      background: var(--bg-card);
+      border: 1px solid var(--border-medium);
+      border-radius: var(--radius-md);
+      padding: 8px 12px;
+      font-family: var(--font-primary);
+      font-size: 14px;
+      color: var(--text-primary);
+      outline: none;
+      transition: border-color 120ms ease, box-shadow 120ms ease;
+    }
+    .text-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(0, 113, 227, 0.15);
+    }
+
+    .card-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border-light);
     }
   `],
 })
 export class UserListComponent implements OnInit {
   private userService = inject(UserService);
   private authService = inject(AuthService);
-  private snackBar = inject(MatSnackBar);
-  private dialog = inject(MatDialog);
+  private toast = inject(ToastService);
 
   users = signal<ControlPanelUser[]>([]);
   loading = signal(false);
   resetUser = signal<ControlPanelUser | null>(null);
   resetPassword = '';
+  showUserDialog = signal(false);
+  editingUser = signal<ControlPanelUser | null>(null);
 
   currentUserId = () => this.authService.currentUser()?.id;
 
@@ -259,29 +307,24 @@ export class UserListComponent implements OnInit {
       },
       error: (err) => {
         this.loading.set(false);
-        this.snackBar.open(err.error?.message ?? err.error?.error ?? 'Failed to load users', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+        this.toast.error(err.error?.message ?? err.error?.error ?? 'Failed to load users');
       },
     });
   }
 
   openCreate(): void {
-    const ref = this.dialog.open(UserDialogComponent, {
-      width: '450px',
-      data: {},
-    });
-    ref.afterClosed().subscribe((result) => {
-      if (result) this.load();
-    });
+    this.editingUser.set(null);
+    this.showUserDialog.set(true);
   }
 
   openEdit(user: ControlPanelUser): void {
-    const ref = this.dialog.open(UserDialogComponent, {
-      width: '450px',
-      data: { user, currentUserId: this.currentUserId() },
-    });
-    ref.afterClosed().subscribe((result) => {
-      if (result) this.load();
-    });
+    this.editingUser.set(user);
+    this.showUserDialog.set(true);
+  }
+
+  onUserSaved(): void {
+    this.showUserDialog.set(false);
+    this.load();
   }
 
   openResetPassword(user: ControlPanelUser): void {
@@ -294,31 +337,31 @@ export class UserListComponent implements OnInit {
     if (!user) return;
     this.userService.resetPassword(user.id, this.resetPassword).subscribe({
       next: () => {
-        this.snackBar.open('Password reset successfully', 'OK', { duration: 3000 });
+        this.toast.success('Password reset successfully');
         this.resetUser.set(null);
         this.resetPassword = '';
       },
-      error: (err) => this.snackBar.open(err.error?.message ?? err.error?.error ?? 'Reset failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: (err) => this.toast.error(err.error?.message ?? err.error?.error ?? 'Reset failed'),
     });
   }
 
   deactivate(user: ControlPanelUser): void {
     this.userService.deleteUser(user.id).subscribe({
       next: () => {
-        this.snackBar.open('User deactivated', 'OK', { duration: 3000 });
+        this.toast.success('User deactivated');
         this.load();
       },
-      error: (err) => this.snackBar.open(err.error?.message ?? err.error?.error ?? 'Deactivation failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: (err) => this.toast.error(err.error?.message ?? err.error?.error ?? 'Deactivation failed'),
     });
   }
 
   activate(user: ControlPanelUser): void {
     this.userService.updateUser(user.id, { isActive: true }).subscribe({
       next: () => {
-        this.snackBar.open('User activated', 'OK', { duration: 3000 });
+        this.toast.success('User activated');
         this.load();
       },
-      error: (err) => this.snackBar.open(err.error?.message ?? err.error?.error ?? 'Activation failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: (err) => this.toast.error(err.error?.message ?? err.error?.error ?? 'Activation failed'),
     });
   }
 }

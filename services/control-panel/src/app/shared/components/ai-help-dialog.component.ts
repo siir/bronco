@@ -1,30 +1,11 @@
-import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import { Component, DestroyRef, inject, input, output, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
-import { MAT_DIALOG_DATA, MatDialogModule } from '@angular/material/dialog';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatSelectModule } from '@angular/material/select';
-import { MatInputModule } from '@angular/material/input';
-import { MatButtonModule } from '@angular/material/button';
-import { MatIconModule } from '@angular/material/icon';
-import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { MatSnackBar } from '@angular/material/snack-bar';
-import { AiProviderService, type AiProviderModel } from '../../core/services/ai-provider.service';
+import { AiProviderService } from '../../core/services/ai-provider.service';
 import type { AiHelpResponse } from '../../core/services/ticket.service';
+import { ToastService } from '../../core/services/toast.service';
+import { FormFieldComponent, TextareaComponent, SelectComponent, BroncoButtonComponent } from './index.js';
 
-/**
- * Data passed to the AI help dialog. The `submitFn` callback is responsible for
- * sending the request to the correct backend endpoint and returning the response.
- */
-export interface AiHelpDialogData {
-  /** Title shown in the dialog header (e.g. "Ask AI — Ticket #42") */
-  title: string;
-  /** Callback that sends the AI request. Return the response content + metadata. */
-  submitFn: (params: { question?: string; provider?: string; model?: string }) => Promise<AiHelpResponse>;
-}
-
-/** @deprecated Use {@link AiHelpResponse} from ticket.service instead. */
+/** @deprecated Use AiHelpResponse from ticket.service instead. */
 export type AiHelpDialogResult = AiHelpResponse;
 
 interface ModelOption {
@@ -35,76 +16,78 @@ interface ModelOption {
 }
 
 @Component({
-  selector: 'app-ai-help-dialog',
+  selector: 'app-ai-help-dialog-content',
   standalone: true,
-  imports: [CommonModule, FormsModule, MatDialogModule, MatFormFieldModule, MatSelectModule, MatInputModule, MatButtonModule, MatIconModule, MatProgressBarModule],
+  imports: [FormFieldComponent, TextareaComponent, SelectComponent, BroncoButtonComponent],
   template: `
-    <h2 mat-dialog-title>
-      <mat-icon class="title-icon">psychology</mat-icon>
-      {{ data.title }}
-    </h2>
-    <mat-dialog-content>
-      <mat-form-field class="full-width">
-        <mat-label>Model</mat-label>
-        <mat-select [(ngModel)]="selectedModel">
-          <mat-option value="">Default (auto-routed)</mat-option>
-          @for (m of modelOptions(); track m.provider + ':' + m.model) {
-            <mat-option [value]="m.provider + ':' + m.model">{{ m.label }}</mat-option>
-          }
-        </mat-select>
-      </mat-form-field>
+    <div class="form-grid">
+      <app-form-field label="Model">
+        <app-select
+          [value]="selectedModel"
+          [options]="modelSelectOptions"
+          (valueChange)="selectedModel = $event" />
+      </app-form-field>
 
-      <mat-form-field class="full-width">
-        <mat-label>Question</mat-label>
-        <textarea matInput [(ngModel)]="question" rows="4"
+      <app-form-field label="Question">
+        <app-textarea
+          [value]="question"
+          [rows]="4"
           placeholder="e.g. What should I investigate first?"
+          (valueChange)="question = $event"
           (keydown.meta.enter)="!loading() && submit()"
-          (keydown.control.enter)="!loading() && submit()"></textarea>
-      </mat-form-field>
+          (keydown.control.enter)="!loading() && submit()" />
+      </app-form-field>
+    </div>
 
-      @if (loading()) {
-        <mat-progress-bar mode="indeterminate"></mat-progress-bar>
-      }
+    @if (loading()) {
+      <div class="progress-bar" role="progressbar" aria-label="Loading AI response" aria-busy="true"><div class="progress-bar-fill"></div></div>
+    }
 
-      @if (response()) {
-        <div class="ai-response">
-          <div class="ai-response-header">
-            <mat-icon>auto_awesome</mat-icon>
-            <span>AI Response</span>
-            <span class="ai-provider">{{ response()!.provider }} / {{ response()!.model }}</span>
-          </div>
-          <div class="ai-response-content">{{ response()!.content }}</div>
+    @if (response()) {
+      <div class="ai-response">
+        <div class="ai-response-header">
+          <span>AI Response</span>
+          <span class="ai-provider">{{ response()!.provider }} / {{ response()!.model }}</span>
         </div>
-      }
+        <div class="ai-response-content">{{ response()!.content }}</div>
+      </div>
+    }
 
-      @if (errorMsg()) {
-        <div class="error-msg">{{ errorMsg() }}</div>
-      }
-    </mat-dialog-content>
-    <mat-dialog-actions align="end">
-      <button mat-button mat-dialog-close>Close</button>
-      <button mat-raised-button color="accent" (click)="submit()" [disabled]="loading()">
-        <mat-icon>{{ loading() ? 'hourglass_empty' : 'auto_awesome' }}</mat-icon>
+    @if (errorMsg()) {
+      <div class="error-msg">{{ errorMsg() }}</div>
+    }
+
+    <div class="dialog-actions" dialogFooter>
+      <app-bronco-button variant="ghost" (click)="closed.emit()">Close</app-bronco-button>
+      <app-bronco-button variant="primary" [disabled]="loading()" (click)="submit()">
         {{ loading() ? 'Thinking...' : 'Ask AI' }}
-      </button>
-    </mat-dialog-actions>
+      </app-bronco-button>
+    </div>
   `,
   styles: [`
-    .title-icon { vertical-align: middle; margin-right: 8px; color: #6a1b9a; }
-    .full-width { width: 100%; margin-bottom: 8px; }
-    .ai-response { margin-top: 12px; padding: 12px; background: #f3e5f5; border-radius: 8px; max-height: 400px; overflow-y: auto; }
-    .ai-response-header { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; font-weight: 500; color: #6a1b9a; }
-    .ai-response-header mat-icon { font-size: 18px; width: 18px; height: 18px; }
-    .ai-provider { font-size: 11px; color: #666; font-family: monospace; margin-left: auto; }
+    .form-grid { display: flex; flex-direction: column; gap: 12px; margin-bottom: 12px; }
+    .progress-bar { height: 3px; background: var(--bg-muted); border-radius: 2px; overflow: hidden; margin-bottom: 12px; }
+    .progress-bar-fill { height: 100%; background: var(--accent); animation: progress-indeterminate 1.5s ease-in-out infinite; transform-origin: left; }
+    @keyframes progress-indeterminate {
+      0% { transform: translateX(-100%) scaleX(0.4); }
+      50% { transform: translateX(60%) scaleX(0.4); }
+      100% { transform: translateX(200%) scaleX(0.4); }
+    }
+    .ai-response { margin-top: 12px; padding: 12px; background: var(--color-purple-subtle); border-radius: var(--radius-md); max-height: 400px; overflow-y: auto; }
+    .ai-response-header { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; font-weight: 500; color: var(--color-purple); }
+    .ai-provider { font-size: 11px; color: var(--text-tertiary); font-family: monospace; margin-left: auto; }
     .ai-response-content { white-space: pre-wrap; line-height: 1.6; font-size: 13px; }
-    .error-msg { margin-top: 12px; padding: 8px 12px; background: #ffebee; color: #c62828; border-radius: 4px; font-size: 13px; }
+    .error-msg { margin-top: 12px; padding: 8px 12px; background: var(--color-error-subtle); color: var(--color-error); border-radius: var(--radius-sm); font-size: 13px; }
+    .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
   `],
 })
 export class AiHelpDialogComponent implements OnInit {
-  data: AiHelpDialogData = inject(MAT_DIALOG_DATA);
   private providerService = inject(AiProviderService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
   private destroyRef = inject(DestroyRef);
+
+  submitFn = input.required<(params: { question?: string; provider?: string; model?: string }) => Promise<AiHelpResponse>>();
+  closed = output<void>();
 
   modelOptions = signal<ModelOption[]>([]);
   selectedModel = '';
@@ -112,6 +95,13 @@ export class AiHelpDialogComponent implements OnInit {
   loading = signal(false);
   response = signal<AiHelpResponse | null>(null);
   errorMsg = signal<string | null>(null);
+
+  get modelSelectOptions(): Array<{ value: string; label: string }> {
+    return [
+      { value: '', label: 'Default (auto-routed)' },
+      ...this.modelOptions().map(m => ({ value: `${m.provider}:${m.model}`, label: m.label })),
+    ];
+  }
 
   ngOnInit(): void {
     this.providerService.listModels()
@@ -132,6 +122,7 @@ export class AiHelpDialogComponent implements OnInit {
   submit(): void {
     this.loading.set(true);
     this.errorMsg.set(null);
+    this.response.set(null);
 
     let provider: string | undefined;
     let model: string | undefined;
@@ -143,7 +134,7 @@ export class AiHelpDialogComponent implements OnInit {
       }
     }
 
-    Promise.resolve().then(() => this.data.submitFn({
+    Promise.resolve().then(() => this.submitFn()({
       question: this.question || undefined,
       provider,
       model,
@@ -154,7 +145,7 @@ export class AiHelpDialogComponent implements OnInit {
       this.loading.set(false);
       const msg = err?.error?.message ?? err?.message ?? 'AI request failed';
       this.errorMsg.set(msg);
-      this.snackBar.open(msg, 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+      this.toast.error(msg);
     });
   }
 }

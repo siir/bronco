@@ -1,0 +1,51 @@
+/*
+ * Sentry Theme
+ * Source: sentry DESIGN.md
+ * Dark purple theme: deep purple backgrounds, purple + lime accents, Rubik font
+ */
+
+body.theme-sentry {
+  --bg-page: #1f1633;
+  --bg-card: #2a1f42;
+  --bg-sidebar: #150f23;
+  --bg-header: #150f23;
+  --bg-panel: #2a1f42;
+  --bg-hover: #362d59;
+  --bg-active: #422082;
+  --bg-muted: #150f23;
+  --bg-code: #150f23;
+  --text-code: #ffffff;
+
+  --text-primary: #ffffff;
+  --text-secondary: #e5e7eb;
+  --text-tertiary: #79628c;
+  --text-on-accent: #ffffff;
+
+  --accent: #6a5fc1;
+  --accent-link: #c2ef4e;
+  --accent-hover: #7a7fad;
+  --focus-ring: rgba(106, 95, 193, 0.3);
+
+  --color-success: #c2ef4e;
+  --color-warning: #ffb287;
+  --color-error: #fa7faa;
+  --color-info: #6a5fc1;
+  --color-success-subtle: rgba(194, 239, 78, 0.14);
+  --color-warning-subtle: rgba(255, 178, 135, 0.14);
+  --color-error-subtle: rgba(250, 127, 170, 0.14);
+  --color-info-subtle: rgba(106, 95, 193, 0.14);
+  --color-purple: #9b72cf;
+  --color-purple-subtle: rgba(155, 114, 207, 0.14);
+
+  --border-light: #362d59;
+  --border-medium: #584674;
+
+  --shadow-card: rgba(22, 15, 36, 0.9) 0px 4px 4px 9px;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 13px;
+  --radius-pill: 9999px;
+
+  --font-primary: 'Rubik', -apple-system, system-ui, 'Segoe UI', Helvetica, Arial, sans-serif;
+}

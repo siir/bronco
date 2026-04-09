@@ -1,15 +1,13 @@
 import { Component, input, output, inject } from '@angular/core';
-import { MatIconModule } from '@angular/material/icon';
-import { MatButtonModule } from '@angular/material/button';
-import { MatTooltipModule } from '@angular/material/tooltip';
-import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
-import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
+import { BroncoButtonComponent } from './bronco-button.component.js';
+import { IconComponent } from './index.js';
 import { IntegrationService, type McpDiscoveryMetadata } from '../../core/services/integration.service';
+import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   selector: 'app-mcp-server-info',
   standalone: true,
-  imports: [MatIconModule, MatButtonModule, MatTooltipModule, MatProgressSpinnerModule, MatSnackBarModule],
+  imports: [BroncoButtonComponent, IconComponent],
   template: `
     <div class="mcp-info">
       <!-- Server identity -->
@@ -35,8 +33,10 @@ import { IntegrationService, type McpDiscoveryMetadata } from '../../core/servic
 
       <!-- Endpoint -->
       @if (endpoint()) {
-        <div class="endpoint-row" [matTooltip]="endpoint()!">
-          <mat-icon class="small-icon">link</mat-icon>
+        <div class="endpoint-row" [attr.title]="endpoint()!" [attr.aria-label]="'Endpoint: ' + endpoint()!">
+          <span class="small-icon">
+            <app-icon name="link" size="sm" />
+          </span>
           <code>{{ truncate(endpoint()!, 50) }}</code>
         </div>
       }
@@ -88,14 +88,14 @@ import { IntegrationService, type McpDiscoveryMetadata } from '../../core/servic
       <!-- Verify button -->
       @if (integrationId()) {
         <div class="verify-action">
-          <button mat-stroked-button (click)="onVerify()" [disabled]="verifying">
+          <app-bronco-button variant="secondary" [disabled]="verifying" (click)="onVerify()">
             @if (verifying) {
-              <mat-spinner diameter="16"></mat-spinner>
+              <span class="spinner" aria-hidden="true"></span>
             } @else {
-              <mat-icon>refresh</mat-icon>
+              <app-icon name="refresh" size="sm" />
             }
             Verify
-          </button>
+          </app-bronco-button>
         </div>
       }
     </div>
@@ -106,59 +106,72 @@ import { IntegrationService, type McpDiscoveryMetadata } from '../../core/servic
     .server-name { font-weight: 500; font-size: 14px; }
     .version-badge {
       font-size: 11px; font-family: monospace; padding: 1px 6px;
-      background: #e8eaf6; color: #3949ab; border-radius: 4px;
+      background: var(--color-info-subtle); color: var(--color-info); border-radius: 4px;
     }
     .health-row { display: flex; align-items: center; gap: 8px; }
     .status-dot {
       width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
     }
-    .status-dot.status-up { background: #4caf50; }
-    .status-dot.status-down { background: #f44336; }
-    .status-dot.status-degraded { background: #ff9800; }
-    .status-dot.status-unknown { background: #9e9e9e; }
+    .status-dot.status-up { background: var(--color-success); }
+    .status-dot.status-down { background: var(--color-error); }
+    .status-dot.status-degraded { background: var(--color-warning); }
+    .status-dot.status-unknown { background: var(--text-tertiary); }
     .status-chip {
       font-size: 11px; font-weight: 600; padding: 1px 6px;
       border-radius: 4px; font-family: monospace;
     }
-    .status-chip.status-up { background: #e8f5e9; color: #2e7d32; }
-    .status-chip.status-down { background: #ffebee; color: #c62828; }
-    .status-chip.status-degraded { background: #fff3e0; color: #e65100; }
-    .status-chip.status-unknown { background: #f5f5f5; color: #757575; }
-    .latency { font-size: 12px; color: #888; font-family: monospace; }
+    .status-chip.status-up { background: var(--color-success-subtle); color: var(--color-success); }
+    .status-chip.status-down { background: var(--color-error-subtle); color: var(--color-error); }
+    .status-chip.status-degraded { background: var(--color-warning-subtle); color: var(--color-warning); }
+    .status-chip.status-unknown { background: var(--bg-muted); color: var(--text-tertiary); }
+    .latency { font-size: 12px; color: var(--text-tertiary); font-family: monospace; }
     .endpoint-row {
       display: flex; align-items: center; gap: 4px;
-      font-size: 12px; color: #888;
+      font-size: 12px; color: var(--text-tertiary);
     }
     .endpoint-row code { font-size: 12px; }
-    .small-icon { font-size: 14px; width: 14px; height: 14px; color: #aaa; }
+    .small-icon { display: inline-flex; align-items: center; color: var(--text-tertiary); }
     .verification-row { display: flex; align-items: center; gap: 8px; }
     .verification-chip {
       font-size: 11px; font-weight: 600; padding: 1px 6px;
       border-radius: 4px;
     }
-    .verification-chip.success { background: #e8f5e9; color: #2e7d32; }
-    .verification-chip.failed { background: #ffebee; color: #c62828; }
-    .last-verified { font-size: 11px; color: #999; }
+    .verification-chip.success { background: var(--color-success-subtle); color: var(--color-success); }
+    .verification-chip.failed { background: var(--color-error-subtle); color: var(--color-error); }
+    .last-verified { font-size: 11px; color: var(--text-tertiary); }
     .error-detail {
-      padding: 4px 8px; background: #ffebee; border-radius: 4px;
-      font-size: 12px; color: #c62828; font-family: monospace; word-break: break-word;
+      padding: 4px 8px; background: var(--color-error-subtle); border-radius: 4px;
+      font-size: 12px; color: var(--color-error); font-family: monospace; word-break: break-word;
     }
     .metric { display: flex; justify-content: space-between; font-size: 13px; }
-    .metric-label { color: #888; }
-    .metric-value { font-family: monospace; color: #333; }
+    .metric-label { color: var(--text-tertiary); }
+    .metric-value { font-family: monospace; color: var(--text-primary); }
     .tools-section { margin-top: 4px; }
-    .tools-header { font-size: 12px; font-weight: 500; color: #666; margin-bottom: 4px; }
+    .tools-header { font-size: 12px; font-weight: 500; color: var(--text-secondary); margin-bottom: 4px; }
     .tools-list {
       display: flex; flex-direction: column; gap: 2px;
-      padding: 4px 8px; background: #fafafa; border-radius: 4px;
+      padding: 4px 8px; background: var(--bg-card); border-radius: 4px;
       max-height: 200px; overflow-y: auto;
     }
     .tool-item { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
-    .tool-name { color: #1565c0; font-size: 12px; white-space: nowrap; }
-    .tool-desc { color: #888; }
+    .tool-name { color: var(--accent-link); font-size: 12px; white-space: nowrap; }
+    .tool-desc { color: var(--text-tertiary); }
     .verify-action { margin-top: 4px; }
-    .verify-action button { font-size: 13px; }
-    .verify-action mat-spinner { display: inline-block; margin-right: 4px; }
+
+    /* CSS-only spinner */
+    @keyframes mcp-spin {
+      to { transform: rotate(360deg); }
+    }
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid var(--border-medium);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: mcp-spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
   `],
 })
 export class McpServerInfoComponent {
@@ -170,7 +183,7 @@ export class McpServerInfoComponent {
   verified = output<void>();
 
   private integrationService = inject(IntegrationService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
   verifying = false;
 
@@ -181,12 +194,12 @@ export class McpServerInfoComponent {
     this.integrationService.verify(id).subscribe({
       next: () => {
         this.verifying = false;
-        this.snackBar.open('Verification job enqueued', 'OK', { duration: 3000 });
+        this.toast.success('Verification job enqueued');
         this.verified.emit();
       },
       error: (err) => {
         this.verifying = false;
-        this.snackBar.open(err.error?.error ?? 'Verification failed', 'OK', { duration: 5000 });
+        this.toast.error(err.error?.error ?? 'Verification failed');
       },
     });
   }

@@ -1,69 +1,94 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, OnInit, input, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MAT_DIALOG_DATA, MatDialogRef, MatDialogModule } from '@angular/material/dialog';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatButtonModule } from '@angular/material/button';
-import { MatSnackBar } from '@angular/material/snack-bar';
-import { RepoService, type CodeRepo } from '../../core/services/repo.service';
+import { RepoService, type CodeRepo } from '../../core/services/repo.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
+import { FormFieldComponent, TextInputComponent, TextareaComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({
+  selector: 'app-repo-dialog-content',
   standalone: true,
-  imports: [FormsModule, MatDialogModule, MatFormFieldModule, MatInputModule, MatButtonModule],
+  imports: [FormsModule, FormFieldComponent, TextInputComponent, TextareaComponent, BroncoButtonComponent],
   template: `
-    <h2 mat-dialog-title>{{ title }}</h2>
-    <mat-dialog-content>
-      <mat-form-field class="full-width">
-        <mat-label>Name</mat-label>
-        <input matInput [(ngModel)]="form.name" required>
-      </mat-form-field>
-      <mat-form-field class="full-width">
-        <mat-label>Repository URL</mat-label>
-        <input matInput [(ngModel)]="form.repoUrl" required placeholder="https://github.com/org/repo.git">
-      </mat-form-field>
-      <mat-form-field class="full-width">
-        <mat-label>Description (helps AI understand repo contents)</mat-label>
-        <textarea matInput [(ngModel)]="form.description" rows="2"
-          placeholder="SQL Server stored procedures, table schemas, and ETL jobs for..."></textarea>
-      </mat-form-field>
+    <div class="form-grid">
+      <app-form-field label="Name">
+        <app-text-input
+          [value]="form.name"
+          (valueChange)="form.name = $event" />
+      </app-form-field>
+      <app-form-field label="Repository URL">
+        <app-text-input
+          [value]="form.repoUrl"
+          placeholder="https://github.com/org/repo.git"
+          (valueChange)="form.repoUrl = $event" />
+      </app-form-field>
+      <app-form-field label="Description (helps AI understand repo contents)">
+        <app-textarea
+          [value]="form.description"
+          [rows]="2"
+          placeholder="SQL Server stored procedures, table schemas, and ETL jobs for..."
+          (valueChange)="form.description = $event" />
+      </app-form-field>
       <div class="row">
-        <mat-form-field class="flex">
-          <mat-label>Default Branch</mat-label>
-          <input matInput [(ngModel)]="form.defaultBranch">
-        </mat-form-field>
-        <mat-form-field class="flex">
-          <mat-label>Branch Prefix</mat-label>
-          <input matInput [(ngModel)]="form.branchPrefix">
-        </mat-form-field>
+        <app-form-field label="Default Branch">
+          <app-text-input
+            [value]="form.defaultBranch"
+            (valueChange)="form.defaultBranch = $event" />
+        </app-form-field>
+        <app-form-field label="Branch Prefix">
+          <app-text-input
+            [value]="form.branchPrefix"
+            (valueChange)="form.branchPrefix = $event" />
+        </app-form-field>
       </div>
-    </mat-dialog-content>
-    <mat-dialog-actions align="end">
-      <button mat-button mat-dialog-close>Cancel</button>
-      <button mat-raised-button color="primary" (click)="save()" [disabled]="!form.name || !form.repoUrl">{{ saveLabel }}</button>
-    </mat-dialog-actions>
+    </div>
+
+    <div class="dialog-actions" dialogFooter>
+      <app-bronco-button variant="ghost" (click)="cancelled.emit()">Cancel</app-bronco-button>
+      <app-bronco-button variant="primary" [disabled]="!form.name || !form.repoUrl" (click)="save()">{{ saveLabel }}</app-bronco-button>
+    </div>
   `,
   styles: [`
-    .full-width { width: 100%; margin-bottom: 8px; }
+    .form-grid { display: flex; flex-direction: column; gap: 12px; }
     .row { display: flex; gap: 12px; }
-    .flex { flex: 1; }
+    .row app-form-field { flex: 1; }
+    .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
   `],
 })
-export class RepoDialogComponent {
-  private dialogRef = inject(MatDialogRef<RepoDialogComponent>);
-  private data: { clientId: string; repo?: CodeRepo } = inject(MAT_DIALOG_DATA);
+export class RepoDialogComponent implements OnInit {
   private repoService = inject(RepoService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
-  title = this.data.repo ? 'Edit Code Repository' : 'Add Code Repository';
-  saveLabel = this.data.repo ? 'Save' : 'Create';
+  clientId = input.required<string>();
+  repo = input<CodeRepo>();
+
+  saved = output<boolean>();
+  cancelled = output<void>();
+
+  isEdit = false;
+  saveLabel = 'Create';
 
   form = {
-    name: this.data.repo?.name ?? '',
-    repoUrl: this.data.repo?.repoUrl ?? '',
-    description: this.data.repo?.description ?? '',
-    defaultBranch: this.data.repo?.defaultBranch ?? 'master',
-    branchPrefix: this.data.repo?.branchPrefix ?? 'claude',
+    name: '',
+    repoUrl: '',
+    description: '',
+    defaultBranch: 'master',
+    branchPrefix: 'claude',
   };
+
+  ngOnInit(): void {
+    const r = this.repo();
+    if (r) {
+      this.isEdit = true;
+      this.saveLabel = 'Save';
+      this.form = {
+        name: r.name ?? '',
+        repoUrl: r.repoUrl ?? '',
+        description: r.description ?? '',
+        defaultBranch: r.defaultBranch ?? 'master',
+        branchPrefix: r.branchPrefix ?? 'claude',
+      };
+    }
+  }
 
   save(): void {
     const payload = {
@@ -74,16 +99,17 @@ export class RepoDialogComponent {
       branchPrefix: this.form.branchPrefix,
     };
 
-    const request$ = this.data.repo
-      ? this.repoService.updateRepo(this.data.repo.id, payload)
-      : this.repoService.createRepo({ ...payload, clientId: this.data.clientId });
+    const r = this.repo();
+    const request$ = r
+      ? this.repoService.updateRepo(r.id, payload)
+      : this.repoService.createRepo({ ...payload, clientId: this.clientId() });
 
     request$.subscribe({
       next: () => {
-        this.snackBar.open(this.data.repo ? 'Repo updated' : 'Repo created', 'OK', { duration: 3000, panelClass: 'success-snackbar' });
-        this.dialogRef.close(true);
+        this.toast.success(r ? 'Repo updated' : 'Repo created');
+        this.saved.emit(true);
       },
-      error: (err) => this.snackBar.open(err.error?.error ?? 'Failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: (err) => this.toast.error(err.error?.error ?? 'Failed'),
     });
   }
 }

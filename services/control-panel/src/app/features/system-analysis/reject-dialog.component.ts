@@ -1,46 +1,43 @@
-import { Component, inject } from '@angular/core';
+import { Component, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MatDialogModule, MatDialogRef } from '@angular/material/dialog';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatButtonModule } from '@angular/material/button';
+import { FormFieldComponent, TextareaComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({
+  selector: 'app-reject-dialog-content',
   standalone: true,
-  imports: [
-    FormsModule,
-    MatDialogModule,
-    MatFormFieldModule,
-    MatInputModule,
-    MatButtonModule,
-  ],
+  imports: [FormsModule, FormFieldComponent, TextareaComponent, BroncoButtonComponent],
   template: `
-    <h2 mat-dialog-title>Reject Analysis</h2>
-    <mat-dialog-content>
-      <p>Provide a reason for rejecting this analysis. This will be used as context to avoid suggesting similar improvements in the future.</p>
-      <mat-form-field class="full-width">
-        <mat-label>Rejection Reason</mat-label>
-        <textarea matInput [(ngModel)]="reason" rows="4" placeholder="e.g., Not applicable to our setup, already handled by..."></textarea>
-      </mat-form-field>
-    </mat-dialog-content>
-    <mat-dialog-actions align="end">
-      <button mat-button mat-dialog-close>Cancel</button>
-      <button mat-raised-button color="warn" [disabled]="!reason.trim()" (click)="submit()">Reject</button>
-    </mat-dialog-actions>
+    <p>Provide a reason for rejecting this analysis. This will be used as context to avoid suggesting similar improvements in the future.</p>
+    <div class="form-grid">
+      <app-form-field label="Rejection Reason">
+        <app-textarea
+          [value]="reason"
+          [rows]="4"
+          placeholder="e.g., Not applicable to our setup, already handled by..."
+          (valueChange)="reason = $event" />
+      </app-form-field>
+    </div>
+
+    <div class="dialog-actions" dialogFooter>
+      <app-bronco-button variant="ghost" (click)="cancelled.emit()">Cancel</app-bronco-button>
+      <app-bronco-button variant="destructive" [disabled]="!reason.trim()" (click)="submit()">Reject</app-bronco-button>
+    </div>
   `,
   styles: [`
-    .full-width {
-      width: 100%;
-    }
+    p { color: var(--text-secondary); font-size: 14px; margin-top: 0; }
+    .form-grid { display: flex; flex-direction: column; gap: 12px; }
+    .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
   `],
 })
 export class RejectDialogComponent {
-  private dialogRef = inject(MatDialogRef<RejectDialogComponent>);
+  rejected = output<string>();
+  cancelled = output<void>();
+
   reason = '';
 
   submit(): void {
     if (this.reason.trim()) {
-      this.dialogRef.close(this.reason.trim());
+      this.rejected.emit(this.reason.trim());
     }
   }
 }

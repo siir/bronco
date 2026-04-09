@@ -1,0 +1,51 @@
+/*
+ * NVIDIA Theme
+ * Source: nvidia DESIGN.md
+ * Dark theme: pure black, NVIDIA green, sharp 2px radii, industrial aesthetic
+ */
+
+body.theme-nvidia {
+  --bg-page: #000000;
+  --bg-card: #1a1a1a;
+  --bg-sidebar: #000000;
+  --bg-header: #000000;
+  --bg-panel: #1a1a1a;
+  --bg-hover: #2a2a2a;
+  --bg-active: #333333;
+  --bg-muted: #111111;
+  --bg-code: #000000;
+  --text-code: #ffffff;
+
+  --text-primary: #ffffff;
+  --text-secondary: #a7a7a7;
+  --text-tertiary: #757575;
+  --text-on-accent: #ffffff;
+
+  --accent: #76b900;
+  --accent-link: #76b900;
+  --accent-hover: #3860be;
+  --focus-ring: rgba(118, 185, 0, 0.3);
+
+  --color-success: #3f8500;
+  --color-warning: #ef9100;
+  --color-error: #e52020;
+  --color-info: #0046a4;
+  --color-success-subtle: rgba(63, 133, 0, 0.12);
+  --color-warning-subtle: rgba(239, 145, 0, 0.12);
+  --color-error-subtle: rgba(229, 32, 32, 0.12);
+  --color-info-subtle: rgba(0, 70, 164, 0.12);
+  --color-purple: #9d7cf5;
+  --color-purple-subtle: rgba(157, 124, 245, 0.12);
+
+  --border-light: #5e5e5e;
+  --border-medium: #76b900;
+
+  --shadow-card: rgba(0, 0, 0, 0.3) 0px 0px 5px 0px;
+
+  --radius-sm: 2px;
+  --radius-md: 2px;
+  --radius-lg: 2px;
+  --radius-pill: 9999px;
+
+  --font-primary: Arial, Helvetica, sans-serif;
+}

@@ -1,88 +1,105 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, input, output, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MatDialogRef, MAT_DIALOG_DATA, MatDialogModule } from '@angular/material/dialog';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatSelectModule } from '@angular/material/select';
-import { MatButtonModule } from '@angular/material/button';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { ClientMemoryService, type ClientMemory, MEMORY_TYPE_OPTIONS, CATEGORY_OPTIONS } from '../../core/services/client-memory.service';
+import { ToastService } from '../../core/services/toast.service';
+import { FormFieldComponent, TextInputComponent, TextareaComponent, SelectComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({
+  selector: 'app-client-memory-dialog-content',
   standalone: true,
-  imports: [FormsModule, MatDialogModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatButtonModule],
+  imports: [FormsModule, FormFieldComponent, TextInputComponent, TextareaComponent, SelectComponent, BroncoButtonComponent],
   template: `
-    <h2 mat-dialog-title>{{ data.memory ? 'Edit' : 'Add' }} Client Memory</h2>
-    <mat-dialog-content>
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Title</mat-label>
-        <input matInput [(ngModel)]="title" placeholder="e.g. Blocking Sessions Playbook">
-      </mat-form-field>
+    <div class="form-grid">
+      <app-form-field label="Title">
+        <app-text-input
+          [value]="title"
+          placeholder="e.g. Blocking Sessions Playbook"
+          (valueChange)="title = $event" />
+      </app-form-field>
 
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Memory Type</mat-label>
-        <mat-select [(ngModel)]="memoryType">
-          @for (mt of memoryTypes; track mt.value) {
-            <mat-option [value]="mt.value">{{ mt.label }} — {{ mt.description }}</mat-option>
-          }
-        </mat-select>
-      </mat-form-field>
+      <app-form-field label="Memory Type">
+        <app-select
+          [value]="memoryType"
+          [options]="memoryTypeOptions"
+          (valueChange)="memoryType = $event" />
+      </app-form-field>
 
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Category Scope</mat-label>
-        <mat-select [(ngModel)]="category">
-          @for (cat of categories; track cat.value) {
-            <mat-option [value]="cat.value">{{ cat.label }}</mat-option>
-          }
-        </mat-select>
-      </mat-form-field>
+      <app-form-field label="Category Scope">
+        <app-select
+          [value]="category"
+          [options]="categoryOptions"
+          (valueChange)="category = $event" />
+      </app-form-field>
 
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Tags (comma-separated)</mat-label>
-        <input matInput [(ngModel)]="tagsInput" placeholder="blocking, deadlocks, azure-sql">
-      </mat-form-field>
+      <app-form-field label="Tags (comma-separated)">
+        <app-text-input
+          [value]="tagsInput"
+          placeholder="blocking, deadlocks, azure-sql"
+          (valueChange)="tagsInput = $event" />
+      </app-form-field>
 
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Content (Markdown)</mat-label>
-        <textarea matInput [(ngModel)]="content" rows="12"
-          placeholder="Write operational knowledge here. This will be injected into AI prompts when analyzing tickets for this client."></textarea>
-      </mat-form-field>
+      <app-form-field label="Content (Markdown)">
+        <app-textarea
+          [value]="content"
+          [rows]="12"
+          placeholder="Write operational knowledge here. This will be injected into AI prompts when analyzing tickets for this client."
+          (valueChange)="content = $event" />
+      </app-form-field>
 
-      <mat-form-field appearance="outline" class="half-width">
-        <mat-label>Sort Order</mat-label>
-        <input matInput type="number" [(ngModel)]="sortOrder">
-      </mat-form-field>
-    </mat-dialog-content>
+      <div style="width: 50%">
+        <app-form-field label="Sort Order">
+          <app-text-input
+            [value]="sortOrder.toString()"
+            type="number"
+            (valueChange)="sortOrder = +$event" />
+        </app-form-field>
+      </div>
+    </div>
 
-    <mat-dialog-actions align="end">
-      <button mat-button mat-dialog-close>Cancel</button>
-      <button mat-raised-button color="primary" (click)="save()" [disabled]="!title.trim() || !content.trim() || saving">
-        {{ saving ? 'Saving...' : (data.memory ? 'Update' : 'Create') }}
-      </button>
-    </mat-dialog-actions>
+    <div class="dialog-actions" dialogFooter>
+      <app-bronco-button variant="ghost" (click)="cancelled.emit()">Cancel</app-bronco-button>
+      <app-bronco-button variant="primary" [disabled]="!title.trim() || !content.trim() || saving" (click)="save()">
+        {{ saving ? 'Saving...' : (memory() ? 'Update' : 'Create') }}
+      </app-bronco-button>
+    </div>
   `,
   styles: [`
-    .full-width { width: 100%; }
-    .half-width { width: 50%; }
-    mat-dialog-content { display: flex; flex-direction: column; min-width: 500px; }
+    .form-grid { display: flex; flex-direction: column; gap: 12px; }
+    .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
   `],
 })
-export class ClientMemoryDialogComponent {
-  private dialogRef = inject(MatDialogRef<ClientMemoryDialogComponent>);
-  data = inject<{ clientId: string; memory?: ClientMemory }>(MAT_DIALOG_DATA);
+export class ClientMemoryDialogComponent implements OnInit {
   private memoryService = inject(ClientMemoryService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
-  memoryTypes = MEMORY_TYPE_OPTIONS;
-  categories = CATEGORY_OPTIONS;
+  clientId = input.required<string>();
+  memory = input<ClientMemory>();
 
-  title = this.data.memory?.title ?? '';
-  memoryType = this.data.memory?.memoryType ?? 'CONTEXT';
-  category = this.data.memory?.category ?? '';
-  tagsInput = this.data.memory?.tags?.join(', ') ?? '';
-  content = this.data.memory?.content ?? '';
-  sortOrder = this.data.memory?.sortOrder ?? 0;
+  saved = output<ClientMemory>();
+  cancelled = output<void>();
+
+  memoryTypeOptions = MEMORY_TYPE_OPTIONS.map(mt => ({ value: mt.value, label: `${mt.label} — ${mt.description}` }));
+  categoryOptions = [...CATEGORY_OPTIONS];
+
+  title = '';
+  memoryType = 'CONTEXT';
+  category = '';
+  tagsInput = '';
+  content = '';
+  sortOrder = 0;
   saving = false;
+
+  ngOnInit(): void {
+    const mem = this.memory();
+    if (mem) {
+      this.title = mem.title ?? '';
+      this.memoryType = mem.memoryType ?? 'CONTEXT';
+      this.category = mem.category ?? '';
+      this.tagsInput = mem.tags?.join(', ') ?? '';
+      this.content = mem.content ?? '';
+      this.sortOrder = mem.sortOrder ?? 0;
+    }
+  }
 
   save(): void {
     this.saving = true;
@@ -96,18 +113,19 @@ export class ClientMemoryDialogComponent {
       sortOrder: this.sortOrder,
     };
 
-    const op = this.data.memory
-      ? this.memoryService.updateMemory(this.data.memory.id, payload)
-      : this.memoryService.createMemory({ ...payload, clientId: this.data.clientId });
+    const mem = this.memory();
+    const op = mem
+      ? this.memoryService.updateMemory(mem.id, payload)
+      : this.memoryService.createMemory({ ...payload, clientId: this.clientId() });
 
     op.subscribe({
       next: (result) => {
-        this.snackBar.open(`Memory ${this.data.memory ? 'updated' : 'created'}`, 'OK', { duration: 3000 });
-        this.dialogRef.close(result);
+        this.toast.success(`Memory ${mem ? 'updated' : 'created'}`);
+        this.saved.emit(result);
       },
       error: (err) => {
         this.saving = false;
-        this.snackBar.open(err.error?.message ?? 'Save failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+        this.toast.error(err.error?.message ?? 'Save failed');
       },
     });
   }

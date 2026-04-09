@@ -1,22 +1,23 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
-import { MatCardModule } from '@angular/material/card';
-import { MatTableModule } from '@angular/material/table';
-import { MatSlideToggleModule } from '@angular/material/slide-toggle';
-import { MatSelectModule } from '@angular/material/select';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatButtonModule } from '@angular/material/button';
-import { MatIconModule } from '@angular/material/icon';
-import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
-import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
-import { MatTabsModule } from '@angular/material/tabs';
 import { environment } from '../../../environments/environment';
 import {
   DEFAULT_OPERATIONAL_ALERT_CONFIG,
   OperationalAlertConfig,
 } from '../../core/services/settings.service';
+import {
+  BroncoButtonComponent,
+  CardComponent,
+  FormFieldComponent,
+  SelectComponent,
+  ToggleSwitchComponent,
+  TabComponent,
+  TabGroupComponent,
+  DataTableComponent,
+  DataTableColumnComponent,
+} from '../../shared/components/index.js';
+import { ToastService } from '../../core/services/toast.service';
 
 interface NotificationPreference {
   id: string;
@@ -69,228 +70,183 @@ const EMAIL_TARGET_OPTIONS = [
   standalone: true,
   imports: [
     FormsModule,
-    MatCardModule,
-    MatTableModule,
-    MatSlideToggleModule,
-    MatSelectModule,
-    MatFormFieldModule,
-    MatInputModule,
-    MatButtonModule,
-    MatIconModule,
-    MatProgressSpinnerModule,
-    MatSnackBarModule,
-    MatTabsModule,
+    BroncoButtonComponent,
+    CardComponent,
+    FormFieldComponent,
+    SelectComponent,
+    ToggleSwitchComponent,
+    TabComponent,
+    TabGroupComponent,
+    DataTableComponent,
+    DataTableColumnComponent,
   ],
   template: `
-    <h1>Notifications</h1>
-    <p class="subtitle">Configure event notifications and operational alerts.</p>
+    <div class="page-wrapper">
+      <h1 class="page-title">Notifications</h1>
+      <p class="subtitle">Configure event notifications and operational alerts.</p>
 
-    <mat-tab-group>
+      <app-tab-group [selectedIndex]="selectedTab()" (selectedIndexChange)="selectedTab.set($event)">
 
-      <mat-tab label="Event Notifications">
-        @if (loading()) {
-          <div class="spinner-wrapper"><mat-spinner diameter="40" /></div>
-        } @else {
-          <mat-card>
-            <mat-card-content>
+        <app-tab label="Event Notifications">
+          @if (loading()) {
+            <div class="loading-wrapper"><span class="loading-text">Loading...</span></div>
+          } @else {
+            <app-card>
               <div class="table-wrapper">
-                <table mat-table [dataSource]="preferences()" class="pref-table">
-
-                  <ng-container matColumnDef="event">
-                    <th mat-header-cell *matHeaderCellDef>Event</th>
-                    <td mat-cell *matCellDef="let pref">
+                <app-data-table [data]="preferences()" [trackBy]="trackPref" [rowClickable]="false">
+                  <app-data-column key="event" header="Event" [sortable]="false">
+                    <ng-template #cell let-pref>
                       <div class="event-cell">
                         <strong>{{ eventLabel(pref.event) }}</strong>
                         <span class="event-desc">{{ pref.description }}</span>
                       </div>
-                    </td>
-                  </ng-container>
+                    </ng-template>
+                  </app-data-column>
 
-                  <ng-container matColumnDef="emailEnabled">
-                    <th mat-header-cell *matHeaderCellDef>Email</th>
-                    <td mat-cell *matCellDef="let pref">
-                      <mat-slide-toggle [(ngModel)]="pref.emailEnabled" />
-                    </td>
-                  </ng-container>
+                  <app-data-column key="emailEnabled" header="Email" [sortable]="false" width="80px">
+                    <ng-template #cell let-pref>
+                      <app-toggle-switch
+                        [checked]="pref.emailEnabled"
+                        (checkedChange)="pref.emailEnabled = $event" />
+                    </ng-template>
+                  </app-data-column>
 
-                  <ng-container matColumnDef="emailTarget">
-                    <th mat-header-cell *matHeaderCellDef>Email Target</th>
-                    <td mat-cell *matCellDef="let pref">
+                  <app-data-column key="emailTarget" header="Email Target" [sortable]="false">
+                    <ng-template #cell let-pref>
                       @if (pref.emailEnabled) {
-                        <mat-form-field appearance="outline" class="compact-field">
-                          <mat-select [value]="emailTargetSelection(pref)" (selectionChange)="onEmailTargetChange(pref, $event.value)">
-                            @for (opt of emailTargetOptions; track opt.value) {
-                              <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
-                            }
-                          </mat-select>
-                        </mat-form-field>
-                        @if (emailTargetSelection(pref) === 'custom') {
-                          <mat-form-field appearance="outline" class="compact-field custom-input">
-                            <input matInput [(ngModel)]="pref.emailTarget" placeholder="user@example.com">
-                          </mat-form-field>
-                        }
-                        @if (emailTargetSelection(pref) === 'specific_operator') {
-                          <mat-form-field appearance="outline" class="compact-field custom-input">
-                            <mat-select
+                        <div class="target-controls">
+                          <app-select
+                            [value]="emailTargetSelection(pref)"
+                            [options]="emailTargetOptions"
+                            (valueChange)="onEmailTargetChange(pref, $event)" />
+                          @if (emailTargetSelection(pref) === 'custom') {
+                            <input class="text-input compact-input" [(ngModel)]="pref.emailTarget" placeholder="user@example.com">
+                          }
+                          @if (emailTargetSelection(pref) === 'specific_operator') {
+                            <app-select
                               [value]="selectedOperatorValue(pref.emailTarget)"
-                              (selectionChange)="pref.emailTarget = $event.value"
-                              placeholder="Select operator">
-                              @for (op of operators(); track op.id) {
-                                <mat-option [value]="'operator:' + op.id">{{ op.name }}</mat-option>
-                              }
-                            </mat-select>
-                          </mat-form-field>
-                        }
+                              [options]="operatorOptions()"
+                              (valueChange)="pref.emailTarget = $event" />
+                          }
+                        </div>
                       }
-                    </td>
-                  </ng-container>
+                    </ng-template>
+                  </app-data-column>
 
-                  <ng-container matColumnDef="slackEnabled">
-                    <th mat-header-cell *matHeaderCellDef>Slack</th>
-                    <td mat-cell *matCellDef="let pref">
-                      <mat-slide-toggle [(ngModel)]="pref.slackEnabled" />
-                    </td>
-                  </ng-container>
+                  <app-data-column key="slackEnabled" header="Slack" [sortable]="false" width="80px">
+                    <ng-template #cell let-pref>
+                      <app-toggle-switch
+                        [checked]="pref.slackEnabled"
+                        (checkedChange)="pref.slackEnabled = $event" />
+                    </ng-template>
+                  </app-data-column>
 
-                  <ng-container matColumnDef="slackTarget">
-                    <th mat-header-cell *matHeaderCellDef>Slack Target</th>
-                    <td mat-cell *matCellDef="let pref">
+                  <app-data-column key="slackTarget" header="Slack Target" [sortable]="false">
+                    <ng-template #cell let-pref>
                       @if (pref.slackEnabled) {
-                        <mat-form-field appearance="outline" class="compact-field">
-                          <mat-select [value]="slackTargetSelection(pref)" (selectionChange)="onSlackTargetChange(pref, $event.value)">
-                            @for (opt of slackTargetOptions; track opt.value) {
-                              <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
-                            }
-                          </mat-select>
-                        </mat-form-field>
-                        @if (slackTargetSelection(pref) === 'custom') {
-                          <mat-form-field appearance="outline" class="compact-field custom-input">
-                            <input matInput [(ngModel)]="pref.slackTarget" placeholder="C0123456789">
-                          </mat-form-field>
-                        }
-                        @if (slackTargetSelection(pref) === 'specific_operator') {
-                          <mat-form-field appearance="outline" class="compact-field custom-input">
-                            <mat-select
+                        <div class="target-controls">
+                          <app-select
+                            [value]="slackTargetSelection(pref)"
+                            [options]="slackTargetOptions"
+                            (valueChange)="onSlackTargetChange(pref, $event)" />
+                          @if (slackTargetSelection(pref) === 'custom') {
+                            <input class="text-input compact-input" [(ngModel)]="pref.slackTarget" placeholder="C0123456789">
+                          }
+                          @if (slackTargetSelection(pref) === 'specific_operator') {
+                            <app-select
                               [value]="selectedOperatorValue(pref.slackTarget)"
-                              (selectionChange)="pref.slackTarget = $event.value"
-                              placeholder="Select operator">
-                              @for (op of operators(); track op.id) {
-                                <mat-option [value]="'operator:' + op.id">{{ op.name }}</mat-option>
-                              }
-                            </mat-select>
-                          </mat-form-field>
-                        }
+                              [options]="operatorOptions()"
+                              (valueChange)="pref.slackTarget = $event" />
+                          }
+                        </div>
                       }
-                    </td>
-                  </ng-container>
-
-                  <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
-                  <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
-                </table>
+                    </ng-template>
+                  </app-data-column>
+                </app-data-table>
               </div>
 
-              <div class="actions">
-                <button mat-flat-button color="primary" (click)="saveAll()" [disabled]="saving()">
-                  @if (saving()) {
-                    <mat-spinner diameter="20" />
-                  } @else {
-                    <mat-icon>save</mat-icon>
-                    Save All
-                  }
-                </button>
+              <div class="card-actions">
+                <app-bronco-button variant="primary" (click)="saveAll()" [disabled]="saving()">
+                  @if (saving()) { <span class="loading-text">Saving...</span> } @else { <span>Save All</span> }
+                </app-bronco-button>
               </div>
-            </mat-card-content>
-          </mat-card>
-        }
-      </mat-tab>
+            </app-card>
+          }
+        </app-tab>
 
-      <mat-tab label="Operational Alerts">
-        <div class="tab-content">
-          @if (alertsLoading()) {
-            <div class="spinner-wrapper"><mat-spinner diameter="40" /></div>
-          } @else if (alertsError()) {
-            <p>Failed to load alert configuration. <button mat-button (click)="loadAlertConfig()">Retry</button></p>
-          } @else {
-            <mat-card>
-              <mat-card-header>
-                <mat-card-title>Alert Notifications</mat-card-title>
-              </mat-card-header>
-              <mat-card-content>
+        <app-tab label="Operational Alerts">
+          <div class="tab-content">
+            @if (alertsLoading()) {
+              <div class="loading-wrapper"><span class="loading-text">Loading...</span></div>
+            } @else if (alertsError()) {
+              <p>Failed to load alert configuration.
+                <app-bronco-button variant="ghost" (click)="loadAlertConfig()">Retry</app-bronco-button>
+              </p>
+            } @else {
+              <app-card>
+                <h2 class="section-title">Alert Notifications</h2>
                 <p class="subtitle">
                   Get email notifications when background processes fail silently.
                 </p>
 
                 <div class="alert-toggle-row">
-                  <mat-slide-toggle
+                  <app-toggle-switch
+                    label="Enable operational alerts"
                     [checked]="alertConfig().enabled"
-                    (change)="setAlertEnabled($event.checked)">
-                    Enable operational alerts
-                  </mat-slide-toggle>
+                    (checkedChange)="setAlertEnabled($event)" />
                 </div>
 
-                <mat-form-field appearance="outline" class="full-width">
-                  <mat-label>Recipient Operator</mat-label>
-                  <mat-select
-                    [value]="alertConfig().recipientOperatorId"
-                    (selectionChange)="setAlertRecipientOperator($event.value)">
-                    @for (op of operators(); track op.id) {
-                      <mat-option [value]="op.id">{{ op.name }} ({{ op.email }})</mat-option>
-                    }
-                  </mat-select>
-                </mat-form-field>
+                <div class="form-grid">
+                  <app-form-field label="Recipient Operator">
+                    <app-select
+                      [value]="alertConfig().recipientOperatorId"
+                      [options]="operatorEmailOptions()"
+                      (valueChange)="setAlertRecipientOperator($event)" />
+                  </app-form-field>
 
-                <mat-form-field appearance="outline" class="full-width">
-                  <mat-label>Throttle (minutes between repeat alerts)</mat-label>
-                  <mat-select
-                    [value]="alertConfig().throttleMinutes"
-                    (selectionChange)="setAlertThrottleMinutes($event.value)">
-                    <mat-option [value]="15">15 minutes</mat-option>
-                    <mat-option [value]="30">30 minutes</mat-option>
-                    <mat-option [value]="60">1 hour</mat-option>
-                    <mat-option [value]="120">2 hours</mat-option>
-                  </mat-select>
-                </mat-form-field>
+                  <app-form-field label="Throttle (minutes between repeat alerts)">
+                    <app-select
+                      [value]="'' + alertConfig().throttleMinutes"
+                      [options]="throttleOptions"
+                      (valueChange)="setAlertThrottleMinutes(+$event)" />
+                  </app-form-field>
+                </div>
 
-                <h3>Alert Types</h3>
+                <h3 class="subsection-title">Alert Types</h3>
                 <div class="alert-toggles">
                   <div class="alert-toggle-row">
-                    <mat-slide-toggle
+                    <app-toggle-switch
+                      label="Failed BullMQ jobs"
                       [checked]="alertConfig().alerts.failedJobs"
-                      (change)="setAlertType('failedJobs', $event.checked)">
-                      Failed BullMQ jobs
-                    </mat-slide-toggle>
+                      (checkedChange)="setAlertType('failedJobs', $event)" />
                     <span class="alert-desc">Alert when background job queues have failed jobs</span>
                   </div>
                   <div class="alert-toggle-row">
-                    <mat-slide-toggle
+                    <app-toggle-switch
+                      label="Missed probe schedules"
                       [checked]="alertConfig().alerts.probeMisses"
-                      (change)="setAlertType('probeMisses', $event.checked)">
-                      Missed probe schedules
-                    </mat-slide-toggle>
+                      (checkedChange)="setAlertType('probeMisses', $event)" />
                     <span class="alert-desc">Alert when scheduled probes miss their expected run window</span>
                   </div>
                   <div class="alert-toggle-row">
-                    <mat-slide-toggle
+                    <app-toggle-switch
+                      label="AI provider outages"
                       [checked]="alertConfig().alerts.aiProviderDown"
-                      (change)="setAlertType('aiProviderDown', $event.checked)">
-                      AI provider outages
-                    </mat-slide-toggle>
+                      (checkedChange)="setAlertType('aiProviderDown', $event)" />
                     <span class="alert-desc">Alert when Ollama or cloud AI providers are unreachable or failing</span>
                   </div>
                   <div class="alert-toggle-row">
-                    <mat-slide-toggle
+                    <app-toggle-switch
+                      label="DevOps sync staleness"
                       [checked]="alertConfig().alerts.devopsSyncStale"
-                      (change)="setAlertType('devopsSyncStale', $event.checked)">
-                      DevOps sync staleness
-                    </mat-slide-toggle>
+                      (checkedChange)="setAlertType('devopsSyncStale', $event)" />
                     <span class="alert-desc">Alert when Azure DevOps sync stops (PAT expired, rate limit, etc)</span>
                   </div>
                   <div class="alert-toggle-row">
-                    <mat-slide-toggle
+                    <app-toggle-switch
+                      label="Log summarization staleness"
                       [checked]="alertConfig().alerts.summarizationStale"
-                      (change)="setAlertType('summarizationStale', $event.checked)">
-                      Log summarization staleness
-                    </mat-slide-toggle>
+                      (checkedChange)="setAlertType('summarizationStale', $event)" />
                     <span class="alert-desc">Alert when log summarization hasn't run in over 2 hours</span>
                   </div>
                 </div>
@@ -300,81 +256,126 @@ const EMAIL_TARGET_OPTIONS = [
                     {{ alertTestResult()!.success ? alertTestResult()!.message : alertTestResult()!.error }}
                   </div>
                 }
-              </mat-card-content>
-              <mat-card-actions>
-                <button mat-flat-button color="primary" (click)="saveAlertConfig()" [disabled]="alertsSaving()">
-                  @if (alertsSaving()) { <mat-spinner diameter="18" /> } @else { <mat-icon>save</mat-icon> }
-                  Save
-                </button>
-                <button mat-button (click)="testAlert()" [disabled]="alertsTesting()">
-                  @if (alertsTesting()) { <mat-spinner diameter="18" /> }
-                  Test Alert
-                </button>
-              </mat-card-actions>
-            </mat-card>
-          }
-        </div>
-      </mat-tab>
 
-    </mat-tab-group>
+                <div class="card-actions">
+                  <app-bronco-button variant="primary" (click)="saveAlertConfig()" [disabled]="alertsSaving()">
+                    @if (alertsSaving()) { <span class="loading-text">Saving...</span> } @else { Save }
+                  </app-bronco-button>
+                  <app-bronco-button variant="secondary" (click)="testAlert()" [disabled]="alertsTesting()">
+                    @if (alertsTesting()) { <span class="loading-text">Testing...</span> } @else { Test Alert }
+                  </app-bronco-button>
+                </div>
+              </app-card>
+            }
+          </div>
+        </app-tab>
+
+      </app-tab-group>
+    </div>
   `,
   styles: [`
-    .subtitle {
-      color: #666;
-      margin-bottom: 16px;
+    .page-wrapper { max-width: 1200px; }
+    .page-title {
+      margin: 0 0 8px;
+      font-size: 24px;
+      font-weight: 600;
+      color: var(--text-primary);
     }
-    .spinner-wrapper {
+    .subtitle {
+      color: var(--text-tertiary);
+      margin: 0 0 16px;
+      font-size: 14px;
+    }
+
+    .loading-wrapper {
       display: flex;
       justify-content: center;
       padding: 40px;
     }
-    .table-wrapper {
-      overflow-x: auto;
+    .loading-text {
+      color: var(--text-tertiary);
+      font-size: 13px;
     }
-    .pref-table {
-      width: 100%;
+
+    .section-title {
+      margin: 0 0 8px;
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--text-primary);
     }
+    .subsection-title {
+      margin: 24px 0 8px;
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .table-wrapper { overflow-x: auto; }
+
     .event-cell {
       display: flex;
       flex-direction: column;
-      padding: 8px 0;
+      padding: 4px 0;
     }
     .event-desc {
       font-size: 12px;
-      color: #888;
+      color: var(--text-tertiary);
       margin-top: 2px;
     }
-    .compact-field {
-      font-size: 13px;
-      max-width: 200px;
-    }
-    .custom-input {
-      margin-left: 8px;
-      max-width: 180px;
-    }
-    .actions {
-      display: flex;
-      justify-content: flex-end;
-      margin-top: 16px;
-      padding-top: 16px;
-      border-top: 1px solid #e0e0e0;
-    }
-    .actions button mat-icon {
-      margin-right: 4px;
-    }
-    .tab-content {
-      padding-top: 16px;
-    }
-    .full-width {
-      width: 100%;
-      max-width: 400px;
-      display: block;
-      margin-bottom: 12px;
-    }
-    .alert-toggle-row {
+
+    .target-controls {
       display: flex;
       align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .target-controls app-select {
+      max-width: 200px;
+    }
+    .compact-input {
+      max-width: 180px;
+    }
+
+    .text-input {
+      width: 100%;
+      box-sizing: border-box;
+      background: var(--bg-card);
+      border: 1px solid var(--border-medium);
+      border-radius: var(--radius-md);
+      padding: 8px 12px;
+      font-family: var(--font-primary);
+      font-size: 14px;
+      color: var(--text-primary);
+      outline: none;
+      transition: border-color 120ms ease, box-shadow 120ms ease;
+    }
+    .text-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(0, 113, 227, 0.15);
+    }
+
+    .card-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border-light);
+    }
+
+    .tab-content { padding-top: 8px; }
+
+    .form-grid {
+      display: flex;
+      flex-direction: column;
       gap: 12px;
+      max-width: 400px;
+      margin-bottom: 12px;
+    }
+
+    .alert-toggle-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
       margin-bottom: 12px;
     }
     .alert-toggles {
@@ -383,22 +384,24 @@ const EMAIL_TARGET_OPTIONS = [
     }
     .alert-desc {
       font-size: 12px;
-      color: #888;
+      color: var(--text-tertiary);
+      padding-left: 44px;
     }
     .test-result {
       margin-top: 8px;
-      padding: 8px;
-      border-radius: 4px;
+      padding: 8px 12px;
+      border-radius: var(--radius-md);
       font-size: 13px;
     }
-    .test-result.success { background: #e8f5e9; color: #2e7d32; }
-    .test-result.error { background: #fce4ec; color: #c62828; }
+    .test-result.success { background: rgba(52, 199, 89, 0.1); color: var(--color-success); }
+    .test-result.error { background: rgba(255, 59, 48, 0.1); color: var(--color-error); }
   `],
 })
 export class NotificationPreferencesComponent implements OnInit {
   private http = inject(HttpClient);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
+  selectedTab = signal(0);
   loading = signal(true);
   saving = signal(false);
   preferences = signal<NotificationPreference[]>([]);
@@ -411,9 +414,24 @@ export class NotificationPreferencesComponent implements OnInit {
   alertsTesting = signal(false);
   alertTestResult = signal<{ success: boolean; message?: string; error?: string } | null>(null);
 
-  displayedColumns = ['event', 'emailEnabled', 'emailTarget', 'slackEnabled', 'slackTarget'];
   slackTargetOptions = SLACK_TARGET_OPTIONS;
   emailTargetOptions = EMAIL_TARGET_OPTIONS;
+
+  throttleOptions = [
+    { value: '15', label: '15 minutes' },
+    { value: '30', label: '30 minutes' },
+    { value: '60', label: '1 hour' },
+    { value: '120', label: '2 hours' },
+  ];
+
+  trackPref = (pref: NotificationPreference) => pref.id;
+
+  operatorOptions = signal<Array<{ value: string; label: string }>>([
+    { value: 'operator:', label: 'Select operator' },
+  ]);
+  operatorEmailOptions = signal<Array<{ value: string; label: string }>>([
+    { value: '', label: 'Select operator' },
+  ]);
 
   ngOnInit(): void {
     this.load();
@@ -423,7 +441,18 @@ export class NotificationPreferencesComponent implements OnInit {
 
   private loadOperators(): void {
     this.http.get<OperatorOption[]>(`${environment.apiUrl}/operators`).subscribe({
-      next: ops => this.operators.set(ops.filter(o => o.isActive !== false)),
+      next: ops => {
+        const active = ops.filter(o => o.isActive !== false);
+        this.operators.set(active);
+        this.operatorOptions.set([
+          { value: 'operator:', label: 'Select operator' },
+          ...active.map(o => ({ value: 'operator:' + o.id, label: o.name })),
+        ]);
+        this.operatorEmailOptions.set([
+          { value: '', label: 'Select operator' },
+          ...active.map(o => ({ value: o.id, label: `${o.name} (${o.email})` })),
+        ]);
+      },
       error: () => { /* non-critical */ },
     });
   }
@@ -452,8 +481,6 @@ export class NotificationPreferencesComponent implements OnInit {
     } else if (value === 'custom') {
       pref.slackTarget = '';
     } else if (value === 'specific_operator') {
-      // Use 'operator:' prefix as placeholder so slackTargetSelection() keeps returning
-      // 'specific_operator' until the user picks an operator from the dropdown.
       pref.slackTarget = 'operator:';
     } else {
       pref.slackTarget = value;
@@ -464,8 +491,6 @@ export class NotificationPreferencesComponent implements OnInit {
     if (value === 'custom') {
       pref.emailTarget = '';
     } else if (value === 'specific_operator') {
-      // Use 'operator:' prefix as placeholder so emailTargetSelection() keeps returning
-      // 'specific_operator' until the user picks an operator from the dropdown.
       pref.emailTarget = 'operator:';
     } else {
       pref.emailTarget = value;
@@ -485,7 +510,7 @@ export class NotificationPreferencesComponent implements OnInit {
         this.loading.set(false);
       },
       error: () => {
-        this.snackBar.open('Failed to load notification preferences', 'Dismiss', { duration: 5000 });
+        this.toast.error('Failed to load notification preferences');
         this.loading.set(false);
       },
     });
@@ -504,11 +529,11 @@ export class NotificationPreferencesComponent implements OnInit {
 
     this.http.put(`${environment.apiUrl}/notification-preferences`, payload).subscribe({
       next: () => {
-        this.snackBar.open('Preferences saved', 'Dismiss', { duration: 3000 });
+        this.toast.success('Preferences saved');
         this.saving.set(false);
       },
       error: () => {
-        this.snackBar.open('Failed to save preferences', 'Dismiss', { duration: 5000 });
+        this.toast.error('Failed to save preferences');
         this.saving.set(false);
       },
     });
@@ -554,11 +579,11 @@ export class NotificationPreferencesComponent implements OnInit {
       next: saved => {
         this.alertConfig.set(saved);
         this.alertsSaving.set(false);
-        this.snackBar.open('Alert configuration saved', 'Dismiss', { duration: 3000 });
+        this.toast.success('Alert configuration saved');
       },
       error: () => {
         this.alertsSaving.set(false);
-        this.snackBar.open('Failed to save alert configuration', 'Dismiss', { duration: 5000 });
+        this.toast.error('Failed to save alert configuration');
       },
     });
   }

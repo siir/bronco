@@ -1,27 +1,11 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
-import { MatCardModule } from '@angular/material/card';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatButtonModule } from '@angular/material/button';
-import { MatIconModule } from '@angular/material/icon';
-import { MatSnackBar } from '@angular/material/snack-bar';
-import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { MatTableModule } from '@angular/material/table';
-import { MatChipsModule } from '@angular/material/chips';
-import { MatTooltipModule } from '@angular/material/tooltip';
-import { MatMenuModule } from '@angular/material/menu';
-import { MatDividerModule } from '@angular/material/divider';
-import { MatTabsModule } from '@angular/material/tabs';
 import {
   ExternalServiceService,
   ExternalService,
 } from '../../core/services/external-service.service';
 import { UserService, ControlPanelUser } from '../../core/services/user.service';
-import { MatSlideToggleModule } from '@angular/material/slide-toggle';
-import { MatSelectModule } from '@angular/material/select';
-import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import {
   SettingsService,
   TicketStatusConfig,
@@ -31,422 +15,321 @@ import {
 import { ExternalServiceDialogComponent } from './external-service-dialog.component';
 import { StatusConfigDialogComponent } from './status-config-dialog.component';
 import { CategoryConfigDialogComponent } from './category-config-dialog.component';
+import {
+  BroncoButtonComponent,
+  CardComponent,
+  FormFieldComponent,
+  SelectComponent,
+  ToggleSwitchComponent,
+  TabComponent,
+  TabGroupComponent,
+  DataTableComponent,
+  DataTableColumnComponent,
+  DropdownMenuComponent,
+  DropdownItemComponent,
+  DialogComponent,
+} from '../../shared/components/index.js';
+import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   standalone: true,
   imports: [
     FormsModule,
-    MatCardModule,
-    MatFormFieldModule,
-    MatInputModule,
-    MatButtonModule,
-    MatIconModule,
-    MatDialogModule,
-    MatTableModule,
-    MatChipsModule,
-    MatTooltipModule,
-    MatMenuModule,
-    MatDividerModule,
-    MatTabsModule,
-    MatSlideToggleModule,
-    MatSelectModule,
-    MatProgressSpinnerModule,
+    BroncoButtonComponent,
+    CardComponent,
+    FormFieldComponent,
+    SelectComponent,
+    ToggleSwitchComponent,
+    TabComponent,
+    TabGroupComponent,
+    DataTableComponent,
+    DataTableColumnComponent,
+    DropdownMenuComponent,
+    DropdownItemComponent,
+    DialogComponent,
+    ExternalServiceDialogComponent,
+    StatusConfigDialogComponent,
+    CategoryConfigDialogComponent,
   ],
   template: `
-    <h1>Settings</h1>
+    <div class="page-wrapper">
+      <h1 class="page-title">Settings</h1>
 
-    <mat-tab-group [selectedIndex]="selectedTab()" (selectedTabChange)="onTabChange($event.index)">
-      <!-- General tab -->
-      <mat-tab label="General">
-        <div class="tab-content">
-          <mat-card>
-            <mat-card-header>
-              <mat-card-title>API Configuration</mat-card-title>
-            </mat-card-header>
-            <mat-card-content>
+      <app-tab-group [selectedIndex]="selectedTab()" (selectedIndexChange)="onTabChange($event)">
+        <!-- General tab -->
+        <app-tab label="General">
+          <div class="tab-content">
+            <app-card>
+              <h2 class="section-title">API Configuration</h2>
               <p class="hint">The API key is stored in session storage (cleared when tab closes) and sent with every request.</p>
-              <mat-form-field class="full-width">
-                <mat-label>API Key</mat-label>
-                <input matInput [type]="showKey() ? 'text' : 'password'" [(ngModel)]="apiKey">
-                <button mat-icon-button matSuffix (click)="showKey.set(!showKey())">
-                  <mat-icon>{{ showKey() ? 'visibility_off' : 'visibility' }}</mat-icon>
-                </button>
-              </mat-form-field>
-            </mat-card-content>
-            <mat-card-actions>
-              <button mat-raised-button color="primary" (click)="saveKey()">
-                <mat-icon>save</mat-icon> Save API Key
-              </button>
-              <button mat-button color="warn" (click)="clearKey()">Clear</button>
-            </mat-card-actions>
-          </mat-card>
+              <div class="form-grid">
+                <app-form-field label="API Key">
+                  <div class="input-with-toggle">
+                    <input class="text-input" [type]="showKey() ? 'text' : 'password'" [(ngModel)]="apiKey">
+                    <button class="toggle-vis" (click)="showKey.set(!showKey())" title="Toggle visibility">
+                      {{ showKey() ? 'Hide' : 'Show' }}
+                    </button>
+                  </div>
+                </app-form-field>
+              </div>
+              <div class="card-actions">
+                <app-bronco-button variant="primary" (click)="saveKey()">
+                  Save API Key
+                </app-bronco-button>
+                <app-bronco-button variant="destructive" size="sm" (click)="clearKey()">Clear</app-bronco-button>
+              </div>
+            </app-card>
 
-          <mat-card class="section-card">
-            <mat-card-header>
-              <mat-card-title>Super Admin</mat-card-title>
-            </mat-card-header>
-            <mat-card-content>
+            <app-card>
+              <h2 class="section-title">Super Admin</h2>
               <p class="hint">Designate a control panel user as the super admin. This user will have elevated privileges for system-wide operations.</p>
-              <mat-form-field class="full-width">
-                <mat-label>Super Admin User</mat-label>
-                <mat-select [(ngModel)]="superAdminUserId" [disabled]="usersLoading()">
-                  <mat-option [value]="null">— None —</mat-option>
-                  @for (u of adminUsers(); track u.id) {
-                    <mat-option [value]="u.id">{{ u.name }} ({{ u.email }}) — {{ u.role }}</mat-option>
-                  }
-                </mat-select>
-              </mat-form-field>
-            </mat-card-content>
-            <mat-card-actions>
-              <button mat-raised-button color="primary" (click)="saveSuperAdmin()" [disabled]="superAdminSaving()">
-                @if (superAdminSaving()) {
-                  <mat-spinner diameter="18" class="inline-spinner"></mat-spinner>
-                }
-                Save
-              </button>
-            </mat-card-actions>
-          </mat-card>
-        </div>
-      </mat-tab>
+              <div class="form-grid">
+                <app-form-field label="Super Admin User">
+                  <app-select
+                    [value]="superAdminUserId ?? ''"
+                    [options]="superAdminOptions()"
+                    [disabled]="usersLoading()"
+                    (valueChange)="superAdminUserId = $event || null" />
+                </app-form-field>
+              </div>
+              <div class="card-actions">
+                <app-bronco-button variant="primary" (click)="saveSuperAdmin()" [disabled]="superAdminSaving()">
+                  @if (superAdminSaving()) { Saving... } @else { Save }
+                </app-bronco-button>
+              </div>
+            </app-card>
+          </div>
+        </app-tab>
 
-      <!-- Ticket Statuses tab -->
-      <mat-tab label="Ticket Statuses">
-        <div class="tab-content">
-          <mat-card>
-            <mat-card-header>
-              <mat-card-title>Ticket Statuses</mat-card-title>
-              <div class="header-spacer"></div>
-              <button mat-raised-button color="primary" (click)="createStatus()">
-                <mat-icon>add</mat-icon> Create Status
-              </button>
-            </mat-card-header>
-            <mat-card-content>
-              <p class="hint">
-                Configure how ticket statuses appear and behave. Each status belongs to either the
-                <strong>open</strong> class (active tickets) or the <strong>closed</strong> class (terminal tickets).
-              </p>
+        <!-- Ticket Statuses tab -->
+        <app-tab label="Ticket Statuses">
+          <div class="tab-content">
+            <div class="section-header">
+              <div>
+                <h2 class="section-title">Ticket Statuses</h2>
+                <p class="hint">
+                  Configure how ticket statuses appear and behave. Each status belongs to either the
+                  <strong>open</strong> class (active tickets) or the <strong>closed</strong> class (terminal tickets).
+                </p>
+              </div>
+              <app-bronco-button variant="primary" (click)="createStatus()">Create Status</app-bronco-button>
+            </div>
 
-              @if (statusesLoading()) {
-                <div class="empty-state">
-                  <mat-icon>hourglass_empty</mat-icon>
-                  <p>Loading status configurations...</p>
-                </div>
-              } @else if (statusesError()) {
-                <div class="empty-state">
-                  <mat-icon>error_outline</mat-icon>
-                  <p>Failed to load status configurations.</p>
-                  <button mat-button color="primary" (click)="loadStatuses()">Retry</button>
-                </div>
-              } @else {
-                <table mat-table [dataSource]="statuses()" class="full-table">
-                  <ng-container matColumnDef="color">
-                    <th mat-header-cell *matHeaderCellDef>Color</th>
-                    <td mat-cell *matCellDef="let s">
-                      <div class="color-swatch" [style.background]="s.color"></div>
-                    </td>
-                  </ng-container>
+            @if (statusesLoading()) {
+              <div class="empty-state"><span class="loading-text">Loading status configurations...</span></div>
+            } @else if (statusesError()) {
+              <div class="empty-state">
+                <p>Failed to load status configurations.</p>
+                <app-bronco-button variant="ghost" (click)="loadStatuses()">Retry</app-bronco-button>
+              </div>
+            } @else {
+              <app-data-table [data]="statuses()" [trackBy]="trackStatus" [rowClickable]="false">
+                <app-data-column key="color" header="Color" [sortable]="false" width="60px">
+                  <ng-template #cell let-s>
+                    <div class="color-swatch" [style.background]="s.color"></div>
+                  </ng-template>
+                </app-data-column>
+                <app-data-column key="value" header="Value" [sortable]="false">
+                  <ng-template #cell let-s><code>{{ s.value }}</code></ng-template>
+                </app-data-column>
+                <app-data-column key="displayName" header="Display Name" [sortable]="false">
+                  <ng-template #cell let-s>{{ s.displayName }}</ng-template>
+                </app-data-column>
+                <app-data-column key="description" header="Description" [sortable]="false">
+                  <ng-template #cell let-s><span class="desc-text">{{ s.description ?? '—' }}</span></ng-template>
+                </app-data-column>
+                <app-data-column key="statusClass" header="Class" [sortable]="false" width="100px">
+                  <ng-template #cell let-s>
+                    <span class="class-chip" [class.class-open]="s.statusClass === 'open'" [class.class-closed]="s.statusClass === 'closed'">
+                      {{ s.statusClass }}
+                    </span>
+                  </ng-template>
+                </app-data-column>
+                <app-data-column key="sortOrder" header="Order" [sortable]="false" width="70px">
+                  <ng-template #cell let-s>{{ s.sortOrder }}</ng-template>
+                </app-data-column>
+                <app-data-column key="active" header="Active" [sortable]="false" width="70px">
+                  <ng-template #cell let-s>
+                    <span [class.status-yes]="s.isActive" [class.status-no]="!s.isActive">
+                      {{ s.isActive ? 'Yes' : 'No' }}
+                    </span>
+                  </ng-template>
+                </app-data-column>
+                <app-data-column key="actions" header="" [sortable]="false" width="60px">
+                  <ng-template #cell let-s>
+                    <app-bronco-button variant="icon" size="sm" title="Edit" (click)="editStatus(s)">
+                      Edit
+                    </app-bronco-button>
+                  </ng-template>
+                </app-data-column>
+              </app-data-table>
+            }
+          </div>
+        </app-tab>
 
-                  <ng-container matColumnDef="value">
-                    <th mat-header-cell *matHeaderCellDef>Value</th>
-                    <td mat-cell *matCellDef="let s">
-                      <code>{{ s.value }}</code>
-                    </td>
-                  </ng-container>
+        <!-- Ticket Categories tab -->
+        <app-tab label="Ticket Categories">
+          <div class="tab-content">
+            <div class="section-header">
+              <div>
+                <h2 class="section-title">Ticket Categories</h2>
+                <p class="hint">
+                  Configure ticket categories used for classifying and organizing tickets.
+                  Categories help route tickets to the right workflow.
+                </p>
+              </div>
+              <app-bronco-button variant="primary" (click)="createCategory()">Create Category</app-bronco-button>
+            </div>
 
-                  <ng-container matColumnDef="displayName">
-                    <th mat-header-cell *matHeaderCellDef>Display Name</th>
-                    <td mat-cell *matCellDef="let s">{{ s.displayName }}</td>
-                  </ng-container>
+            @if (categoriesLoading()) {
+              <div class="empty-state"><span class="loading-text">Loading category configurations...</span></div>
+            } @else if (categoriesError()) {
+              <div class="empty-state">
+                <p>Failed to load category configurations.</p>
+                <app-bronco-button variant="ghost" (click)="loadCategories()">Retry</app-bronco-button>
+              </div>
+            } @else {
+              <app-data-table [data]="categories()" [trackBy]="trackCategory" [rowClickable]="false">
+                <app-data-column key="color" header="Color" [sortable]="false" width="60px">
+                  <ng-template #cell let-c>
+                    <div class="color-swatch" [style.background]="c.color"></div>
+                  </ng-template>
+                </app-data-column>
+                <app-data-column key="value" header="Value" [sortable]="false">
+                  <ng-template #cell let-c><code>{{ c.value }}</code></ng-template>
+                </app-data-column>
+                <app-data-column key="displayName" header="Display Name" [sortable]="false">
+                  <ng-template #cell let-c>{{ c.displayName }}</ng-template>
+                </app-data-column>
+                <app-data-column key="description" header="Description" [sortable]="false">
+                  <ng-template #cell let-c><span class="desc-text">{{ c.description ?? '—' }}</span></ng-template>
+                </app-data-column>
+                <app-data-column key="sortOrder" header="Order" [sortable]="false" width="70px">
+                  <ng-template #cell let-c>{{ c.sortOrder }}</ng-template>
+                </app-data-column>
+                <app-data-column key="active" header="Active" [sortable]="false" width="70px">
+                  <ng-template #cell let-c>
+                    <span [class.status-yes]="c.isActive" [class.status-no]="!c.isActive">
+                      {{ c.isActive ? 'Yes' : 'No' }}
+                    </span>
+                  </ng-template>
+                </app-data-column>
+                <app-data-column key="actions" header="" [sortable]="false" width="60px">
+                  <ng-template #cell let-c>
+                    <app-bronco-button variant="icon" size="sm" title="Edit" (click)="editCategory(c)">
+                      Edit
+                    </app-bronco-button>
+                  </ng-template>
+                </app-data-column>
+              </app-data-table>
+            }
+          </div>
+        </app-tab>
 
-                  <ng-container matColumnDef="description">
-                    <th mat-header-cell *matHeaderCellDef>Description</th>
-                    <td mat-cell *matCellDef="let s">
-                      <span class="desc-text">{{ s.description ?? '—' }}</span>
-                    </td>
-                  </ng-container>
+        <!-- External Services tab -->
+        <app-tab label="External Services">
+          <div class="tab-content">
+            <div class="section-header">
+              <div>
+                <h2 class="section-title">External Services</h2>
+                <p class="hint">
+                  Configure external services to monitor on the System Status page.
+                  Services like Ollama, reverse proxies, or other health endpoints can be tracked here.
+                </p>
+              </div>
+              <app-bronco-button variant="primary" (click)="addService()">Add Service</app-bronco-button>
+            </div>
 
-                  <ng-container matColumnDef="statusClass">
-                    <th mat-header-cell *matHeaderCellDef>Class</th>
-                    <td mat-cell *matCellDef="let s">
-                      <span class="class-chip" [class.class-open]="s.statusClass === 'open'" [class.class-closed]="s.statusClass === 'closed'">
-                        {{ s.statusClass }}
-                      </span>
-                    </td>
-                  </ng-container>
+            @if (services().length === 0) {
+              <div class="empty-state">
+                <p>No external services configured.</p>
+                <p class="hint">Add services like Ollama or other endpoints to monitor them on the System Status page.</p>
+              </div>
+            } @else {
+              <app-data-table [data]="services()" [trackBy]="trackService" [rowClickable]="false">
+                <app-data-column key="name" header="Name" [sortable]="false">
+                  <ng-template #cell let-svc>{{ svc.name }}</ng-template>
+                </app-data-column>
+                <app-data-column key="endpoint" header="Endpoint" [sortable]="false">
+                  <ng-template #cell let-svc>
+                    <span class="endpoint-text" [title]="svc.endpoint">{{ truncate(svc.endpoint, 40) }}</span>
+                  </ng-template>
+                </app-data-column>
+                <app-data-column key="checkType" header="Check Type" [sortable]="false" width="120px">
+                  <ng-template #cell let-svc>
+                    <span class="check-type-chip">{{ svc.checkType }}</span>
+                  </ng-template>
+                </app-data-column>
+                <app-data-column key="monitored" header="Monitored" [sortable]="false" width="100px">
+                  <ng-template #cell let-svc>
+                    <span [class.status-yes]="svc.isMonitored" [class.status-no]="!svc.isMonitored">
+                      {{ svc.isMonitored ? 'Yes' : 'No' }}
+                    </span>
+                  </ng-template>
+                </app-data-column>
+                <app-data-column key="actions" header="" [sortable]="false" width="60px">
+                  <ng-template #cell let-svc>
+                    <app-bronco-button variant="icon" size="sm" title="Actions" #svcTrigger (click)="svcMenu.toggle()">
+                      ...
+                    </app-bronco-button>
+                    <app-dropdown-menu #svcMenu [trigger]="svcTrigger">
+                      <app-dropdown-item (action)="editService(svc)">Edit</app-dropdown-item>
+                      <app-dropdown-item (action)="toggleMonitored(svc)">
+                        {{ svc.isMonitored ? 'Disable Monitoring' : 'Enable Monitoring' }}
+                      </app-dropdown-item>
+                      <app-dropdown-item (action)="deleteService(svc)" [destructive]="true">Delete</app-dropdown-item>
+                    </app-dropdown-menu>
+                  </ng-template>
+                </app-data-column>
+              </app-data-table>
+            }
+          </div>
+        </app-tab>
 
-                  <ng-container matColumnDef="sortOrder">
-                    <th mat-header-cell *matHeaderCellDef>Order</th>
-                    <td mat-cell *matCellDef="let s">{{ s.sortOrder }}</td>
-                  </ng-container>
-
-                  <ng-container matColumnDef="active">
-                    <th mat-header-cell *matHeaderCellDef>Active</th>
-                    <td mat-cell *matCellDef="let s">
-                      <mat-icon [class.monitored-yes]="s.isActive" [class.monitored-no]="!s.isActive">
-                        {{ s.isActive ? 'check_circle' : 'cancel' }}
-                      </mat-icon>
-                    </td>
-                  </ng-container>
-
-                  <ng-container matColumnDef="statusActions">
-                    <th mat-header-cell *matHeaderCellDef></th>
-                    <td mat-cell *matCellDef="let s">
-                      <button mat-icon-button matTooltip="Edit" (click)="editStatus(s)">
-                        <mat-icon>edit</mat-icon>
-                      </button>
-                    </td>
-                  </ng-container>
-
-                  <tr mat-header-row *matHeaderRowDef="statusColumns"></tr>
-                  <tr mat-row *matRowDef="let row; columns: statusColumns;"></tr>
-                </table>
-              }
-            </mat-card-content>
-          </mat-card>
-        </div>
-      </mat-tab>
-
-      <!-- Ticket Categories tab -->
-      <mat-tab label="Ticket Categories">
-        <div class="tab-content">
-          <mat-card>
-            <mat-card-header>
-              <mat-card-title>Ticket Categories</mat-card-title>
-              <div class="header-spacer"></div>
-              <button mat-raised-button color="primary" (click)="createCategory()">
-                <mat-icon>add</mat-icon> Create Category
-              </button>
-            </mat-card-header>
-            <mat-card-content>
-              <p class="hint">
-                Configure ticket categories used for classifying and organizing tickets.
-                Categories help route tickets to the right workflow.
-              </p>
-
-              @if (categoriesLoading()) {
-                <div class="empty-state">
-                  <mat-icon>hourglass_empty</mat-icon>
-                  <p>Loading category configurations...</p>
-                </div>
-              } @else if (categoriesError()) {
-                <div class="empty-state">
-                  <mat-icon>error_outline</mat-icon>
-                  <p>Failed to load category configurations.</p>
-                  <button mat-button color="primary" (click)="loadCategories()">Retry</button>
-                </div>
-              } @else {
-                <table mat-table [dataSource]="categories()" class="full-table">
-                  <ng-container matColumnDef="catColor">
-                    <th mat-header-cell *matHeaderCellDef>Color</th>
-                    <td mat-cell *matCellDef="let c">
-                      <div class="color-swatch" [style.background]="c.color"></div>
-                    </td>
-                  </ng-container>
-
-                  <ng-container matColumnDef="catValue">
-                    <th mat-header-cell *matHeaderCellDef>Value</th>
-                    <td mat-cell *matCellDef="let c">
-                      <code>{{ c.value }}</code>
-                    </td>
-                  </ng-container>
-
-                  <ng-container matColumnDef="catDisplayName">
-                    <th mat-header-cell *matHeaderCellDef>Display Name</th>
-                    <td mat-cell *matCellDef="let c">{{ c.displayName }}</td>
-                  </ng-container>
-
-                  <ng-container matColumnDef="catDescription">
-                    <th mat-header-cell *matHeaderCellDef>Description</th>
-                    <td mat-cell *matCellDef="let c">
-                      <span class="desc-text">{{ c.description ?? '—' }}</span>
-                    </td>
-                  </ng-container>
-
-                  <ng-container matColumnDef="catSortOrder">
-                    <th mat-header-cell *matHeaderCellDef>Order</th>
-                    <td mat-cell *matCellDef="let c">{{ c.sortOrder }}</td>
-                  </ng-container>
-
-                  <ng-container matColumnDef="catActive">
-                    <th mat-header-cell *matHeaderCellDef>Active</th>
-                    <td mat-cell *matCellDef="let c">
-                      <mat-icon [class.monitored-yes]="c.isActive" [class.monitored-no]="!c.isActive">
-                        {{ c.isActive ? 'check_circle' : 'cancel' }}
-                      </mat-icon>
-                    </td>
-                  </ng-container>
-
-                  <ng-container matColumnDef="catActions">
-                    <th mat-header-cell *matHeaderCellDef></th>
-                    <td mat-cell *matCellDef="let c">
-                      <button mat-icon-button matTooltip="Edit" (click)="editCategory(c)">
-                        <mat-icon>edit</mat-icon>
-                      </button>
-                    </td>
-                  </ng-container>
-
-                  <tr mat-header-row *matHeaderRowDef="catColumns"></tr>
-                  <tr mat-row *matRowDef="let row; columns: catColumns;"></tr>
-                </table>
-              }
-            </mat-card-content>
-          </mat-card>
-        </div>
-      </mat-tab>
-
-      <!-- External Services tab -->
-      <mat-tab label="External Services">
-        <div class="tab-content">
-          <mat-card>
-            <mat-card-header>
-              <mat-card-title>External Services</mat-card-title>
-              <div class="header-spacer"></div>
-              <button mat-raised-button color="primary" (click)="addService()">
-                <mat-icon>add</mat-icon> Add Service
-              </button>
-            </mat-card-header>
-            <mat-card-content>
-              <p class="hint">
-                Configure external services to monitor on the System Status page.
-                Services like Ollama, reverse proxies, or other health endpoints can be tracked here.
-              </p>
-
-              @if (services().length === 0) {
-                <div class="empty-state">
-                  <mat-icon>cloud_off</mat-icon>
-                  <p>No external services configured.</p>
-                  <p class="hint">Add services like Ollama or other endpoints to monitor them on the System Status page.</p>
-                </div>
-              } @else {
-                <table mat-table [dataSource]="services()" class="full-table">
-                  <ng-container matColumnDef="name">
-                    <th mat-header-cell *matHeaderCellDef>Name</th>
-                    <td mat-cell *matCellDef="let svc">{{ svc.name }}</td>
-                  </ng-container>
-
-                  <ng-container matColumnDef="endpoint">
-                    <th mat-header-cell *matHeaderCellDef>Endpoint</th>
-                    <td mat-cell *matCellDef="let svc">
-                      <span class="endpoint-text" [matTooltip]="svc.endpoint">{{ truncate(svc.endpoint, 40) }}</span>
-                    </td>
-                  </ng-container>
-
-                  <ng-container matColumnDef="checkType">
-                    <th mat-header-cell *matHeaderCellDef>Check Type</th>
-                    <td mat-cell *matCellDef="let svc">
-                      <span class="check-type-chip">{{ svc.checkType }}</span>
-                    </td>
-                  </ng-container>
-
-                  <ng-container matColumnDef="monitored">
-                    <th mat-header-cell *matHeaderCellDef>Monitored</th>
-                    <td mat-cell *matCellDef="let svc">
-                      <mat-icon
-                        [class.monitored-yes]="svc.isMonitored"
-                        [class.monitored-no]="!svc.isMonitored"
-                      >
-                        {{ svc.isMonitored ? 'check_circle' : 'cancel' }}
-                      </mat-icon>
-                    </td>
-                  </ng-container>
-
-                  <ng-container matColumnDef="svcActions">
-                    <th mat-header-cell *matHeaderCellDef></th>
-                    <td mat-cell *matCellDef="let svc">
-                      <button mat-icon-button [matMenuTriggerFor]="svcMenu" matTooltip="Actions">
-                        <mat-icon>more_vert</mat-icon>
-                      </button>
-                      <mat-menu #svcMenu="matMenu">
-                        <button mat-menu-item (click)="editService(svc)">
-                          <mat-icon>edit</mat-icon> Edit
-                        </button>
-                        <button mat-menu-item (click)="toggleMonitored(svc)">
-                          <mat-icon>{{ svc.isMonitored ? 'visibility_off' : 'visibility' }}</mat-icon>
-                          {{ svc.isMonitored ? 'Disable Monitoring' : 'Enable Monitoring' }}
-                        </button>
-                        <mat-divider></mat-divider>
-                        <button mat-menu-item (click)="deleteService(svc)" class="delete-action">
-                          <mat-icon>delete</mat-icon> Delete
-                        </button>
-                      </mat-menu>
-                    </td>
-                  </ng-container>
-
-                  <tr mat-header-row *matHeaderRowDef="svcColumns"></tr>
-                  <tr mat-row *matRowDef="let row; columns: svcColumns;"></tr>
-                </table>
-              }
-            </mat-card-content>
-          </mat-card>
-        </div>
-      </mat-tab>
-      <!-- Action Safety tab -->
-      <mat-tab label="Action Safety">
-        <div class="tab-content">
-          <mat-card>
-            <mat-card-header>
-              <mat-card-title>AI Action Safety</mat-card-title>
-            </mat-card-header>
-            <mat-card-content>
+        <!-- Action Safety tab -->
+        <app-tab label="Action Safety">
+          <div class="tab-content">
+            <app-card>
+              <h2 class="section-title">AI Action Safety</h2>
               <p class="hint">
                 Configure which AI-recommended actions are auto-executed and which require operator approval.
                 Unknown action types always default to requiring approval.
               </p>
 
               @if (actionSafetyLoading()) {
-                <mat-spinner diameter="24"></mat-spinner>
+                <div class="loading-wrapper"><span class="loading-text">Loading...</span></div>
               } @else {
-                <table mat-table [dataSource]="actionSafetyRows()" class="full-table action-safety-table">
-                  <ng-container matColumnDef="actionType">
-                    <th mat-header-cell *matHeaderCellDef>Action Type</th>
-                    <td mat-cell *matCellDef="let row">
+                <app-data-table [data]="actionSafetyRows()" [trackBy]="trackActionSafety" [rowClickable]="false">
+                  <app-data-column key="actionType" header="Action Type" [sortable]="false">
+                    <ng-template #cell let-row>
                       <span class="action-type-label">{{ formatActionType(row.actionType) }}</span>
-                    </td>
-                  </ng-container>
-
-                  <ng-container matColumnDef="level">
-                    <th mat-header-cell *matHeaderCellDef>Safety Level</th>
-                    <td mat-cell *matCellDef="let row">
-                      <mat-slide-toggle
+                    </ng-template>
+                  </app-data-column>
+                  <app-data-column key="level" header="Safety Level" [sortable]="false">
+                    <ng-template #cell let-row>
+                      <app-toggle-switch
                         [checked]="row.level === 'auto'"
-                        (change)="toggleActionSafety(row.actionType, $event.checked ? 'auto' : 'approval')"
-                        color="primary"
-                      >
-                        {{ row.level === 'auto' ? 'Auto-execute' : 'Require Approval' }}
-                      </mat-slide-toggle>
-                    </td>
-                  </ng-container>
+                        [label]="row.level === 'auto' ? 'Auto-execute' : 'Require Approval'"
+                        (checkedChange)="toggleActionSafety(row.actionType, $event ? 'auto' : 'approval')" />
+                    </ng-template>
+                  </app-data-column>
+                </app-data-table>
 
-                  <tr mat-header-row *matHeaderRowDef="actionSafetyColumns"></tr>
-                  <tr mat-row *matRowDef="let row; columns: actionSafetyColumns;"></tr>
-                </table>
-
-                <mat-card-actions align="end">
-                  <button
-                    mat-raised-button
-                    color="primary"
-                    (click)="saveActionSafety()"
-                    [disabled]="actionSafetySaving()"
-                  >
-                    @if (actionSafetySaving()) {
-                      <mat-spinner diameter="18" class="inline-spinner"></mat-spinner>
-                    }
-                    Save
-                  </button>
-                </mat-card-actions>
+                <div class="card-actions">
+                  <app-bronco-button variant="primary" (click)="saveActionSafety()" [disabled]="actionSafetySaving()">
+                    @if (actionSafetySaving()) { Saving... } @else { Save }
+                  </app-bronco-button>
+                </div>
               }
-            </mat-card-content>
-          </mat-card>
-        </div>
-      </mat-tab>
-      <!-- Analysis Strategy tab -->
-      <mat-tab label="Analysis Strategy">
-        <div class="tab-content">
-          <mat-card>
-            <mat-card-header>
-              <mat-card-title>Analysis Strategy</mat-card-title>
-            </mat-card-header>
-            <mat-card-content>
+            </app-card>
+          </div>
+        </app-tab>
+
+        <!-- Analysis Strategy tab -->
+        <app-tab label="Analysis Strategy">
+          <div class="tab-content">
+            <app-card>
+              <h2 class="section-title">Analysis Strategy</h2>
               <p class="hint">
                 Configure how the AI investigates tickets during agentic analysis.
                 <strong>Full Context</strong> sends the entire conversation history on each iteration (higher quality, higher cost).
@@ -454,219 +337,289 @@ import { CategoryConfigDialogComponent } from './category-config-dialog.componen
               </p>
 
               @if (analysisStrategyLoading()) {
-                <mat-spinner diameter="24"></mat-spinner>
+                <div class="loading-wrapper"><span class="loading-text">Loading...</span></div>
               } @else {
-                <mat-form-field class="full-width">
-                  <mat-label>Strategy</mat-label>
-                  <mat-select [value]="analysisStrategy()" (selectionChange)="analysisStrategy.set($event.value)">
-                    <mat-option value="full_context">Full Context (brute force)</mat-option>
-                    <mat-option value="orchestrated">Orchestrated (parallel tasks)</mat-option>
-                  </mat-select>
-                </mat-form-field>
+                <div class="form-grid">
+                  <app-form-field label="Strategy">
+                    <app-select
+                      [value]="analysisStrategy()"
+                      [options]="strategyOptions"
+                      (valueChange)="analysisStrategy.set($event)" />
+                  </app-form-field>
 
-                @if (analysisStrategy() === 'orchestrated') {
-                  <mat-form-field class="full-width">
-                    <mat-label>Max Parallel Tasks</mat-label>
-                    <input matInput type="number" [value]="analysisMaxParallel()" (input)="setAnalysisMaxParallel(+$any($event.target).value)" min="1" max="10">
-                    <mat-hint>Number of sub-tasks to run concurrently (1-10)</mat-hint>
-                  </mat-form-field>
-                }
+                  @if (analysisStrategy() === 'orchestrated') {
+                    <app-form-field label="Max Parallel Tasks" hint="Number of sub-tasks to run concurrently (1-10)">
+                      <input class="text-input" type="number" [value]="analysisMaxParallel()" (input)="setAnalysisMaxParallel(+$any($event.target).value)" min="1" max="10">
+                    </app-form-field>
+                  }
+                </div>
 
-                <mat-card-actions align="end">
-                  <button
-                    mat-raised-button
-                    color="primary"
-                    (click)="saveAnalysisStrategy()"
-                    [disabled]="analysisStrategySaving()"
-                  >
-                    @if (analysisStrategySaving()) {
-                      <mat-spinner diameter="18" class="inline-spinner"></mat-spinner>
-                    }
-                    Save
-                  </button>
-                </mat-card-actions>
+                <div class="card-actions">
+                  <app-bronco-button variant="primary" (click)="saveAnalysisStrategy()" [disabled]="analysisStrategySaving()">
+                    @if (analysisStrategySaving()) { Saving... } @else { Save }
+                  </app-bronco-button>
+                </div>
               }
-            </mat-card-content>
-          </mat-card>
-        </div>
-      </mat-tab>
-      <!-- Self Analysis tab -->
-      <mat-tab label="Self Analysis">
-        <div class="tab-content">
-          <mat-card>
-            <mat-card-header>
-              <mat-card-title>Self Analysis</mat-card-title>
-            </mat-card-header>
-            <mat-card-content>
+            </app-card>
+          </div>
+        </app-tab>
+
+        <!-- Self Analysis tab -->
+        <app-tab label="Self Analysis">
+          <div class="tab-content">
+            <app-card>
+              <h2 class="section-title">Self Analysis</h2>
               <p class="hint">
                 Configure triggers for Bronco to analyze its own operations and suggest improvements.
                 Results appear on the System Analysis page.
               </p>
 
               @if (selfAnalysisLoading()) {
-                <mat-spinner diameter="24"></mat-spinner>
+                <div class="loading-wrapper"><span class="loading-text">Loading...</span></div>
               } @else {
                 <div class="self-analysis-toggles">
-                  <mat-slide-toggle
-                    color="primary"
-                    [checked]="selfAnalysisPostAnalysis()"
-                    (change)="updateSelfAnalysis({ postAnalysisTrigger: $event.checked })"
-                  >
-                    Post-analysis trigger
-                  </mat-slide-toggle>
-                  <p class="alert-desc">After each ticket analysis pipeline completes, review the run for token usage, model selection, and route efficiency.</p>
+                  <div class="analysis-toggle-row">
+                    <app-toggle-switch
+                      label="Post-analysis trigger"
+                      [checked]="selfAnalysisPostAnalysis()"
+                      (checkedChange)="updateSelfAnalysis({ postAnalysisTrigger: $event })" />
+                    <p class="alert-desc">After each ticket analysis pipeline completes, review the run for token usage, model selection, and route efficiency.</p>
+                  </div>
 
-                  <mat-slide-toggle
-                    color="primary"
-                    [checked]="selfAnalysisTicketClose()"
-                    (change)="updateSelfAnalysis({ ticketCloseTrigger: $event.checked })"
-                  >
-                    Ticket close trigger
-                  </mat-slide-toggle>
-                  <p class="alert-desc">When a ticket is closed, analyze its lifecycle for process improvements and knowledge gaps.</p>
+                  <div class="analysis-toggle-row">
+                    <app-toggle-switch
+                      label="Ticket close trigger"
+                      [checked]="selfAnalysisTicketClose()"
+                      (checkedChange)="updateSelfAnalysis({ ticketCloseTrigger: $event })" />
+                    <p class="alert-desc">When a ticket is closed, analyze its lifecycle for process improvements and knowledge gaps.</p>
+                  </div>
 
-                  <mat-slide-toggle
-                    color="primary"
-                    [checked]="selfAnalysisScheduled()"
-                    (change)="updateSelfAnalysis({ scheduledEnabled: $event.checked })"
-                  >
-                    Scheduled analysis
-                  </mat-slide-toggle>
-                  <p class="alert-desc">Run a periodic health analysis of the entire platform (ticket patterns, AI usage, error logs).</p>
+                  <div class="analysis-toggle-row">
+                    <app-toggle-switch
+                      label="Scheduled analysis"
+                      [checked]="selfAnalysisScheduled()"
+                      (checkedChange)="updateSelfAnalysis({ scheduledEnabled: $event })" />
+                    <p class="alert-desc">Run a periodic health analysis of the entire platform (ticket patterns, AI usage, error logs).</p>
+                  </div>
                 </div>
 
                 @if (selfAnalysisScheduled()) {
-                  <mat-form-field class="full-width" style="margin-top: 16px;">
-                    <mat-label>Cron Expression</mat-label>
-                    <input matInput [value]="selfAnalysisCron()" (blur)="updateSelfAnalysis({ scheduledCron: $any($event.target).value })">
-                    <mat-hint>Standard cron (e.g., "0 9 * * 1" = Monday 9am UTC)</mat-hint>
-                  </mat-form-field>
+                  <div class="form-grid" style="margin-top: 16px;">
+                    <app-form-field label="Cron Expression" hint="Standard cron (e.g., &quot;0 9 * * 1&quot; = Monday 9am UTC)">
+                      <input class="text-input" [value]="selfAnalysisCron()" (blur)="updateSelfAnalysis({ scheduledCron: $any($event.target).value })">
+                    </app-form-field>
 
-                  <mat-form-field class="full-width">
-                    <mat-label>Repository URL</mat-label>
-                    <input matInput [value]="selfAnalysisRepoUrl()" (blur)="updateSelfAnalysis({ repoUrl: $any($event.target).value })">
-                    <mat-hint>Git repo URL for code-aware analysis via mcp-repo</mat-hint>
-                  </mat-form-field>
+                    <app-form-field label="Repository URL" hint="Git repo URL for code-aware analysis via mcp-repo">
+                      <input class="text-input" [value]="selfAnalysisRepoUrl()" (blur)="updateSelfAnalysis({ repoUrl: $any($event.target).value })">
+                    </app-form-field>
+                  </div>
                 }
               }
-            </mat-card-content>
-          </mat-card>
-        </div>
-      </mat-tab>
-    </mat-tab-group>
+            </app-card>
+          </div>
+        </app-tab>
+      </app-tab-group>
+    </div>
+
+    @if (showServiceDialog()) {
+      <app-dialog [open]="true" [title]="editingService() ? 'Edit External Service' : 'Add External Service'" maxWidth="500px" (openChange)="showServiceDialog.set(false)">
+        <app-external-service-dialog-content
+          [service]="editingService() ?? undefined"
+          (saved)="onServiceSaved()"
+          (cancelled)="showServiceDialog.set(false)" />
+      </app-dialog>
+    }
+
+    @if (showStatusDialog()) {
+      <app-dialog [open]="true" [title]="editingStatus() ? 'Edit Status: ' + editingStatus()!.value : 'Create Status'" maxWidth="500px" (openChange)="showStatusDialog.set(false)">
+        <app-status-config-dialog-content
+          [config]="editingStatus() ?? undefined"
+          (saved)="onStatusSaved()"
+          (cancelled)="showStatusDialog.set(false)" />
+      </app-dialog>
+    }
+
+    @if (showCategoryDialog()) {
+      <app-dialog [open]="true" [title]="editingCategory() ? 'Edit Category: ' + editingCategory()!.value : 'Create Category'" maxWidth="500px" (openChange)="showCategoryDialog.set(false)">
+        <app-category-config-dialog-content
+          [config]="editingCategory() ?? undefined"
+          (saved)="onCategorySaved()"
+          (cancelled)="showCategoryDialog.set(false)" />
+      </app-dialog>
+    }
   `,
   styles: [`
-    h1 { margin: 0 0 24px; }
-    .full-width { width: 100%; }
-    .hint { color: #666; margin-bottom: 16px; font-size: 14px; }
-    .section-card { margin-top: 24px; }
-    .section-card mat-card-header {
+    .page-wrapper { max-width: 1200px; }
+    .page-title {
+      margin: 0 0 24px;
+      font-size: 24px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .tab-content { padding-top: 8px; }
+
+    .section-header {
       display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .section-title {
+      margin: 0 0 8px;
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .hint {
+      color: var(--text-tertiary);
+      margin-bottom: 16px;
+      font-size: 14px;
+    }
+
+    .form-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      max-width: 600px;
+    }
+
+    .input-with-toggle {
+      display: flex;
+      gap: 8px;
       align-items: center;
     }
-    .header-spacer { flex: 1; }
-    .tab-content { padding-top: 24px; }
-    .full-table { width: 100%; }
-    .endpoint-text { font-family: monospace; font-size: 13px; color: #555; }
+    .input-with-toggle .text-input { flex: 1; }
+    .toggle-vis {
+      background: none;
+      border: 1px solid var(--border-medium);
+      border-radius: var(--radius-md);
+      padding: 6px 12px;
+      font-family: var(--font-primary);
+      font-size: 12px;
+      color: var(--text-tertiary);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .toggle-vis:hover { color: var(--text-primary); }
+
+    .text-input {
+      width: 100%;
+      box-sizing: border-box;
+      background: var(--bg-card);
+      border: 1px solid var(--border-medium);
+      border-radius: var(--radius-md);
+      padding: 8px 12px;
+      font-family: var(--font-primary);
+      font-size: 14px;
+      color: var(--text-primary);
+      outline: none;
+      transition: border-color 120ms ease, box-shadow 120ms ease;
+    }
+    .text-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(0, 113, 227, 0.15);
+    }
+    .text-input:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .card-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border-light);
+    }
+
+    app-card { display: block; margin-bottom: 16px; }
+
+    .loading-wrapper {
+      display: flex;
+      justify-content: center;
+      padding: 32px;
+    }
+    .loading-text { color: var(--text-tertiary); font-size: 13px; }
+
+    .empty-state {
+      text-align: center;
+      padding: 32px 16px;
+      color: var(--text-tertiary);
+    }
+    .empty-state p { margin: 8px 0; }
+
+    .endpoint-text { font-family: monospace; font-size: 13px; color: var(--text-tertiary); }
     .check-type-chip {
       font-size: 11px;
       font-weight: 600;
       padding: 2px 8px;
-      border-radius: 4px;
-      background: #e3f2fd;
-      color: #1565c0;
+      border-radius: var(--radius-sm);
+      background: var(--color-info-subtle);
+      color: var(--color-info);
       font-family: monospace;
     }
-    .monitored-yes { color: #4caf50; font-size: 20px; }
-    .monitored-no { color: #9e9e9e; font-size: 20px; }
-    .empty-state {
-      text-align: center;
-      padding: 32px 16px;
-      color: #888;
-    }
-    .empty-state mat-icon {
-      font-size: 48px;
-      width: 48px;
-      height: 48px;
-      color: #ccc;
-    }
-    .empty-state p { margin: 8px 0; }
-    .delete-action { color: #c62828; }
-    code {
-      font-size: 12px;
-      padding: 2px 6px;
-      background: #f5f5f5;
-      border-radius: 3px;
-      font-family: monospace;
-    }
+
     .color-swatch {
       width: 24px;
       height: 24px;
       border-radius: 4px;
-      border: 1px solid #ddd;
+      border: 1px solid var(--border-light);
     }
-    .desc-text {
-      font-size: 13px;
-      color: #666;
+    .desc-text { font-size: 13px; color: var(--text-tertiary); }
+    code {
+      font-size: 12px;
+      padding: 2px 6px;
+      background: var(--bg-muted);
+      border-radius: 3px;
+      font-family: monospace;
     }
+
     .class-chip {
       font-size: 11px;
       font-weight: 600;
       padding: 2px 10px;
-      border-radius: 12px;
+      border-radius: var(--radius-pill);
       text-transform: uppercase;
     }
-    .class-open {
-      background: #e3f2fd;
-      color: #1565c0;
-    }
-    .class-closed {
-      background: #fce4ec;
-      color: #c62828;
-    }
-    .alert-toggle-row {
-      display: flex;
-      flex-direction: column;
-      margin-bottom: 16px;
-    }
-    .alert-toggles {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      margin-top: 8px;
-    }
-    .alert-desc {
-      font-size: 12px;
-      color: #888;
-      margin-top: 4px;
-      padding-left: 48px;
-    }
-    h3 {
-      margin: 24px 0 8px;
-      font-size: 16px;
-      font-weight: 500;
-    }
-    .inline-spinner {
-      display: inline-block;
-      margin-right: 8px;
-      vertical-align: middle;
-    }
+    .class-open { background: var(--color-info-subtle); color: var(--color-info); }
+    .class-closed { background: rgba(255, 59, 48, 0.1); color: var(--color-error); }
+
+    .status-yes { color: var(--color-success); font-size: 13px; font-weight: 500; }
+    .status-no { color: var(--text-tertiary); font-size: 13px; }
+
+    .delete-action { color: var(--color-error); }
+
     .action-type-label {
       font-family: monospace;
       font-size: 13px;
       font-weight: 500;
     }
-    .action-safety-table { margin-bottom: 16px; }
+
     .self-analysis-toggles {
       display: flex;
       flex-direction: column;
       gap: 4px;
     }
+    .analysis-toggle-row {
+      display: flex;
+      flex-direction: column;
+      margin-bottom: 12px;
+    }
+    .alert-desc {
+      font-size: 12px;
+      color: var(--text-tertiary);
+      margin: 4px 0 0;
+      padding-left: 44px;
+    }
+
+    .strategyOptions { max-width: 400px; }
   `],
 })
 export class SettingsComponent implements OnInit {
-  private snackBar = inject(MatSnackBar);
-  private dialog = inject(MatDialog);
+  private toast = inject(ToastService);
   private extSvc = inject(ExternalServiceService);
   private settingsSvc = inject(SettingsService);
   private userSvc = inject(UserService);
@@ -681,35 +634,44 @@ export class SettingsComponent implements OnInit {
   superAdminUserId: string | null = null;
   superAdminLoading = signal(true);
   superAdminSaving = signal(false);
+  superAdminOptions = signal<Array<{ value: string; label: string }>>([
+    { value: '', label: '-- None --' },
+  ]);
 
   // External Services tab
   services = signal<ExternalService[]>([]);
-  svcColumns = ['name', 'endpoint', 'checkType', 'monitored', 'svcActions'];
+  showServiceDialog = signal(false);
+  editingService = signal<ExternalService | null>(null);
 
   // Statuses tab
   statuses = signal<TicketStatusConfig[]>([]);
   statusesLoading = signal(true);
   statusesError = signal(false);
-  statusColumns = ['color', 'value', 'displayName', 'description', 'statusClass', 'sortOrder', 'active', 'statusActions'];
+  showStatusDialog = signal(false);
+  editingStatus = signal<TicketStatusConfig | null>(null);
 
   // Categories tab
   categories = signal<TicketCategoryConfig[]>([]);
   categoriesLoading = signal(true);
   categoriesError = signal(false);
-  catColumns = ['catColor', 'catValue', 'catDisplayName', 'catDescription', 'catSortOrder', 'catActive', 'catActions'];
+  showCategoryDialog = signal(false);
+  editingCategory = signal<TicketCategoryConfig | null>(null);
 
   // Action Safety tab
   actionSafetyConfig = signal<Record<string, 'auto' | 'approval'>>({});
   actionSafetyLoading = signal(true);
   actionSafetySaving = signal(false);
-  actionSafetyColumns = ['actionType', 'level'];
   actionSafetyRows = signal<Array<{ actionType: string; level: 'auto' | 'approval' }>>([]);
 
   // Analysis Strategy tab
-  analysisStrategy = signal<'full_context' | 'orchestrated'>('full_context');
+  analysisStrategy = signal<string>('full_context');
   analysisMaxParallel = signal(3);
   analysisStrategyLoading = signal(true);
   analysisStrategySaving = signal(false);
+  strategyOptions = [
+    { value: 'full_context', label: 'Full Context (brute force)' },
+    { value: 'orchestrated', label: 'Orchestrated (parallel tasks)' },
+  ];
 
   // Self Analysis tab
   selfAnalysisLoading = signal(true);
@@ -720,6 +682,11 @@ export class SettingsComponent implements OnInit {
   selfAnalysisRepoUrl = signal('https://github.com/siir/bronco');
 
   selectedTab = signal(0);
+
+  trackStatus = (s: TicketStatusConfig) => s.value;
+  trackCategory = (c: TicketCategoryConfig) => c.value;
+  trackService = (svc: ExternalService) => svc.id;
+  trackActionSafety = (row: { actionType: string }) => row.actionType;
 
   ngOnInit(): void {
     const tabParam = this.route.snapshot.queryParamMap.get('tab');
@@ -746,27 +713,34 @@ export class SettingsComponent implements OnInit {
 
   saveKey(): void {
     sessionStorage.setItem('rc_api_key', this.apiKey);
-    this.snackBar.open('API key saved', 'OK', { duration: 3000, panelClass: 'success-snackbar' });
+    this.toast.success('API key saved');
   }
 
   clearKey(): void {
     this.apiKey = '';
     sessionStorage.removeItem('rc_api_key');
-    this.snackBar.open('API key cleared', 'OK', { duration: 3000 });
+    this.toast.success('API key cleared');
   }
 
   loadUsers(): void {
     this.usersLoading.set(true);
     this.userSvc.getUsers().subscribe({
       next: (users) => {
-        this.adminUsers.set(users.filter(u => u.isActive && (u.role === 'ADMIN' || u.role === 'OPERATOR')));
+        const filtered = users.filter(u => u.isActive && (u.role === 'ADMIN' || u.role === 'OPERATOR'));
+        this.adminUsers.set(filtered);
+        this.superAdminOptions.set([
+          { value: '', label: '-- None --' },
+          ...filtered.map(u => ({
+            value: u.id,
+            label: `${u.name} (${u.email}) — ${u.role}`,
+          })),
+        ]);
         this.usersLoading.set(false);
       },
       error: (err) => {
         this.usersLoading.set(false);
-        // 403 is expected for OPERATOR users — silently leave dropdown empty
         if (err?.status !== 403) {
-          this.snackBar.open('Failed to load users', 'OK', { duration: 5000 });
+          this.toast.error('Failed to load users');
         }
       },
     });
@@ -781,7 +755,7 @@ export class SettingsComponent implements OnInit {
       },
       error: () => {
         this.superAdminLoading.set(false);
-        this.snackBar.open('Failed to load super admin setting', 'OK', { duration: 5000 });
+        this.toast.error('Failed to load super admin setting');
       },
     });
   }
@@ -792,11 +766,11 @@ export class SettingsComponent implements OnInit {
       next: (result) => {
         this.superAdminUserId = result.userId;
         this.superAdminSaving.set(false);
-        this.snackBar.open('Super admin saved', 'OK', { duration: 3000, panelClass: 'success-snackbar' });
+        this.toast.success('Super admin saved');
       },
       error: () => {
         this.superAdminSaving.set(false);
-        this.snackBar.open('Failed to save super admin', 'OK', { duration: 5000 });
+        this.toast.error('Failed to save super admin');
       },
     });
   }
@@ -804,41 +778,32 @@ export class SettingsComponent implements OnInit {
   loadServices(): void {
     this.extSvc.getAll().subscribe({
       next: (list) => this.services.set(list),
-      error: () => this.snackBar.open('Failed to load external services', 'OK', { duration: 5000 }),
+      error: () => this.toast.error('Failed to load external services'),
     });
   }
 
   addService(): void {
-    const ref = this.dialog.open(ExternalServiceDialogComponent, {
-      width: '500px',
-      data: {},
-    });
-    ref.afterClosed().subscribe((saved) => {
-      if (saved) this.loadServices();
-    });
+    this.editingService.set(null);
+    this.showServiceDialog.set(true);
   }
 
   editService(svc: ExternalService): void {
-    const ref = this.dialog.open(ExternalServiceDialogComponent, {
-      width: '500px',
-      data: { service: svc },
-    });
-    ref.afterClosed().subscribe((saved) => {
-      if (saved) this.loadServices();
-    });
+    this.editingService.set(svc);
+    this.showServiceDialog.set(true);
+  }
+
+  onServiceSaved(): void {
+    this.showServiceDialog.set(false);
+    this.loadServices();
   }
 
   toggleMonitored(svc: ExternalService): void {
     this.extSvc.update(svc.id, { isMonitored: !svc.isMonitored }).subscribe({
       next: () => {
-        this.snackBar.open(
-          `${svc.name} monitoring ${svc.isMonitored ? 'disabled' : 'enabled'}`,
-          'OK',
-          { duration: 3000, panelClass: 'success-snackbar' },
-        );
+        this.toast.success(`${svc.name} monitoring ${svc.isMonitored ? 'disabled' : 'enabled'}`);
         this.loadServices();
       },
-      error: () => this.snackBar.open('Failed to update', 'OK', { duration: 5000 }),
+      error: () => this.toast.error('Failed to update'),
     });
   }
 
@@ -846,10 +811,10 @@ export class SettingsComponent implements OnInit {
     if (!confirm(`Delete "${svc.name}"? This cannot be undone.`)) return;
     this.extSvc.delete(svc.id).subscribe({
       next: () => {
-        this.snackBar.open(`${svc.name} deleted`, 'OK', { duration: 3000, panelClass: 'success-snackbar' });
+        this.toast.success(`${svc.name} deleted`);
         this.loadServices();
       },
-      error: () => this.snackBar.open('Failed to delete', 'OK', { duration: 5000 }),
+      error: () => this.toast.error('Failed to delete'),
     });
   }
 
@@ -866,29 +831,24 @@ export class SettingsComponent implements OnInit {
       error: () => {
         this.statusesLoading.set(false);
         this.statusesError.set(true);
-        this.snackBar.open('Failed to load status configs', 'OK', { duration: 5000 });
+        this.toast.error('Failed to load status configs');
       },
     });
   }
 
   createStatus(): void {
-    const ref = this.dialog.open(StatusConfigDialogComponent, {
-      width: '500px',
-      data: {},
-    });
-    ref.afterClosed().subscribe((saved) => {
-      if (saved) this.loadStatuses();
-    });
+    this.editingStatus.set(null);
+    this.showStatusDialog.set(true);
   }
 
   editStatus(config: TicketStatusConfig): void {
-    const ref = this.dialog.open(StatusConfigDialogComponent, {
-      width: '500px',
-      data: { config },
-    });
-    ref.afterClosed().subscribe((saved) => {
-      if (saved) this.loadStatuses();
-    });
+    this.editingStatus.set(config);
+    this.showStatusDialog.set(true);
+  }
+
+  onStatusSaved(): void {
+    this.showStatusDialog.set(false);
+    this.loadStatuses();
   }
 
   // ─── Categories tab ───
@@ -904,29 +864,24 @@ export class SettingsComponent implements OnInit {
       error: () => {
         this.categoriesLoading.set(false);
         this.categoriesError.set(true);
-        this.snackBar.open('Failed to load category configs', 'OK', { duration: 5000 });
+        this.toast.error('Failed to load category configs');
       },
     });
   }
 
   createCategory(): void {
-    const ref = this.dialog.open(CategoryConfigDialogComponent, {
-      width: '500px',
-      data: {},
-    });
-    ref.afterClosed().subscribe((saved) => {
-      if (saved) this.loadCategories();
-    });
+    this.editingCategory.set(null);
+    this.showCategoryDialog.set(true);
   }
 
   editCategory(config: TicketCategoryConfig): void {
-    const ref = this.dialog.open(CategoryConfigDialogComponent, {
-      width: '500px',
-      data: { config },
-    });
-    ref.afterClosed().subscribe((saved) => {
-      if (saved) this.loadCategories();
-    });
+    this.editingCategory.set(config);
+    this.showCategoryDialog.set(true);
+  }
+
+  onCategorySaved(): void {
+    this.showCategoryDialog.set(false);
+    this.loadCategories();
   }
 
   truncate(value: string, max: number): string {
@@ -947,7 +902,7 @@ export class SettingsComponent implements OnInit {
       },
       error: () => {
         this.actionSafetyLoading.set(false);
-        this.snackBar.open('Failed to load action safety config', 'OK', { duration: 5000 });
+        this.toast.error('Failed to load action safety config');
       },
     });
   }
@@ -970,11 +925,11 @@ export class SettingsComponent implements OnInit {
           Object.entries(saved.actions).map(([actionType, level]) => ({ actionType, level }))
         );
         this.actionSafetySaving.set(false);
-        this.snackBar.open('Action safety config saved', 'OK', { duration: 3000, panelClass: 'success-snackbar' });
+        this.toast.success('Action safety config saved');
       },
       error: () => {
         this.actionSafetySaving.set(false);
-        this.snackBar.open('Failed to save action safety config', 'OK', { duration: 5000 });
+        this.toast.error('Failed to save action safety config');
       },
     });
   }
@@ -1005,7 +960,7 @@ export class SettingsComponent implements OnInit {
       },
       error: () => {
         this.analysisStrategyLoading.set(false);
-        this.snackBar.open('Failed to load analysis strategy config', 'OK', { duration: 5000 });
+        this.toast.error('Failed to load analysis strategy config');
       },
     });
   }
@@ -1019,7 +974,7 @@ export class SettingsComponent implements OnInit {
   saveAnalysisStrategy(): void {
     this.analysisStrategySaving.set(true);
     const config = {
-      strategy: this.analysisStrategy(),
+      strategy: this.analysisStrategy() as 'full_context' | 'orchestrated',
       maxParallelTasks: Math.min(10, Math.max(1, this.analysisMaxParallel())),
     };
     this.settingsSvc.saveAnalysisStrategy(config).subscribe({
@@ -1027,11 +982,11 @@ export class SettingsComponent implements OnInit {
         this.analysisStrategy.set(saved.strategy);
         this.analysisMaxParallel.set(saved.maxParallelTasks);
         this.analysisStrategySaving.set(false);
-        this.snackBar.open('Analysis strategy saved', 'OK', { duration: 3000, panelClass: 'success-snackbar' });
+        this.toast.success('Analysis strategy saved');
       },
       error: () => {
         this.analysisStrategySaving.set(false);
-        this.snackBar.open('Failed to save analysis strategy', 'OK', { duration: 5000 });
+        this.toast.error('Failed to save analysis strategy');
       },
     });
   }
@@ -1051,13 +1006,12 @@ export class SettingsComponent implements OnInit {
       },
       error: () => {
         this.selfAnalysisLoading.set(false);
-        this.snackBar.open('Failed to load self-analysis config', 'OK', { duration: 5000 });
+        this.toast.error('Failed to load self-analysis config');
       },
     });
   }
 
   updateSelfAnalysis(partial: Partial<SelfAnalysisConfig>): void {
-    // Optimistically update local state
     if (partial.postAnalysisTrigger !== undefined) this.selfAnalysisPostAnalysis.set(partial.postAnalysisTrigger);
     if (partial.ticketCloseTrigger !== undefined) this.selfAnalysisTicketClose.set(partial.ticketCloseTrigger);
     if (partial.scheduledEnabled !== undefined) this.selfAnalysisScheduled.set(partial.scheduledEnabled);
@@ -1071,11 +1025,11 @@ export class SettingsComponent implements OnInit {
         this.selfAnalysisScheduled.set(saved.scheduledEnabled);
         this.selfAnalysisCron.set(saved.scheduledCron);
         this.selfAnalysisRepoUrl.set(saved.repoUrl);
-        this.snackBar.open('Self-analysis config saved', 'OK', { duration: 2000, panelClass: 'success-snackbar' });
+        this.toast.success('Self-analysis config saved');
       },
       error: () => {
-        this.snackBar.open('Failed to save self-analysis config', 'OK', { duration: 5000 });
-        this.loadSelfAnalysis(); // Revert on failure
+        this.toast.error('Failed to save self-analysis config');
+        this.loadSelfAnalysis();
       },
     });
   }

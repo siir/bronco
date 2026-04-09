@@ -1,88 +1,85 @@
-import { Component, inject } from '@angular/core';
-import { FormsModule } from '@angular/forms';
-import { MAT_DIALOG_DATA, MatDialogRef, MatDialogModule } from '@angular/material/dialog';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatSelectModule } from '@angular/material/select';
-import { MatButtonModule } from '@angular/material/button';
-import { MatChipsModule } from '@angular/material/chips';
-import { MatIconModule } from '@angular/material/icon';
-
-export interface McpToolVisibilityDialogData {
-  tools: Array<{ name: string; description: string }>;
-  disabledTools: Set<string>;
-}
+import { Component, input, output, OnInit } from '@angular/core';
+import { FormFieldComponent, SelectComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({
+  selector: 'app-mcp-tool-visibility-dialog-content',
   standalone: true,
-  imports: [FormsModule, MatDialogModule, MatFormFieldModule, MatSelectModule, MatButtonModule, MatChipsModule, MatIconModule],
+  imports: [FormFieldComponent, SelectComponent, BroncoButtonComponent],
   template: `
-    <h2 mat-dialog-title>Tool Visibility</h2>
-    <mat-dialog-content>
-      <p class="summary">
-        {{ data.tools.length - disabledTools.size }} of {{ data.tools.length }} tools enabled for agentic analysis.
-      </p>
+    <p class="summary">
+      {{ tools().length - disabledTools.size }} of {{ tools().length }} tools enabled for agentic analysis.
+    </p>
 
-      @if (disabledTools.size > 0) {
-        <div class="disabled-section">
-          <p class="section-label">Hidden from AI:</p>
-          <mat-chip-set>
-            @for (name of disabledToolList(); track name) {
-              <mat-chip (removed)="enable(name)">
-                {{ name }}
-                <button matChipRemove><mat-icon>cancel</mat-icon></button>
-              </mat-chip>
-            }
-          </mat-chip-set>
+    @if (disabledTools.size > 0) {
+      <div class="disabled-section">
+        <p class="section-label">Hidden from AI:</p>
+        <div class="chip-list">
+          @for (name of disabledToolList(); track name) {
+            <span class="chip">
+              {{ name }}
+              <button type="button" class="chip-remove" [attr.aria-label]="'Enable ' + name" (click)="enable(name)">&times;</button>
+            </span>
+          }
         </div>
-      } @else {
-        <p class="all-enabled">All tools are currently enabled.</p>
-      }
+      </div>
+    } @else {
+      <p class="all-enabled">All tools are currently enabled.</p>
+    }
 
-      @if (enabledTools().length > 0) {
-        <mat-form-field class="add-field">
-          <mat-label>Disable a tool…</mat-label>
-          <mat-select [(ngModel)]="toolToDisable" (ngModelChange)="disableSelected()">
-            @for (tool of enabledTools(); track tool.name) {
-              <mat-option [value]="tool.name">
-                <span class="opt-name">{{ tool.name }}</span>
-                @if (tool.description) {
-                  <span class="opt-desc"> — {{ tool.description }}</span>
-                }
-              </mat-option>
-            }
-          </mat-select>
-        </mat-form-field>
-      }
-    </mat-dialog-content>
-    <mat-dialog-actions align="end">
-      <button mat-button mat-dialog-close>Cancel</button>
-      <button mat-raised-button color="primary" (click)="apply()">Apply</button>
-    </mat-dialog-actions>
+    @if (enabledToolOptions().length > 0) {
+      <app-form-field label="Disable a tool…">
+        <app-select
+          [value]="toolToDisable"
+          [options]="enabledToolOptions()"
+          (valueChange)="toolToDisable = $event; disableSelected()" />
+      </app-form-field>
+    }
+
+    <div class="dialog-actions" dialogFooter>
+      <app-bronco-button variant="ghost" (click)="cancelled.emit()">Cancel</app-bronco-button>
+      <app-bronco-button variant="primary" (click)="apply()">Apply</app-bronco-button>
+    </div>
   `,
   styles: [`
-    .summary { font-size: 13px; color: #555; margin: 0 0 12px; }
-    .section-label { font-size: 12px; color: #777; margin: 0 0 6px; }
+    .summary { font-size: 13px; color: var(--text-secondary); margin: 0 0 12px; }
+    .section-label { font-size: 12px; color: var(--text-secondary); margin: 0 0 6px; }
     .disabled-section { margin-bottom: 16px; }
-    .all-enabled { font-size: 13px; color: #4caf50; margin: 0 0 16px; }
-    .add-field { width: 100%; }
-    .opt-name { font-weight: 500; }
-    .opt-desc { font-size: 12px; color: #888; }
-    mat-chip { font-size: 13px; }
+    .all-enabled { font-size: 13px; color: var(--color-success); margin: 0 0 16px; }
+    .chip-list { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; background: var(--bg-muted); border-radius: var(--radius-pill); font-size: 13px; color: var(--text-primary); }
+    .chip-remove { background: none; border: none; cursor: pointer; color: var(--text-secondary); font-size: 16px; line-height: 1; padding: 0; display: flex; align-items: center; }
+    .chip-remove:hover { color: var(--color-error); }
+    .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
   `],
 })
-export class McpToolVisibilityDialogComponent {
-  private dialogRef = inject(MatDialogRef<McpToolVisibilityDialogComponent>);
-  readonly data: McpToolVisibilityDialogData = inject(MAT_DIALOG_DATA);
+export class McpToolVisibilityDialogComponent implements OnInit {
+  tools = input<Array<{ name: string; description: string }>>([]);
+  initialDisabledTools = input<Set<string>>(new Set());
 
-  disabledTools = new Set<string>(this.data.disabledTools);
+  applied = output<Set<string>>();
+  cancelled = output<void>();
+
+  disabledTools = new Set<string>();
   toolToDisable = '';
+
+  ngOnInit(): void {
+    this.disabledTools = new Set(this.initialDisabledTools());
+  }
 
   disabledToolList(): string[] {
     return [...this.disabledTools].sort();
   }
 
-  enabledTools(): Array<{ name: string; description: string }> {
-    return this.data.tools.filter(t => !this.disabledTools.has(t.name));
+  enabledToolOptions(): Array<{ value: string; label: string }> {
+    // Prepend an empty placeholder so the select reads as "nothing chosen"
+    // when toolToDisable is ''. Without this, the native <select> falls back
+    // to displaying the first option visually even though no option matches.
+    return [
+      { value: '', label: '— Select a tool —' },
+      ...this.tools()
+        .filter(t => !this.disabledTools.has(t.name))
+        .map(t => ({ value: t.name, label: t.description ? `${t.name} — ${t.description}` : t.name })),
+    ];
   }
 
   enable(name: string): void {
@@ -98,6 +95,8 @@ export class McpToolVisibilityDialogComponent {
   }
 
   apply(): void {
-    this.dialogRef.close(this.disabledTools);
+    // Emit a defensive copy so the receiver can't accidentally mutate this
+    // dialog's internal Set after the event handler runs.
+    this.applied.emit(new Set(this.disabledTools));
   }
 }

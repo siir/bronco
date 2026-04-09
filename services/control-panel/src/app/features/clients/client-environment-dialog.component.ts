@@ -1,77 +1,105 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, input, output, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MatDialogRef, MAT_DIALOG_DATA, MatDialogModule } from '@angular/material/dialog';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatButtonModule } from '@angular/material/button';
-import { MatCheckboxModule } from '@angular/material/checkbox';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { ClientEnvironmentService, type ClientEnvironment } from '../../core/services/client-environment.service';
+import { ToastService } from '../../core/services/toast.service';
+import { FormFieldComponent, TextInputComponent, TextareaComponent, ToggleSwitchComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({
+  selector: 'app-client-environment-dialog-content',
   standalone: true,
-  imports: [FormsModule, MatDialogModule, MatFormFieldModule, MatInputModule, MatButtonModule, MatCheckboxModule],
+  imports: [FormsModule, FormFieldComponent, TextInputComponent, TextareaComponent, ToggleSwitchComponent, BroncoButtonComponent],
   template: `
-    <h2 mat-dialog-title>{{ data.environment ? 'Edit' : 'Add' }} Environment</h2>
-    <mat-dialog-content>
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Name</mat-label>
-        <input matInput [(ngModel)]="name" placeholder="e.g. Production">
-      </mat-form-field>
+    <div class="form-grid">
+      <app-form-field label="Name">
+        <app-text-input
+          [value]="name"
+          placeholder="e.g. Production"
+          (valueChange)="name = $event" />
+      </app-form-field>
 
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Tag</mat-label>
-        <input matInput [(ngModel)]="tag" placeholder="e.g. production">
-        <mat-hint>Lowercase alphanumeric with hyphens only</mat-hint>
-      </mat-form-field>
+      <app-form-field label="Tag" hint="Lowercase alphanumeric with hyphens only">
+        <app-text-input
+          [value]="tag"
+          placeholder="e.g. production"
+          (valueChange)="tag = $event" />
+      </app-form-field>
 
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Description</mat-label>
-        <textarea matInput [(ngModel)]="description" rows="2" placeholder="Brief description of this environment"></textarea>
-      </mat-form-field>
+      <app-form-field label="Description">
+        <app-textarea
+          [value]="description"
+          [rows]="2"
+          placeholder="Brief description of this environment"
+          (valueChange)="description = $event" />
+      </app-form-field>
 
-      <mat-form-field appearance="outline" class="full-width">
-        <mat-label>Operational Instructions (Markdown)</mat-label>
-        <textarea matInput [(ngModel)]="operationalInstructions" rows="8"
-          placeholder="Instructions injected into AI prompts when analyzing tickets scoped to this environment."></textarea>
-      </mat-form-field>
+      <app-form-field label="Operational Instructions (Markdown)">
+        <app-textarea
+          [value]="operationalInstructions"
+          [rows]="8"
+          placeholder="Instructions injected into AI prompts when analyzing tickets scoped to this environment."
+          (valueChange)="operationalInstructions = $event" />
+      </app-form-field>
 
       <div class="row">
-        <mat-form-field appearance="outline" class="half-width">
-          <mat-label>Sort Order</mat-label>
-          <input matInput type="number" [(ngModel)]="sortOrder">
-        </mat-form-field>
-        <mat-checkbox [(ngModel)]="isDefault">Default environment</mat-checkbox>
+        <app-form-field label="Sort Order">
+          <app-text-input
+            [value]="sortOrder.toString()"
+            type="number"
+            (valueChange)="sortOrder = +$event" />
+        </app-form-field>
+        <div class="toggle-field">
+          <app-toggle-switch
+            [checked]="isDefault"
+            label="Default environment"
+            (checkedChange)="isDefault = $event" />
+        </div>
       </div>
-    </mat-dialog-content>
+    </div>
 
-    <mat-dialog-actions align="end">
-      <button mat-button mat-dialog-close>Cancel</button>
-      <button mat-raised-button color="primary" (click)="save()" [disabled]="!name.trim() || !tag.trim() || saving">
-        {{ saving ? 'Saving...' : (data.environment ? 'Update' : 'Create') }}
-      </button>
-    </mat-dialog-actions>
+    <div class="dialog-actions" dialogFooter>
+      <app-bronco-button variant="ghost" (click)="cancelled.emit()">Cancel</app-bronco-button>
+      <app-bronco-button variant="primary" [disabled]="!name.trim() || !tag.trim() || saving" (click)="save()">
+        {{ saving ? 'Saving...' : (environment() ? 'Update' : 'Create') }}
+      </app-bronco-button>
+    </div>
   `,
   styles: [`
-    .full-width { width: 100%; }
-    .half-width { width: 50%; }
-    .row { display: flex; align-items: center; gap: 16px; }
-    mat-dialog-content { display: flex; flex-direction: column; min-width: 500px; }
+    .form-grid { display: flex; flex-direction: column; gap: 12px; }
+    .row { display: flex; align-items: flex-end; gap: 16px; }
+    .row app-form-field { flex: 1; }
+    .toggle-field { display: flex; align-items: center; padding-bottom: 8px; }
+    .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
   `],
 })
-export class ClientEnvironmentDialogComponent {
-  private dialogRef = inject(MatDialogRef<ClientEnvironmentDialogComponent>);
-  data = inject<{ clientId: string; environment?: ClientEnvironment }>(MAT_DIALOG_DATA);
+export class ClientEnvironmentDialogComponent implements OnInit {
   private envService = inject(ClientEnvironmentService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
-  name = this.data.environment?.name ?? '';
-  tag = this.data.environment?.tag ?? '';
-  description = this.data.environment?.description ?? '';
-  operationalInstructions = this.data.environment?.operationalInstructions ?? '';
-  sortOrder = this.data.environment?.sortOrder ?? 0;
-  isDefault = this.data.environment?.isDefault ?? false;
+  clientId = input.required<string>();
+  environment = input<ClientEnvironment>();
+
+  saved = output<ClientEnvironment>();
+  cancelled = output<void>();
+
+  name = '';
+  tag = '';
+  description = '';
+  operationalInstructions = '';
+  sortOrder = 0;
+  isDefault = false;
   saving = false;
+
+  ngOnInit(): void {
+    const env = this.environment();
+    if (env) {
+      this.name = env.name ?? '';
+      this.tag = env.tag ?? '';
+      this.description = env.description ?? '';
+      this.operationalInstructions = env.operationalInstructions ?? '';
+      this.sortOrder = env.sortOrder ?? 0;
+      this.isDefault = env.isDefault ?? false;
+    }
+  }
 
   save(): void {
     this.saving = true;
@@ -84,18 +112,19 @@ export class ClientEnvironmentDialogComponent {
       isDefault: this.isDefault,
     };
 
-    const op = this.data.environment
-      ? this.envService.updateEnvironment(this.data.clientId, this.data.environment.id, payload)
-      : this.envService.createEnvironment(this.data.clientId, payload);
+    const env = this.environment();
+    const op = env
+      ? this.envService.updateEnvironment(this.clientId(), env.id, payload)
+      : this.envService.createEnvironment(this.clientId(), payload);
 
     op.subscribe({
       next: (result) => {
-        this.snackBar.open(`Environment ${this.data.environment ? 'updated' : 'created'}`, 'OK', { duration: 3000 });
-        this.dialogRef.close(result);
+        this.toast.success(`Environment ${env ? 'updated' : 'created'}`);
+        this.saved.emit(result);
       },
       error: (err) => {
         this.saving = false;
-        this.snackBar.open(err.error?.error ?? err.error?.message ?? 'Save failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+        this.toast.error(err.error?.error ?? err.error?.message ?? 'Save failed');
       },
     });
   }

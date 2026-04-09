@@ -32,6 +32,12 @@
               }
             ],
             "styles": [
+              "src/styles/theme.css",
+              "src/styles/themes/linear.css",
+              "src/styles/themes/nvidia.css",
+              "src/styles/themes/sentry.css",
+              "src/styles/themes/supabase.css",
+              "src/styles/themes/vercel.css",
               "src/styles.scss"
             ],
             "scripts": []
@@ -49,7 +55,7 @@
                 },
                 {
                   "type": "anyComponentStyle",
-                  "maximumWarning": "16kB",
+                  "maximumWarning": "20kB",
                   "maximumError": "24kB"
                 }
               ],

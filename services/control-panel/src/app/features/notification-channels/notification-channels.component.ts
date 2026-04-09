@@ -1,93 +1,88 @@
 import { Component, inject, OnInit, signal } from '@angular/core';
-import { MatCardModule } from '@angular/material/card';
-import { MatIconModule } from '@angular/material/icon';
-import { MatButtonModule } from '@angular/material/button';
-import { MatChipsModule } from '@angular/material/chips';
-import { MatTooltipModule } from '@angular/material/tooltip';
-import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
-import { MatSnackBar } from '@angular/material/snack-bar';
-import { MatMenuModule } from '@angular/material/menu';
-import { MatSlideToggleModule } from '@angular/material/slide-toggle';
-import { MatDialogModule, MatDialog } from '@angular/material/dialog';
-import { FormsModule } from '@angular/forms';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatSelectModule } from '@angular/material/select';
 import {
   NotificationChannelService,
   NotificationChannel,
 } from '../../core/services/notification-channel.service';
 import { NotificationChannelDialogComponent } from './notification-channel-dialog.component';
+import { ToastService } from '../../core/services/toast.service';
+import {
+  BroncoButtonComponent,
+  CardComponent,
+  ToggleSwitchComponent,
+  DropdownMenuComponent,
+  DropdownItemComponent,
+  DialogComponent,
+  IconComponent,
+} from '../../shared/components/index.js';
 
 @Component({
   standalone: true,
   selector: 'app-notification-channels',
   imports: [
-    FormsModule,
-    MatCardModule,
-    MatIconModule,
-    MatButtonModule,
-    MatChipsModule,
-    MatTooltipModule,
-    MatProgressSpinnerModule,
-    MatMenuModule,
-    MatSlideToggleModule,
-    MatDialogModule,
-    MatFormFieldModule,
-    MatInputModule,
-    MatSelectModule,
+    BroncoButtonComponent,
+    CardComponent,
+    ToggleSwitchComponent,
+    DropdownMenuComponent,
+    DropdownItemComponent,
+    DialogComponent,
+    NotificationChannelDialogComponent,
+    IconComponent,
   ],
   template: `
-    <div class="section-header">
-      <h2>Notification Channels</h2>
-      <button mat-raised-button color="primary" (click)="openDialog()">
-        <mat-icon>add</mat-icon> Add Channel
-      </button>
-    </div>
+    <div class="page-wrapper">
+      <div class="page-header">
+        <h1 class="page-title">Notification Channels</h1>
+        <app-bronco-button variant="primary" (click)="openDialog()">
+          + Add Channel
+        </app-bronco-button>
+      </div>
 
-    @if (channels().length === 0 && !loading()) {
-      <mat-card class="empty-card">
-        <mat-card-content>
+      @if (loading()) {
+        <div class="loading-wrapper"><span class="loading-text">Loading...</span></div>
+      }
+
+      @if (channels().length === 0 && !loading()) {
+        <app-card padding="md" class="empty-card">
           <div class="empty-content">
-            <mat-icon class="empty-icon">notifications_off</mat-icon>
+            <span class="empty-icon">
+              <app-icon name="bell-off" size="xl" />
+            </span>
             <div>
               <div class="empty-title">No notification channels configured</div>
               <div class="empty-subtitle">Add an email or Pushover channel to receive alerts when services go down.</div>
             </div>
           </div>
-        </mat-card-content>
-      </mat-card>
-    }
+        </app-card>
+      }
 
-    <div class="channel-grid">
-      @for (ch of channels(); track ch.id) {
-        <mat-card class="channel-card">
-          <mat-card-content>
+      <div class="channel-grid">
+        @for (ch of channels(); track ch.id) {
+          <app-card padding="md" class="channel-card">
             <div class="channel-header">
               <div class="channel-name">
-                <mat-icon class="type-icon">{{ ch.type === 'EMAIL' ? 'email' : 'phone_android' }}</mat-icon>
+                <span class="type-icon">
+                  @if (ch.type === 'EMAIL') {
+                    <app-icon name="email" size="sm" />
+                  } @else {
+                    <app-icon name="bell" size="sm" />
+                  }
+                </span>
                 {{ ch.name }}
               </div>
               <div class="channel-actions">
-                <mat-slide-toggle
+                <app-toggle-switch
                   [checked]="ch.isActive"
-                  (change)="toggleActive(ch)"
-                  matTooltip="Enable/disable this channel"
-                ></mat-slide-toggle>
-                <button mat-icon-button [matMenuTriggerFor]="menu">
-                  <mat-icon>more_vert</mat-icon>
-                </button>
-                <mat-menu #menu="matMenu">
-                  <button mat-menu-item (click)="openDialog(ch)">
-                    <mat-icon>edit</mat-icon> Edit
-                  </button>
-                  <button mat-menu-item (click)="testChannel(ch)">
-                    <mat-icon>send</mat-icon> Send Test
-                  </button>
-                  <button mat-menu-item (click)="deleteChannel(ch)" class="delete-item">
-                    <mat-icon>delete</mat-icon> Delete
-                  </button>
-                </mat-menu>
+                  [label]="'Enable ' + ch.name"
+                  (checkedChange)="toggleActive(ch)"
+                ></app-toggle-switch>
+                <app-bronco-button variant="icon" size="sm" [attr.aria-label]="'Actions for ' + ch.name" #menuTrigger (click)="menu.toggle()">
+                  <app-icon name="more-vertical" size="sm" />
+                </app-bronco-button>
+                <app-dropdown-menu #menu [trigger]="menuTrigger">
+                  <app-dropdown-item (action)="openDialog(ch)">Edit</app-dropdown-item>
+                  <app-dropdown-item (action)="testChannel(ch)">Send Test</app-dropdown-item>
+                  <app-dropdown-item (action)="deleteChannel(ch)" [destructive]="true">Delete</app-dropdown-item>
+                </app-dropdown-menu>
               </div>
             </div>
 
@@ -125,86 +120,150 @@ import { NotificationChannelDialogComponent } from './notification-channel-dialo
 
             @if (testing() === ch.id) {
               <div class="test-status">
-                <mat-spinner diameter="16"></mat-spinner>
+                <span class="spinner" aria-hidden="true"></span>
                 <span>Sending test...</span>
               </div>
             }
-          </mat-card-content>
-        </mat-card>
-      }
+          </app-card>
+        }
+      </div>
     </div>
+
+    @if (showDialog()) {
+      <app-dialog [open]="true" [title]="(editingChannel() ? 'Edit' : 'Add') + ' Notification Channel'" maxWidth="480px" (openChange)="showDialog.set(false)">
+        <app-notification-channel-dialog-content
+          [channel]="editingChannel()"
+          (saved)="onSaved()"
+          (cancelled)="showDialog.set(false)" />
+      </app-dialog>
+    }
   `,
   styles: [`
-    .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-    .section-header h2 { margin: 0; font-size: 16px; font-weight: 500; color: #555; }
+    .page-wrapper { max-width: 1200px; }
+    .page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+    }
+    .page-title {
+      margin: 0;
+      font-size: 24px;
+      font-weight: 600;
+      color: var(--text-primary);
+      font-family: var(--font-primary);
+    }
 
-    .empty-card { border-left: 4px solid #ff9800; }
-    .empty-content { display: flex; align-items: center; gap: 16px; padding: 8px 0; }
-    .empty-icon { font-size: 32px; width: 32px; height: 32px; color: #ff9800; }
-    .empty-title { font-size: 16px; font-weight: 500; }
-    .empty-subtitle { font-size: 14px; color: #666; }
+    .loading-wrapper {
+      display: flex;
+      justify-content: center;
+      padding: 48px;
+    }
+    .loading-text { color: var(--text-tertiary); font-size: 13px; }
 
+    /* Empty state */
+    .empty-card { border-left: 4px solid var(--color-warning); margin-bottom: 16px; }
+    .empty-content { display: flex; align-items: center; gap: 16px; padding: 4px 0; }
+    .empty-icon { color: var(--color-warning); flex-shrink: 0; display: flex; }
+    .empty-title { font-size: 15px; font-weight: 500; color: var(--text-primary); margin-bottom: 4px; }
+    .empty-subtitle { font-size: 13px; color: var(--text-secondary); }
+
+    /* Channel grid */
     .channel-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-      gap: 12px;
+      gap: 16px;
     }
 
     .channel-card { position: relative; }
-    .channel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-    .channel-name { display: flex; align-items: center; gap: 8px; font-weight: 500; font-size: 15px; }
-    .channel-actions { display: flex; align-items: center; gap: 4px; }
-    .type-icon { color: #666; font-size: 20px; width: 20px; height: 20px; }
+    .channel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .channel-name {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+      font-size: 15px;
+      color: var(--text-primary);
+    }
+    .channel-actions { display: flex; align-items: center; gap: 6px; }
+    .type-icon {
+      color: var(--text-tertiary);
+      display: flex;
+      align-items: center;
+    }
 
-    .channel-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    /* Chips */
+    .channel-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
     .type-chip {
       font-size: 11px;
       font-weight: 600;
       padding: 2px 8px;
-      border-radius: 4px;
+      border-radius: var(--radius-sm);
       font-family: monospace;
     }
-    .type-chip.type-email { background: #e3f2fd; color: #1565c0; }
-    .type-chip.type-pushover { background: #f3e5f5; color: #7b1fa2; }
+    .type-chip.type-email {
+      background: var(--color-info-subtle);
+      color: var(--color-info);
+    }
+    .type-chip.type-pushover {
+      background: var(--color-purple-subtle);
+      color: var(--color-purple);
+    }
     .inactive-chip {
       font-size: 11px;
       font-weight: 600;
       padding: 2px 8px;
-      border-radius: 4px;
-      background: #f5f5f5;
-      color: #757575;
+      border-radius: var(--radius-sm);
+      background: var(--bg-muted);
+      color: var(--text-tertiary);
       font-family: monospace;
     }
 
+    /* Config details */
     .config-detail {
       display: flex;
       justify-content: space-between;
-      padding: 2px 0;
+      padding: 3px 0;
       font-size: 13px;
     }
-    .detail-label { color: #888; }
-    .detail-value { font-family: monospace; color: #333; }
+    .detail-label { color: var(--text-tertiary); }
+    .detail-value { font-family: monospace; color: var(--text-primary); }
 
+    /* Test status */
     .test-status {
       display: flex;
       align-items: center;
       gap: 8px;
-      margin-top: 8px;
+      margin-top: 10px;
       font-size: 13px;
-      color: #666;
+      color: var(--text-secondary);
     }
 
-    .delete-item { color: #c62828; }
+    /* CSS-only spinner */
+    @keyframes bronco-spin {
+      to { transform: rotate(360deg); }
+    }
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid var(--border-medium);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: bronco-spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
   `],
 })
 export class NotificationChannelsComponent implements OnInit {
   private channelService = inject(NotificationChannelService);
-  private snackBar = inject(MatSnackBar);
-  private dialog = inject(MatDialog);
+  private toast = inject(ToastService);
 
   channels = signal<NotificationChannel[]>([]);
   loading = signal(false);
   testing = signal<string | null>(null);
+  showDialog = signal(false);
+  editingChannel = signal<NotificationChannel | null>(null);
 
   ngOnInit(): void {
     this.load();
@@ -222,21 +281,20 @@ export class NotificationChannelsComponent implements OnInit {
   }
 
   openDialog(channel?: NotificationChannel): void {
-    const dialogRef = this.dialog.open(NotificationChannelDialogComponent, {
-      width: '480px',
-      data: channel ?? null,
-    });
+    this.editingChannel.set(channel ?? null);
+    this.showDialog.set(true);
+  }
 
-    dialogRef.afterClosed().subscribe((result) => {
-      if (result) this.load();
-    });
+  onSaved(): void {
+    this.showDialog.set(false);
+    this.load();
   }
 
   toggleActive(channel: NotificationChannel): void {
     this.channelService.update(channel.id, { isActive: !channel.isActive }).subscribe({
       next: () => this.load(),
       error: (err) => {
-        this.snackBar.open(err.error?.error ?? 'Failed to update', 'Dismiss', { duration: 4000 });
+        this.toast.error(err.error?.error ?? 'Failed to update');
       },
     });
   }
@@ -247,14 +305,14 @@ export class NotificationChannelsComponent implements OnInit {
       next: (res) => {
         this.testing.set(null);
         if (res.success) {
-          this.snackBar.open(res.message ?? 'Test sent!', 'OK', { duration: 4000 });
+          this.toast.success(res.message ?? 'Test sent!');
         } else {
-          this.snackBar.open(`Test failed: ${res.error}`, 'Dismiss', { duration: 6000 });
+          this.toast.error(`Test failed: ${res.error}`);
         }
       },
       error: (err) => {
         this.testing.set(null);
-        this.snackBar.open(err.error?.error ?? 'Test failed', 'Dismiss', { duration: 4000 });
+        this.toast.error(err.error?.error ?? 'Test failed');
       },
     });
   }
@@ -263,11 +321,11 @@ export class NotificationChannelsComponent implements OnInit {
     if (!confirm(`Delete notification channel "${channel.name}"?`)) return;
     this.channelService.delete(channel.id).subscribe({
       next: () => {
-        this.snackBar.open('Channel deleted', 'OK', { duration: 3000 });
+        this.toast.success('Channel deleted');
         this.load();
       },
       error: (err) => {
-        this.snackBar.open(err.error?.error ?? 'Failed to delete', 'Dismiss', { duration: 4000 });
+        this.toast.error(err.error?.error ?? 'Failed to delete');
       },
     });
   }

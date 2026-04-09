@@ -1,43 +1,55 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, input, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MatDialogRef, MAT_DIALOG_DATA, MatDialogModule } from '@angular/material/dialog';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatButtonModule } from '@angular/material/button';
-import { MatCheckboxModule } from '@angular/material/checkbox';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { InvoiceService } from '../../core/services/invoice.service';
+import { ToastService } from '../../core/services/toast.service';
+import { FormFieldComponent, TextInputComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({
+  selector: 'app-generate-invoice-dialog-content',
   standalone: true,
-  imports: [FormsModule, MatDialogModule, MatFormFieldModule, MatInputModule, MatButtonModule, MatCheckboxModule],
+  imports: [FormsModule, FormFieldComponent, TextInputComponent, BroncoButtonComponent],
   template: `
-    <h2 mat-dialog-title>Generate Invoice</h2>
-    <mat-dialog-content>
-      <mat-form-field class="full-width">
-        <mat-label>Period Start</mat-label>
-        <input matInput type="date" [(ngModel)]="periodStart" required>
-      </mat-form-field>
-      <mat-form-field class="full-width">
-        <mat-label>Period End</mat-label>
-        <input matInput type="date" [(ngModel)]="periodEnd" required>
-      </mat-form-field>
-      <mat-checkbox [(ngModel)]="finalize">Mark as Final</mat-checkbox>
-    </mat-dialog-content>
-    <mat-dialog-actions align="end">
-      <button mat-button mat-dialog-close>Cancel</button>
-      <button mat-raised-button color="primary" [disabled]="!periodStart || !periodEnd || generating" (click)="generate()">
+    <div class="form-grid">
+      <app-form-field label="Period Start">
+        <app-text-input
+          [value]="periodStart"
+          type="date"
+          (valueChange)="periodStart = $event" />
+      </app-form-field>
+      <app-form-field label="Period End">
+        <app-text-input
+          [value]="periodEnd"
+          type="date"
+          (valueChange)="periodEnd = $event" />
+      </app-form-field>
+      <label class="checkbox-label">
+        <input type="checkbox" class="form-checkbox" [(ngModel)]="finalize">
+        Mark as Final
+      </label>
+    </div>
+
+    <div class="dialog-actions" dialogFooter>
+      <app-bronco-button variant="ghost" (click)="cancelled.emit()">Cancel</app-bronco-button>
+      <app-bronco-button variant="primary" [disabled]="!periodStart || !periodEnd || generating" (click)="generate()">
         {{ generating ? 'Generating...' : 'Generate' }}
-      </button>
-    </mat-dialog-actions>
+      </app-bronco-button>
+    </div>
   `,
-  styles: [`.full-width { width: 100%; margin-bottom: 8px; }`],
+  styles: [`
+    .form-grid { display: flex; flex-direction: column; gap: 12px; }
+    .checkbox-label { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-primary); cursor: pointer; }
+    .form-checkbox { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); }
+    .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  `],
 })
 export class GenerateInvoiceDialogComponent {
-  private dialogRef = inject(MatDialogRef<GenerateInvoiceDialogComponent>);
-  private data: { clientId: string } = inject(MAT_DIALOG_DATA);
   private invoiceService = inject(InvoiceService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
+
+  clientId = input.required<string>();
+
+  generated = output<boolean>();
+  cancelled = output<void>();
 
   periodStart = '';
   periodEnd = '';
@@ -46,18 +58,19 @@ export class GenerateInvoiceDialogComponent {
 
   generate(): void {
     this.generating = true;
-    this.invoiceService.generateInvoice(this.data.clientId, {
+    this.invoiceService.generateInvoice(this.clientId(), {
       periodStart: this.periodStart,
       periodEnd: this.periodEnd,
       finalize: this.finalize,
     }).subscribe({
       next: () => {
-        this.snackBar.open('Invoice generated', 'OK', { duration: 3000 });
-        this.dialogRef.close(true);
+        this.generating = false;
+        this.toast.info('Invoice generated');
+        this.generated.emit(true);
       },
       error: (err) => {
         this.generating = false;
-        this.snackBar.open(err.error?.error ?? 'Generation failed', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+        this.toast.error(err.error?.error ?? 'Generation failed');
       },
     });
   }

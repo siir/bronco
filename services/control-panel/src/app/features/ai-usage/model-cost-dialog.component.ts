@@ -1,90 +1,116 @@
-import { Component, inject, OnInit } from '@angular/core';
+import { Component, inject, input, output, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MatDialogModule, MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatSelectModule } from '@angular/material/select';
-import { MatButtonModule } from '@angular/material/button';
-import { MatCheckboxModule } from '@angular/material/checkbox';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { AiUsageService, AiModelCost } from '../../core/services/ai-usage.service';
+import { ToastService } from '../../core/services/toast.service';
+import { FormFieldComponent, TextInputComponent, SelectComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({
+  selector: 'app-model-cost-dialog-content',
   standalone: true,
-  imports: [FormsModule, MatDialogModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatButtonModule, MatCheckboxModule],
+  imports: [FormsModule, FormFieldComponent, TextInputComponent, SelectComponent, BroncoButtonComponent],
   template: `
-    <h2 mat-dialog-title>{{ isEdit ? 'Edit' : 'Add' }} Model Cost</h2>
-    <mat-dialog-content>
-      <mat-form-field class="full-width">
-        <mat-label>Provider</mat-label>
-        <mat-select [(ngModel)]="provider" [disabled]="isEdit" required>
-          @for (p of catalogProviders; track p) {
-            <mat-option [value]="p">{{ p }}</mat-option>
-          }
-        </mat-select>
-      </mat-form-field>
+    <div class="form-grid">
+      <app-form-field label="Provider">
+        <app-select
+          [value]="provider"
+          [options]="providerOptions"
+          [disabled]="isEdit"
+          (valueChange)="provider = $event" />
+      </app-form-field>
 
-      <mat-form-field class="full-width">
-        <mat-label>Model ID</mat-label>
-        <input matInput [(ngModel)]="model" [readonly]="isEdit" required placeholder="e.g. claude-sonnet-4-6">
-      </mat-form-field>
+      <app-form-field label="Model ID">
+        <app-text-input
+          [value]="model"
+          [disabled]="isEdit"
+          placeholder="e.g. claude-sonnet-4-6"
+          (valueChange)="model = $event" />
+      </app-form-field>
 
-      <mat-form-field class="full-width">
-        <mat-label>Display Name</mat-label>
-        <input matInput [(ngModel)]="displayName" placeholder="e.g. Claude Sonnet 4.6">
-      </mat-form-field>
+      <app-form-field label="Display Name">
+        <app-text-input
+          [value]="displayName"
+          placeholder="e.g. Claude Sonnet 4.6"
+          (valueChange)="displayName = $event" />
+      </app-form-field>
 
-      <mat-form-field class="full-width">
-        <mat-label>Input Cost ($/1M tokens)</mat-label>
-        <input matInput type="number" [(ngModel)]="inputCostPer1m" required min="0" step="0.01">
-      </mat-form-field>
+      <app-form-field label="Input Cost ($/1M tokens)">
+        <app-text-input
+          [value]="'' + inputCostPer1m"
+          type="number"
+          (valueChange)="inputCostPer1m = parseCost($event)" />
+      </app-form-field>
 
-      <mat-form-field class="full-width">
-        <mat-label>Output Cost ($/1M tokens)</mat-label>
-        <input matInput type="number" [(ngModel)]="outputCostPer1m" required min="0" step="0.01">
-      </mat-form-field>
+      <app-form-field label="Output Cost ($/1M tokens)">
+        <app-text-input
+          [value]="'' + outputCostPer1m"
+          type="number"
+          (valueChange)="outputCostPer1m = parseCost($event)" />
+      </app-form-field>
 
-      <mat-checkbox [(ngModel)]="isCustomCost">
-        Custom cost (protect from AI updates)
-      </mat-checkbox>
-    </mat-dialog-content>
-    <mat-dialog-actions align="end">
-      <button mat-button mat-dialog-close>Cancel</button>
-      <button mat-raised-button color="primary" (click)="save()" [disabled]="!provider || !model">
+      <label class="checkbox-row">
+        <input type="checkbox" [(ngModel)]="isCustomCost">
+        <span>Custom cost (protect from AI updates)</span>
+      </label>
+    </div>
+
+    <div class="dialog-actions" dialogFooter>
+      <app-bronco-button variant="ghost" (click)="cancelled.emit()">Cancel</app-bronco-button>
+      <app-bronco-button variant="primary" [disabled]="!provider || !model" (click)="save()">
         {{ isEdit ? 'Update' : 'Create' }}
-      </button>
-    </mat-dialog-actions>
+      </app-bronco-button>
+    </div>
   `,
-  styles: [`.full-width { width: 100%; margin-bottom: 8px; }`],
+  styles: [`
+    .form-grid { display: flex; flex-direction: column; gap: 12px; }
+    .checkbox-row { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-secondary); cursor: pointer; }
+    .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  `],
 })
 export class ModelCostDialogComponent implements OnInit {
-  private dialogRef = inject(MatDialogRef<ModelCostDialogComponent>);
-  private data = inject<{ cost?: AiModelCost }>(MAT_DIALOG_DATA);
   private aiUsageService = inject(AiUsageService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
-  isEdit = !!this.data.cost;
-  provider = this.data.cost?.provider ?? '';
-  model = this.data.cost?.model ?? '';
-  displayName = this.data.cost?.displayName ?? '';
-  inputCostPer1m = this.data.cost?.inputCostPer1m ?? 0;
-  outputCostPer1m = this.data.cost?.outputCostPer1m ?? 0;
-  isCustomCost = this.data.cost?.isCustomCost ?? true;
+  cost = input<AiModelCost | undefined>(undefined);
+  saved = output<boolean>();
+  cancelled = output<void>();
 
-  catalogProviders: string[] = [];
+  isEdit = false;
+  provider = '';
+  model = '';
+  displayName = '';
+  inputCostPer1m = 0;
+  outputCostPer1m = 0;
+  isCustomCost = true;
+
+  providerOptions: Array<{ value: string; label: string }> = [];
 
   ngOnInit(): void {
+    const c = this.cost();
+    if (c) {
+      this.isEdit = true;
+      this.provider = c.provider;
+      this.model = c.model;
+      this.displayName = c.displayName ?? '';
+      this.inputCostPer1m = c.inputCostPer1m;
+      this.outputCostPer1m = c.outputCostPer1m;
+      this.isCustomCost = c.isCustomCost;
+    }
+
     this.aiUsageService.getCatalog().subscribe(catalog => {
-      this.catalogProviders = catalog.providers.map(p => p.provider);
-      // If editing, ensure current provider is in the list
-      if (this.provider && !this.catalogProviders.includes(this.provider)) {
-        this.catalogProviders.push(this.provider);
+      let providers = catalog.providers.map(p => p.provider);
+      if (this.provider && !providers.includes(this.provider)) {
+        providers.push(this.provider);
       }
-      // If no catalog (empty costs table), fall back to known providers
-      if (this.catalogProviders.length === 0) {
-        this.catalogProviders = ['CLAUDE', 'OPENAI', 'LOCAL', 'GROK', 'GOOGLE'];
+      if (providers.length === 0) {
+        providers = ['CLAUDE', 'OPENAI', 'LOCAL', 'GROK', 'GOOGLE'];
       }
+      this.providerOptions = providers.map(p => ({ value: p, label: p }));
     });
+  }
+
+  parseCost(val: string): number {
+    const n = parseFloat(val);
+    return Number.isNaN(n) ? 0 : n;
   }
 
   save(): void {
@@ -97,10 +123,10 @@ export class ModelCostDialogComponent implements OnInit {
       isCustomCost: this.isCustomCost,
     }).subscribe({
       next: () => {
-        this.snackBar.open(this.isEdit ? 'Cost updated' : 'Model cost added', 'OK', { duration: 3000 });
-        this.dialogRef.close(true);
+        this.toast.success(this.isEdit ? 'Cost updated' : 'Model cost added');
+        this.saved.emit(true);
       },
-      error: (err) => this.snackBar.open(err.error?.message ?? 'Failed to save', 'OK', { duration: 5000, panelClass: 'error-snackbar' }),
+      error: (err) => this.toast.error(err.error?.message ?? 'Failed to save'),
     });
   }
 }

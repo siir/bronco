@@ -1,47 +1,57 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MatDialogRef, MatDialogModule } from '@angular/material/dialog';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatButtonModule } from '@angular/material/button';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { ClientService } from '../../core/services/client.service';
+import { ToastService } from '../../core/services/toast.service';
+import { FormFieldComponent, TextInputComponent, TextareaComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({
+  selector: 'app-client-dialog-content',
   standalone: true,
-  imports: [FormsModule, MatDialogModule, MatFormFieldModule, MatInputModule, MatButtonModule],
+  imports: [FormsModule, FormFieldComponent, TextInputComponent, TextareaComponent, BroncoButtonComponent],
   template: `
-    <h2 mat-dialog-title>New Client</h2>
-    <mat-dialog-content>
-      <mat-form-field class="full-width">
-        <mat-label>Name</mat-label>
-        <input matInput [(ngModel)]="name" required>
-      </mat-form-field>
-      <mat-form-field class="full-width">
-        <mat-label>Short Code</mat-label>
-        <input matInput [(ngModel)]="shortCode" required placeholder="e.g. ACME">
-      </mat-form-field>
-      <mat-form-field class="full-width">
-        <mat-label>Domain Mappings</mat-label>
-        <input matInput [(ngModel)]="domainMappingsStr" placeholder="e.g. acme.com, acme.org">
-        <mat-hint>Comma-separated email domains to auto-route to this client</mat-hint>
-      </mat-form-field>
-      <mat-form-field class="full-width">
-        <mat-label>Notes</mat-label>
-        <textarea matInput [(ngModel)]="notes" rows="3"></textarea>
-      </mat-form-field>
-    </mat-dialog-content>
-    <mat-dialog-actions align="end">
-      <button mat-button mat-dialog-close>Cancel</button>
-      <button mat-raised-button color="primary" (click)="save()" [disabled]="!name || !shortCode">Create</button>
-    </mat-dialog-actions>
+    <div class="form-grid">
+      <app-form-field label="Name">
+        <app-text-input
+          [value]="name"
+          placeholder="Client name"
+          (valueChange)="name = $event" />
+      </app-form-field>
+      <app-form-field label="Short Code">
+        <app-text-input
+          [value]="shortCode"
+          placeholder="e.g. ACME"
+          (valueChange)="shortCode = $event" />
+      </app-form-field>
+      <app-form-field label="Domain Mappings" hint="Comma-separated email domains to auto-route to this client">
+        <app-text-input
+          [value]="domainMappingsStr"
+          placeholder="e.g. acme.com, acme.org"
+          (valueChange)="domainMappingsStr = $event" />
+      </app-form-field>
+      <app-form-field label="Notes">
+        <app-textarea
+          [value]="notes"
+          [rows]="3"
+          (valueChange)="notes = $event" />
+      </app-form-field>
+    </div>
+
+    <div class="dialog-actions" dialogFooter>
+      <app-bronco-button variant="ghost" (click)="cancelled.emit()">Cancel</app-bronco-button>
+      <app-bronco-button variant="primary" [disabled]="!name || !shortCode" (click)="save()">Create</app-bronco-button>
+    </div>
   `,
-  styles: [`.full-width { width: 100%; margin-bottom: 8px; }`],
+  styles: [`
+    .form-grid { display: flex; flex-direction: column; gap: 12px; }
+    .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  `],
 })
 export class ClientDialogComponent {
-  private dialogRef = inject(MatDialogRef<ClientDialogComponent>);
   private clientService = inject(ClientService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
+
+  created = output<boolean>();
+  cancelled = output<void>();
 
   name = '';
   shortCode = '';
@@ -59,11 +69,11 @@ export class ClientDialogComponent {
       notes: this.notes || undefined,
     }).subscribe({
       next: () => {
-        this.snackBar.open('Client created', 'OK', { duration: 3000, panelClass: 'success-snackbar' });
-        this.dialogRef.close(true);
+        this.toast.success('Client created');
+        this.created.emit(true);
       },
       error: (err) => {
-        this.snackBar.open(err.error?.error ?? 'Failed to create client', 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+        this.toast.error(err.error?.error ?? 'Failed to create client');
       },
     });
   }

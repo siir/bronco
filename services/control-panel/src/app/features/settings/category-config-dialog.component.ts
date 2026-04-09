@@ -1,101 +1,105 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, input, output, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MAT_DIALOG_DATA, MatDialogRef, MatDialogModule } from '@angular/material/dialog';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatButtonModule } from '@angular/material/button';
-import { MatCheckboxModule } from '@angular/material/checkbox';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import {
   SettingsService,
   TicketCategoryConfig,
 } from '../../core/services/settings.service';
-
-export interface CategoryConfigDialogData {
-  config?: TicketCategoryConfig;
-}
+import { ToastService } from '../../core/services/toast.service';
+import { FormFieldComponent, TextInputComponent, TextareaComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({
+  selector: 'app-category-config-dialog-content',
   standalone: true,
   imports: [
     FormsModule,
-    MatDialogModule,
-    MatFormFieldModule,
-    MatInputModule,
-    MatButtonModule,
-    MatCheckboxModule,
+    FormFieldComponent,
+    TextInputComponent,
+    TextareaComponent,
+    BroncoButtonComponent,
   ],
   template: `
-    <h2 mat-dialog-title>{{ isCreate ? 'Create Category' : 'Edit Category: ' + data.config!.value }}</h2>
-    <mat-dialog-content>
+    <div class="form-grid">
       @if (isCreate) {
-        <mat-form-field class="full-width">
-          <mat-label>Value</mat-label>
-          <input matInput [(ngModel)]="value" placeholder="e.g. DATABASE_PERF" required>
-          <mat-hint>Must match a valid TicketCategory enum value</mat-hint>
-        </mat-form-field>
+        <app-form-field label="Value" hint="Must match a valid TicketCategory enum value">
+          <app-text-input [value]="value" placeholder="e.g. DATABASE_PERF" (valueChange)="value = $event" />
+        </app-form-field>
       }
 
-      <mat-form-field class="full-width">
-        <mat-label>Display Name</mat-label>
-        <input matInput [(ngModel)]="displayName">
-      </mat-form-field>
+      <app-form-field label="Display Name">
+        <app-text-input [value]="displayName" (valueChange)="displayName = $event" />
+      </app-form-field>
 
-      <mat-form-field class="full-width">
-        <mat-label>Description</mat-label>
-        <textarea matInput [(ngModel)]="description" rows="2"></textarea>
-      </mat-form-field>
+      <app-form-field label="Description">
+        <app-textarea [value]="description" [rows]="2" (valueChange)="description = $event" />
+      </app-form-field>
 
-      <mat-form-field class="full-width">
-        <mat-label>Color</mat-label>
-        <input matInput [(ngModel)]="color" placeholder="#2196f3">
-        <div matSuffix class="color-preview" [style.background]="color"></div>
-      </mat-form-field>
+      <app-form-field label="Color">
+        <div class="color-row">
+          <app-text-input [value]="color" placeholder="#2196f3" (valueChange)="color = $event" />
+          <span class="color-preview" [style.background]="color"></span>
+        </div>
+      </app-form-field>
 
-      <mat-form-field class="full-width">
-        <mat-label>Sort Order</mat-label>
-        <input matInput type="number" [(ngModel)]="sortOrder" min="0">
-      </mat-form-field>
+      <app-form-field label="Sort Order">
+        <app-text-input [value]="'' + sortOrder" type="number" (valueChange)="sortOrder = parseSortOrder($event)" />
+      </app-form-field>
 
       @if (!isCreate) {
-        <mat-checkbox [(ngModel)]="isActive" class="active-checkbox">
-          Active
-        </mat-checkbox>
+        <label class="checkbox-row">
+          <input type="checkbox" [(ngModel)]="isActive">
+          <span>Active</span>
+        </label>
       }
-    </mat-dialog-content>
-    <mat-dialog-actions align="end">
-      <button mat-button mat-dialog-close>Cancel</button>
-      <button mat-raised-button color="primary" (click)="save()" [disabled]="!canSave()">
+    </div>
+
+    <div class="dialog-actions" dialogFooter>
+      <app-bronco-button variant="ghost" (click)="cancelled.emit()">Cancel</app-bronco-button>
+      <app-bronco-button variant="primary" [disabled]="!canSave()" (click)="save()">
         {{ isCreate ? 'Create' : 'Update' }}
-      </button>
-    </mat-dialog-actions>
+      </app-bronco-button>
+    </div>
   `,
   styles: [`
-    .full-width { width: 100%; margin-bottom: 8px; }
-    .active-checkbox { display: block; margin: 8px 0 16px; }
-    .color-preview {
-      width: 24px;
-      height: 24px;
-      border-radius: 4px;
-      border: 1px solid #ccc;
-      display: inline-block;
-    }
+    .form-grid { display: flex; flex-direction: column; gap: 12px; }
+    .color-row { display: flex; align-items: center; gap: 8px; }
+    .color-preview { width: 24px; height: 24px; border-radius: var(--radius-sm); border: 1px solid var(--border-medium); display: inline-block; flex-shrink: 0; }
+    .checkbox-row { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-secondary); cursor: pointer; }
+    .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
   `],
 })
-export class CategoryConfigDialogComponent {
-  private dialogRef = inject(MatDialogRef<CategoryConfigDialogComponent>);
-  data: CategoryConfigDialogData = inject(MAT_DIALOG_DATA);
+export class CategoryConfigDialogComponent implements OnInit {
   private svc = inject(SettingsService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
-  isCreate = !this.data.config;
+  config = input<TicketCategoryConfig | undefined>(undefined);
+  saved = output<boolean>();
+  cancelled = output<void>();
 
-  value = this.data.config?.value ?? '';
-  displayName = this.data.config?.displayName ?? '';
-  description = this.data.config?.description ?? '';
-  color = this.data.config?.color ?? '#2196f3';
-  sortOrder = this.data.config?.sortOrder ?? 0;
-  isActive = this.data.config?.isActive ?? true;
+  isCreate = true;
+  value = '';
+  displayName = '';
+  description = '';
+  color = '#2196f3';
+  sortOrder = 0;
+  isActive = true;
+
+  ngOnInit(): void {
+    const c = this.config();
+    if (c) {
+      this.isCreate = false;
+      this.value = c.value;
+      this.displayName = c.displayName;
+      this.description = c.description ?? '';
+      this.color = c.color ?? '#2196f3';
+      this.sortOrder = c.sortOrder;
+      this.isActive = c.isActive;
+    }
+  }
+
+  parseSortOrder(val: string): number {
+    const n = parseInt(val, 10);
+    return Number.isNaN(n) ? 0 : n;
+  }
 
   canSave(): boolean {
     if (!this.displayName.trim()) return false;
@@ -115,19 +119,16 @@ export class CategoryConfigDialogComponent {
         })
         .subscribe({
           next: () => {
-            this.snackBar.open('Category created', 'OK', { duration: 3000, panelClass: 'success-snackbar' });
-            this.dialogRef.close(true);
+            this.toast.success('Category created');
+            this.saved.emit(true);
           },
           error: (err) =>
-            this.snackBar.open(
-              err.error?.error ?? err.error?.message ?? 'Failed to create',
-              'OK',
-              { duration: 5000 },
-            ),
+            this.toast.error(err.error?.error ?? err.error?.message ?? 'Failed to create'),
         });
     } else {
+      const c = this.config()!;
       this.svc
-        .updateCategory(this.data.config!.value, {
+        .updateCategory(c.value, {
           displayName: this.displayName,
           description: this.description || null,
           color: this.color,
@@ -136,15 +137,11 @@ export class CategoryConfigDialogComponent {
         })
         .subscribe({
           next: () => {
-            this.snackBar.open('Category updated', 'OK', { duration: 3000, panelClass: 'success-snackbar' });
-            this.dialogRef.close(true);
+            this.toast.success('Category updated');
+            this.saved.emit(true);
           },
           error: (err) =>
-            this.snackBar.open(
-              err.error?.error ?? err.error?.message ?? 'Failed to update',
-              'OK',
-              { duration: 5000 },
-            ),
+            this.toast.error(err.error?.error ?? err.error?.message ?? 'Failed to update'),
         });
     }
   }

@@ -1,48 +1,46 @@
 import { Component, inject, signal } from '@angular/core';
-import { FormsModule } from '@angular/forms';
-import { MatCardModule } from '@angular/material/card';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatButtonModule } from '@angular/material/button';
-import { MatIconModule } from '@angular/material/icon';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { AuthService } from '../../core/services/auth.service';
+import { ToastService } from '../../core/services/toast.service';
+import {
+  CardComponent,
+  FormFieldComponent,
+  TextInputComponent,
+  BroncoButtonComponent,
+} from '../../shared/components/index.js';
 
 @Component({
   standalone: true,
-  imports: [FormsModule, MatCardModule, MatFormFieldModule, MatInputModule, MatButtonModule, MatIconModule],
+  imports: [CardComponent, FormFieldComponent, TextInputComponent, BroncoButtonComponent],
   template: `
     <div class="login-wrapper">
-      <mat-card class="login-card">
-        <mat-card-header>
-          <mat-card-title>Bronco</mat-card-title>
-          <mat-card-subtitle>Sign in to the control panel</mat-card-subtitle>
-        </mat-card-header>
-        <mat-card-content>
-          <mat-form-field class="full-width">
-            <mat-label>Email</mat-label>
-            <input matInput type="email" [(ngModel)]="email" (keyup.enter)="login()">
-            <mat-icon matPrefix>email</mat-icon>
-          </mat-form-field>
-          <mat-form-field class="full-width">
-            <mat-label>Password</mat-label>
-            <input matInput [type]="showPassword() ? 'text' : 'password'" [(ngModel)]="password" (keyup.enter)="login()">
-            <mat-icon matPrefix>lock</mat-icon>
-            <button mat-icon-button matSuffix (click)="showPassword.set(!showPassword())" type="button">
-              <mat-icon>{{ showPassword() ? 'visibility_off' : 'visibility' }}</mat-icon>
-            </button>
-          </mat-form-field>
-        </mat-card-content>
-        <mat-card-actions>
-          <button mat-raised-button color="primary" class="full-width" (click)="login()" [disabled]="loading()">
-            @if (loading()) {
-              Signing in...
-            } @else {
-              Sign In
-            }
-          </button>
-        </mat-card-actions>
-      </mat-card>
+      <app-card padding="lg" class="login-card">
+        <div class="login-header">
+          <h1 class="login-title">iTrack 3</h1>
+          <p class="login-subtitle">with iTrackAI® · Control Panel</p>
+        </div>
+        <div class="login-fields">
+          <app-form-field label="Email">
+            <app-text-input
+              type="email"
+              [value]="email"
+              placeholder="you@example.com"
+              (valueChange)="email = $event"
+              (keyup.enter)="login()" />
+          </app-form-field>
+          <app-form-field label="Password">
+            <app-text-input
+              type="password"
+              [value]="password"
+              (valueChange)="password = $event"
+              (keyup.enter)="login()" />
+          </app-form-field>
+        </div>
+        <div class="full-width-button-wrap">
+          <app-bronco-button variant="primary" size="lg" [fullWidth]="true" [disabled]="loading()" (click)="login()">
+            @if (loading()) { Signing in... } @else { Sign In }
+          </app-bronco-button>
+        </div>
+      </app-card>
     </div>
   `,
   styles: [`
@@ -51,35 +49,60 @@ import { AuthService } from '../../core/services/auth.service';
       align-items: center;
       justify-content: center;
       min-height: 100vh;
-      background: #f5f5f5;
+      background: var(--bg-page);
     }
+
     .login-card {
+      display: block;
       width: 100%;
       max-width: 400px;
     }
-    mat-card-header {
-      margin-bottom: 16px;
+
+    .login-header {
+      text-align: center;
+      margin-bottom: 28px;
     }
-    .full-width {
-      width: 100%;
+
+    .login-title {
+      font-family: var(--font-primary);
+      font-size: 22px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin: 0 0 6px;
     }
-    mat-card-actions .full-width {
+
+    .login-subtitle {
+      font-family: var(--font-primary);
+      font-size: 13px;
+      font-weight: 400;
+      color: var(--text-tertiary);
       margin: 0;
+    }
+
+    .login-fields {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .full-width-button-wrap {
+      display: block;
+      width: 100%;
     }
   `],
 })
 export class LoginComponent {
   private authService = inject(AuthService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
 
   email = '';
   password = '';
-  showPassword = signal(false);
   loading = signal(false);
 
   login(): void {
     if (!this.email || !this.password) {
-      this.snackBar.open('Email and password are required', 'OK', { duration: 3000, panelClass: 'error-snackbar' });
+      this.toast.error('Email and password are required');
       return;
     }
 
@@ -88,7 +111,7 @@ export class LoginComponent {
       error: (err) => {
         this.loading.set(false);
         const message = err.error?.error ?? 'Login failed';
-        this.snackBar.open(message, 'OK', { duration: 5000, panelClass: 'error-snackbar' });
+        this.toast.error(message);
       },
     });
   }

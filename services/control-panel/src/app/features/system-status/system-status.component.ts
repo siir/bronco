@@ -1,13 +1,4 @@
 import { Component, inject, OnInit, OnDestroy, signal, computed } from '@angular/core';
-import { MatCardModule } from '@angular/material/card';
-import { MatIconModule } from '@angular/material/icon';
-import { MatButtonModule } from '@angular/material/button';
-import { MatChipsModule } from '@angular/material/chips';
-import { MatTooltipModule } from '@angular/material/tooltip';
-import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
-import { MatSnackBar } from '@angular/material/snack-bar';
-import { MatMenuModule } from '@angular/material/menu';
-import { MatDividerModule } from '@angular/material/divider';
 import { RouterLink } from '@angular/router';
 import type { Subscription } from 'rxjs';
 import {
@@ -20,125 +11,108 @@ import type { McpDiscoveryMetadata } from '../../core/services/integration.servi
 import { AiProviderService } from '../../core/services/ai-provider.service';
 import { NotificationChannelsComponent } from '../notification-channels/notification-channels.component';
 import { McpServerInfoComponent } from '../../shared/components/mcp-server-info.component';
+import { ToastService } from '../../core/services/toast.service';
+import {
+  DropdownMenuComponent,
+  DropdownItemComponent,
+  IconComponent,
+  type IconName,
+} from '../../shared/components/index.js';
 
 @Component({
   standalone: true,
   imports: [
     RouterLink,
-    MatCardModule,
-    MatIconModule,
-    MatButtonModule,
-    MatChipsModule,
-    MatTooltipModule,
-    MatProgressSpinnerModule,
-    MatMenuModule,
-    MatDividerModule,
     NotificationChannelsComponent,
+    DropdownMenuComponent,
+    DropdownItemComponent,
     McpServerInfoComponent,
+    IconComponent,
   ],
   template: `
-    <div class="page-header">
-      <h1>System Status</h1>
-      <div class="header-actions">
-        @if (lastRefresh()) {
-          <span class="last-refresh">Updated {{ lastRefresh() }}</span>
-        }
-        <button mat-raised-button (click)="refresh()" [disabled]="loading()">
-          <mat-icon>refresh</mat-icon> Refresh
-        </button>
+    <div class="system-status-page">
+      <div class="page-header">
+        <h1 class="page-title">System Status</h1>
+        <div class="header-actions">
+          @if (lastRefresh()) {
+            <span class="last-refresh">Updated {{ lastRefresh() }}</span>
+          }
+          <button class="btn-refresh" (click)="refresh()" [disabled]="loading()"><app-icon name="refresh" size="sm" /> Refresh</button>
+        </div>
       </div>
-    </div>
 
-    @if (loading() && !data()) {
-      <div class="loading-container">
-        <mat-spinner diameter="40"></mat-spinner>
-        <p>Loading system status...</p>
-      </div>
-    }
+      @if (loading() && !data()) {
+        <div class="loading-state">Loading system status...</div>
+      }
 
-    @if (data()) {
-      <!-- Overall status banner -->
-      <mat-card class="overall-banner status-{{ data()!.status.toLowerCase() }}">
-        <mat-card-content>
-          <div class="banner-content">
-            <mat-icon class="banner-icon">{{ statusIcon(data()!.status) }}</mat-icon>
-            <div>
-              <div class="banner-title">System {{ data()!.status === 'UP' ? 'Operational' : data()!.status === 'DEGRADED' ? 'Degraded' : 'Down' }}</div>
-              <div class="banner-subtitle">{{ upCount() }} of {{ totalMonitored() }} components operational</div>
-            </div>
+      @if (data()) {
+        <!-- Overall status banner -->
+        <div class="overall-status {{ data()!.status.toLowerCase() }}">
+          <app-icon class="overall-status-icon" [name]="statusIconName(data()!.status)" size="xl" />
+          <div>
+            <div class="overall-status-title">System {{ data()!.status === 'UP' ? 'Operational' : data()!.status === 'DEGRADED' ? 'Degraded' : 'Down' }}</div>
+            <div class="overall-status-subtitle">{{ upCount() }} of {{ totalMonitored() }} components operational</div>
           </div>
-        </mat-card-content>
-      </mat-card>
+        </div>
 
-      <!-- Config warnings -->
-      @if (data()!.configIssues && data()!.configIssues!.length > 0) {
-        <mat-card class="config-warnings">
-          <mat-card-header>
-            <mat-icon mat-card-avatar class="warning-icon">warning</mat-icon>
-            <mat-card-title>Configuration Issues</mat-card-title>
-          </mat-card-header>
-          <mat-card-content>
+        <!-- Config warnings -->
+        @if (data()!.configIssues && data()!.configIssues!.length > 0) {
+          <div class="warning-banner">
+            <div class="warning-banner-header">
+              <app-icon name="warning" size="sm" class="warning-icon-text" />
+              <span class="warning-title">Configuration Issues</span>
+            </div>
             <ul class="config-list">
               @for (issue of data()!.configIssues!; track issue) {
                 <li>{{ issue }}</li>
               }
             </ul>
-          </mat-card-content>
-        </mat-card>
-      }
+          </div>
+        }
 
-      <!-- No AI providers warning -->
-      @if (noAiProviders()) {
-        <mat-card class="no-ai-warning">
-          <mat-card-content>
-            <div class="no-ai-content">
-              <mat-icon class="no-ai-icon">psychology</mat-icon>
+        <!-- No AI providers warning -->
+        @if (noAiProviders()) {
+          <div class="warning-banner">
+            <div class="warning-banner-content">
+              <app-icon name="sparkles" size="sm" class="warning-icon-text" />
               <div>
-                <div class="no-ai-title">No LLM providers configured</div>
-                <div class="no-ai-subtitle">AI features are unavailable. <a routerLink="/ai-providers" class="configure-link">Configure providers</a></div>
+                <div class="warning-title">No LLM providers configured</div>
+                <div class="warning-subtitle">AI features are unavailable. <a routerLink="/ai-providers" class="configure-link">Configure providers</a></div>
               </div>
             </div>
-          </mat-card-content>
-        </mat-card>
-      }
+          </div>
+        }
 
-      <!-- Component sections -->
-      <h2>Infrastructure</h2>
-      <div class="component-grid">
-        @for (comp of infrastructure(); track comp.name) {
-          <mat-card class="component-card">
-            <mat-card-content>
+        <!-- Infrastructure -->
+        <h2 class="section-title">Infrastructure</h2>
+        <div class="component-grid">
+          @for (comp of infrastructure(); track comp.name) {
+            <div class="status-card">
               <div class="component-header">
                 <div class="component-name">
-                  <span class="status-dot status-{{ comp.status.toLowerCase() }}"></span>
+                  <span class="status-dot {{ comp.status.toLowerCase() }}"></span>
                   {{ comp.name }}
                 </div>
                 @if (comp.controllable) {
-                  <button mat-icon-button [matMenuTriggerFor]="menu" [disabled]="controlling() === serviceKey(comp.name)" matTooltip="Service controls">
+                  <button type="button" class="btn-icon" [disabled]="controlling() === serviceKey(comp.name)" [attr.aria-label]="'Service controls for ' + comp.name" title="Service controls" #infraTrigger (click)="infraMenu.toggle()">
                     @if (controlling() === serviceKey(comp.name)) {
-                      <mat-spinner diameter="20"></mat-spinner>
+                      <span class="spinner-inline"></span>
                     } @else {
-                      <mat-icon>more_vert</mat-icon>
+                      <app-icon name="more-vertical" size="sm" />
                     }
                   </button>
-                  <mat-menu #menu="matMenu">
-                    <button mat-menu-item (click)="control(serviceKey(comp.name), 'restart')">
-                      <mat-icon>restart_alt</mat-icon> Restart
-                    </button>
-                    <button mat-menu-item (click)="control(serviceKey(comp.name), 'stop')">
-                      <mat-icon>stop</mat-icon> Stop
-                    </button>
-                    <button mat-menu-item (click)="control(serviceKey(comp.name), 'start')">
-                      <mat-icon>play_arrow</mat-icon> Start
-                    </button>
-                  </mat-menu>
+                  <app-dropdown-menu #infraMenu [trigger]="infraTrigger">
+                    <app-dropdown-item (action)="control(serviceKey(comp.name), 'restart')"><app-icon name="refresh" size="xs" /> Restart</app-dropdown-item>
+                    <app-dropdown-item (action)="control(serviceKey(comp.name), 'stop')"><app-icon name="stop" size="xs" /> Stop</app-dropdown-item>
+                    <app-dropdown-item (action)="control(serviceKey(comp.name), 'start')"><app-icon name="play" size="xs" /> Start</app-dropdown-item>
+                  </app-dropdown-menu>
                 }
               </div>
 
               <div class="component-meta">
-                <span class="status-chip status-{{ comp.status.toLowerCase() }}">{{ comp.status }}</span>
+                <span class="status-chip {{ comp.status.toLowerCase() }}">{{ comp.status }}</span>
                 @if (comp.endpoint) {
-                  <span class="endpoint" [matTooltip]="comp.endpoint">{{ comp.endpoint }}</span>
+                  <span class="endpoint" [title]="comp.endpoint">{{ comp.endpoint }}</span>
                 }
               </div>
 
@@ -173,45 +147,38 @@ import { McpServerInfoComponent } from '../../shared/components/mcp-server-info.
                   <div class="config-issue">{{ issue }}</div>
                 }
               }
-            </mat-card-content>
-          </mat-card>
-        }
-      </div>
+            </div>
+          }
+        </div>
 
-      <h2>Services</h2>
-      <div class="component-grid">
-        @for (comp of services(); track comp.name) {
-          <mat-card class="component-card">
-            <mat-card-content>
+        <!-- Services -->
+        <h2 class="section-title">Services</h2>
+        <div class="component-grid">
+          @for (comp of services(); track comp.name) {
+            <div class="status-card">
               <div class="component-header">
                 <div class="component-name">
-                  <span class="status-dot status-{{ comp.status.toLowerCase() }}"></span>
+                  <span class="status-dot {{ comp.status.toLowerCase() }}"></span>
                   {{ comp.name }}
                 </div>
                 @if (comp.controllable) {
-                  <button mat-icon-button [matMenuTriggerFor]="svcMenu" [disabled]="controlling() === serviceKey(comp.name)" matTooltip="Service controls">
+                  <button type="button" class="btn-icon" [disabled]="controlling() === serviceKey(comp.name)" [attr.aria-label]="'Service controls for ' + comp.name" title="Service controls" #svcTrigger (click)="svcDropdown.toggle()">
                     @if (controlling() === serviceKey(comp.name)) {
-                      <mat-spinner diameter="20"></mat-spinner>
+                      <span class="spinner-inline"></span>
                     } @else {
-                      <mat-icon>more_vert</mat-icon>
+                      <app-icon name="more-vertical" size="sm" />
                     }
                   </button>
-                  <mat-menu #svcMenu="matMenu">
-                    <button mat-menu-item (click)="control(serviceKey(comp.name), 'restart')">
-                      <mat-icon>restart_alt</mat-icon> Restart
-                    </button>
-                    <button mat-menu-item (click)="control(serviceKey(comp.name), 'stop')">
-                      <mat-icon>stop</mat-icon> Stop
-                    </button>
-                    <button mat-menu-item (click)="control(serviceKey(comp.name), 'start')">
-                      <mat-icon>play_arrow</mat-icon> Start
-                    </button>
-                  </mat-menu>
+                  <app-dropdown-menu #svcDropdown [trigger]="svcTrigger">
+                    <app-dropdown-item (action)="control(serviceKey(comp.name), 'restart')"><app-icon name="refresh" size="xs" /> Restart</app-dropdown-item>
+                    <app-dropdown-item (action)="control(serviceKey(comp.name), 'stop')"><app-icon name="stop" size="xs" /> Stop</app-dropdown-item>
+                    <app-dropdown-item (action)="control(serviceKey(comp.name), 'start')"><app-icon name="play" size="xs" /> Start</app-dropdown-item>
+                  </app-dropdown-menu>
                 }
               </div>
 
               <div class="component-meta">
-                <span class="status-chip status-{{ comp.status.toLowerCase() }}">{{ comp.status }}</span>
+                <span class="status-chip {{ comp.status.toLowerCase() }}">{{ comp.status }}</span>
                 @if (comp.endpoint) {
                   <span class="endpoint">{{ truncateEndpoint(comp.endpoint) }}</span>
                 }
@@ -245,27 +212,26 @@ import { McpServerInfoComponent } from '../../shared/components/mcp-server-info.
                   <div class="error-detail">{{ comp.details['error'] }}</div>
                 }
               }
-            </mat-card-content>
-          </mat-card>
-        }
-      </div>
+            </div>
+          }
+        </div>
 
-      <h2>External Dependencies</h2>
-      <div class="component-grid">
-        @for (comp of external(); track comp.name) {
-          <mat-card class="component-card">
-            <mat-card-content>
+        <!-- External Dependencies -->
+        <h2 class="section-title">External Dependencies</h2>
+        <div class="component-grid">
+          @for (comp of external(); track comp.name) {
+            <div class="status-card">
               <div class="component-header">
                 <div class="component-name">
-                  <span class="status-dot status-{{ comp.status.toLowerCase() }}"></span>
+                  <span class="status-dot {{ comp.status.toLowerCase() }}"></span>
                   {{ comp.name }}
                 </div>
               </div>
 
               <div class="component-meta">
-                <span class="status-chip status-{{ comp.status.toLowerCase() }}">{{ comp.status }}</span>
+                <span class="status-chip {{ comp.status.toLowerCase() }}">{{ comp.status }}</span>
                 @if (comp.endpoint) {
-                  <span class="endpoint" [matTooltip]="comp.endpoint">{{ truncateEndpoint(comp.endpoint) }}</span>
+                  <span class="endpoint" [title]="comp.endpoint">{{ truncateEndpoint(comp.endpoint) }}</span>
                 }
               </div>
 
@@ -294,30 +260,28 @@ import { McpServerInfoComponent } from '../../shared/components/mcp-server-info.
                   <div class="config-issue">{{ issue }}</div>
                 }
               }
-            </mat-card-content>
-          </mat-card>
-        }
-      </div>
+            </div>
+          }
+        </div>
 
-      <!-- LLM Providers -->
-      @if (llmProviders().length > 0) {
-        <h2>LLM Providers</h2>
-        <div class="component-grid">
-          @for (llm of llmProviders(); track llm.name) {
-            <mat-card class="component-card">
-              <mat-card-content>
+        <!-- LLM Providers -->
+        @if (llmProviders().length > 0) {
+          <h2 class="section-title">LLM Providers</h2>
+          <div class="component-grid">
+            @for (llm of llmProviders(); track llm.name) {
+              <div class="status-card">
                 <div class="component-header">
                   <div class="component-name">
-                    <span class="status-dot status-{{ llm.status.toLowerCase() }}"></span>
+                    <span class="status-dot {{ llm.status.toLowerCase() }}"></span>
                     {{ llm.name.replace('LLM: ', '') }}
                   </div>
                   <span class="llm-badge">LLM</span>
                 </div>
 
                 <div class="component-meta">
-                  <span class="status-chip status-{{ llm.status.toLowerCase() }}">{{ llm.status }}</span>
+                  <span class="status-chip {{ llm.status.toLowerCase() }}">{{ llm.status }}</span>
                   @if (llm.endpoint) {
-                    <span class="endpoint" [matTooltip]="llm.endpoint">{{ truncateEndpoint(llm.endpoint) }}</span>
+                    <span class="endpoint" [title]="llm.endpoint">{{ truncateEndpoint(llm.endpoint) }}</span>
                   }
                 </div>
 
@@ -361,19 +325,17 @@ import { McpServerInfoComponent } from '../../shared/components/mcp-server-info.
                     <div class="config-issue">{{ issue }}</div>
                   }
                 }
-              </mat-card-content>
-            </mat-card>
-          }
-        </div>
-      }
+              </div>
+            }
+          </div>
+        }
 
-      <!-- Client MCP Servers -->
-      @if (mcpServers().length > 0) {
-        <h2>Client MCP Servers</h2>
-        <div class="component-grid">
-          @for (mcp of mcpServers(); track (mcp.clientShortCode + ':' + mcp.label)) {
-            <mat-card class="component-card">
-              <mat-card-content>
+        <!-- Client MCP Servers -->
+        @if (mcpServers().length > 0) {
+          <h2 class="section-title">Client MCP Servers</h2>
+          <div class="component-grid">
+            @for (mcp of mcpServers(); track (mcp.clientShortCode + ':' + mcp.label)) {
+              <div class="status-card">
                 <div class="component-header">
                   <div class="component-name">
                     {{ mcp.clientName }}
@@ -391,19 +353,17 @@ import { McpServerInfoComponent } from '../../shared/components/mcp-server-info.
                   [integrationId]="mcp.integrationId"
                   (verified)="refresh()"
                 />
-              </mat-card-content>
-            </mat-card>
-          }
-        </div>
-      }
+              </div>
+            }
+          </div>
+        }
 
-      <!-- Job queues -->
-      @if (queueEntries().length > 0) {
-        <h2>Job Queues (BullMQ)</h2>
-        <div class="component-grid">
-          @for (entry of queueEntries(); track entry[0]) {
-            <mat-card class="component-card queue-card">
-              <mat-card-content>
+        <!-- Job queues -->
+        @if (queueEntries().length > 0) {
+          <h2 class="section-title">Job Queues (BullMQ)</h2>
+          <div class="component-grid">
+            @for (entry of queueEntries(); track entry[0]) {
+              <div class="status-card queue-card">
                 <div class="component-name">{{ entry[0] }}</div>
                 <div class="queue-stats">
                   <div class="queue-stat">
@@ -432,64 +392,148 @@ import { McpServerInfoComponent } from '../../shared/components/mcp-server-info.
                     <span class="queue-stat-label">Failed</span>
                   </div>
                 </div>
-              </mat-card-content>
-            </mat-card>
-          }
+              </div>
+            }
+          </div>
+        }
+
+        <!-- Notification channels -->
+        <div style="margin-top: 24px;">
+          <app-notification-channels />
         </div>
       }
 
-      <!-- Notification channels -->
-      <div style="margin-top: 24px;">
-        <app-notification-channels />
-      </div>
-    }
-
-    @if (error()) {
-      <mat-card class="error-card">
-        <mat-card-content>
-          <mat-icon>error</mat-icon>
+      @if (error()) {
+        <div class="error-banner">
+          <app-icon name="warning" size="sm" class="error-banner-icon" />
           <span>{{ error() }}</span>
-          <button mat-button (click)="refresh()">Retry</button>
-        </mat-card-content>
-      </mat-card>
-    }
+          <button class="btn-retry" (click)="refresh()">Retry</button>
+        </div>
+      }
+    </div>
   `,
   styles: [`
-    .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-    .page-header h1 { margin: 0; }
+    .system-status-page {
+      max-width: 1200px;
+      font-family: var(--font-primary);
+    }
+
+    .page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .page-title {
+      margin: 0;
+      font-size: 28px;
+      font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: -0.28px;
+    }
     .header-actions { display: flex; align-items: center; gap: 12px; }
-    .last-refresh { font-size: 12px; color: #888; }
-    h2 { margin: 24px 0 12px; font-size: 16px; font-weight: 500; color: #555; }
+    .last-refresh { font-size: 12px; color: var(--text-tertiary); }
 
-    .loading-container { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 48px; }
+    .btn-refresh {
+      background: var(--accent);
+      color: var(--text-on-accent);
+      border: none;
+      padding: 8px 16px;
+      border-radius: var(--radius-md);
+      font-family: var(--font-primary);
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .btn-refresh:hover { background: var(--accent-hover); }
+    .btn-refresh:disabled { opacity: 0.5; cursor: not-allowed; }
 
-    /* Overall banner */
-    .overall-banner { margin-bottom: 16px; }
-    .overall-banner.status-up { background: #e8f5e9; }
-    .overall-banner.status-degraded { background: #fff3e0; }
-    .overall-banner.status-down { background: #ffebee; }
-    .banner-content { display: flex; align-items: center; gap: 16px; padding: 8px 0; }
-    .banner-icon { font-size: 40px; width: 40px; height: 40px; }
-    .status-up .banner-icon { color: #2e7d32; }
-    .status-degraded .banner-icon { color: #e65100; }
-    .status-down .banner-icon { color: #c62828; }
-    .banner-title { font-size: 20px; font-weight: 500; }
-    .banner-subtitle { font-size: 14px; color: #666; }
+    /* Loading state */
+    .loading-state {
+      padding: 48px;
+      text-align: center;
+      font-size: 14px;
+      color: var(--text-tertiary);
+    }
 
-    /* Config warnings */
-    .config-warnings { margin-bottom: 16px; border-left: 4px solid #ff9800; }
-    .warning-icon { color: #ff9800 !important; background: transparent !important; }
-    .config-list { margin: 8px 0 0; padding-left: 20px; }
-    .config-list li { color: #666; font-size: 14px; margin-bottom: 4px; }
+    /* Overall status banner */
+    .overall-status {
+      padding: 16px 20px;
+      border-radius: var(--radius-lg);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 24px;
+      font-family: var(--font-primary);
+    }
+    .overall-status.up { background: rgba(52,199,89,0.08); border: 1px solid rgba(52,199,89,0.2); }
+    .overall-status.degraded { background: rgba(255,149,0,0.08); border: 1px solid rgba(255,149,0,0.2); }
+    .overall-status.down { background: rgba(255,59,48,0.08); border: 1px solid rgba(255,59,48,0.2); }
+    .overall-status-icon { flex-shrink: 0; }
+    .overall-status-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .overall-status-subtitle {
+      font-size: 14px;
+      color: var(--text-secondary);
+      margin-top: 2px;
+    }
 
-    /* No AI warning */
-    .no-ai-warning { margin-bottom: 16px; border-left: 4px solid #ff9800; }
-    .no-ai-content { display: flex; align-items: center; gap: 16px; padding: 8px 0; }
-    .no-ai-icon { font-size: 32px; width: 32px; height: 32px; color: #ff9800; }
-    .no-ai-title { font-size: 16px; font-weight: 500; }
-    .no-ai-subtitle { font-size: 14px; color: #666; }
-    .configure-link { color: #1976d2; text-decoration: none; font-weight: 500; }
+    /* Warning banners */
+    .warning-banner {
+      background: rgba(255,149,0,0.06);
+      border: 1px solid rgba(255,149,0,0.2);
+      border-radius: var(--radius-lg);
+      padding: 16px 20px;
+      margin-bottom: 16px;
+    }
+    .warning-banner-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .warning-banner-content {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .warning-icon-text { flex-shrink: 0; color: var(--color-warning); }
+    .warning-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .warning-subtitle {
+      font-size: 14px;
+      color: var(--text-secondary);
+    }
+    .configure-link {
+      color: var(--accent-link);
+      text-decoration: none;
+      font-weight: 500;
+    }
     .configure-link:hover { text-decoration: underline; }
+    .config-list {
+      margin: 0;
+      padding-left: 20px;
+    }
+    .config-list li {
+      color: var(--text-secondary);
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+
+    /* Section titles */
+    .section-title {
+      font-family: var(--font-primary);
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin: 24px 0 12px;
+    }
 
     /* Component grid */
     .component-grid {
@@ -498,37 +542,66 @@ import { McpServerInfoComponent } from '../../shared/components/mcp-server-info.
       gap: 12px;
     }
 
-    .component-card { position: relative; }
-    .component-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-    .component-name { display: flex; align-items: center; gap: 8px; font-weight: 500; font-size: 15px; }
+    /* Status cards */
+    .status-card {
+      background: var(--bg-card);
+      border-radius: var(--radius-lg);
+      padding: 16px;
+      box-shadow: var(--shadow-card);
+    }
+
+    .component-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .component-name {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 500;
+      font-size: 15px;
+      color: var(--text-primary);
+    }
 
     /* Status dot */
     .status-dot {
-      width: 10px;
-      height: 10px;
+      width: 8px;
+      height: 8px;
       border-radius: 50%;
       display: inline-block;
       flex-shrink: 0;
     }
-    .status-dot.status-up { background: #4caf50; }
-    .status-dot.status-down { background: #f44336; }
-    .status-dot.status-degraded { background: #ff9800; }
-    .status-dot.status-unknown { background: #9e9e9e; }
+    .status-dot.up { background: var(--color-success); }
+    .status-dot.degraded { background: var(--color-warning); }
+    .status-dot.down { background: var(--color-error); }
+    .status-dot.unknown { background: var(--text-tertiary); }
 
     /* Status chip */
-    .component-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+    .component-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+    }
     .status-chip {
       font-size: 11px;
       font-weight: 600;
       padding: 2px 8px;
-      border-radius: 4px;
+      border-radius: var(--radius-sm);
       font-family: monospace;
     }
-    .status-chip.status-up { background: #e8f5e9; color: #2e7d32; }
-    .status-chip.status-down { background: #ffebee; color: #c62828; }
-    .status-chip.status-degraded { background: #fff3e0; color: #e65100; }
-    .status-chip.status-unknown { background: #f5f5f5; color: #757575; }
-    .endpoint { font-size: 12px; color: #888; font-family: monospace; }
+    .status-chip.up { background: rgba(52,199,89,0.08); color: var(--color-success); }
+    .status-chip.degraded { background: rgba(255,149,0,0.08); color: var(--color-warning); }
+    .status-chip.down { background: rgba(255,59,48,0.08); color: var(--color-error); }
+    .status-chip.unknown { background: var(--bg-muted); color: var(--text-tertiary); }
+    .endpoint {
+      font-size: 12px;
+      color: var(--text-tertiary);
+      font-family: monospace;
+    }
 
     /* Metrics */
     .metric {
@@ -537,16 +610,16 @@ import { McpServerInfoComponent } from '../../shared/components/mcp-server-info.
       padding: 2px 0;
       font-size: 13px;
     }
-    .metric-label { color: #888; }
-    .metric-value { font-family: monospace; color: #333; }
+    .metric-label { color: var(--text-tertiary); }
+    .metric-value { font-family: monospace; color: var(--text-primary); }
 
     .error-detail {
       margin-top: 8px;
       padding: 6px 8px;
-      background: #ffebee;
-      border-radius: 4px;
+      background: rgba(255,59,48,0.06);
+      border-radius: var(--radius-sm);
       font-size: 12px;
-      color: #c62828;
+      color: var(--color-error);
       font-family: monospace;
       word-break: break-word;
     }
@@ -554,49 +627,73 @@ import { McpServerInfoComponent } from '../../shared/components/mcp-server-info.
     .config-issue {
       margin-top: 4px;
       padding: 4px 8px;
-      background: #fff3e0;
-      border-radius: 4px;
+      background: rgba(255,149,0,0.06);
+      border-radius: var(--radius-sm);
       font-size: 12px;
-      color: #e65100;
+      color: var(--color-warning);
     }
 
     .info-note {
       font-size: 12px;
-      color: #888;
+      color: var(--text-tertiary);
       font-style: italic;
     }
 
-    /* LLM badge */
+    /* Badge styles */
     .llm-badge {
       font-size: 11px;
       font-weight: 600;
       padding: 2px 8px;
-      border-radius: 4px;
-      background: #f3e5f5;
+      border-radius: var(--radius-sm);
+      background: rgba(123,31,162,0.08);
       color: #7b1fa2;
       font-family: monospace;
       text-transform: uppercase;
     }
-
-    /* MCP badge */
     .mcp-badge {
       font-size: 11px;
       font-weight: 600;
       padding: 2px 8px;
-      border-radius: 4px;
-      background: #e3f2fd;
-      color: #1565c0;
+      border-radius: var(--radius-sm);
+      background: var(--bg-active);
+      color: var(--accent);
       font-family: monospace;
       text-transform: uppercase;
     }
     .label-chip {
       font-size: 11px;
       padding: 2px 6px;
-      background: #e8f5e9;
-      border-radius: 4px;
-      color: #2e7d32;
+      background: rgba(52,199,89,0.08);
+      border-radius: var(--radius-sm);
+      color: var(--color-success);
       font-family: monospace;
     }
+
+    /* Icon button for menu trigger */
+    .btn-icon {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 18px;
+      color: var(--text-tertiary);
+      padding: 4px 8px;
+      border-radius: var(--radius-sm);
+      line-height: 1;
+    }
+    .btn-icon:hover { background: var(--bg-hover); }
+    .btn-icon:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* Inline spinner for controlling state */
+    .spinner-inline {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid var(--border-medium);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
 
     /* Queue cards */
     .queue-card .component-name { margin-bottom: 12px; }
@@ -611,31 +708,50 @@ import { McpServerInfoComponent } from '../../shared/components/mcp-server-info.
       font-size: 20px;
       font-weight: 500;
       font-family: monospace;
+      color: var(--text-primary);
     }
-    .queue-stat-value.active { color: #1565c0; }
-    .queue-stat-value.completed { color: #2e7d32; }
-    .queue-stat-value.failed { color: #c62828; }
+    .queue-stat-value.active { color: var(--accent); }
+    .queue-stat-value.completed { color: var(--color-success); }
+    .queue-stat-value.failed { color: var(--color-error); }
     .failed-link { text-decoration: none; cursor: pointer; font-weight: 700; }
     .failed-link:hover { text-decoration: underline; }
     .queue-stat-label {
       font-size: 11px;
-      color: #888;
+      color: var(--text-tertiary);
       text-transform: uppercase;
     }
 
-    /* Error card */
-    .error-card mat-card-content {
+    /* Error banner */
+    .error-banner {
       display: flex;
       align-items: center;
       gap: 8px;
-      color: #c62828;
+      padding: 16px 20px;
+      background: rgba(255,59,48,0.06);
+      border: 1px solid rgba(255,59,48,0.2);
+      border-radius: var(--radius-lg);
+      color: var(--color-error);
+      font-size: 14px;
     }
+    .error-banner-icon { flex-shrink: 0; }
+    .btn-retry {
+      background: none;
+      border: 1px solid var(--color-error);
+      color: var(--color-error);
+      padding: 4px 12px;
+      border-radius: var(--radius-md);
+      font-family: var(--font-primary);
+      font-size: 13px;
+      cursor: pointer;
+      margin-left: auto;
+    }
+    .btn-retry:hover { background: rgba(255,59,48,0.06); }
   `],
 })
 export class SystemStatusComponent implements OnInit, OnDestroy {
   private statusService = inject(SystemStatusService);
   private aiProviderService = inject(AiProviderService);
-  private snackBar = inject(MatSnackBar);
+  private toast = inject(ToastService);
   private refreshInterval: ReturnType<typeof setInterval> | null = null;
   private refreshSub: Subscription | undefined;
   private aiProviderSub: Subscription | undefined;
@@ -715,31 +831,25 @@ export class SystemStatusComponent implements OnInit, OnDestroy {
     this.statusService.controlService(service, action).subscribe({
       next: (res) => {
         this.controlling.set(null);
-        this.snackBar.open(res.message, 'OK', { duration: 4000, panelClass: 'success-snackbar' });
-        // Refresh status after a brief delay to let Docker act
+        this.toast.success(res.message);
         setTimeout(() => this.refresh(), 3000);
       },
       error: (err) => {
         this.controlling.set(null);
-        this.snackBar.open(
-          `Failed to ${action} ${service}: ${err.error?.error ?? err.message}`,
-          'Dismiss',
-          { duration: 6000 },
-        );
+        this.toast.error(`Failed to ${action} ${service}: ${err.error?.error ?? err.message}`);
       },
     });
   }
 
-  statusIcon(status: string): string {
+  statusIconName(status: string): IconName {
     switch (status) {
-      case 'UP': return 'check_circle';
+      case 'UP': return 'check-circle';
       case 'DEGRADED': return 'warning';
-      case 'DOWN': return 'error';
-      default: return 'help';
+      case 'DOWN': return 'close-circle';
+      default: return 'question';
     }
   }
 
-  /** Map display name to Docker Compose service key */
   serviceKey(name: string): string {
     const map: Record<string, string> = {
       'PostgreSQL': 'postgres',
@@ -761,12 +871,10 @@ export class SystemStatusComponent implements OnInit, OnDestroy {
     return map[name] ?? name.toLowerCase().replace(/\s+/g, '-');
   }
 
-  /** Keys from the health response that are already displayed or should be hidden */
   isServiceInternalKey(key: string): boolean {
     return ['note', 'error', 'httpStatus', 'dockerState', 'healthEndpoint'].includes(key);
   }
 
-  /** Keys from LLM provider details already displayed or internal */
   isLlmInternalKey(key: string): boolean {
     return ['model', 'modelsLoaded', 'models', 'error', 'note', 'httpStatus'].includes(key);
   }
@@ -799,7 +907,6 @@ export class SystemStatusComponent implements OnInit, OnDestroy {
     return endpoint;
   }
 
-  /** Build McpDiscoveryMetadata from the McpServerStatus fields returned by the API. */
   mcpMetadata(mcp: McpServerStatus): McpDiscoveryMetadata | null {
     if (!mcp.serverName && !mcp.verificationStatus && !mcp.tools) return null;
     return {

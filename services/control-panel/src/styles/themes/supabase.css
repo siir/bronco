@@ -1,0 +1,51 @@
+/*
+ * Supabase Theme
+ * Source: supabase DESIGN.md
+ * Dark theme: near-black backgrounds, emerald green accent, border-defined depth
+ */
+
+body.theme-supabase {
+  --bg-page: #171717;
+  --bg-card: #1e1e1e;
+  --bg-sidebar: #0f0f0f;
+  --bg-header: #0f0f0f;
+  --bg-panel: #1e1e1e;
+  --bg-hover: #242424;
+  --bg-active: #2e2e2e;
+  --bg-muted: #0f0f0f;
+  --bg-code: #0f0f0f;
+  --text-code: #fafafa;
+
+  --text-primary: #fafafa;
+  --text-secondary: #b4b4b4;
+  --text-tertiary: #898989;
+  --text-on-accent: #0f0f0f;
+
+  --accent: #3ecf8e;
+  --accent-link: #00c573;
+  --accent-hover: #4ae09e;
+  --focus-ring: rgba(62, 207, 142, 0.3);
+
+  --color-success: #3ecf8e;
+  --color-warning: #ef9100;
+  --color-error: #e52020;
+  --color-info: #3ecf8e;
+  --color-success-subtle: rgba(62, 207, 142, 0.12);
+  --color-warning-subtle: rgba(239, 145, 0, 0.12);
+  --color-error-subtle: rgba(229, 32, 32, 0.12);
+  --color-info-subtle: rgba(62, 207, 142, 0.12);
+  --color-purple: #9b72cf;
+  --color-purple-subtle: rgba(155, 114, 207, 0.12);
+
+  --border-light: #2e2e2e;
+  --border-medium: #363636;
+
+  --shadow-card: none;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 16px;
+  --radius-pill: 9999px;
+
+  --font-primary: 'Circular', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+}
