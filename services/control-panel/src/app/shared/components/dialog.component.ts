@@ -44,6 +44,9 @@ import { Component, ElementRef, effect, input, output, viewChild } from '@angula
       border-radius: var(--radius-lg);
       box-shadow: var(--shadow-card);
       width: 100%;
+      max-height: calc(100vh - 48px);
+      display: flex;
+      flex-direction: column;
       overflow: hidden;
       animation: scaleIn 150ms ease;
     }
@@ -54,6 +57,7 @@ import { Component, ElementRef, effect, input, output, viewChild } from '@angula
       justify-content: space-between;
       padding: 16px 20px;
       border-bottom: 1px solid var(--border-light);
+      flex-shrink: 0;
     }
 
     .dialog-title {
@@ -86,6 +90,9 @@ import { Component, ElementRef, effect, input, output, viewChild } from '@angula
 
     .dialog-body {
       padding: 20px;
+      overflow-y: auto;
+      flex: 1 1 auto;
+      min-height: 0;
     }
 
     @keyframes fadeIn {

@@ -30,7 +30,8 @@ import { SystemDialogComponent } from '../../../systems/system-dialog.component'
       <app-data-table
         [data]="systems()"
         [trackBy]="trackById"
-        [rowClickable]="false"
+        [rowClickable]="true"
+        (rowClick)="editSystem($event)"
         emptyMessage="No systems configured.">
         <app-data-column key="name" header="Name" [sortable]="false">
           <ng-template #cell let-s>{{ s.name }}</ng-template>
@@ -59,11 +60,16 @@ import { SystemDialogComponent } from '../../../systems/system-dialog.component'
     </div>
 
     @if (showDialog()) {
-      <app-dialog [open]="true" title="Add Database System" maxWidth="600px" (openChange)="showDialog.set(false)">
+      <app-dialog
+        [open]="true"
+        [title]="editingSystem() ? 'Edit Database System' : 'Add Database System'"
+        maxWidth="600px"
+        (openChange)="closeDialog()">
         <app-system-dialog-content
           [clientId]="clientId()"
+          [system]="editingSystem() ?? undefined"
           (saved)="onSaved()"
-          (cancelled)="showDialog.set(false)" />
+          (cancelled)="closeDialog()" />
       </app-dialog>
     }
   `,
@@ -130,6 +136,7 @@ export class ClientSystemsTabComponent implements OnInit {
 
   systems = signal<System[]>([]);
   showDialog = signal(false);
+  editingSystem = signal<System | null>(null);
 
   trackById = (s: System): string => s.id;
 
@@ -144,11 +151,22 @@ export class ClientSystemsTabComponent implements OnInit {
   }
 
   openDialog(): void {
+    this.editingSystem.set(null);
     this.showDialog.set(true);
   }
 
-  onSaved(): void {
+  editSystem(system: System): void {
+    this.editingSystem.set(system);
+    this.showDialog.set(true);
+  }
+
+  closeDialog(): void {
     this.showDialog.set(false);
+    this.editingSystem.set(null);
+  }
+
+  onSaved(): void {
+    this.closeDialog();
     this.load();
   }
 }

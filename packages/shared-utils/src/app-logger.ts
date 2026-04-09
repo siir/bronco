@@ -182,6 +182,8 @@ export class AppLogger {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function createPrismaLogWriter(db: any): AppLogWriter {
   return async (entry: AppLogEntry) => {
+    const parentLogId = (entry.context?.parentLogId as string) ?? undefined;
+    const parentLogType = (entry.context?.parentLogType as 'ai' | 'app') ?? undefined;
     await db.appLog.create({
       data: {
         level: entry.level,
@@ -191,6 +193,8 @@ export function createPrismaLogWriter(db: any): AppLogWriter {
         entityId: entry.entityId ?? undefined,
         entityType: entry.entityType ?? undefined,
         error: entry.error ?? undefined,
+        ...(parentLogId ? { parentLogId } : {}),
+        ...(parentLogType ? { parentLogType } : {}),
       },
     });
   };

@@ -226,6 +226,9 @@ export class AIRouter {
       const billingMode = !usedExplicitOverride && cachedAiMode === 'byok' ? 'byok' : 'platform';
       const archiveWriter = this.archiveWriter;
       this.usageWriter({
+        ...(request.context?.logId ? { logId: request.context.logId as string } : {}),
+        ...(request.context?.parentLogId ? { parentLogId: request.context.parentLogId as string } : {}),
+        ...(request.context?.parentLogType ? { parentLogType: request.context.parentLogType as 'ai' | 'app' } : {}),
         provider: response.provider,
         model: response.model,
         taskType: request.taskType,
@@ -384,6 +387,9 @@ export class AIRouter {
       const toolPromptText = finalRequest.prompt ?? extractLastUserMessage(finalRequest.messages);
       const archiveWriter = this.archiveWriter;
       this.usageWriter({
+        ...(request.context?.logId ? { logId: request.context.logId as string } : {}),
+        ...(request.context?.parentLogId ? { parentLogId: request.context.parentLogId as string } : {}),
+        ...(request.context?.parentLogType ? { parentLogType: request.context.parentLogType as 'ai' | 'app' } : {}),
         provider: response.provider,
         model: response.model,
         taskType: request.taskType,
