@@ -55,6 +55,10 @@ export class DetailPanelService {
       this.entityType.set(type);
       this.entityId.set(params.detail);
       this.mode.set(mode);
+    } else {
+      // No detail param in URL → clear any in-memory panel state so the URL
+      // remains the source of truth (covers back/forward and direct nav).
+      this.dismiss();
     }
   }
 }
