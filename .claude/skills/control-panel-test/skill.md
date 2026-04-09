@@ -31,10 +31,12 @@ pkill -f "ng serve" 2>/dev/null || true
 
 2. **Fetch and checkout the branch**
 
+Run these from the repo root (assumed to be the current working directory):
+
 ```bash
-git -C "/Users/chad/Source Code/siir/bronco" fetch origin
-git -C "/Users/chad/Source Code/siir/bronco" checkout <branch-name>
-git -C "/Users/chad/Source Code/siir/bronco" pull origin <branch-name>
+git fetch origin
+git checkout <branch-name>
+git pull origin <branch-name>
 ```
 
 3. **Ensure the Hugo proxy config exists**
@@ -54,14 +56,13 @@ Write `services/control-panel/proxy.conf.hugo.json` if it doesn't already exist 
 4. **Install dependencies**
 
 ```bash
-cd "/Users/chad/Source Code/siir/bronco"
 pnpm install
 ```
 
 5. **Start the dev server (in background)**
 
 ```bash
-cd "/Users/chad/Source Code/siir/bronco/services/control-panel"
+cd services/control-panel
 npx ng serve --proxy-config proxy.conf.hugo.json --open
 ```
 
@@ -71,7 +72,7 @@ Run this in the background so the conversation stays interactive. Wait ~15 secon
 
 Tell the user:
 - **Branch**: `<branch-name>`
-- **Working directory**: `/Users/chad/Source Code/siir/bronco`
+- **Working directory**: current repo root
 - **URL**: http://localhost:4200/cp/
 - **API proxied to**: Hugo (https://hugo.taila1bf6b.ts.net)
 - Hot reload is active — file saves in the working directory reflect instantly

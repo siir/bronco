@@ -7,7 +7,7 @@ import { FormFieldComponent, SelectComponent, BroncoButtonComponent } from '../.
   imports: [FormFieldComponent, SelectComponent, BroncoButtonComponent],
   template: `
     <p class="summary">
-      {{ tools().filter(t => !disabledTools.has(t.name)).length }} of {{ tools().length }} tools enabled for agentic analysis.
+      {{ enabledCount() }} of {{ tools().length }} tools enabled for agentic analysis.
     </p>
 
     @if (disabledTools.size > 0) {
@@ -64,6 +64,10 @@ export class McpToolVisibilityDialogComponent implements OnInit {
 
   ngOnInit(): void {
     this.disabledTools = new Set(this.initialDisabledTools());
+  }
+
+  enabledCount(): number {
+    return this.tools().filter(t => !this.disabledTools.has(t.name)).length;
   }
 
   disabledToolList(): string[] {
