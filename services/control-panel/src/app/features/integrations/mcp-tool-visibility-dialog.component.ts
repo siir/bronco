@@ -71,9 +71,15 @@ export class McpToolVisibilityDialogComponent implements OnInit {
   }
 
   enabledToolOptions(): Array<{ value: string; label: string }> {
-    return this.tools()
-      .filter(t => !this.disabledTools.has(t.name))
-      .map(t => ({ value: t.name, label: t.description ? `${t.name} — ${t.description}` : t.name }));
+    // Prepend an empty placeholder so the select reads as "nothing chosen"
+    // when toolToDisable is ''. Without this, the native <select> falls back
+    // to displaying the first option visually even though no option matches.
+    return [
+      { value: '', label: '— Select a tool —' },
+      ...this.tools()
+        .filter(t => !this.disabledTools.has(t.name))
+        .map(t => ({ value: t.name, label: t.description ? `${t.name} — ${t.description}` : t.name })),
+    ];
   }
 
   enable(name: string): void {
@@ -89,6 +95,8 @@ export class McpToolVisibilityDialogComponent implements OnInit {
   }
 
   apply(): void {
-    this.applied.emit(this.disabledTools);
+    // Emit a defensive copy so the receiver can't accidentally mutate this
+    // dialog's internal Set after the event handler runs.
+    this.applied.emit(new Set(this.disabledTools));
   }
 }
