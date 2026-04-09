@@ -259,9 +259,9 @@ const STATUS_PILLS: StatusPill[] = [
     }
 
     .filter-pill.active {
-      background: var(--text-primary);
+      background: var(--accent);
       color: var(--text-on-accent);
-      border-color: var(--text-primary);
+      border-color: var(--accent);
       font-weight: 600;
     }
 
