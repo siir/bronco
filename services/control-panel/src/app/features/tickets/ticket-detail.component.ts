@@ -45,6 +45,7 @@ interface ConvTreeNode {
   entry: UnifiedLogEntry;
   children: ConvTreeNode[];
   depth: number;
+  collapsed: boolean;
 }
 
 @Component({
@@ -385,73 +386,72 @@ interface ConvTreeNode {
             } @else if (conversationEntries().length === 0) {
               <div class="conv-empty"><p>No AI calls recorded for this ticket.</p></div>
             } @else if (hasLineageData()) {
-              <!-- Tree view: entries with parentLogId lineage -->
+              <!-- Tree view — new data with parentLogId lineage -->
               <div class="conv-view">
-                @for (node of flattenTree(convTreeRoots()); track node.entry.id) {
-                  <div class="conv-tree-node" [style.margin-left.px]="node.depth * 24">
-                    @if (node.entry.type === 'ai') {
-                      <div class="conv-ai-block">
-                        <div class="conv-ai-header">
-                          @if (hasChildren(node.entry.id)) {
-                            <app-icon [name]="convCollapsed[node.entry.id] ? 'chevron-right' : 'chevron-down'" size="xs" class="conv-tree-toggle" (click)="toggleTreeCollapse(node.entry.id)" />
+                @for (item of convTreeFlat(); track item.node.entry.id) {
+                  @if (item.visible) {
+                    @let entry = item.node.entry;
+                    @let node = item.node;
+                    <div class="conv-tree-node" [style.margin-left.px]="node.depth * 24">
+                      @if (entry.type === 'ai') {
+                        <div class="conv-ai-block">
+                          <div class="conv-ai-header">
+                            @if (node.children.length > 0) {
+                              <button class="conv-collapse-btn" (click)="toggleConvNode(node)" [attr.title]="node.collapsed ? 'Expand' : 'Collapse'">
+                                <app-icon [name]="node.collapsed ? 'chevron-right' : 'chevron-down'" size="xs" />
+                              </button>
+                            }
+                            @if (node.depth > 0) { <app-icon name="subdirectory" size="xs" class="subtask-icon" /> }
+                            <span class="conv-task-type">{{ entry.taskType }}</span>
+                            <span class="conv-model">{{ entry.model }}</span>
+                            <span class="conv-tokens">{{ entry.inputTokens | number }}in / {{ entry.outputTokens | number }}out</span>
+                            @if (entry.costUsd != null) { <span class="conv-cost">\${{ entry.costUsd | number:'1.4-4' }}</span> }
+                          </div>
+                          @if (convMessages(entry).length > 0) {
+                            <div class="conv-turns">
+                              @for (turn of convMessages(entry); track $index) {
+                                <div class="conv-turn" [ngClass]="'conv-turn-' + turn.role">
+                                  <app-icon [name]="turn.role === 'user' ? 'user' : 'robot'" size="xs" class="conv-turn-role" />
+                                  @if (turn.toolName) { <span class="conv-tool-call"><app-icon name="wrench" size="xs" /> {{ turn.toolName }}</span> }
+                                  @if (turn.tokenCount) { <span class="conv-token-count">{{ turn.tokenCount | number }} tokens</span> }
+                                </div>
+                              }
+                            </div>
                           }
-                          @if (node.depth > 0) { <app-icon name="subdirectory" size="xs" class="subtask-icon" /> }
-                          <span class="conv-task-type">{{ node.entry.taskType }}</span>
-                          <span class="conv-model">{{ node.entry.model }}</span>
-                          <span class="conv-tokens">{{ node.entry.inputTokens | number }}in / {{ node.entry.outputTokens | number }}out</span>
-                          @if (node.entry.costUsd != null) { <span class="conv-cost">\${{ node.entry.costUsd | number:'1.4-4' }}</span> }
+                          @if (entry.archive?.fullPrompt || entry.promptText) {
+                            <div class="conv-final-response conv-prompt-block">
+                              <span class="conv-final-label">Prompt</span>
+                              <pre class="conv-response-text" [class.clamped]="!convPromptExpanded[entry.id]">{{ convPromptText(entry) }}</pre>
+                              @if (isMultilineConvPrompt(entry)) {
+                                <app-bronco-button variant="ghost" size="sm" class="inline-expand-btn" (click)="convPromptExpanded[entry.id] = !convPromptExpanded[entry.id]">
+                                  {{ convPromptExpanded[entry.id] ? 'less' : 'more' }}
+                                  <app-icon [name]="convPromptExpanded[entry.id] ? 'chevron-up' : 'chevron-down'" size="xs" />
+                                </app-bronco-button>
+                              }
+                            </div>
+                          }
+                          @if (entry.archive?.fullResponse || entry.responseText) {
+                            <div class="conv-final-response">
+                              <span class="conv-final-label">Response</span>
+                              <pre class="conv-response-text" [class.clamped]="!convExpanded[entry.id]">{{ convResponseText(entry) }}</pre>
+                              @if (isMultilineConv(entry)) {
+                                <app-bronco-button variant="ghost" size="sm" class="inline-expand-btn" (click)="convExpanded[entry.id] = !convExpanded[entry.id]">
+                                  {{ convExpanded[entry.id] ? 'less' : 'more' }}
+                                  <app-icon [name]="convExpanded[entry.id] ? 'chevron-up' : 'chevron-down'" size="xs" />
+                                </app-bronco-button>
+                              }
+                            </div>
+                          }
                         </div>
-                        @if (convMessages(node.entry).length > 0) {
-                          <div class="conv-turns">
-                            @for (turn of convMessages(node.entry); track $index) {
-                              <div class="conv-turn" [ngClass]="'conv-turn-' + turn.role">
-                                <app-icon [name]="turn.role === 'user' ? 'user' : 'robot'" size="xs" class="conv-turn-role" />
-                                @if (turn.toolName) { <span class="conv-tool-call"><app-icon name="wrench" size="xs" /> {{ turn.toolName }}</span> }
-                                @if (turn.tokenCount) { <span class="conv-token-count">{{ turn.tokenCount | number }} tokens</span> }
-                              </div>
-                            }
-                          </div>
-                        }
-                        @if (node.entry.archive?.fullPrompt || node.entry.promptText) {
-                          <div class="conv-final-response conv-prompt-block">
-                            <span class="conv-final-label">Prompt</span>
-                            <pre class="conv-response-text" [class.clamped]="!convPromptExpanded[node.entry.id]">{{ convPromptText(node.entry) }}</pre>
-                            @if (isMultilineConvPrompt(node.entry)) {
-                              <app-bronco-button variant="ghost" size="sm" class="inline-expand-btn" (click)="convPromptExpanded[node.entry.id] = !convPromptExpanded[node.entry.id]">
-                                {{ convPromptExpanded[node.entry.id] ? 'less' : 'more' }}
-                                <app-icon [name]="convPromptExpanded[node.entry.id] ? 'chevron-up' : 'chevron-down'" size="xs" />
-                              </app-bronco-button>
-                            }
-                          </div>
-                        }
-                        @if (node.entry.archive?.fullResponse || node.entry.responseText) {
-                          <div class="conv-final-response">
-                            <span class="conv-final-label">Response</span>
-                            <pre class="conv-response-text" [class.clamped]="!convExpanded[node.entry.id]">{{ convResponseText(node.entry) }}</pre>
-                            @if (isMultilineConv(node.entry)) {
-                              <app-bronco-button variant="ghost" size="sm" class="inline-expand-btn" (click)="convExpanded[node.entry.id] = !convExpanded[node.entry.id]">
-                                {{ convExpanded[node.entry.id] ? 'less' : 'more' }}
-                                <app-icon [name]="convExpanded[node.entry.id] ? 'chevron-up' : 'chevron-down'" size="xs" />
-                              </app-bronco-button>
-                            }
-                          </div>
-                        }
-                      </div>
-                    } @else if (node.entry.type === 'tool') {
-                      <div class="conv-tool-block">
-                        <div class="conv-ai-header">
-                          @if (node.depth > 0) { <app-icon name="subdirectory" size="xs" class="subtask-icon" /> }
-                          <app-icon name="wrench" size="xs" />
-                          <span class="conv-tool-name">{{ node.entry.message }}</span>
+                      } @else if (entry.type === 'tool' || entry.type === 'log' || entry.type === 'step' || entry.type === 'error') {
+                        <div class="conv-tool-node" [class.conv-tool-error]="entry.type === 'error'">
+                          <app-icon [name]="entry.type === 'error' ? 'close' : entry.type === 'step' ? 'pending' : 'wrench'" size="xs" class="conv-tool-icon" />
+                          <span class="conv-tool-msg">{{ entry.message }}</span>
+                          @if (entry.durationMs != null) { <span class="conv-tool-dur">{{ entry.durationMs }}ms</span> }
                         </div>
-                      </div>
-                    } @else if (node.entry.type === 'step') {
-                      <div class="conv-step-label">
-                        <app-icon [name]="node.entry.message?.toLowerCase()?.includes('completed') ? 'check' : node.entry.message?.toLowerCase()?.includes('failed') ? 'close' : 'pending'" size="xs" class="conv-step-icon" />
-                        {{ node.entry.message }}
-                      </div>
-                    }
-                  </div>
+                      }
+                    </div>
+                  }
                 }
               </div>
             } @else {
@@ -706,9 +706,23 @@ export class TicketDetailComponent implements OnInit {
   convUngrouped = signal<UnifiedLogEntry[]>([]);
   convExpanded: Record<string, boolean> = {};
   convPromptExpanded: Record<string, boolean> = {};
-  convCollapsed: Record<string, boolean> = {};
-  convTreeRoots = signal<ConvTreeNode[]>([]);
+  convTree = signal<ConvTreeNode[]>([]);
   hasLineageData = signal(false);
+
+  /** Pre-flattened tree with visibility tracking — cached via computed signal. */
+  convTreeFlat = computed<Array<{ node: ConvTreeNode; visible: boolean }>>(() => {
+    const result: Array<{ node: ConvTreeNode; visible: boolean }> = [];
+    const flatten = (nodes: ConvTreeNode[], parentVisible: boolean) => {
+      for (const node of nodes) {
+        result.push({ node, visible: parentVisible });
+        if (node.children.length > 0) {
+          flatten(node.children, parentVisible && !node.collapsed);
+        }
+      }
+    };
+    flatten(this.convTree(), true);
+    return result;
+  });
 
   // Tab tracking
   selectedTabIndex = signal(0);
@@ -1099,7 +1113,7 @@ export class TicketDetailComponent implements OnInit {
     const hasLineage = entries.some(e => !!e.parentLogId);
     this.hasLineageData.set(hasLineage);
     if (hasLineage) {
-      this.convTreeRoots.set(this.buildConvTree(entries));
+      this.convTree.set(this.buildConvTree(entries));
     }
   }
 
@@ -1153,7 +1167,7 @@ export class TicketDetailComponent implements OnInit {
 
     // Create nodes
     for (const entry of entries) {
-      nodeMap.set(entry.id, { entry, children: [], depth: 0 });
+      nodeMap.set(entry.id, { entry, children: [], depth: 0, collapsed: false });
     }
 
     // Link parents
@@ -1180,36 +1194,9 @@ export class TicketDetailComponent implements OnInit {
     return roots;
   }
 
-  /** Flatten a tree into a list with depth info for template rendering. */
-  flattenTree(nodes: ConvTreeNode[]): ConvTreeNode[] {
-    const result: ConvTreeNode[] = [];
-    const walk = (list: ConvTreeNode[]): void => {
-      for (const node of list) {
-        result.push(node);
-        if (!this.convCollapsed[node.entry.id] && node.children.length > 0) {
-          walk(node.children);
-        }
-      }
-    };
-    walk(nodes);
-    return result;
-  }
-
-  toggleTreeCollapse(entryId: string): void {
-    this.convCollapsed[entryId] = !this.convCollapsed[entryId];
-  }
-
-  hasChildren(entryId: string): boolean {
-    const findNode = (nodes: ConvTreeNode[]): ConvTreeNode | undefined => {
-      for (const n of nodes) {
-        if (n.entry.id === entryId) return n;
-        const found = findNode(n.children);
-        if (found) return found;
-      }
-      return undefined;
-    };
-    const node = findNode(this.convTreeRoots());
-    return !!node && node.children.length > 0;
+  toggleConvNode(node: ConvTreeNode): void {
+    node.collapsed = !node.collapsed;
+    this.convTree.set([...this.convTree()]);
   }
 
   convMessages(entry: UnifiedLogEntry): Array<{ role: string; tokenCount?: number; toolName?: string }> {
