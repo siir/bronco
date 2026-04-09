@@ -129,6 +129,9 @@ interface StepGroup {
           class="info-tabs"
           [selectedIndex]="selectedTabIndex()"
           (selectedIndexChange)="onTabIndexChange($event)">
+          <app-tab label="AI Cost">
+            <app-ticket-detail-cost [cost]="ticketCost()" />
+          </app-tab>
           @if (emailBlurb()) {
             <app-tab label="AI Summary">
               <app-ticket-detail-summary [emailBlurb]="emailBlurb()!" />
@@ -557,8 +560,6 @@ interface StepGroup {
         @if (flowNodes().length > 0) {
           <app-ticket-detail-flow [nodes]="flowNodes()" />
         }
-
-        <app-ticket-detail-cost [cost]="ticketCost()" />
 
         <div class="reanalyze-bar">
           <app-bronco-button variant="secondary" (click)="reanalyze()" [disabled]="reanalyzing()">
