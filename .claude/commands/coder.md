@@ -1,8 +1,8 @@
 ---
-description: Start a live debug session — set up worktree, connect to Hugo, and fix reported bugs interactively. Triggers on "debugger", "debug session", "start debugging".
+description: Start a live coding session — set up worktree, connect to Hugo, and fix reported bugs interactively. Triggers on "coder", "coding session", "start coding".
 ---
 
-# Debugger Session
+# Coder Session
 
 Interactive bug-hunting and fix session across the full Bronco stack. The operator reports issues (screenshots, descriptions, URLs), you investigate, fix, and commit — with the option to hot-patch Hugo live so changes are visible immediately even when no local dev server is running.
 
