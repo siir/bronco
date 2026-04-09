@@ -23,7 +23,6 @@ const CAPABILITY_LEVELS = [
         <app-select
           [value]="providerId"
           [options]="providerOptions"
-          placeholder="Select provider..."
           (valueChange)="providerId = $event; onProviderChange()" />
       </app-form-field>
 
@@ -117,7 +116,10 @@ export class AiModelDialogComponent implements OnInit {
   modelsForProvider: CatalogModel[] = [];
 
   get providerOptions(): Array<{ value: string; label: string }> {
-    return this.availableProviders.map(p => ({ value: p.id, label: p.provider + (p.isActive ? '' : ' (disabled)') }));
+    return [
+      { value: '', label: 'Select provider...' },
+      ...this.availableProviders.map(p => ({ value: p.id, label: p.provider + (p.isActive ? '' : ' (disabled)') })),
+    ];
   }
 
   get modelOptions(): Array<{ value: string; label: string }> {

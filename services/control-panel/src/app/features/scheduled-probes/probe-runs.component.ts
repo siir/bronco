@@ -126,7 +126,6 @@ import { ToastService } from '../../core/services/toast.service';
             <app-select
               [value]="filterStatus"
               [options]="statusOptions"
-              placeholder=""
               (valueChange)="onStatusFilter($event)" />
           </app-form-field>
         </div>

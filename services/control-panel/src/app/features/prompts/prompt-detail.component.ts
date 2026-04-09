@@ -111,7 +111,6 @@ import { ToastService } from '../../core/services/toast.service';
               <app-select
                 [value]="selectedClientId"
                 [options]="clientOptions()"
-                placeholder=""
                 (valueChange)="onClientChange($event)">
               </app-select>
             </app-form-field>

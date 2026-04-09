@@ -52,7 +52,6 @@ const ACTION_LABELS: Record<string, string> = {
         <app-select
           [value]="filterClientId()"
           [options]="clientOptions()"
-          placeholder="All Clients"
           (valueChange)="onClientFilter($event)" />
       </app-toolbar>
 

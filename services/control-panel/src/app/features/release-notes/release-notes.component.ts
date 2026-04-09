@@ -48,19 +48,16 @@ const CHANGE_TYPE_META: Record<ReleaseNoteType, { label: string; color: string }
         <app-select
           [value]="serviceFilter"
           [options]="serviceOptions()"
-          [placeholder]="''"
           (valueChange)="serviceFilter = $event; resetAndLoad()">
         </app-select>
         <app-select
           [value]="typeFilter"
           [options]="typeFilterOptions"
-          [placeholder]="''"
           (valueChange)="typeFilter = $event; resetAndLoad()">
         </app-select>
         <app-select
           [value]="tagFilter"
           [options]="tagOptions()"
-          [placeholder]="''"
           (valueChange)="tagFilter = $event; resetAndLoad()">
         </app-select>
         <div class="filter-field">

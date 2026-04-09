@@ -61,13 +61,11 @@ import { ToastService } from '../../core/services/toast.service';
         <app-select
           [value]="classificationFilter"
           [options]="classificationOptions"
-          placeholder=""
           (valueChange)="classificationFilter = $event; resetAndLoad()">
         </app-select>
         <app-select
           [value]="statusFilter"
           [options]="statusOptions"
-          placeholder="Status"
           (valueChange)="statusFilter = $event; resetAndLoad()">
         </app-select>
       </div>

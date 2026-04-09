@@ -82,7 +82,6 @@ const CATEGORIES = [
           <app-select
             [value]="filterClientId"
             [options]="clientFilterOptions()"
-            placeholder=""
             (valueChange)="filterClientId = $event; loadRoutes()">
           </app-select>
         </div>

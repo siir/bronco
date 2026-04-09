@@ -88,19 +88,16 @@ interface StepGroup {
             ariaLabel="Priority"
             [value]="t.priority"
             [options]="priorityOptions"
-            placeholder=""
             (valueChange)="updateField('priority', $event)" />
           <app-select
             ariaLabel="Status"
             [value]="t.status"
             [options]="statusOptions"
-            placeholder=""
             (valueChange)="updateStatus($event)" />
           <app-select
             ariaLabel="Category"
             [value]="t.category ?? ''"
             [options]="categoryOptions"
-            placeholder=""
             (valueChange)="updateField('category', $event || null)" />
           <span class="source">via {{ t.source }}</span>
           <span class="date">{{ t.createdAt | date:'medium' }}</span>
@@ -202,14 +199,12 @@ interface StepGroup {
                 <app-select
                   [value]="unifiedTypeFilter()"
                   [options]="typeFilterOptions"
-                  placeholder=""
                   (valueChange)="unifiedTypeFilter.set($event); loadUnifiedLogs()" />
               </app-form-field>
               <app-form-field label="Level">
                 <app-select
                   [value]="logsLevelFilter()"
                   [options]="levelFilterOptions"
-                  placeholder=""
                   (valueChange)="logsLevelFilter.set($event); loadUnifiedLogs()" />
               </app-form-field>
               <app-form-field label="Search">

@@ -64,13 +64,11 @@ import { BroncoButtonComponent, SelectComponent, IconComponent } from '../../sha
         <app-select
           [value]="filterStatus"
           [options]="statusOptions"
-          [placeholder]="''"
           (valueChange)="filterStatus = $event; page = 0; loadRuns()">
         </app-select>
         <app-select
           [value]="filterClientId"
           [options]="clientOptions()"
-          [placeholder]="''"
           (valueChange)="filterClientId = $event; page = 0; loadRuns()">
         </app-select>
         <span class="total-count">{{ total() }} runs total</span>

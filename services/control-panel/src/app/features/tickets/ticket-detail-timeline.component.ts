@@ -27,7 +27,6 @@ import { type TicketEvent } from '../../core/services/ticket.service';
           <app-select
             [value]="timelineFilter()"
             [options]="filterOptions"
-            placeholder=""
             (valueChange)="timelineFilter.set($event)" />
         </app-form-field>
         <app-bronco-button

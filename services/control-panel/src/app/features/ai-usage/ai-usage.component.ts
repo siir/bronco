@@ -91,7 +91,6 @@ const DATE_PRESETS: DatePreset[] = [
               <app-select
                 [value]="summaryProviderFilter"
                 [options]="providerSelectOptions()"
-                placeholder=""
                 (valueChange)="summaryProviderFilter = $event; loadSummary()">
               </app-select>
 

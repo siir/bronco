@@ -16,7 +16,6 @@ import { FormFieldComponent, TextInputComponent, SelectComponent, BroncoButtonCo
             [value]="providerVal"
             [options]="providerOptions"
             [disabled]="loadingProviders"
-            placeholder="Select provider..."
             (valueChange)="providerVal = $event; onProviderChange()" />
         </app-form-field>
       } @else {
@@ -84,7 +83,10 @@ export class AiProviderDialogComponent implements OnInit {
   selectableProviders: ProviderType[] = [];
 
   get providerOptions(): Array<{ value: string; label: string }> {
-    return this.selectableProviders.map(p => ({ value: p.value, label: p.label + (p.routable ? '' : ' (not yet supported)') }));
+    return [
+      { value: '', label: 'Select provider...' },
+      ...this.selectableProviders.map(p => ({ value: p.value, label: p.label + (p.routable ? '' : ' (not yet supported)') })),
+    ];
   }
 
   ngOnInit(): void {
