@@ -15,7 +15,7 @@ export interface AIProviderClient {
 export interface AiUsageEntry {
   logId?: string;         // Pre-generated UUID for this entry's row ID
   parentLogId?: string;   // FK to parent log entry
-  parentLogType?: string; // 'ai' | 'app'
+  parentLogType?: 'ai' | 'app';
   provider: string;
   model: string;
   taskType: string;

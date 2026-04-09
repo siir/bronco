@@ -490,6 +490,11 @@
 .conv-collapse-btn:hover {
   color: var(--color-purple);
 }
+.conv-collapse-btn:focus-visible {
+  outline: 2px solid var(--color-purple);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
 .conv-tool-node {
   display: flex;
   align-items: center;

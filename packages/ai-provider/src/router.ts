@@ -228,7 +228,7 @@ export class AIRouter {
       this.usageWriter({
         ...(request.context?.logId ? { logId: request.context.logId as string } : {}),
         ...(request.context?.parentLogId ? { parentLogId: request.context.parentLogId as string } : {}),
-        ...(request.context?.parentLogType ? { parentLogType: request.context.parentLogType as string } : {}),
+        ...(request.context?.parentLogType ? { parentLogType: request.context.parentLogType as 'ai' | 'app' } : {}),
         provider: response.provider,
         model: response.model,
         taskType: request.taskType,
@@ -389,7 +389,7 @@ export class AIRouter {
       this.usageWriter({
         ...(request.context?.logId ? { logId: request.context.logId as string } : {}),
         ...(request.context?.parentLogId ? { parentLogId: request.context.parentLogId as string } : {}),
-        ...(request.context?.parentLogType ? { parentLogType: request.context.parentLogType as string } : {}),
+        ...(request.context?.parentLogType ? { parentLogType: request.context.parentLogType as 'ai' | 'app' } : {}),
         provider: response.provider,
         model: response.model,
         taskType: request.taskType,

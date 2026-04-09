@@ -183,7 +183,7 @@ export class AppLogger {
 export function createPrismaLogWriter(db: any): AppLogWriter {
   return async (entry: AppLogEntry) => {
     const parentLogId = (entry.context?.parentLogId as string) ?? undefined;
-    const parentLogType = (entry.context?.parentLogType as string) ?? undefined;
+    const parentLogType = (entry.context?.parentLogType as 'ai' | 'app') ?? undefined;
     await db.appLog.create({
       data: {
         level: entry.level,

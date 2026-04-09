@@ -397,7 +397,7 @@ interface ConvTreeNode {
                         <div class="conv-ai-block">
                           <div class="conv-ai-header">
                             @if (node.children.length > 0) {
-                              <button class="conv-collapse-btn" (click)="toggleConvNode(node)" [attr.title]="node.collapsed ? 'Expand' : 'Collapse'">
+                              <button type="button" class="conv-collapse-btn" (click)="toggleConvNode(node)" [attr.aria-label]="node.collapsed ? 'Expand' : 'Collapse'" [attr.aria-expanded]="!node.collapsed">
                                 <app-icon [name]="node.collapsed ? 'chevron-right' : 'chevron-down'" size="xs" />
                               </button>
                             }
