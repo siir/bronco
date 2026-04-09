@@ -65,13 +65,11 @@ interface MergedModelRow {
               <app-select
                 [value]="groupFilter"
                 [options]="groupOptions()"
-                placeholder=""
                 (valueChange)="groupFilter = $event; applyPromptFilters()">
               </app-select>
               <app-select
                 [value]="taskTypeFilter"
                 [options]="taskTypeOptions()"
-                placeholder=""
                 (valueChange)="taskTypeFilter = $event; loadPrompts()">
               </app-select>
               <app-text-input
@@ -129,7 +127,6 @@ interface MergedModelRow {
               <app-select
                 [value]="categoryFilter"
                 [options]="categoryOptions()"
-                placeholder=""
                 (valueChange)="categoryFilter = $event; loadKeywords()">
               </app-select>
               <app-text-input

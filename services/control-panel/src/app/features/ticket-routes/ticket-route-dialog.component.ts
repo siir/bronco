@@ -46,7 +46,6 @@ const SOURCES = [
         <app-select
           [value]="source ?? ''"
           [options]="sourceOptions"
-          placeholder=""
           (valueChange)="source = $event || null" />
       </app-form-field>
 
@@ -54,7 +53,6 @@ const SOURCES = [
         <app-select
           [value]="category ?? ''"
           [options]="categorySelectOptions"
-          placeholder=""
           (valueChange)="category = $event || null" />
       </app-form-field>
 
@@ -62,7 +60,6 @@ const SOURCES = [
         <app-select
           [value]="clientId ?? ''"
           [options]="clientSelectOptions"
-          placeholder=""
           (valueChange)="clientId = $event || null" />
       </app-form-field>
 

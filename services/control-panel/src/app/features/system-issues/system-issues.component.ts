@@ -36,7 +36,6 @@ import { BroncoButtonComponent, SelectComponent } from '../../shared/components/
           <app-select
             [value]="errorWindowDays.toString()"
             [options]="windowOptions"
-            [placeholder]="''"
             (valueChange)="errorWindowDays = +$event; refresh()">
           </app-select>
           <app-bronco-button variant="icon" size="sm" (click)="refresh()" [disabled]="loading()" title="Refresh" aria-label="Refresh">

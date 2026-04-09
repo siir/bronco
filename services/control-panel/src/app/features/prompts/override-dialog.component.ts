@@ -25,7 +25,6 @@ import { FormFieldComponent, SelectComponent, BroncoButtonComponent } from '../.
             [value]="clientId"
             [options]="clientOptions"
             [disabled]="isEdit"
-            placeholder="Select client..."
             (valueChange)="clientId = $event" />
         </app-form-field>
       }
@@ -162,7 +161,10 @@ export class OverrideDialogComponent implements OnInit {
   keywordSearchStart = -1;
 
   get clientOptions(): Array<{ value: string; label: string }> {
-    return this.clients.map(c => ({ value: c.id, label: `${c.name} (${c.shortCode})` }));
+    return [
+      { value: '', label: 'Select client...' },
+      ...this.clients.map(c => ({ value: c.id, label: `${c.name} (${c.shortCode})` })),
+    ];
   }
 
   ngOnInit(): void {

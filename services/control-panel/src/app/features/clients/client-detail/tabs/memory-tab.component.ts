@@ -40,7 +40,6 @@ const SOURCE_OPTIONS = [
             class="source-filter"
             [value]="sourceFilter()"
             [options]="sourceOptions"
-            placeholder="All sources"
             (valueChange)="sourceFilter.set($event)" />
           <app-bronco-button variant="primary" size="sm" (click)="openAddDialog()">+ Add Memory</app-bronco-button>
         </div>

@@ -25,7 +25,6 @@ interface ModelOption {
         <app-select
           [value]="selectedModel"
           [options]="modelSelectOptions"
-          [placeholder]="''"
           (valueChange)="selectedModel = $event" />
       </app-form-field>
 

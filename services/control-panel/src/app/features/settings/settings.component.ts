@@ -89,7 +89,6 @@ import { ToastService } from '../../core/services/toast.service';
                     [value]="superAdminUserId ?? ''"
                     [options]="superAdminOptions()"
                     [disabled]="usersLoading()"
-                    placeholder="-- None --"
                     (valueChange)="superAdminUserId = $event || null" />
                 </app-form-field>
               </div>
@@ -345,7 +344,6 @@ import { ToastService } from '../../core/services/toast.service';
                     <app-select
                       [value]="analysisStrategy()"
                       [options]="strategyOptions"
-                      [placeholder]="''"
                       (valueChange)="analysisStrategy.set($event)" />
                   </app-form-field>
 
@@ -636,7 +634,9 @@ export class SettingsComponent implements OnInit {
   superAdminUserId: string | null = null;
   superAdminLoading = signal(true);
   superAdminSaving = signal(false);
-  superAdminOptions = signal<Array<{ value: string; label: string }>>([]);
+  superAdminOptions = signal<Array<{ value: string; label: string }>>([
+    { value: '', label: '-- None --' },
+  ]);
 
   // External Services tab
   services = signal<ExternalService[]>([]);
@@ -728,10 +728,13 @@ export class SettingsComponent implements OnInit {
       next: (users) => {
         const filtered = users.filter(u => u.isActive && (u.role === 'ADMIN' || u.role === 'OPERATOR'));
         this.adminUsers.set(filtered);
-        this.superAdminOptions.set(filtered.map(u => ({
-          value: u.id,
-          label: `${u.name} (${u.email}) — ${u.role}`,
-        })));
+        this.superAdminOptions.set([
+          { value: '', label: '-- None --' },
+          ...filtered.map(u => ({
+            value: u.id,
+            label: `${u.name} (${u.email}) — ${u.role}`,
+          })),
+        ]);
         this.usersLoading.set(false);
       },
       error: (err) => {
