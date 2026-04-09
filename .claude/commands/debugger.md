@@ -52,8 +52,13 @@ The operator provides a bug report — usually a screenshot, sometimes a descrip
 - Apply the minimum change that fixes the bug. Don't refactor surrounding code.
 - Run `pnpm --filter @bronco/control-panel typecheck` (or the relevant package) after every fix to catch regressions immediately.
 - If the operator is testing against Hugo, offer to hot-patch:
-  - For Angular UI: the built assets are in `/srv/control-panel/` on Hugo (served by Caddy). You can `ssh hugo-app` and edit files there, but it's compiled — usually easier to rebuild and deploy. For quick CSS/template tweaks, editing the compiled JS directly can work for verification.
-  - For backend services: running in Docker Compose. `ssh hugo-app` then `docker exec` into the container, or edit the mounted volume and restart the service.
+  - For Angular UI: the built assets are in `/srv/control-panel/` on Hugo (served by Caddy). For quick CSS/template tweaks, editing the compiled JS directly can work for verification before committing the real fix.
+  - For backend services: running in Docker Compose. `ssh hugo-app` then inspect logs, restart containers, or tweak environment variables.
+
+  **Hugo safety rules — READ-ONLY for data, SAFE EDITS ONLY for code:**
+  - **SAFE**: editing static assets, restarting containers, tweaking env vars, reading logs, inspecting container state, Caddy config changes
+  - **UNSAFE — NEVER do on Hugo**: database schema changes (migrations must go through the repo pipeline — direct DDL desyncs Prisma migration history), data mutations (INSERT/UPDATE/DELETE on the control-plane Postgres), Docker image rebuilds (images come from GHCR via deploy-hugo, not built locally on the VM)
+  - When in doubt, make the change in the repo, commit, and let the deploy pipeline handle it. Hugo hot-patches are for **temporary verification** only — they get overwritten on the next deploy.
 
 ### 4. Classify the Outcome
 
