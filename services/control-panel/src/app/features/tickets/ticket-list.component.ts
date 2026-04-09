@@ -75,7 +75,7 @@ const STATUS_PILLS: StatusPill[] = [
           placeholder="— No preset —"
           (valueChange)="onPresetSelected($event)" />
         <app-bronco-button variant="icon" size="sm" (click)="savePreset()" title="Save current filters as preset">
-          <app-icon name="file" size="sm" />
+          <app-icon name="add" size="sm" />
         </app-bronco-button>
 
         @if (selectedPresetId()) {
@@ -387,13 +387,16 @@ export class TicketListComponent implements OnInit {
   ];
 
   presetOptions = computed(() => {
-    return [
-      { value: '', label: '— No preset —' },
-      ...this.presets().map(p => ({
-        value: p.id,
-        label: p.name + (p.isDefault ? ' \u2605' : ''),
-      })),
-    ];
+    const options = this.presets().map(p => ({
+      value: p.id,
+      label: p.name + (p.isDefault ? ' \u2605' : ''),
+    }));
+    // Only offer the "clear preset" entry when one is currently selected;
+    // otherwise the placeholder already conveys "no preset".
+    if (this.selectedPresetId()) {
+      return [{ value: '', label: '— No preset —' }, ...options];
+    }
+    return options;
   });
 
   hasAdvancedFilters = computed(() => {
