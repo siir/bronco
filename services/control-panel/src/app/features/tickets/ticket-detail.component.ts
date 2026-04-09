@@ -532,6 +532,26 @@ interface StepGroup {
               [generating]="generatingLogs()"
               (generate)="generateLogSummary()" />
           </app-tab>
+          <app-tab label="Timeline">
+            <app-ticket-detail-timeline
+              [events]="events()"
+              [pendingActionMap]="pendingActionMap()"
+              (approveAction)="approvePendingAction($event)"
+              (dismissAction)="dismissPendingAction($event)" />
+            <app-card padding="md" class="add-comment">
+              <app-form-field label="Add comment">
+                <app-textarea
+                  [value]="newComment"
+                  [rows]="2"
+                  (valueChange)="newComment = $event" />
+              </app-form-field>
+              <div class="comment-actions">
+                <app-bronco-button variant="primary" (click)="addComment()" [disabled]="!newComment">
+                  <span aria-hidden="true">&#x27A4;</span> Add Comment
+                </app-bronco-button>
+              </div>
+            </app-card>
+          </app-tab>
         </app-tab-group>
 
         @if (flowNodes().length > 0) {
@@ -539,26 +559,6 @@ interface StepGroup {
         }
 
         <app-ticket-detail-cost [cost]="ticketCost()" />
-
-        <app-ticket-detail-timeline
-          [events]="events()"
-          [pendingActionMap]="pendingActionMap()"
-          (approveAction)="approvePendingAction($event)"
-          (dismissAction)="dismissPendingAction($event)" />
-
-        <app-card padding="md" class="add-comment">
-          <app-form-field label="Add comment">
-            <app-textarea
-              [value]="newComment"
-              [rows]="2"
-              (valueChange)="newComment = $event" />
-          </app-form-field>
-          <div class="comment-actions">
-            <app-bronco-button variant="primary" (click)="addComment()" [disabled]="!newComment">
-              <span aria-hidden="true">&#x27A4;</span> Add Comment
-            </app-bronco-button>
-          </div>
-        </app-card>
 
         <div class="reanalyze-bar">
           <app-bronco-button variant="secondary" (click)="reanalyze()" [disabled]="reanalyzing()">
