@@ -1,7 +1,7 @@
 import { Component, inject, OnInit, input, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { RepoService, type CodeRepo } from '../../core/services/repo.service';
-import { ToastService } from '../../core/services/toast.service';
+import { RepoService, type CodeRepo } from '../../core/services/repo.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 import { FormFieldComponent, TextInputComponent, TextareaComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({
