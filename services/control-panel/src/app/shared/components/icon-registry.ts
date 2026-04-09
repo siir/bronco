@@ -64,6 +64,8 @@ import {
   faFileLines,
   faFolder,
   faFolderOpen,
+  faBuilding,
+  faTicket,
   // UI affordances
   faSquareCheck,
   faSquare,
@@ -168,6 +170,8 @@ export const ICON_REGISTRY = {
   file: faFileLines,
   folder: faFolder,
   'folder-open': faFolderOpen,
+  building: faBuilding,
+  ticket: faTicket,
   // UI affordances
   'square-check': faSquareCheck,
   square: faSquare,

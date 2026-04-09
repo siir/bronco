@@ -1,10 +1,20 @@
 import { Component, input } from '@angular/core';
+import { IconComponent } from './icon.component.js';
+import type { IconName } from './icon-registry.js';
+
+export type StatCardIconVariant = 'accent' | 'success' | 'warning' | 'error' | 'neutral';
 
 @Component({
   selector: 'app-stat-card',
   standalone: true,
+  imports: [IconComponent],
   template: `
     <div class="stat-card">
+      @if (icon()) {
+        <div [class]="'stat-icon variant-' + iconVariant()">
+          <app-icon [name]="icon()!" size="lg" />
+        </div>
+      }
       <div class="stat-label">{{ label() }}</div>
       <div class="stat-value">{{ value() }}</div>
       @if (change()) {
@@ -14,11 +24,30 @@ import { Component, input } from '@angular/core';
   `,
   styles: [`
     .stat-card {
+      position: relative;
       background: var(--bg-card);
       border-radius: var(--radius-lg);
       padding: 20px;
       box-shadow: var(--shadow-card);
     }
+
+    .stat-icon {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      width: 36px;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--radius-md, 8px);
+    }
+
+    .variant-accent  { background: color-mix(in srgb, var(--accent) 14%, transparent);        color: var(--accent); }
+    .variant-success { background: color-mix(in srgb, var(--color-success) 14%, transparent); color: var(--color-success); }
+    .variant-warning { background: color-mix(in srgb, var(--color-warning) 14%, transparent); color: var(--color-warning); }
+    .variant-error   { background: color-mix(in srgb, var(--color-error) 14%, transparent);   color: var(--color-error); }
+    .variant-neutral { background: color-mix(in srgb, var(--text-tertiary) 14%, transparent); color: var(--text-tertiary); }
 
     .stat-label {
       font-family: var(--font-primary);
@@ -53,4 +82,6 @@ export class StatCardComponent {
   value = input.required<string>();
   change = input('');
   changeType = input<'positive' | 'negative' | 'neutral'>('neutral');
+  icon = input<IconName | null>(null);
+  iconVariant = input<StatCardIconVariant>('neutral');
 }
