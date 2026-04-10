@@ -805,16 +805,6 @@ export class TicketDetailComponent implements OnInit {
     this.loadPendingActions();
     this.destroyRef.onDestroy(() => this.stopPolling());
 
-    // Restore selected tab from query param
-    const tabSlug = this.route.snapshot.queryParamMap.get('tab');
-    if (tabSlug) {
-      const labels = this.tabsInOrder();
-      const idx = labels.findIndex(l => this.toSlug(l) === tabSlug);
-      if (idx >= 0) {
-        this.selectedTabIndex.set(idx);
-        if (labels[idx] === 'Conversation') this.loadConversationEntries();
-      }
-    }
   }
 
   loadPendingActions(): void {
@@ -827,9 +817,25 @@ export class TicketDetailComponent implements OnInit {
     });
   }
 
+  private tabRestored = false;
+
   load(): void {
     this.ticketService.getTicket(this.id()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(t => {
       this.ticket.set(t);
+
+      // Restore tab from query param on first load (after ticket is available so tabsInOrder is correct)
+      if (!this.tabRestored) {
+        this.tabRestored = true;
+        const tabSlug = this.route.snapshot.queryParamMap.get('tab');
+        if (tabSlug) {
+          const labels = this.tabsInOrder();
+          const idx = labels.findIndex(l => this.toSlug(l) === tabSlug);
+          if (idx >= 0) {
+            this.selectedTabIndex.set(idx);
+            if (labels[idx] === 'Conversation') this.loadConversationEntries();
+          }
+        }
+      }
       const incoming = t.events ?? [];
       if (this.knownEventIds.size === 0) {
         this.events.set(incoming);
