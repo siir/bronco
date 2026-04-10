@@ -82,24 +82,27 @@ interface StepGroup {
         </div>
 
         <div class="ticket-meta">
-          <app-select
-            ariaLabel="Priority"
-            [value]="t.priority"
-            [options]="priorityOptions"
-            placeholder=""
-            (valueChange)="updateField('priority', $event)" />
-          <app-select
-            ariaLabel="Status"
-            [value]="t.status"
-            [options]="statusOptions"
-            placeholder=""
-            (valueChange)="updateStatus($event)" />
-          <app-select
-            ariaLabel="Category"
-            [value]="t.category ?? ''"
-            [options]="categoryOptions"
-            placeholder=""
-            (valueChange)="updateField('category', $event || null)" />
+          <app-form-field label="Priority">
+            <app-select
+              [value]="t.priority"
+              [options]="priorityOptions"
+              placeholder=""
+              (valueChange)="updateField('priority', $event)" />
+          </app-form-field>
+          <app-form-field label="Status">
+            <app-select
+              [value]="t.status"
+              [options]="statusOptions"
+              placeholder=""
+              (valueChange)="updateStatus($event)" />
+          </app-form-field>
+          <app-form-field label="Category">
+            <app-select
+              [value]="t.category ?? ''"
+              [options]="categoryOptions"
+              placeholder=""
+              (valueChange)="updateField('category', $event || null)" />
+          </app-form-field>
           <span class="source">via {{ t.source }}</span>
           <span class="date">{{ t.createdAt | date:'medium' }}</span>
           <span class="analysis-badge analysis-{{ t.analysisStatus.toLowerCase() }}">
