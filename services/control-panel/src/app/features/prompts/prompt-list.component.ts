@@ -25,6 +25,7 @@ interface MergedModelRow {
   taskType: string;
   provider: string;
   model: string;
+  maxTokens: number | null;
   source: 'DEFAULT' | 'APP_WIDE' | 'CLIENT';
   configId: string | null;
   isActive: boolean;
@@ -207,6 +208,7 @@ interface MergedModelRow {
                 <app-data-column key="model" header="Model" [sortable]="false">
                   <ng-template #cell let-row>
                     <code class="model-name">{{ row.model }}</code>
+                    @if (row.maxTokens) { <span class="max-tokens-chip">max {{ row.maxTokens }}</span> }
                   </ng-template>
                 </app-data-column>
 
@@ -382,6 +384,11 @@ interface MergedModelRow {
       background: var(--bg-muted);
       padding: 2px 6px;
       border-radius: var(--radius-sm);
+    }
+    .max-tokens-chip {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      margin-left: 6px;
     }
     .source-badge {
       font-size: 11px;
@@ -627,6 +634,7 @@ export class PromptListComponent implements OnInit {
           taskType: d.taskType,
           provider: appWide.provider,
           model: appWide.model,
+          maxTokens: appWide.maxTokens,
           source: 'APP_WIDE',
           configId: appWide.id,
           isActive: true,
@@ -640,6 +648,7 @@ export class PromptListComponent implements OnInit {
           taskType: d.taskType,
           provider: d.provider,
           model: d.model,
+          maxTokens: null,
           source: 'DEFAULT',
           configId: appWide.id,
           isActive: false,
@@ -653,6 +662,7 @@ export class PromptListComponent implements OnInit {
           taskType: d.taskType,
           provider: d.provider,
           model: d.model,
+          maxTokens: null,
           source: 'DEFAULT',
           configId: null,
           isActive: true,
@@ -668,6 +678,7 @@ export class PromptListComponent implements OnInit {
           taskType: d.taskType,
           provider: c.provider,
           model: c.model,
+          maxTokens: c.maxTokens,
           source: 'CLIENT',
           configId: c.id,
           isActive: c.isActive,
@@ -728,7 +739,8 @@ export class PromptListComponent implements OnInit {
   getInactiveOverrideLabel(row: MergedModelRow): string {
     const config = this.modelConfigs().find(c => c.id === row.configId);
     if (!config) return '';
-    return `${config.provider} / ${config.model}`;
+    const base = `${config.provider} / ${config.model}`;
+    return config.maxTokens ? `${base} (max ${config.maxTokens})` : base;
   }
 
   deleteModelConfigById(configId: string): void {
