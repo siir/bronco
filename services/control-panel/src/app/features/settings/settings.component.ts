@@ -356,6 +356,21 @@ const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External
                       <input class="text-input" type="number" [value]="analysisMaxParallel()" (input)="setAnalysisMaxParallel(+$any($event.target).value)" min="1" max="10">
                     </app-form-field>
                   }
+
+                  <app-form-field label="Default Max Output Tokens" hint="Global fallback for AI response length. Leave blank for provider default.">
+                    <input class="text-input" type="number" [value]="analysisDefaultMaxTokens()" (input)="analysisDefaultMaxTokens.set($any($event.target).value)" min="1024" max="32768" placeholder="e.g. 8192">
+                  </app-form-field>
+
+                  <div class="priority-hint">
+                    <strong>Max tokens priority order:</strong>
+                    <ol>
+                      <li>Per-call override (code-level)</li>
+                      <li>Prompt config (AI Prompts page)</li>
+                      <li>Per-task/client override (AI Prompts &rarr; AI Tasks)</li>
+                      <li>This global default</li>
+                      <li>Provider default (e.g. Claude 4096)</li>
+                    </ol>
+                  </div>
                 </div>
 
                 <div class="card-actions">
@@ -483,6 +498,20 @@ const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External
       font-size: 14px;
     }
 
+    .priority-hint {
+      margin-top: 8px;
+      padding: 10px 14px;
+      background: var(--bg-muted);
+      border-radius: var(--radius-md);
+      font-size: 12px;
+      color: var(--text-tertiary);
+      line-height: 1.6;
+    }
+    .priority-hint strong { color: var(--text-secondary); }
+    .priority-hint ol {
+      margin: 4px 0 0;
+      padding-left: 20px;
+    }
     .form-grid {
       display: flex;
       flex-direction: column;
@@ -668,6 +697,7 @@ export class SettingsComponent implements OnInit {
   // Analysis Strategy tab
   analysisStrategy = signal<string>('full_context');
   analysisMaxParallel = signal(3);
+  analysisDefaultMaxTokens = signal<string>('');
   analysisStrategyLoading = signal(true);
   analysisStrategySaving = signal(false);
   strategyOptions = [
@@ -965,6 +995,7 @@ export class SettingsComponent implements OnInit {
       next: (config) => {
         this.analysisStrategy.set(config.strategy);
         this.analysisMaxParallel.set(config.maxParallelTasks);
+        this.analysisDefaultMaxTokens.set(config.defaultMaxTokens != null ? String(config.defaultMaxTokens) : '');
         this.analysisStrategyLoading.set(false);
       },
       error: () => {
@@ -982,14 +1013,18 @@ export class SettingsComponent implements OnInit {
 
   saveAnalysisStrategy(): void {
     this.analysisStrategySaving.set(true);
+    const rawMaxTokens = this.analysisDefaultMaxTokens().trim();
+    const parsedMaxTokens = rawMaxTokens ? Number(rawMaxTokens) : null;
     const config = {
       strategy: this.analysisStrategy() as 'full_context' | 'orchestrated',
       maxParallelTasks: Math.min(10, Math.max(1, this.analysisMaxParallel())),
+      defaultMaxTokens: parsedMaxTokens && Number.isFinite(parsedMaxTokens) && parsedMaxTokens > 0 ? Math.floor(parsedMaxTokens) : null,
     };
     this.settingsSvc.saveAnalysisStrategy(config).subscribe({
       next: (saved) => {
         this.analysisStrategy.set(saved.strategy);
         this.analysisMaxParallel.set(saved.maxParallelTasks);
+        this.analysisDefaultMaxTokens.set(saved.defaultMaxTokens != null ? String(saved.defaultMaxTokens) : '');
         this.analysisStrategySaving.set(false);
         this.toast.success('Analysis strategy saved');
       },

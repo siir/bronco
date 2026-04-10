@@ -990,11 +990,12 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
   const analysisStrategySchema = z.object({
     strategy: z.enum(['full_context', 'orchestrated']).default('full_context'),
     maxParallelTasks: z.coerce.number().int().min(1).max(10).default(3),
+    defaultMaxTokens: z.coerce.number().int().min(1024).max(32768).nullable().default(null),
   });
 
   type AnalysisStrategyConfig = z.output<typeof analysisStrategySchema>;
 
-  const DEFAULT_ANALYSIS_STRATEGY: AnalysisStrategyConfig = { strategy: 'full_context', maxParallelTasks: 3 };
+  const DEFAULT_ANALYSIS_STRATEGY: AnalysisStrategyConfig = { strategy: 'full_context', maxParallelTasks: 3, defaultMaxTokens: null };
 
   // GET /api/settings/analysis-strategy
   fastify.get('/api/settings/analysis-strategy', async () => {
