@@ -98,7 +98,7 @@ export class CategoryConfigDialogComponent implements OnInit {
 
   parseSortOrder(val: string): number {
     const n = parseInt(val, 10);
-    return Number.isNaN(n) ? 0 : n;
+    return Number.isNaN(n) ? 0 : Math.max(0, n);
   }
 
   canSave(): boolean {
