@@ -324,8 +324,8 @@ export interface AnalyzerDeps {
   selfAnalysisQueue?: import('bullmq').Queue;
   /** Optional path for storing full MCP tool result artifacts on disk. */
   artifactStoragePath?: string;
-  /** Max output tokens for orchestrated/agentic AI calls. Defaults to 4096. */
-  analysisMaxTokens?: number;
+  /** Fetches the global default max tokens from DB settings (called per analysis). */
+  loadDefaultMaxTokens?: () => Promise<number | undefined>;
 }
 
 // ---------------------------------------------------------------------------
@@ -2119,7 +2119,7 @@ async function executeOrchestratedSubTask(
         systemPrompt: subTaskSystemPrompt,
         providerOverride: 'CLAUDE',
         modelOverride: model,
-        maxTokens: deps.analysisMaxTokens ?? 4096,
+        maxTokens: defaultMaxTokens,
       });
 
       passInput += response.usage?.inputTokens ?? 0;
@@ -2173,7 +2173,7 @@ async function executeOrchestratedSubTask(
           systemPrompt: 'Summarize the tool results into a structured finding. Do not call additional tools.',
           providerOverride: 'CLAUDE',
           modelOverride: model,
-          maxTokens: deps.analysisMaxTokens ?? 4096,
+          maxTokens: defaultMaxTokens,
         });
 
         passInput += summaryResponse.usage?.inputTokens ?? 0;
@@ -2337,6 +2337,9 @@ async function executeRoutePipeline(
 ): Promise<void> {
   const { db, ai, mailer, mcpDatabaseUrl, senderSignature } = deps;
   const { ticketId, clientId, emailFrom, emailSubject, emailBody, emailMessageId } = ctx;
+
+  // Resolve default max tokens from DB settings (fresh read per pipeline execution)
+  const defaultMaxTokens = await deps.loadDefaultMaxTokens?.() ?? undefined;
 
   const safeName = sanitizeName(route.name);
   appLog.info(`Executing route "${safeName}" (${route.steps.length} steps)`, { ticketId, routeId: route.id, routeName: safeName }, ticketId, 'ticket');
@@ -3010,7 +3013,7 @@ async function executeRoutePipeline(
               systemPrompt: ORCHESTRATED_SYSTEM_PROMPT,
               providerOverride: 'CLAUDE',
               modelOverride: 'claude-opus-4-6',
-              maxTokens: deps.analysisMaxTokens ?? 4096,
+              maxTokens: defaultMaxTokens,
             });
 
             orchTotalInputTokens += strategistResponse.usage?.inputTokens ?? 0;
@@ -3221,7 +3224,7 @@ async function executeRoutePipeline(
               tools: agenticTools,
               messages,
               context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!(clientContext || environmentContext) },
-              maxTokens: deps.analysisMaxTokens ?? 4096,
+              maxTokens: defaultMaxTokens,
             });
           } catch (error) {
             if (error instanceof Error && /tool/i.test(error.message) && /support/i.test(error.message)) {

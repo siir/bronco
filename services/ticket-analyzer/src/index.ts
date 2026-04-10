@@ -83,7 +83,7 @@ async function main(): Promise<void> {
     mcpAuthToken: config.MCP_AUTH_TOKEN,
     selfAnalysisQueue,
     artifactStoragePath: config.ARTIFACT_STORAGE_PATH,
-    analysisMaxTokens: await loadDefaultMaxTokens(db),
+    loadDefaultMaxTokens: () => loadDefaultMaxTokens(db),
   });
   const analysisWorker = createWorker<AnalysisJob>(
     'ticket-analysis',
