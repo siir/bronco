@@ -31,6 +31,8 @@ import {
 } from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service';
 
+const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External Services', 'Action Safety', 'Analysis Strategy', 'Self Analysis'] as const;
+
 @Component({
   standalone: true,
   imports: [
@@ -689,10 +691,10 @@ export class SettingsComponent implements OnInit {
   trackActionSafety = (row: { actionType: string }) => row.actionType;
 
   ngOnInit(): void {
-    const tabParam = this.route.snapshot.queryParamMap.get('tab');
-    if (tabParam !== null) {
-      const tab = Number(tabParam);
-      if (Number.isInteger(tab) && tab >= 0 && tab <= 7) this.selectedTab.set(tab);
+    const tabSlug = this.route.snapshot.queryParamMap.get('tab');
+    if (tabSlug) {
+      const idx = TAB_LABELS.findIndex(l => this.toSlug(l) === tabSlug);
+      if (idx >= 0) this.selectedTab.set(idx);
     }
     this.loadUsers();
     this.loadSuperAdmin();
@@ -706,7 +708,17 @@ export class SettingsComponent implements OnInit {
 
   onTabChange(index: number): void {
     this.selectedTab.set(index);
-    this.router.navigate([], { queryParams: { tab: index }, queryParamsHandling: 'merge', replaceUrl: true });
+    const slug = this.toSlug(TAB_LABELS[index] ?? '');
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { tab: slug || null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  private toSlug(label: string): string {
+    return label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   }
 
   // ─── General tab ───

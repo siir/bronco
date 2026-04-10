@@ -1,4 +1,5 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
+import { ActivatedRoute, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { environment } from '../../../environments/environment';
@@ -66,6 +67,8 @@ const EMAIL_TARGET_OPTIONS = [
   { value: 'custom', label: 'Custom Email' },
 ];
 
+const TAB_LABELS = ['Event Notifications', 'Operational Alerts'] as const;
+
 @Component({
   standalone: true,
   imports: [
@@ -85,7 +88,7 @@ const EMAIL_TARGET_OPTIONS = [
       <h1 class="page-title">Notifications</h1>
       <p class="subtitle">Configure event notifications and operational alerts.</p>
 
-      <app-tab-group [selectedIndex]="selectedTab()" (selectedIndexChange)="selectedTab.set($event)">
+      <app-tab-group [selectedIndex]="selectedTab()" (selectedIndexChange)="onTabChange($event)">
 
         <app-tab label="Event Notifications">
           @if (loading()) {
@@ -406,6 +409,8 @@ const EMAIL_TARGET_OPTIONS = [
 export class NotificationPreferencesComponent implements OnInit {
   private http = inject(HttpClient);
   private toast = inject(ToastService);
+  private route = inject(ActivatedRoute);
+  private router = inject(Router);
 
   selectedTab = signal(0);
   loading = signal(true);
@@ -436,9 +441,29 @@ export class NotificationPreferencesComponent implements OnInit {
   operatorEmailOptions = signal<Array<{ value: string; label: string }>>([]);
 
   ngOnInit(): void {
+    const tabSlug = this.route.snapshot.queryParamMap.get('tab');
+    if (tabSlug) {
+      const idx = TAB_LABELS.findIndex(l => this.toSlug(l) === tabSlug);
+      if (idx >= 0) this.selectedTab.set(idx);
+    }
     this.load();
     this.loadOperators();
     this.loadAlertConfig();
+  }
+
+  onTabChange(index: number): void {
+    this.selectedTab.set(index);
+    const slug = this.toSlug(TAB_LABELS[index] ?? '');
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { tab: slug || null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  private toSlug(label: string): string {
+    return label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   }
 
   private loadOperators(): void {

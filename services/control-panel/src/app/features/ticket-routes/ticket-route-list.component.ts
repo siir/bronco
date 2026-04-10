@@ -1,4 +1,5 @@
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
+import { ActivatedRoute, Router } from '@angular/router';
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TicketRouteService, TicketRoute, TicketRouteStep, RouteStepTypeInfo } from '../../core/services/ticket-route.service';
@@ -15,6 +16,8 @@ import {
   ToggleSwitchComponent,
 } from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service';
+
+const TAB_LABELS = ['Ingestion Routes', 'Analysis Routes'] as const;
 
 const CATEGORIES = [
   { value: 'DATABASE_PERF', label: 'Database Perf' },
@@ -457,6 +460,8 @@ export class TicketRouteListComponent implements OnInit {
   private routeService = inject(TicketRouteService);
   private clientService = inject(ClientService);
   private toast = inject(ToastService);
+  private activatedRoute = inject(ActivatedRoute);
+  private router = inject(Router);
 
   // Route dialog state
   showRouteDialog = signal(false);
@@ -489,6 +494,14 @@ export class TicketRouteListComponent implements OnInit {
   ]);
 
   ngOnInit(): void {
+    const tabSlug = this.activatedRoute.snapshot.queryParamMap.get('tab');
+    if (tabSlug) {
+      const idx = TAB_LABELS.findIndex(l => this.toSlug(l) === tabSlug);
+      if (idx >= 0) {
+        this.selectedTab.set(idx);
+        this.activeTab = idx === 0 ? 'INGESTION' : 'ANALYSIS';
+      }
+    }
     this.clientService.getClients().subscribe((c) => this.clients.set(c));
     this.routeService.getStepTypes().subscribe((types) => {
       this.stepTypes.set(types);
@@ -501,6 +514,17 @@ export class TicketRouteListComponent implements OnInit {
   onTabChange(index: number): void {
     this.selectedTab.set(index);
     this.activeTab = index === 0 ? 'INGESTION' : 'ANALYSIS';
+    const slug = this.toSlug(TAB_LABELS[index] ?? '');
+    this.router.navigate([], {
+      relativeTo: this.activatedRoute,
+      queryParams: { tab: slug || null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  private toSlug(label: string): string {
+    return label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   }
 
   loadRoutes(): void {
