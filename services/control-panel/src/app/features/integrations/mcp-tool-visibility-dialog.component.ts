@@ -71,9 +71,11 @@ export class McpToolVisibilityDialogComponent implements OnInit {
   }
 
   enabledToolOptions(): Array<{ value: string; label: string }> {
-    return this.tools()
+    const enabled = this.tools()
       .filter(t => !this.disabledTools.has(t.name))
       .map(t => ({ value: t.name, label: t.description ? `${t.name} — ${t.description}` : t.name }));
+    if (enabled.length === 0) return [];
+    return [{ value: '', label: '— Select a tool —' }, ...enabled];
   }
 
   enable(name: string): void {
