@@ -1776,6 +1776,7 @@ interface StrategistPlan {
   nextPrompt: string | null;
   done: boolean;
   finalAnalysis?: string;
+  parseError?: string;
 }
 
 function parseStrategistResponse(content: string): StrategistPlan {
@@ -1805,12 +1806,14 @@ function parseStrategistResponse(content: string): StrategistPlan {
     );
     // Treat unparseable responses as done to avoid burning tokens on a retry loop.
     // The raw content is surfaced as the final analysis so no work is lost.
+    const errMsg = error instanceof Error ? error.message : String(error);
     return {
       findings: content,
       tasks: [],
       nextPrompt: null,
       done: true,
       finalAnalysis: content,
+      parseError: errMsg,
     };
   }
 }
@@ -3012,6 +3015,14 @@ async function executeRoutePipeline(
             orchTotalOutputTokens += strategistResponse.usage?.outputTokens ?? 0;
 
             const plan = parseStrategistResponse(strategistResponse.content);
+
+            if (plan.parseError) {
+              appLog.error(
+                `Strategist JSON parse failed: ${plan.parseError}. Raw content used as final analysis.`,
+                { ticketId, iteration: i + 1, error: plan.parseError },
+                ticketId, 'ticket',
+              );
+            }
 
             knowledgeDoc += `\n\n### Iteration ${i + 1}\n${plan.findings}`;
 
