@@ -998,12 +998,25 @@ export class TicketDetailComponent implements OnInit {
           current.entries.push(entry);
         }
       } else if (current) {
-        current.entries.push(entry);
+        // For AI entries, try to place them in the group whose step name matches
+        // their taskType (e.g. an EXTRACT_FACTS AI call belongs in the
+        // "Extract Facts (EXTRACT_FACTS)" group, not whichever group happens to
+        // be "current" by timestamp ordering).
+        let target = current;
+        if (entry.type === 'ai' && entry.taskType) {
+          const tt = entry.taskType.toUpperCase();
+          let match: StepGroup | undefined;
+          for (let i = groups.length - 1; i >= 0; i--) {
+            if (groups[i].stepName.toUpperCase().includes(tt)) { match = groups[i]; break; }
+          }
+          if (match) target = match;
+        }
+        target.entries.push(entry);
         if (entry.type === 'ai') {
-          current.aiCallCount++;
-          current.aggrInputTokens += entry.inputTokens ?? 0;
-          current.aggrOutputTokens += entry.outputTokens ?? 0;
-          current.aggrCostUsd += entry.costUsd ?? 0;
+          target.aiCallCount++;
+          target.aggrInputTokens += entry.inputTokens ?? 0;
+          target.aggrOutputTokens += entry.outputTokens ?? 0;
+          target.aggrCostUsd += entry.costUsd ?? 0;
         }
       } else {
         ungrouped.push(entry);
