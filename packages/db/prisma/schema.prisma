@@ -650,6 +650,7 @@ model AppLog {
   error      String?
   parentLogId   String?  @map("parent_log_id") @db.Uuid
   parentLogType String?  @map("parent_log_type")
+  taskRun       Int?     @map("task_run")
   createdAt  DateTime @default(now()) @map("created_at")
 
   @@index([service, createdAt])
@@ -704,6 +705,7 @@ model AiUsageLog {
   conversationMetadata  Json?    @map("conversation_metadata")
   parentLogId   String?  @map("parent_log_id") @db.Uuid
   parentLogType String?  @map("parent_log_type")
+  taskRun       Int?     @map("task_run")
   createdAt    DateTime @default(now()) @map("created_at")
 
   archive AiPromptArchive?

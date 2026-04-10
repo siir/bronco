@@ -692,6 +692,7 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
       conversationMetadata?: unknown;
       parentLogId?: string | null;
       parentLogType?: string | null;
+      taskRun?: number | null;
       archive?: {
         fullPrompt: string;
         fullResponse: string;
@@ -730,6 +731,7 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
         durationMs: (ctx?.durationMs as number | null) ?? null,
         parentLogId: log.parentLogId ?? null,
         parentLogType: log.parentLogType ?? null,
+        taskRun: log.taskRun ?? null,
       });
     }
 
@@ -752,6 +754,7 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
         conversationMetadata: ai.conversationMetadata,
         parentLogId: ai.parentLogId ?? null,
         parentLogType: ai.parentLogType ?? null,
+        taskRun: ai.taskRun ?? null,
         archive: (ai as unknown as { archive?: UnifiedEntry['archive'] }).archive ?? null,
       });
     }

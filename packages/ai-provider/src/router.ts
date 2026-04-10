@@ -236,6 +236,7 @@ export class AIRouter {
       const logId = request.context?.logId as string | undefined;
       const parentLogId = request.context?.parentLogId as string | undefined;
       const parentLogType = request.context?.parentLogType as 'ai' | 'app' | undefined;
+      const taskRun = request.context?.taskRun as number | undefined;
       this.usageWriter({
         ...(logId ? { id: logId } : {}),
         provider: response.provider,
@@ -256,6 +257,7 @@ export class AIRouter {
         conversationMetadata: convMeta,
         ...(parentLogId ? { parentLogId } : {}),
         ...(parentLogType ? { parentLogType } : {}),
+        ...(taskRun != null ? { taskRun } : {}),
       }).then((usageLogId) => {
         if (archiveWriter && typeof usageLogId === 'string' && usageLogId) {
           archiveWriter({
@@ -400,6 +402,7 @@ export class AIRouter {
       const logId = request.context?.logId as string | undefined;
       const parentLogId = request.context?.parentLogId as string | undefined;
       const parentLogType = request.context?.parentLogType as 'ai' | 'app' | undefined;
+      const taskRun = request.context?.taskRun as number | undefined;
       this.usageWriter({
         ...(logId ? { id: logId } : {}),
         provider: response.provider,
@@ -420,6 +423,7 @@ export class AIRouter {
         conversationMetadata: convMeta,
         ...(parentLogId ? { parentLogId } : {}),
         ...(parentLogType ? { parentLogType } : {}),
+        ...(taskRun != null ? { taskRun } : {}),
       }).then((usageLogId) => {
         if (archiveWriter && typeof usageLogId === 'string' && usageLogId) {
           archiveWriter({

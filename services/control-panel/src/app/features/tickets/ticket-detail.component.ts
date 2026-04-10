@@ -38,6 +38,7 @@ interface StepGroup {
   aggrCostUsd: number;
   aiCallCount: number;
   expanded: boolean;
+  taskRun?: number | null;
 }
 
 interface ConvTreeNode {
@@ -1131,6 +1132,7 @@ export class TicketDetailComponent implements OnInit {
           aggrCostUsd: 0,
           aiCallCount: 0,
           expanded: true,
+          taskRun: entry.taskRun ?? null,
         };
         groups.push(current);
       } else if (entry.type === 'step' && (msg.includes('step completed') || msg.includes('step failed') || msg.includes('step skipped'))) {
@@ -1139,12 +1141,15 @@ export class TicketDetailComponent implements OnInit {
           current.entries.push(entry);
         }
       } else if (current) {
-        // For AI entries, try to place them in the group whose step name matches
-        // their taskType (e.g. an EXTRACT_FACTS AI call belongs in the
-        // "Extract Facts (EXTRACT_FACTS)" group, not whichever group happens to
-        // be "current" by timestamp ordering).
+        // Match entries to groups: prefer taskRun (exact), fall back to taskType name match
         let target = current;
-        if (entry.type === 'ai' && entry.taskType) {
+        if (entry.taskRun != null) {
+          let match: StepGroup | undefined;
+          for (let i = groups.length - 1; i >= 0; i--) {
+            if (groups[i].taskRun === entry.taskRun) { match = groups[i]; break; }
+          }
+          if (match) target = match;
+        } else if (entry.type === 'ai' && entry.taskType) {
           const tt = entry.taskType.toUpperCase();
           let match: StepGroup | undefined;
           for (let i = groups.length - 1; i >= 0; i--) {

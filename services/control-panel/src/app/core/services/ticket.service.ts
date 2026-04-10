@@ -143,6 +143,7 @@ export interface UnifiedLogEntry {
   // lineage fields
   parentLogId?: string | null;
   parentLogType?: 'ai' | 'app' | null;
+  taskRun?: number | null;
 }
 
 export interface UnifiedLogsResponse {

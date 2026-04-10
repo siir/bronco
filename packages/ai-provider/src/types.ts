@@ -32,6 +32,7 @@ export interface AiUsageEntry {
   conversationMetadata?: ConversationMetadata | null;
   parentLogId?: string | null;
   parentLogType?: 'ai' | 'app' | null;
+  taskRun?: number | null;
 }
 
 /** Lightweight conversation metadata persisted permanently on the usage log. */
