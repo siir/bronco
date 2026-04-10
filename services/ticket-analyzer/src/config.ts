@@ -23,6 +23,9 @@ const configSchema = z.object({
   REPO_WORKSPACE_PATH: z.string().default('/tmp/bronco-repos'),
   REPO_RETENTION_DAYS: z.coerce.number().min(1).default(14),
   HEALTH_PORT: z.coerce.number().default(3106),
+  // Max output tokens for orchestrated/agentic AI calls (strategist, sub-tasks).
+  // Raise this if strategist JSON responses are being truncated mid-output.
+  ANALYSIS_MAX_TOKENS: z.coerce.number().min(1024).default(4096),
 });
 
 export type Config = z.output<typeof configSchema>;

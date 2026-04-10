@@ -71,6 +71,7 @@ async function main(): Promise<void> {
     mcpAuthToken: config.MCP_AUTH_TOKEN,
     selfAnalysisQueue,
     artifactStoragePath: config.ARTIFACT_STORAGE_PATH,
+    analysisMaxTokens: config.ANALYSIS_MAX_TOKENS,
   });
   const analysisWorker = createWorker<AnalysisJob>(
     'ticket-analysis',

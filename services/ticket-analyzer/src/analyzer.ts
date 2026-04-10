@@ -324,6 +324,8 @@ export interface AnalyzerDeps {
   selfAnalysisQueue?: import('bullmq').Queue;
   /** Optional path for storing full MCP tool result artifacts on disk. */
   artifactStoragePath?: string;
+  /** Max output tokens for orchestrated/agentic AI calls. Defaults to 4096. */
+  analysisMaxTokens?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -2117,7 +2119,7 @@ async function executeOrchestratedSubTask(
         systemPrompt: subTaskSystemPrompt,
         providerOverride: 'CLAUDE',
         modelOverride: model,
-        maxTokens: 4096,
+        maxTokens: deps.analysisMaxTokens ?? 4096,
       });
 
       passInput += response.usage?.inputTokens ?? 0;
@@ -2171,7 +2173,7 @@ async function executeOrchestratedSubTask(
           systemPrompt: 'Summarize the tool results into a structured finding. Do not call additional tools.',
           providerOverride: 'CLAUDE',
           modelOverride: model,
-          maxTokens: 4096,
+          maxTokens: deps.analysisMaxTokens ?? 4096,
         });
 
         passInput += summaryResponse.usage?.inputTokens ?? 0;
@@ -3008,7 +3010,7 @@ async function executeRoutePipeline(
               systemPrompt: ORCHESTRATED_SYSTEM_PROMPT,
               providerOverride: 'CLAUDE',
               modelOverride: 'claude-opus-4-6',
-              maxTokens: 4096,
+              maxTokens: deps.analysisMaxTokens ?? 4096,
             });
 
             orchTotalInputTokens += strategistResponse.usage?.inputTokens ?? 0;
@@ -3219,7 +3221,7 @@ async function executeRoutePipeline(
               tools: agenticTools,
               messages,
               context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!(clientContext || environmentContext) },
-              maxTokens: 4096,
+              maxTokens: deps.analysisMaxTokens ?? 4096,
             });
           } catch (error) {
             if (error instanceof Error && /tool/i.test(error.message) && /support/i.test(error.message)) {
