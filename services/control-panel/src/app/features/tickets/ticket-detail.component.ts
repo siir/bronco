@@ -741,6 +741,7 @@ export class TicketDetailComponent implements OnInit {
     return labels;
   });
 
+
   logsTabLabel = computed(() => {
     const total = this.unifiedLogsTotal();
     return total > 0 ? `Logs (${total})` : 'Logs';
