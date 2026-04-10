@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { LogSummaryService, type LogSummary, type LogSummaryType, type AttentionLevel } from '../../core/services/log-summary.service';
 import { BroncoButtonComponent, SelectComponent, PaginatorComponent, type PaginatorPageEvent } from '../../shared/components/index.js';
+import { MarkdownPipe } from '../../shared/pipes/markdown.pipe.js';
 import { ToastService } from '../../core/services/toast.service';
 
 const TYPE_META: Record<LogSummaryType, { label: string; color: string }> = {
@@ -18,6 +19,7 @@ const TYPE_META: Record<LogSummaryType, { label: string; color: string }> = {
   imports: [
     NgClass,
     FormsModule,
+    MarkdownPipe,
     RouterLink,
     BroncoButtonComponent,
     SelectComponent,
@@ -77,7 +79,7 @@ const TYPE_META: Record<LogSummaryType, { label: string; color: string }> = {
                 </span>
               </div>
             </div>
-            <p class="summary-text">{{ s.summary }}</p>
+            <div class="summary-text" [innerHTML]="cleanSummary(s.summary) | markdown"></div>
             <div class="service-chips">
               @for (svc of s.services; track svc) {
                 <span class="service-chip">{{ svc }}</span>
@@ -248,6 +250,16 @@ export class ActivityFeedComponent implements OnInit, OnDestroy {
         this.toast.error('Failed to generate summaries');
       },
     });
+  }
+
+  cleanSummary(raw: string): string {
+    const stripped = raw.trim().replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/, '').trim();
+    try {
+      const parsed = JSON.parse(stripped) as Record<string, unknown>;
+      return typeof parsed['summary'] === 'string' ? parsed['summary'] : stripped;
+    } catch {
+      return stripped;
+    }
   }
 
   typeLabel(summaryType: LogSummaryType): string {
