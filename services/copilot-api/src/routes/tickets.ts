@@ -715,6 +715,7 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
         continue;
       }
 
+      const ctx = log.context as Record<string, unknown> | null;
       entries.push({
         id: log.id,
         type: entryType,
@@ -724,6 +725,7 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
         message: log.message,
         context: log.context,
         error: log.error,
+        durationMs: (ctx?.durationMs as number | null) ?? null,
       });
     }
 
