@@ -165,6 +165,17 @@ export interface TicketCostSummary {
   }>;
 }
 
+export interface TicketArtifact {
+  id: string;
+  ticketId: string | null;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  storagePath: string;
+  description: string | null;
+  createdAt: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class TicketService {
   private api = inject(ApiService);
@@ -231,6 +242,14 @@ export class TicketService {
 
   updateKnowledgeDoc(ticketId: string, knowledgeDoc: string | null): Observable<Ticket> {
     return this.api.patch<Ticket>(`/tickets/${ticketId}`, { knowledgeDoc });
+  }
+
+  getArtifacts(ticketId: string): Observable<TicketArtifact[]> {
+    return this.api.get<TicketArtifact[]>(`/tickets/${ticketId}/artifacts`);
+  }
+
+  getArtifactDownloadUrl(artifactId: string): string {
+    return `/api/artifacts/${artifactId}/download`;
   }
 }
 

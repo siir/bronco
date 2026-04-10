@@ -4,7 +4,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CommonModule, DatePipe, DecimalPipe, JsonPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
-import { TicketService, Ticket, TicketEvent, type PendingAction, type UnifiedLogEntry, type TicketCostSummary, type AiHelpResponse } from '../../core/services/ticket.service';
+import { TicketService, Ticket, TicketEvent, type PendingAction, type UnifiedLogEntry, type TicketCostSummary, type AiHelpResponse, type TicketArtifact } from '../../core/services/ticket.service';
 import { LogSummaryService, type LogSummary } from '../../core/services/log-summary.service';
 import { AiUsageService, type TicketCostResponse } from '../../core/services/ai-usage.service';
 import { AiHelpDialogComponent } from '../../shared/components/ai-help-dialog.component';
@@ -273,6 +273,9 @@ interface ConvTreeNode {
                       @if (entry.level) { <span class="log-level-badge log-badge-{{ entry.level.toLowerCase() }}">{{ entry.level }}</span> }
                       @if (entry.service) { <span class="log-service">{{ entry.service }}</span> }
                       <span class="log-message">{{ entry.message }}</span>
+                      @if (entry.context?.['artifactId']) {
+                        <a class="artifact-link" [href]="ticketService.getArtifactDownloadUrl('' + entry.context!['artifactId'])" download>&#x2B73; Full output</a>
+                      }
                     </div>
                     @if (entry.context && hasKeys(entry.context)) {
                       <app-bronco-button variant="ghost" size="sm" class="log-expand-btn" (click)="expandedLogs[entry.id] = !expandedLogs[entry.id]">
@@ -335,6 +338,9 @@ interface ConvTreeNode {
                                 @if (entry.level) { <span class="log-level-badge log-badge-{{ entry.level.toLowerCase() }}">{{ entry.level }}</span> }
                                 @if (entry.service) { <span class="log-service">{{ entry.service }}</span> }
                                 <span class="log-message">{{ entry.message }}</span>
+                                @if (entry.context?.['artifactId']) {
+                                  <a class="artifact-link" [href]="ticketService.getArtifactDownloadUrl('' + entry.context!['artifactId'])" download>&#x2B73; Full output</a>
+                                }
                               }
                             </div>
                             @if (entry.type === 'ai') {
@@ -462,6 +468,9 @@ interface ConvTreeNode {
                       <div class="conv-tool-entry">
                         <span class="conv-tool-icon" aria-hidden="true">\u{1F527}</span>
                         <span class="conv-tool-msg">{{ node.entry.message }}</span>
+                        @if (node.entry.context?.['artifactId']) {
+                          <a class="artifact-link" [href]="ticketService.getArtifactDownloadUrl('' + node.entry.context!['artifactId'])" download>&#x2B73; Full output</a>
+                        }
                       </div>
                     } @else {
                       <div class="conv-log-entry conv-log-{{ node.entry.level?.toLowerCase() ?? 'info' }}">
@@ -623,6 +632,30 @@ interface ConvTreeNode {
               [generating]="generatingLogs()"
               (generate)="generateLogSummary()" />
           </app-tab>
+          <app-tab label="Artifacts">
+            @if (!artifactsLoaded()) {
+              <div class="load-prompt" (click)="loadArtifacts()">Activate to load artifacts</div>
+            } @else if (artifacts().length === 0) {
+              <div class="empty-state">No artifacts for this ticket.</div>
+            } @else {
+              <div class="artifacts-list">
+                @for (a of artifacts(); track a.id) {
+                  <div class="artifact-row">
+                    <div class="artifact-info">
+                      <span class="artifact-filename">{{ a.filename }}</span>
+                      <span class="artifact-meta">{{ a.mimeType }} &middot; {{ formatBytes(a.sizeBytes) }} &middot; {{ formatTime(a.createdAt) }}</span>
+                      @if (a.description) {
+                        <span class="artifact-desc">{{ a.description }}</span>
+                      }
+                    </div>
+                    <a class="artifact-dl" [href]="ticketService.getArtifactDownloadUrl(a.id)" download>
+                      <span aria-hidden="true">&#x2B73;</span> Download
+                    </a>
+                  </div>
+                }
+              </div>
+            }
+          </app-tab>
           <app-tab label="Timeline">
             <app-ticket-detail-timeline
               [events]="events()"
@@ -672,7 +705,7 @@ interface ConvTreeNode {
 export class TicketDetailComponent implements OnInit {
   id = input.required<string>();
 
-  private ticketService = inject(TicketService);
+  readonly ticketService = inject(TicketService);
   private logSummaryService = inject(LogSummaryService);
   private aiUsageService = inject(AiUsageService);
   private destroyRef = inject(DestroyRef);
@@ -721,6 +754,8 @@ export class TicketDetailComponent implements OnInit {
   convPromptExpanded: Record<string, boolean> = {};
   convCollapsed: Record<string, boolean> = {};
   convTreeRoots = signal<ConvTreeNode[]>([]);
+  artifacts = signal<TicketArtifact[]>([]);
+  artifactsLoaded = signal(false);
 
   // Tab tracking
   selectedTabIndex = signal(0);
@@ -737,6 +772,7 @@ export class TicketDetailComponent implements OnInit {
     if (t?.knowledgeDoc || this.editingKnowledgeDoc()) labels.push('Knowledge');
     labels.push('Logs');
     labels.push('Log Digest');
+    labels.push('Artifacts');
     labels.push('Timeline');
     return labels;
   });
@@ -1309,6 +1345,22 @@ export class TicketDetailComponent implements OnInit {
           this.toast.error('Failed to generate log summary');
         },
       });
+  }
+
+  loadArtifacts(): void {
+    this.ticketService.getArtifacts(this.id()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (list) => {
+        this.artifacts.set(list);
+        this.artifactsLoaded.set(true);
+      },
+      error: () => this.toast.error('Failed to load artifacts'),
+    });
+  }
+
+  formatBytes(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
   updateStatus(status: string): void {

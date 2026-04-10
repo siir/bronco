@@ -8,6 +8,14 @@ import type { Config } from '../config.js';
 export async function artifactRoutes(fastify: FastifyInstance, opts: { config: Config }): Promise<void> {
   const storagePath = opts.config.ARTIFACT_STORAGE_PATH;
 
+  fastify.get<{ Params: { ticketId: string } }>('/api/tickets/:ticketId/artifacts', async (request) => {
+    const artifacts = await fastify.db.artifact.findMany({
+      where: { ticketId: request.params.ticketId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return artifacts;
+  });
+
   fastify.get<{ Params: { id: string } }>('/api/artifacts/:id', async (request) => {
     const artifact = await fastify.db.artifact.findUnique({
       where: { id: request.params.id },

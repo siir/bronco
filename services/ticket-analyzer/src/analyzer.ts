@@ -1992,6 +1992,7 @@ async function saveMcpToolArtifact(
   toolName: string,
   rawResult: string,
   storagePath: string,
+  artifactId?: string,
 ): Promise<void> {
   try {
     let isJson = false;
@@ -2013,6 +2014,7 @@ async function saveMcpToolArtifact(
     const relativePath = `tickets/${ticketId}/${filename}`;
     await db.artifact.create({
       data: {
+        ...(artifactId ? { id: artifactId } : {}),
         ticketId,
         filename,
         mimeType,
@@ -2153,8 +2155,9 @@ async function executeOrchestratedSubTask(
             content: result.result,
             ...(result.isError ? { is_error: true } : {}),
           });
+          const artifactId = deps.artifactStoragePath && !result.isError ? randomUUID() : undefined;
           if (deps.artifactStoragePath && !result.isError) {
-            void saveMcpToolArtifact(deps.db, ticketId, toolUse.name, result.result, deps.artifactStoragePath).catch(error => {
+            void saveMcpToolArtifact(deps.db, ticketId, toolUse.name, result.result, deps.artifactStoragePath, artifactId).catch(error => {
               logger.warn({
                 err: error,
                 ticketId,
@@ -2175,6 +2178,7 @@ async function executeOrchestratedSubTask(
               isError: result.isError ?? false,
               parentLogId: subTaskLogId,
               parentLogType: 'ai',
+              ...(artifactId ? { artifactId } : {}),
             },
             ticketId,
             'ticket',
@@ -3326,8 +3330,9 @@ async function executeRoutePipeline(
               content: result.result,
               ...(result.isError ? { is_error: true } : {}),
             });
+            const agenticArtifactId = deps.artifactStoragePath && !result.isError ? randomUUID() : undefined;
             if (deps.artifactStoragePath && !result.isError) {
-              void saveMcpToolArtifact(deps.db, ticketId, toolUse.name, result.result, deps.artifactStoragePath).catch(error => {
+              void saveMcpToolArtifact(deps.db, ticketId, toolUse.name, result.result, deps.artifactStoragePath, agenticArtifactId).catch(error => {
                 logger.warn({
                   err: error,
                   ticketId,
@@ -3347,6 +3352,7 @@ async function executeRoutePipeline(
                 isError: result.isError ?? false,
                 parentLogId: aiCallId,
                 parentLogType: 'ai',
+                ...(agenticArtifactId ? { artifactId: agenticArtifactId } : {}),
               },
               ticketId,
               'ticket',
