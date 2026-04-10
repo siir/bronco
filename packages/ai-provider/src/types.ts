@@ -32,6 +32,7 @@ export interface AiUsageEntry {
   responseText: string | null;
   billingMode?: string;
   conversationMetadata?: ConversationMetadata | null;
+  taskRun?: number | null;
 }
 
 /** Lightweight conversation metadata persisted permanently on the usage log. */

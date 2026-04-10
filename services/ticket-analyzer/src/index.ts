@@ -13,6 +13,18 @@ import type { ClientLearningJob } from './client-learning-worker.js';
 const logger = createLogger('ticket-analyzer');
 const appLog = new AppLogger('ticket-analyzer');
 
+const ANALYSIS_STRATEGY_KEY = 'system-config-analysis-strategy';
+
+async function loadDefaultMaxTokens(db: import('@bronco/db').PrismaClient): Promise<number | undefined> {
+  try {
+    const row = await db.appSetting.findUnique({ where: { key: ANALYSIS_STRATEGY_KEY } });
+    const val = (row?.value as Record<string, unknown> | null)?.['defaultMaxTokens'];
+    return typeof val === 'number' && val > 0 ? val : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function main(): Promise<void> {
   const config = getConfig();
   const db = getDb();
@@ -71,6 +83,7 @@ async function main(): Promise<void> {
     mcpAuthToken: config.MCP_AUTH_TOKEN,
     selfAnalysisQueue,
     artifactStoragePath: config.ARTIFACT_STORAGE_PATH,
+    loadDefaultMaxTokens: () => loadDefaultMaxTokens(db),
   });
   const analysisWorker = createWorker<AnalysisJob>(
     'ticket-analysis',

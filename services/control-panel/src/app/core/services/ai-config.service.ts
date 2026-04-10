@@ -15,6 +15,7 @@ export interface AiModelConfig {
   clientId: string | null;
   provider: string;
   model: string;
+  maxTokens: number | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -49,12 +50,12 @@ export class AiConfigService {
   }
 
   /** Create a new model config override. */
-  create(data: { taskType: string; scope: string; clientId?: string; provider: string; model: string }): Observable<AiModelConfig> {
+  create(data: { taskType: string; scope: string; clientId?: string; provider: string; model: string; maxTokens?: number | null }): Observable<AiModelConfig> {
     return this.api.post<AiModelConfig>('/ai-config', data);
   }
 
   /** Update an existing model config. */
-  update(id: string, data: { provider?: string; model?: string; isActive?: boolean }): Observable<AiModelConfig> {
+  update(id: string, data: { provider?: string; model?: string; maxTokens?: number | null; isActive?: boolean }): Observable<AiModelConfig> {
     return this.api.patch<AiModelConfig>(`/ai-config/${id}`, data);
   }
 

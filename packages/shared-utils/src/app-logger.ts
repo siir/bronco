@@ -184,6 +184,7 @@ export function createPrismaLogWriter(db: any): AppLogWriter {
   return async (entry: AppLogEntry) => {
     const parentLogId = (entry.context?.parentLogId as string) ?? undefined;
     const parentLogType = (entry.context?.parentLogType as 'ai' | 'app') ?? undefined;
+    const taskRun = entry.context?.taskRun as number | undefined;
     await db.appLog.create({
       data: {
         level: entry.level,
@@ -195,6 +196,7 @@ export function createPrismaLogWriter(db: any): AppLogWriter {
         error: entry.error ?? undefined,
         ...(parentLogId ? { parentLogId } : {}),
         ...(parentLogType ? { parentLogType } : {}),
+        ...(taskRun != null ? { taskRun } : {}),
       },
     });
   };

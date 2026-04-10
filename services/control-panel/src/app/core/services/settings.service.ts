@@ -141,6 +141,7 @@ export interface ActionSafetyConfig {
 export interface AnalysisStrategyConfig {
   strategy: 'full_context' | 'orchestrated';
   maxParallelTasks: number;
+  defaultMaxTokens: number | null;
 }
 
 export interface SelfAnalysisConfig {

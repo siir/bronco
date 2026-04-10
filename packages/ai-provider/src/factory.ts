@@ -42,6 +42,7 @@ export interface AIRouterDb {
         clientId: string | null;
         provider: string;
         model: string;
+        maxTokens: number | null;
         isActive: boolean;
       }>
     >;
@@ -151,6 +152,7 @@ export function createAIRouter(
       clientId: r.clientId,
       provider: r.provider,
       model: r.model,
+      maxTokens: r.maxTokens,
       isActive: r.isActive,
     }));
   });

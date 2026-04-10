@@ -1,11 +1,12 @@
 import { Component, input, output } from '@angular/core';
 import { BroncoButtonComponent, IconComponent } from '../../shared/components/index.js';
+import { MarkdownPipe } from '../../shared/pipes/markdown.pipe.js';
 import { type LogSummary } from '../../core/services/log-summary.service';
 
 @Component({
   selector: 'app-ticket-detail-log-digest',
   standalone: true,
-  imports: [BroncoButtonComponent, IconComponent],
+  imports: [BroncoButtonComponent, IconComponent, MarkdownPipe],
   template: `
     <div class="digest-toolbar">
       <app-bronco-button
@@ -36,7 +37,7 @@ import { type LogSummary } from '../../core/services/log-summary.service';
             {{ ls.logCount }} logs
           </span>
         </div>
-        <p class="log-summary-text">{{ ls.summary }}</p>
+        <div class="log-summary-text" [innerHTML]="cleanSummary(ls.summary) | markdown"></div>
         <div class="log-summary-services">
           @for (svc of ls.services; track svc) {
             <span class="service-chip">{{ svc }}</span>
@@ -134,6 +135,17 @@ export class TicketDetailLogDigestComponent {
   generating = input<boolean>(false);
 
   generate = output<void>();
+
+  /** Strip markdown-fenced JSON wrapper from older AI responses */
+  cleanSummary(raw: string): string {
+    const stripped = raw.trim().replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/, '').trim();
+    try {
+      const parsed = JSON.parse(stripped) as Record<string, unknown>;
+      return typeof parsed['summary'] === 'string' ? parsed['summary'] : stripped;
+    } catch {
+      return stripped;
+    }
+  }
 
   formatTime(dateStr: string): string {
     const d = new Date(dateStr);

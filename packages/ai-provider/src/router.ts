@@ -163,6 +163,14 @@ export class AIRouter {
       }
     }
 
+    // Resolve model config for maxTokens fallback (DB config → prompt config → request)
+    if (!finalRequest.maxTokens && this.modelConfigResolver) {
+      const modelConfig = await this.modelConfigResolver.resolve(finalRequest.taskType, clientId);
+      if (modelConfig.maxTokens) {
+        finalRequest = { ...finalRequest, maxTokens: modelConfig.maxTokens };
+      }
+    }
+
     // Use explicit provider/model override if provided, bypassing normal routing.
     // Cache the clientAiMode result here so we don't call the resolver twice
     // (once in getProvider() and again below for billing mode).
@@ -225,6 +233,7 @@ export class AIRouter {
       // route through getExplicitProvider() which uses platform credentials, not BYOK keys.
       const billingMode = !usedExplicitOverride && cachedAiMode === 'byok' ? 'byok' : 'platform';
       const archiveWriter = this.archiveWriter;
+      const taskRun = request.context?.taskRun as number | undefined;
       this.usageWriter({
         ...(request.context?.logId ? { logId: request.context.logId as string } : {}),
         ...(request.context?.parentLogId ? { parentLogId: request.context.parentLogId as string } : {}),
@@ -245,6 +254,7 @@ export class AIRouter {
         responseText: response.content,
         billingMode,
         conversationMetadata: convMeta,
+        ...(taskRun != null ? { taskRun } : {}),
       }).then((usageLogId) => {
         if (archiveWriter && typeof usageLogId === 'string' && usageLogId) {
           archiveWriter({
@@ -386,6 +396,7 @@ export class AIRouter {
       // otherwise extract the last user message from the messages array.
       const toolPromptText = finalRequest.prompt ?? extractLastUserMessage(finalRequest.messages);
       const archiveWriter = this.archiveWriter;
+      const taskRun = request.context?.taskRun as number | undefined;
       this.usageWriter({
         ...(request.context?.logId ? { logId: request.context.logId as string } : {}),
         ...(request.context?.parentLogId ? { parentLogId: request.context.parentLogId as string } : {}),
@@ -406,6 +417,7 @@ export class AIRouter {
         responseText: response.content,
         billingMode,
         conversationMetadata: convMeta,
+        ...(taskRun != null ? { taskRun } : {}),
       }).then((usageLogId) => {
         if (archiveWriter && typeof usageLogId === 'string' && usageLogId) {
           archiveWriter({

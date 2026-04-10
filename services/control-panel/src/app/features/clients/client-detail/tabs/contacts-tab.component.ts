@@ -8,7 +8,6 @@ import {
   DataTableComponent,
   DataTableColumnComponent,
   DialogComponent,
-  IconComponent,
 } from '../../../../shared/components/index.js';
 import { ContactDialogComponent } from '../../../contacts/contact-dialog.component';
 
@@ -21,7 +20,6 @@ import { ContactDialogComponent } from '../../../contacts/contact-dialog.compone
     DataTableColumnComponent,
     DialogComponent,
     ContactDialogComponent,
-    IconComponent,
   ],
   template: `
     <div class="tab-section">
@@ -47,15 +45,15 @@ import { ContactDialogComponent } from '../../../contacts/contact-dialog.compone
         <app-data-column key="isPrimary" header="Primary" [sortable]="false" width="80px">
           <ng-template #cell let-c>
             @if (c.isPrimary) {
-              <app-icon name="star" size="sm" class="primary-star" title="Primary contact" />
+              <span class="primary-star" title="Primary contact">&#x2605;</span>
             }
           </ng-template>
         </app-data-column>
         <app-data-column key="actions" header="" [sortable]="false" width="100px">
           <ng-template #cell let-c>
             <div class="row-actions">
-              <app-bronco-button variant="icon" size="sm" ariaLabel="Edit contact" (click)="openEditDialog(c)"><app-icon name="edit" size="sm" /></app-bronco-button>
-              <app-bronco-button variant="icon" size="sm" ariaLabel="Delete contact" (click)="deleteContact(c.id)"><app-icon name="delete" size="sm" /></app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" ariaLabel="Edit contact" (click)="openEditDialog(c)">&#x270E;</app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" ariaLabel="Delete contact" (click)="deleteContact(c.id)">&#x1F5D1;</app-bronco-button>
             </div>
           </ng-template>
         </app-data-column>

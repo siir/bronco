@@ -1,10 +1,10 @@
 import { Component, DestroyRef, inject, OnInit, signal, input, computed } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CommonModule, DatePipe, DecimalPipe, JsonPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
-import { TicketService, Ticket, TicketEvent, type PendingAction, type UnifiedLogEntry, type TicketCostSummary, type AiHelpResponse } from '../../core/services/ticket.service';
+import { TicketService, Ticket, TicketEvent, type PendingAction, type UnifiedLogEntry, type TicketCostSummary, type AiHelpResponse, type TicketArtifact } from '../../core/services/ticket.service';
 import { LogSummaryService, type LogSummary } from '../../core/services/log-summary.service';
 import { AiUsageService, type TicketCostResponse } from '../../core/services/ai-usage.service';
 import { AiHelpDialogComponent } from '../../shared/components/ai-help-dialog.component';
@@ -39,6 +39,7 @@ interface StepGroup {
   aggrCostUsd: number;
   aiCallCount: number;
   expanded: boolean;
+  taskRun?: number | null;
 }
 
 interface ConvTreeNode {
@@ -91,21 +92,24 @@ interface ConvTreeNode {
         </div>
 
         <div class="ticket-meta">
-          <app-select
-            ariaLabel="Priority"
-            [value]="t.priority"
-            [options]="priorityOptions"
-            (valueChange)="updateField('priority', $event)" />
-          <app-select
-            ariaLabel="Status"
-            [value]="t.status"
-            [options]="statusOptions"
-            (valueChange)="updateStatus($event)" />
-          <app-select
-            ariaLabel="Category"
-            [value]="t.category ?? ''"
-            [options]="categoryOptions"
-            (valueChange)="updateField('category', $event || null)" />
+          <app-form-field label="Priority">
+            <app-select
+              [value]="t.priority"
+              [options]="priorityOptions"
+              (valueChange)="updateField('priority', $event)" />
+          </app-form-field>
+          <app-form-field label="Status">
+            <app-select
+              [value]="t.status"
+              [options]="statusOptions"
+              (valueChange)="updateStatus($event)" />
+          </app-form-field>
+          <app-form-field label="Category">
+            <app-select
+              [value]="t.category ?? ''"
+              [options]="categoryOptions"
+              (valueChange)="updateField('category', $event || null)" />
+          </app-form-field>
           <span class="source">via {{ t.source }}</span>
           <span class="date">{{ t.createdAt | date:'medium' }}</span>
           <span class="analysis-badge analysis-{{ t.analysisStatus.toLowerCase() }}">
@@ -131,10 +135,17 @@ interface ConvTreeNode {
           </div>
         }
 
+        @if (flowNodes().length > 0) {
+          <app-ticket-detail-flow [nodes]="flowNodes()" />
+        }
+
         <app-tab-group
           class="info-tabs"
           [selectedIndex]="selectedTabIndex()"
           (selectedIndexChange)="onTabIndexChange($event)">
+          <app-tab label="AI Cost">
+            <app-ticket-detail-cost [cost]="ticketCost()" />
+          </app-tab>
           @if (emailBlurb()) {
             <app-tab label="AI Summary">
               <app-ticket-detail-summary [emailBlurb]="emailBlurb()!" />
@@ -163,6 +174,12 @@ interface ConvTreeNode {
             </app-tab>
           }
           <app-tab [label]="logsTabLabel()">
+            <div class="logs-view-toggle">
+              <button class="view-btn" [class.view-active]="logsView() === 'conversation'" (click)="setLogsView('conversation')">Conversation</button>
+              <button class="view-btn" [class.view-active]="logsView() === 'raw'" (click)="setLogsView('raw')">Raw Logs</button>
+            </div>
+
+            @if (logsView() === 'raw') {
             <!-- Cost summary card -->
             @if (costSummary(); as cs) {
               @if (cs.callCount > 0) {
@@ -255,6 +272,9 @@ interface ConvTreeNode {
                       @if (entry.level) { <span class="log-level-badge log-badge-{{ entry.level.toLowerCase() }}">{{ entry.level }}</span> }
                       @if (entry.service) { <span class="log-service">{{ entry.service }}</span> }
                       <span class="log-message">{{ entry.message }}</span>
+                      @if (entry.context?.['artifactId']) {
+                        <a class="artifact-link" [href]="ticketService.getArtifactDownloadUrl('' + entry.context!['artifactId'])" download>&#x2B73; Full output</a>
+                      }
                     </div>
                     @if (entry.context && hasKeys(entry.context)) {
                       <app-bronco-button variant="ghost" size="sm" class="log-expand-btn" (click)="expandedLogs[entry.id] = !expandedLogs[entry.id]">
@@ -317,6 +337,9 @@ interface ConvTreeNode {
                                 @if (entry.level) { <span class="log-level-badge log-badge-{{ entry.level.toLowerCase() }}">{{ entry.level }}</span> }
                                 @if (entry.service) { <span class="log-service">{{ entry.service }}</span> }
                                 <span class="log-message">{{ entry.message }}</span>
+                                @if (entry.context?.['artifactId']) {
+                                  <a class="artifact-link" [href]="ticketService.getArtifactDownloadUrl('' + entry.context!['artifactId'])" download>&#x2B73; Full output</a>
+                                }
                               }
                             </div>
                             @if (entry.type === 'ai') {
@@ -375,8 +398,7 @@ interface ConvTreeNode {
                 <app-bronco-button variant="secondary" size="sm" (click)="loadMoreUnifiedLogs()">Load more</app-bronco-button>
               </div>
             }
-          </app-tab>
-          <app-tab label="Conversation">
+            } @else {
             @if (conversationLoading()) {
               <div class="indeterminate-bar"><span class="indeterminate-track"></span></div>
             } @else if (!conversationLoaded()) {
@@ -457,6 +479,77 @@ interface ConvTreeNode {
             } @else {
               <!-- Legacy view: flat grouping by step + orchestrationId -->
               <div class="conv-view">
+                @if (hasTreeData()) {
+                <!-- Tree view: entries linked by parentLogId -->
+                @for (node of flattenTree(convTreeRoots()); track node.entry.id) {
+                  <div class="conv-tree-node" [style.padding-left.px]="node.depth * 20">
+                    @if (node.entry.type === 'ai') {
+                      <div class="conv-ai-block">
+                        <div class="conv-ai-header">
+                          @if (node.children.length > 0) {
+                            <button class="conv-collapse-btn" (click)="toggleCollapse(node.entry.id)" [attr.aria-expanded]="!isCollapsed(node.entry.id)">
+                              {{ isCollapsed(node.entry.id) ? '\u25B6' : '\u25BC' }}
+                            </button>
+                          }
+                          <span class="conv-task-type">{{ node.entry.taskType }}</span>
+                          <span class="conv-model">{{ node.entry.model }}</span>
+                          <span class="conv-tokens">{{ node.entry.inputTokens | number }}in / {{ node.entry.outputTokens | number }}out</span>
+                          @if (node.entry.costUsd != null) { <span class="conv-cost">\${{ node.entry.costUsd | number:'1.4-4' }}</span> }
+                          @if (node.children.length > 0) { <span class="conv-child-count">({{ node.children.length }})</span> }
+                        </div>
+                        @if (convMessages(node.entry).length > 0) {
+                          <div class="conv-turns">
+                            @for (turn of convMessages(node.entry); track $index) {
+                              <div class="conv-turn" [ngClass]="'conv-turn-' + turn.role">
+                                <span class="conv-turn-role">{{ turn.role === 'user' ? '\u{1F464}' : '\u{1F916}' }}</span>
+                                @if (turn.toolName) { <span class="conv-tool-call">\u{1F527} {{ turn.toolName }}</span> }
+                                @if (turn.tokenCount) { <span class="conv-token-count">{{ turn.tokenCount | number }} tokens</span> }
+                              </div>
+                            }
+                          </div>
+                        }
+                        @if (node.entry.archive?.fullPrompt || node.entry.promptText) {
+                          <div class="conv-final-response conv-prompt-block">
+                            <span class="conv-final-label">Prompt</span>
+                            <pre class="conv-response-text" [class.clamped]="!convPromptExpanded[node.entry.id]">{{ convPromptText(node.entry) }}</pre>
+                            @if (isMultilineConvPrompt(node.entry)) {
+                              <app-bronco-button variant="ghost" size="sm" class="inline-expand-btn" (click)="convPromptExpanded[node.entry.id] = !convPromptExpanded[node.entry.id]">
+                                {{ convPromptExpanded[node.entry.id] ? 'less' : 'more' }}
+                                <span aria-hidden="true">{{ convPromptExpanded[node.entry.id] ? '\u23F6' : '\u23F7' }}</span>
+                              </app-bronco-button>
+                            }
+                          </div>
+                        }
+                        @if (node.entry.archive?.fullResponse || node.entry.responseText) {
+                          <div class="conv-final-response">
+                            <span class="conv-final-label">Response</span>
+                            <pre class="conv-response-text" [class.clamped]="!convExpanded[node.entry.id]">{{ convResponseText(node.entry) }}</pre>
+                            @if (isMultilineConv(node.entry)) {
+                              <app-bronco-button variant="ghost" size="sm" class="inline-expand-btn" (click)="convExpanded[node.entry.id] = !convExpanded[node.entry.id]">
+                                {{ convExpanded[node.entry.id] ? 'less' : 'more' }}
+                                <span aria-hidden="true">{{ convExpanded[node.entry.id] ? '\u23F6' : '\u23F7' }}</span>
+                              </app-bronco-button>
+                            }
+                          </div>
+                        }
+                      </div>
+                    } @else if (node.entry.type === 'tool') {
+                      <div class="conv-tool-entry">
+                        <span class="conv-tool-icon" aria-hidden="true">\u{1F527}</span>
+                        <span class="conv-tool-msg">{{ node.entry.message }}</span>
+                        @if (node.entry.context?.['artifactId']) {
+                          <a class="artifact-link" [href]="ticketService.getArtifactDownloadUrl('' + node.entry.context!['artifactId'])" download>&#x2B73; Full output</a>
+                        }
+                      </div>
+                    } @else {
+                      <div class="conv-log-entry conv-log-{{ node.entry.level?.toLowerCase() ?? 'info' }}">
+                        <span class="conv-log-msg">{{ node.entry.message }}</span>
+                      </div>
+                    }
+                  </div>
+                }
+                } @else {
+                <!-- Legacy flat view: step groups + orchestration fallback -->
                 @for (group of convStepGroups(); track $index) {
                   <div class="conv-step-section">
                     <div class="conv-step-label">
@@ -507,7 +600,7 @@ interface ConvTreeNode {
                               }
                             </div>
                           }
-                          <!-- Nested sub-tasks -->
+                          <!-- Nested sub-tasks (legacy orchestration-based) -->
                           @if (getOrchestrationId(entry); as orchestrationId) {
                             @for (sub of getSubTasks(group.entries, orchestrationId); track sub.id) {
                               <div class="conv-subtask">
@@ -597,7 +690,9 @@ interface ConvTreeNode {
                     </div>
                   }
                 }
+                }
               </div>
+            }
             }
           </app-tab>
           <app-tab label="Log Digest">
@@ -606,33 +701,51 @@ interface ConvTreeNode {
               [generating]="generatingLogs()"
               (generate)="generateLogSummary()" />
           </app-tab>
+          <app-tab label="Artifacts">
+            @if (!artifactsLoaded()) {
+              <div class="load-prompt" (click)="loadArtifacts()">Activate to load artifacts</div>
+            } @else if (artifacts().length === 0) {
+              <div class="empty-state">No artifacts for this ticket.</div>
+            } @else {
+              <div class="artifacts-list">
+                @for (a of artifacts(); track a.id) {
+                  <div class="artifact-row">
+                    <div class="artifact-info">
+                      <span class="artifact-filename">{{ a.filename }}</span>
+                      <span class="artifact-meta">{{ a.mimeType }} &middot; {{ formatBytes(a.sizeBytes) }} &middot; {{ formatTime(a.createdAt) }}</span>
+                      @if (a.description) {
+                        <span class="artifact-desc">{{ a.description }}</span>
+                      }
+                    </div>
+                    <a class="artifact-dl" [href]="ticketService.getArtifactDownloadUrl(a.id)" download>
+                      <span aria-hidden="true">&#x2B73;</span> Download
+                    </a>
+                  </div>
+                }
+              </div>
+            }
+          </app-tab>
+          <app-tab label="Timeline">
+            <app-ticket-detail-timeline
+              [events]="events()"
+              [pendingActionMap]="pendingActionMap()"
+              (approveAction)="approvePendingAction($event)"
+              (dismissAction)="dismissPendingAction($event)" />
+            <app-card padding="md" class="add-comment">
+              <app-form-field label="Add comment">
+                <app-textarea
+                  [value]="newComment"
+                  [rows]="2"
+                  (valueChange)="newComment = $event" />
+              </app-form-field>
+              <div class="comment-actions">
+                <app-bronco-button variant="primary" (click)="addComment()" [disabled]="!newComment">
+                  <span aria-hidden="true">&#x27A4;</span> Add Comment
+                </app-bronco-button>
+              </div>
+            </app-card>
+          </app-tab>
         </app-tab-group>
-
-        @if (flowNodes().length > 0) {
-          <app-ticket-detail-flow [nodes]="flowNodes()" />
-        }
-
-        <app-ticket-detail-cost [cost]="ticketCost()" />
-
-        <app-ticket-detail-timeline
-          [events]="events()"
-          [pendingActionMap]="pendingActionMap()"
-          (approveAction)="approvePendingAction($event)"
-          (dismissAction)="dismissPendingAction($event)" />
-
-        <app-card padding="md" class="add-comment">
-          <app-form-field label="Add comment">
-            <app-textarea
-              [value]="newComment"
-              [rows]="2"
-              (valueChange)="newComment = $event" />
-          </app-form-field>
-          <div class="comment-actions">
-            <app-bronco-button variant="primary" (click)="addComment()" [disabled]="!newComment">
-              <app-icon name="arrow-right" size="sm" /> Add Comment
-            </app-bronco-button>
-          </div>
-        </app-card>
 
         <div class="reanalyze-bar">
           <app-bronco-button variant="secondary" (click)="reanalyze()" [disabled]="reanalyzing()">
@@ -661,11 +774,13 @@ interface ConvTreeNode {
 export class TicketDetailComponent implements OnInit {
   id = input.required<string>();
 
-  private ticketService = inject(TicketService);
+  readonly ticketService = inject(TicketService);
   private logSummaryService = inject(LogSummaryService);
   private aiUsageService = inject(AiUsageService);
   private destroyRef = inject(DestroyRef);
   private toast = inject(ToastService);
+  private route = inject(ActivatedRoute);
+  private router = inject(Router);
 
   showAiHelpDialog = signal(false);
   aiHelpTitle = signal('');
@@ -706,40 +821,43 @@ export class TicketDetailComponent implements OnInit {
   convUngrouped = signal<UnifiedLogEntry[]>([]);
   convExpanded: Record<string, boolean> = {};
   convPromptExpanded: Record<string, boolean> = {};
-  convTree = signal<ConvTreeNode[]>([]);
-  hasLineageData = signal(false);
-
-  /** Pre-flattened tree with visibility tracking — cached via computed signal. */
+  convCollapsed: Record<string, boolean> = {};
+  convTreeRoots = signal<ConvTreeNode[]>([]);
   convTreeFlat = computed<Array<{ node: ConvTreeNode; visible: boolean }>>(() => {
     const result: Array<{ node: ConvTreeNode; visible: boolean }> = [];
-    const flatten = (nodes: ConvTreeNode[], parentVisible: boolean) => {
+    const walk = (nodes: ConvTreeNode[], parentVisible: boolean) => {
       for (const node of nodes) {
-        result.push({ node, visible: parentVisible });
-        if (node.children.length > 0) {
-          flatten(node.children, parentVisible && !node.collapsed);
-        }
+        const visible = parentVisible;
+        result.push({ node, visible });
+        walk(node.children, visible && !node.collapsed);
       }
     };
-    flatten(this.convTree(), true);
+    walk(this.convTreeRoots(), true);
     return result;
   });
+  artifacts = signal<TicketArtifact[]>([]);
+  artifactsLoaded = signal(false);
 
   // Tab tracking
   selectedTabIndex = signal(0);
+  logsView = signal<'raw' | 'conversation'>('conversation');
 
   /** Dynamic tab labels (depends on which conditional tabs are visible). */
   tabsInOrder = computed<string[]>(() => {
     const t = this.ticket();
     const labels: string[] = [];
+    labels.push('AI Cost');
     if (this.emailBlurb()) labels.push('AI Summary');
     if (t?.summary) labels.push('Resolution Summary');
     labels.push('Details');
     if (t?.knowledgeDoc || this.editingKnowledgeDoc()) labels.push('Knowledge');
     labels.push('Logs');
-    labels.push('Conversation');
     labels.push('Log Digest');
+    labels.push('Artifacts');
+    labels.push('Timeline');
     return labels;
   });
+
 
   logsTabLabel = computed(() => {
     const total = this.unifiedLogsTotal();
@@ -887,6 +1005,7 @@ export class TicketDetailComponent implements OnInit {
     this.loadCostSummary();
     this.loadPendingActions();
     this.destroyRef.onDestroy(() => this.stopPolling());
+
   }
 
   loadPendingActions(): void {
@@ -899,9 +1018,28 @@ export class TicketDetailComponent implements OnInit {
     });
   }
 
+  private tabRestored = false;
+
   load(): void {
     this.ticketService.getTicket(this.id()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(t => {
       this.ticket.set(t);
+
+      // Restore tab from query param on first load (after ticket is available so tabsInOrder is correct)
+      if (!this.tabRestored) {
+        this.tabRestored = true;
+        const tabSlug = this.route.snapshot.queryParamMap.get('tab');
+        if (tabSlug) {
+          const labels = this.tabsInOrder();
+          const idx = labels.findIndex(l => this.toSlug(l) === tabSlug);
+          if (idx >= 0) {
+            this.selectedTabIndex.set(idx);
+          }
+        }
+        // Conversation is the default logs view — load it on first ticket load
+        if (this.logsView() === 'conversation') {
+          this.loadConversationEntries();
+        }
+      }
       const incoming = t.events ?? [];
       if (this.knownEventIds.size === 0) {
         this.events.set(incoming);
@@ -1075,6 +1213,7 @@ export class TicketDetailComponent implements OnInit {
           aggrCostUsd: 0,
           aiCallCount: 0,
           expanded: true,
+          taskRun: entry.taskRun ?? null,
         };
         groups.push(current);
       } else if (entry.type === 'step' && (msg.includes('step completed') || msg.includes('step failed') || msg.includes('step skipped'))) {
@@ -1083,12 +1222,28 @@ export class TicketDetailComponent implements OnInit {
           current.entries.push(entry);
         }
       } else if (current) {
-        current.entries.push(entry);
+        // Match entries to groups: prefer taskRun (exact), fall back to taskType name match
+        let target = current;
+        if (entry.taskRun != null) {
+          let match: StepGroup | undefined;
+          for (let i = groups.length - 1; i >= 0; i--) {
+            if (groups[i].taskRun === entry.taskRun) { match = groups[i]; break; }
+          }
+          if (match) target = match;
+        } else if (entry.type === 'ai' && entry.taskType) {
+          const tt = entry.taskType.toUpperCase();
+          let match: StepGroup | undefined;
+          for (let i = groups.length - 1; i >= 0; i--) {
+            if (groups[i].stepName.toUpperCase().includes(tt)) { match = groups[i]; break; }
+          }
+          if (match) target = match;
+        }
+        target.entries.push(entry);
         if (entry.type === 'ai') {
-          current.aiCallCount++;
-          current.aggrInputTokens += entry.inputTokens ?? 0;
-          current.aggrOutputTokens += entry.outputTokens ?? 0;
-          current.aggrCostUsd += entry.costUsd ?? 0;
+          target.aiCallCount++;
+          target.aggrInputTokens += entry.inputTokens ?? 0;
+          target.aggrOutputTokens += entry.outputTokens ?? 0;
+          target.aggrCostUsd += entry.costUsd ?? 0;
         }
       } else {
         ungrouped.push(entry);
@@ -1108,13 +1263,37 @@ export class TicketDetailComponent implements OnInit {
     const { groups, ungrouped } = this.buildGroups(entries);
     this.convStepGroups.set(groups);
     this.convUngrouped.set(ungrouped);
+    this.convTreeRoots.set(this.buildConvTree(entries));
+  }
 
-    // Build lineage tree if any entry has parentLogId
-    const hasLineage = entries.some(e => !!e.parentLogId);
-    this.hasLineageData.set(hasLineage);
-    if (hasLineage) {
-      this.convTree.set(this.buildConvTree(entries));
-    }
+  hasTreeData(): boolean {
+    return this.conversationEntries().some(e => !!e.parentLogId);
+  }
+
+  hasLineageData(): boolean {
+    return this.hasTreeData();
+  }
+
+  toggleCollapse(id: string): void {
+    this.convCollapsed[id] = !this.convCollapsed[id];
+  }
+
+  isCollapsed(id: string): boolean {
+    return !!this.convCollapsed[id];
+  }
+
+  flattenTree(roots: ConvTreeNode[]): ConvTreeNode[] {
+    const result: ConvTreeNode[] = [];
+    const walk = (nodes: ConvTreeNode[]) => {
+      for (const node of nodes) {
+        result.push(node);
+        if (!this.isCollapsed(node.entry.id)) {
+          walk(node.children);
+        }
+      }
+    };
+    walk(roots);
+    return result;
   }
 
   loadConversationEntries(): void {
@@ -1141,9 +1320,25 @@ export class TicketDetailComponent implements OnInit {
   onTabIndexChange(idx: number): void {
     this.selectedTabIndex.set(idx);
     const labels = this.tabsInOrder();
-    if (labels[idx] === 'Conversation') {
+    // Persist tab in query param for refresh
+    const slug = this.toSlug(labels[idx] ?? '');
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { tab: slug || null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  setLogsView(view: 'raw' | 'conversation'): void {
+    this.logsView.set(view);
+    if (view === 'conversation') {
       this.loadConversationEntries();
     }
+  }
+
+  private toSlug(label: string): string {
+    return label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   }
 
   isSubTask(entry: UnifiedLogEntry): boolean {
@@ -1196,7 +1391,7 @@ export class TicketDetailComponent implements OnInit {
 
   toggleConvNode(node: ConvTreeNode): void {
     node.collapsed = !node.collapsed;
-    this.convTree.set([...this.convTree()]);
+    this.convTreeRoots.set([...this.convTreeRoots()]);
   }
 
   convMessages(entry: UnifiedLogEntry): Array<{ role: string; tokenCount?: number; toolName?: string }> {
@@ -1246,6 +1441,22 @@ export class TicketDetailComponent implements OnInit {
           this.toast.error('Failed to generate log summary');
         },
       });
+  }
+
+  loadArtifacts(): void {
+    this.ticketService.getArtifacts(this.id()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (list) => {
+        this.artifacts.set(list);
+        this.artifactsLoaded.set(true);
+      },
+      error: () => this.toast.error('Failed to load artifacts'),
+    });
+  }
+
+  formatBytes(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
   updateStatus(status: string): void {

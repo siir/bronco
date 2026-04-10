@@ -18,10 +18,10 @@ export function registerAllTools(
 
   server.tool(
     'run_query',
-    'Execute a read-only SQL query against a client SQL Server. Only SELECT/WITH queries are allowed. Results are limited to maxRows (default 1000).',
+    'Execute a read-only SQL query against a client SQL Server. Only SELECT and WITH (CTE) queries are accepted. Stored procedure calls (EXEC/EXECUTE), data modification (INSERT/UPDATE/DELETE), DDL (CREATE/ALTER/DROP/TRUNCATE), permissions (GRANT/REVOKE/DENY), backup/restore, sp_configure, xp_*, OPENROWSET, OPENQUERY, and RECONFIGURE are all blocked by the safety filter and will fail. For diagnostic data typically exposed via stored procs (error log, deadlock graphs, blocking sessions), query the corresponding sys.dm_*/sys.fn_* DMVs, Extended Events session ring buffer, or any project-specific SELECT-able views/iTVFs the client has installed. Results are limited to maxRows (default 1000).',
     {
       systemId: z.string().uuid().describe('The system UUID to query'),
-      query: z.string().describe('The SQL SELECT query to execute'),
+      query: z.string().describe('A read-only SQL SELECT or WITH (CTE) query. EXEC, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, and other non-SELECT statements are blocked. Use DMVs or SELECT-able views instead of stored procedures.'),
       maxRows: z.number().int().min(1).max(10000).optional().describe('Maximum rows to return (default 1000)'),
     },
     async (params) => {

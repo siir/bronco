@@ -51,7 +51,7 @@ import { FormFieldComponent, TextInputComponent, TextareaComponent, SelectCompon
           <app-text-input
             [value]="sortOrder.toString()"
             type="number"
-            (valueChange)="sortOrder = +$event" />
+            (valueChange)="sortOrder = parseSortOrder($event)" />
         </app-form-field>
       </div>
     </div>
@@ -99,6 +99,11 @@ export class ClientMemoryDialogComponent implements OnInit {
       this.content = mem.content ?? '';
       this.sortOrder = mem.sortOrder ?? 0;
     }
+  }
+
+  parseSortOrder(val: string): number {
+    const n = parseInt(val, 10);
+    return isNaN(n) ? 0 : n;
   }
 
   save(): void {

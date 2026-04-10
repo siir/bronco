@@ -8,9 +8,8 @@ import {
   DataTableComponent,
   DataTableColumnComponent,
   DialogComponent,
-  IconComponent,
 } from '../../../../shared/components/index.js';
-import { ClientUserDialogComponent } from '../../client-user-dialog.component';
+import { ClientUserDialogComponent } from '../../client-user-dialog.component.js';
 
 @Component({
   selector: 'app-client-users-tab',
@@ -22,7 +21,6 @@ import { ClientUserDialogComponent } from '../../client-user-dialog.component';
     DataTableColumnComponent,
     DialogComponent,
     ClientUserDialogComponent,
-    IconComponent,
   ],
   template: `
     <div class="tab-section">
@@ -68,8 +66,8 @@ import { ClientUserDialogComponent } from '../../client-user-dialog.component';
         <app-data-column key="actions" header="" [sortable]="false" width="100px">
           <ng-template #cell let-u>
             <div class="row-actions">
-              <app-bronco-button variant="icon" size="sm" ariaLabel="Edit user" (click)="openEditDialog(u)"><app-icon name="edit" size="sm" /></app-bronco-button>
-              <app-bronco-button variant="icon" size="sm" ariaLabel="Deactivate user" (click)="deleteUser(u.id)"><app-icon name="lock" size="sm" /></app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" ariaLabel="Edit user" (click)="openEditDialog(u)">&#x270E;</app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" ariaLabel="Deactivate user" (click)="deleteUser(u.id)">&#x1F6AB;</app-bronco-button>
             </div>
           </ng-template>
         </app-data-column>

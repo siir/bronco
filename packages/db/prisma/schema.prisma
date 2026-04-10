@@ -650,6 +650,7 @@ model AppLog {
   error         String?
   parentLogId   String?  @map("parent_log_id") @db.Uuid
   parentLogType String?  @map("parent_log_type")
+  taskRun       Int?     @map("task_run")
   createdAt     DateTime @default(now()) @map("created_at")
 
   @@index([service, createdAt])
@@ -704,6 +705,7 @@ model AiUsageLog {
   conversationMetadata  Json?    @map("conversation_metadata")
   parentLogId   String?  @map("parent_log_id") @db.Uuid
   parentLogType String?  @map("parent_log_type")
+  taskRun       Int?     @map("task_run")
   createdAt    DateTime @default(now()) @map("created_at")
 
   archive AiPromptArchive?
@@ -840,6 +842,7 @@ model AiModelConfig {
   clientId  String?       @map("client_id") @db.Uuid
   provider  String        // "LOCAL" or "CLAUDE"
   model     String        // e.g. "llama3.1:8b", "claude-sonnet-4-5-20250929"
+  maxTokens Int?          @map("max_tokens")
   isActive  Boolean       @default(true) @map("is_active")
   createdAt DateTime      @default(now()) @map("created_at")
   updatedAt DateTime      @updatedAt @map("updated_at")

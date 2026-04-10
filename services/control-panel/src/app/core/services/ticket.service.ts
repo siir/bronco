@@ -141,8 +141,9 @@ export interface UnifiedLogEntry {
   conversationMetadata?: Record<string, unknown> | null;
   // lineage fields
   parentLogId?: string | null;
-  parentLogType?: string | null;
+  parentLogType?: 'ai' | 'app' | null;
   archive?: UnifiedLogArchive | null;
+  taskRun?: number | null;
 }
 
 export interface UnifiedLogsResponse {
@@ -165,6 +166,17 @@ export interface TicketCostSummary {
   }>;
 }
 
+export interface TicketArtifact {
+  id: string;
+  ticketId: string | null;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  storagePath: string;
+  description: string | null;
+  createdAt: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class TicketService {
   private api = inject(ApiService);
@@ -181,7 +193,7 @@ export class TicketService {
     return this.api.get(`/tickets/${id}`);
   }
 
-  createTicket(data: Partial<Ticket> & { clientId: string; subject: string }): Observable<Ticket> {
+  createTicket(data: Partial<Ticket> & { clientId: string; subject: string; requesterId?: string }): Observable<Ticket> {
     return this.api.post<Ticket>('/tickets', data);
   }
 
@@ -231,6 +243,14 @@ export class TicketService {
 
   updateKnowledgeDoc(ticketId: string, knowledgeDoc: string | null): Observable<Ticket> {
     return this.api.patch<Ticket>(`/tickets/${ticketId}`, { knowledgeDoc });
+  }
+
+  getArtifacts(ticketId: string): Observable<TicketArtifact[]> {
+    return this.api.get<TicketArtifact[]>(`/tickets/${ticketId}/artifacts`);
+  }
+
+  getArtifactDownloadUrl(artifactId: string): string {
+    return `/api/artifacts/${artifactId}/download`;
   }
 }
 

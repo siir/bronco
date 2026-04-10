@@ -245,8 +245,14 @@ async function executeIngestionPipeline(
 
   logger.info({ source, clientId, routeId: route!.id, routeName: route!.name, steps: route!.steps.length }, 'Executing ingestion pipeline');
 
+  // Track per-stepType run counter so logs can be grouped by (stepType, taskRun)
+  const taskRunCounter = new Map<string, number>();
+
   for (const step of route!.steps) {
-    logger.info({ stepType: step.stepType, stepName: step.name, clientId }, `Executing ingestion step: ${step.name}`);
+    const currentRun = (taskRunCounter.get(step.stepType) ?? 0) + 1;
+    taskRunCounter.set(step.stepType, currentRun);
+
+    logger.info({ stepType: step.stepType, stepName: step.name, clientId, taskRun: currentRun }, `Executing ingestion step: ${step.name}`);
     const stepId = await safeTracker.startStep(step.stepOrder, step.stepType, step.name);
     const stepStart = Date.now();
 
@@ -357,7 +363,7 @@ async function executeIngestionPipeline(
           const stepDuration = Date.now() - stepStart;
           deps.appLog?.info(
             `Thread resolved: reply to existing ticket via ${threadMethod} (${(stepDuration / 1000).toFixed(1)}s)`,
-            { ticketId: existingTicketId, threadMethod, from: emailFrom, subject: emailSubject, clientId, durationMs: stepDuration },
+            { ticketId: existingTicketId, threadMethod, from: emailFrom, subject: emailSubject, clientId, durationMs: stepDuration, taskRun: currentRun },
             existingTicketId!,
             'ticket',
           );
@@ -378,7 +384,7 @@ async function executeIngestionPipeline(
           logger.info({ clientId, subject: emailSubject }, 'No thread match — proceeding as new ticket');
           deps.appLog?.info(
             `Thread resolved: new email, no matching thread (${(stepDuration / 1000).toFixed(1)}s)`,
-            { clientId, method: 'none', durationMs: stepDuration },
+            { clientId, method: 'none', durationMs: stepDuration, taskRun: currentRun },
           );
           await safeTracker.completeStep(stepId, 'New email — no matching thread');
           stepsSucceeded++;
@@ -408,7 +414,7 @@ async function executeIngestionPipeline(
           const summaryRes = await withTimeout(
             (signal) => ai.generate({
               taskType: taskType as typeof TaskType.SUMMARIZE,
-              context: { clientId },
+              context: { clientId, taskRun: currentRun },
               prompt: `Summarize the following support email in 2-3 concise bullet points:\n\nSubject: ${subject}\n\n${body}`,
               promptKey,
               signal,
@@ -421,7 +427,7 @@ async function executeIngestionPipeline(
           const stepDuration = Date.now() - stepStart;
           deps.appLog?.info(
             `Email summarized: ${ctx.summary.length} chars via ${summaryRes.provider}/${summaryRes.model} (${(stepDuration / 1000).toFixed(1)}s)`,
-            { clientId, summaryLength: ctx.summary.length, provider: summaryRes.provider, model: summaryRes.model, durationMs: stepDuration },
+            { clientId, summaryLength: ctx.summary.length, provider: summaryRes.provider, model: summaryRes.model, durationMs: stepDuration, taskRun: currentRun },
             ctx.ticketId ?? clientId,
             'ticket',
           );
@@ -443,6 +449,13 @@ async function executeIngestionPipeline(
           stepsSkipped++;
           break;
         }
+        // Skip if operator explicitly provided a category in the payload
+        if (payload['category'] && typeof payload['category'] === 'string' && isValidCategory(payload['category'] as string)) {
+          logger.info({ clientId, category: ctx.category }, 'Skipping CATEGORIZE — operator-provided value');
+          await safeTracker.skipStep(stepId, `Operator-provided category: ${ctx.category}`);
+          stepsSkipped++;
+          break;
+        }
         try {
           const promptKey = step.promptKeyOverride ?? 'imap.categorize.system';
           const taskType = (step.taskTypeOverride ?? TaskType.CATEGORIZE) as string;
@@ -452,7 +465,7 @@ async function executeIngestionPipeline(
           const categorizeRes = await withTimeout(
             (signal) => ai.generate({
               taskType: taskType as typeof TaskType.CATEGORIZE,
-              context: { clientId },
+              context: { clientId, taskRun: currentRun },
               prompt: `Categorize this support request into exactly one of: DATABASE_PERF, BUG_FIX, FEATURE_REQUEST, SCHEMA_CHANGE, CODE_REVIEW, ARCHITECTURE, GENERAL.\n\nSubject: ${subject}\n\n${content}\n\nRespond with only the category name.`,
               promptKey,
               signal,
@@ -465,7 +478,7 @@ async function executeIngestionPipeline(
           const stepDuration = Date.now() - stepStart;
           deps.appLog?.info(
             `Categorized as ${ctx.category} via ${categorizeRes.provider}/${categorizeRes.model} (${(stepDuration / 1000).toFixed(1)}s)`,
-            { clientId, category: ctx.category, provider: categorizeRes.provider, model: categorizeRes.model, durationMs: stepDuration },
+            { clientId, category: ctx.category, provider: categorizeRes.provider, model: categorizeRes.model, durationMs: stepDuration, taskRun: currentRun },
             ctx.ticketId ?? clientId,
             'ticket',
           );
@@ -488,6 +501,14 @@ async function executeIngestionPipeline(
           stepsSkipped++;
           break;
         }
+        // Skip if operator explicitly provided a priority in the payload
+        const validPrioritiesCheck = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
+        if (payload['priority'] && typeof payload['priority'] === 'string' && validPrioritiesCheck.includes((payload['priority'] as string).toUpperCase())) {
+          logger.info({ clientId, priority: ctx.priority }, 'Skipping TRIAGE_PRIORITY — operator-provided value');
+          await safeTracker.skipStep(stepId, `Operator-provided priority: ${ctx.priority}`);
+          stepsSkipped++;
+          break;
+        }
         try {
           const promptKey = step.promptKeyOverride ?? 'imap.triage.system';
           const taskType = (step.taskTypeOverride ?? TaskType.TRIAGE) as string;
@@ -496,7 +517,7 @@ async function executeIngestionPipeline(
           const triageRes = await withTimeout(
             (signal) => ai.generate({
               taskType: taskType as typeof TaskType.TRIAGE,
-              context: { clientId },
+              context: { clientId, taskRun: currentRun },
               prompt: `Assess the priority of this support request. Choose one of: LOW, MEDIUM, HIGH, CRITICAL.\n\nSubject: ${subject}\n\n${content}\n\nRespond with only the priority level.`,
               promptKey,
               signal,
@@ -510,7 +531,7 @@ async function executeIngestionPipeline(
           const stepDuration = Date.now() - stepStart;
           deps.appLog?.info(
             `Triaged as ${ctx.priority} via ${triageRes.provider}/${triageRes.model} (${(stepDuration / 1000).toFixed(1)}s)`,
-            { clientId, priority: ctx.priority, provider: triageRes.provider, model: triageRes.model, durationMs: stepDuration },
+            { clientId, priority: ctx.priority, provider: triageRes.provider, model: triageRes.model, durationMs: stepDuration, taskRun: currentRun },
             ctx.ticketId ?? clientId,
             'ticket',
           );
@@ -540,7 +561,7 @@ async function executeIngestionPipeline(
           const titleRes = await withTimeout(
             (signal) => ai.generate({
               taskType: taskType as typeof TaskType.GENERATE_TITLE,
-              context: { clientId },
+              context: { clientId, taskRun: currentRun },
               prompt: `Output ONLY a concise ticket title, max 80 characters. No quotes, no preamble, no explanation — just the title text.\n\n${content.slice(0, 1000)}`,
               ...(promptKey && { promptKey }),
               signal,
@@ -557,7 +578,7 @@ async function executeIngestionPipeline(
           const stepDuration = Date.now() - stepStart;
           deps.appLog?.info(
             `Title generated: "${ctx.title.slice(0, 60)}" via ${titleRes.provider}/${titleRes.model} (${(stepDuration / 1000).toFixed(1)}s)`,
-            { clientId, title: ctx.title, provider: titleRes.provider, model: titleRes.model, durationMs: stepDuration },
+            { clientId, title: ctx.title, provider: titleRes.provider, model: titleRes.model, durationMs: stepDuration, taskRun: currentRun },
             ctx.ticketId ?? clientId,
             'ticket',
           );
@@ -639,7 +660,7 @@ async function executeIngestionPipeline(
                 description: description || null,
                 summary: ctx.summary || null,
                 source: source as never,
-                category: (ctx.category !== 'GENERAL' ? ctx.category : null) as TicketCategory | null,
+                category: ctx.category as TicketCategory | null,
                 priority: ctx.priority as Priority,
                 ticketNumber,
                 externalRef,
@@ -729,7 +750,7 @@ async function executeIngestionPipeline(
         const stepDuration = Date.now() - stepStart;
         deps.appLog?.info(
           `Ticket created: ${ctx.ticketId} (${source}, ${ctx.category}/${ctx.priority}) (${(stepDuration / 1000).toFixed(1)}s)`,
-          { ticketId: ctx.ticketId, source, clientId, category: ctx.category, priority: ctx.priority, durationMs: stepDuration },
+          { ticketId: ctx.ticketId, source, clientId, category: ctx.category, priority: ctx.priority, durationMs: stepDuration, taskRun: currentRun },
           ctx.ticketId,
           'ticket',
         );
@@ -783,7 +804,7 @@ async function executeIngestionPipeline(
           const stepDuration = Date.now() - stepStart;
           deps.appLog?.info(
             `Added ${addedCount} follower(s) (${(stepDuration / 1000).toFixed(1)}s)`,
-            { ticketId: ctx.ticketId, addedCount, durationMs: stepDuration, clientId },
+            { ticketId: ctx.ticketId, addedCount, durationMs: stepDuration, clientId, taskRun: currentRun },
             ctx.ticketId ?? clientId,
             'ticket',
           );
@@ -835,7 +856,7 @@ async function executeIngestionPipeline(
           const draftRes = await withTimeout(
             (signal) => ai.generate({
               taskType: taskType as typeof TaskType.DRAFT_EMAIL,
-              context: { ticketId: ctx.ticketId, clientId },
+              context: { ticketId: ctx.ticketId, clientId, taskRun: currentRun },
               prompt: [
                 'Draft a short, professional email confirming receipt of a support request.',
                 `Recipient name: ${recipientName}`,
@@ -886,7 +907,7 @@ async function executeIngestionPipeline(
               const stepDuration = Date.now() - stepStart;
               deps.appLog?.info(
                 `Receipt email sent to ${emailFrom} via ${draftRes.provider}/${draftRes.model} (${(stepDuration / 1000).toFixed(1)}s)`,
-                { ticketId: ctx.ticketId, to: emailFrom, provider: draftRes.provider, model: draftRes.model, durationMs: stepDuration },
+                { ticketId: ctx.ticketId, to: emailFrom, provider: draftRes.provider, model: draftRes.model, durationMs: stepDuration, taskRun: currentRun },
                 ctx.ticketId!,
                 'ticket',
               );
@@ -1218,7 +1239,7 @@ export function createIngestionProcessor(deps: IngestionDeps) {
           ticketId: ctx.ticketId,
           clientId,
           source: source as TicketSource,
-          category: (ctx.category !== 'GENERAL' ? ctx.category : null) as TicketCreatedJob['category'],
+          category: ctx.category as TicketCreatedJob['category'],
         }, {
           jobId: `ticket-created-${ctx.ticketId}`,
           attempts: 4,

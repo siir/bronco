@@ -27,7 +27,7 @@ export function validateQuery(query: string): ValidationResult {
   if (match) {
     return {
       valid: false,
-      reason: `Blocked keyword detected: ${match[1]}. Only SELECT/WITH (read-only) queries are allowed.`,
+      reason: `Blocked keyword detected: ${match[1]}. The MCP database server only permits read-only SELECT and WITH (CTE) queries. Stored procedure calls (EXEC/EXECUTE), DML, DDL, permissions, backup/restore, and sp_configure/xp_* are blocked by the safety filter. Use a SELECT against the corresponding DMV, Extended Events ring buffer, or installed SELECT-able view instead. Do not retry this query unchanged.`,
     };
   }
 

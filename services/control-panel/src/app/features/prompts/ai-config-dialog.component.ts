@@ -75,6 +75,13 @@ import { FormFieldComponent, TextInputComponent, SelectComponent, BroncoButtonCo
             (valueChange)="model = $event" />
         </app-form-field>
       }
+
+      <app-form-field label="Max Tokens (optional)">
+        <app-text-input
+          [value]="maxTokensStr"
+          placeholder="e.g. 4096, 8192 — leave blank for provider default"
+          (valueChange)="maxTokensStr = $event" />
+      </app-form-field>
     </div>
 
     <div class="dialog-actions" dialogFooter>
@@ -120,6 +127,7 @@ export class AiConfigDialogComponent implements OnInit {
   clientId = '';
   provider = '';
   model = '';
+  maxTokensStr = '';
   clients: Client[] = [];
   taskTypesList: string[] = [];
   codeDefaultVal: { provider: string; model: string } | null = null;
@@ -161,6 +169,7 @@ export class AiConfigDialogComponent implements OnInit {
     this.clientId = cfg?.clientId ?? '';
     this.provider = cfg?.provider ?? '';
     this.model = cfg?.model ?? '';
+    this.maxTokensStr = cfg?.maxTokens != null ? String(cfg.maxTokens) : '';
     this.taskTypesList = this.taskTypes() ?? [];
     this.codeDefaultVal = this.codeDefault() ?? null;
 
@@ -212,9 +221,17 @@ export class AiConfigDialogComponent implements OnInit {
     }
   }
 
+  private get parsedMaxTokens(): number | null {
+    const trimmed = this.maxTokensStr.trim();
+    if (!trimmed) return null;
+    const n = Number(trimmed);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+  }
+
   canSave(): boolean {
     if (!this.taskType || !this.provider || !this.model.trim()) return false;
     if (this.scope === 'CLIENT' && !this.clientId) return false;
+    if (this.maxTokensStr.trim() !== '' && this.parsedMaxTokens === null) return false;
     return true;
   }
 
@@ -223,6 +240,7 @@ export class AiConfigDialogComponent implements OnInit {
       this.aiConfigService.update(this.config()!.id, {
         provider: this.provider,
         model: this.model.trim(),
+        maxTokens: this.parsedMaxTokens,
       }).subscribe({
         next: (result) => {
           this.toast.success('Config updated');
@@ -237,6 +255,7 @@ export class AiConfigDialogComponent implements OnInit {
         clientId: this.scope === 'CLIENT' ? this.clientId : undefined,
         provider: this.provider,
         model: this.model.trim(),
+        maxTokens: this.parsedMaxTokens,
       }).subscribe({
         next: (result) => {
           this.toast.success('Config created');

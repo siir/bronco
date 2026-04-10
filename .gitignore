@@ -45,3 +45,6 @@ systems-config.json
 # User-local scripts
 usr/
 .claude/worktrees/
+
+# Local proxy configs
+proxy.conf.hugo.json

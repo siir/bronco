@@ -31,6 +31,8 @@ import {
 } from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service';
 
+const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External Services', 'Action Safety', 'Analysis Strategy', 'Self Analysis'] as const;
+
 @Component({
   standalone: true,
   imports: [
@@ -352,6 +354,21 @@ import { ToastService } from '../../core/services/toast.service';
                       <input class="text-input" type="number" [value]="analysisMaxParallel()" (input)="setAnalysisMaxParallel(+$any($event.target).value)" min="1" max="10">
                     </app-form-field>
                   }
+
+                  <app-form-field label="Default Max Output Tokens" hint="Global fallback for AI response length. Leave blank for provider default.">
+                    <input class="text-input" type="number" [value]="analysisDefaultMaxTokens()" (input)="analysisDefaultMaxTokens.set($any($event.target).value)" min="1024" max="32768" placeholder="e.g. 8192">
+                  </app-form-field>
+
+                  <div class="priority-hint">
+                    <strong>Max tokens priority order:</strong>
+                    <ol>
+                      <li>Per-call override (code-level)</li>
+                      <li>Prompt config (AI Prompts page)</li>
+                      <li>Per-task/client override (AI Prompts &rarr; AI Tasks)</li>
+                      <li>This global default</li>
+                      <li>Provider default (e.g. Claude 4096)</li>
+                    </ol>
+                  </div>
                 </div>
 
                 <div class="card-actions">
@@ -479,6 +496,20 @@ import { ToastService } from '../../core/services/toast.service';
       font-size: 14px;
     }
 
+    .priority-hint {
+      margin-top: 8px;
+      padding: 10px 14px;
+      background: var(--bg-muted);
+      border-radius: var(--radius-md);
+      font-size: 12px;
+      color: var(--text-tertiary);
+      line-height: 1.6;
+    }
+    .priority-hint strong { color: var(--text-secondary); }
+    .priority-hint ol {
+      margin: 4px 0 0;
+      padding-left: 20px;
+    }
     .form-grid {
       display: flex;
       flex-direction: column;
@@ -666,6 +697,7 @@ export class SettingsComponent implements OnInit {
   // Analysis Strategy tab
   analysisStrategy = signal<string>('full_context');
   analysisMaxParallel = signal(3);
+  analysisDefaultMaxTokens = signal<string>('');
   analysisStrategyLoading = signal(true);
   analysisStrategySaving = signal(false);
   strategyOptions = [
@@ -689,10 +721,10 @@ export class SettingsComponent implements OnInit {
   trackActionSafety = (row: { actionType: string }) => row.actionType;
 
   ngOnInit(): void {
-    const tabParam = this.route.snapshot.queryParamMap.get('tab');
-    if (tabParam !== null) {
-      const tab = Number(tabParam);
-      if (Number.isInteger(tab) && tab >= 0 && tab <= 7) this.selectedTab.set(tab);
+    const tabSlug = this.route.snapshot.queryParamMap.get('tab');
+    if (tabSlug) {
+      const idx = TAB_LABELS.findIndex(l => this.toSlug(l) === tabSlug);
+      if (idx >= 0) this.selectedTab.set(idx);
     }
     this.loadUsers();
     this.loadSuperAdmin();
@@ -706,7 +738,17 @@ export class SettingsComponent implements OnInit {
 
   onTabChange(index: number): void {
     this.selectedTab.set(index);
-    this.router.navigate([], { queryParams: { tab: index }, queryParamsHandling: 'merge', replaceUrl: true });
+    const slug = this.toSlug(TAB_LABELS[index] ?? '');
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { tab: slug || null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  private toSlug(label: string): string {
+    return label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   }
 
   // ─── General tab ───
@@ -956,6 +998,7 @@ export class SettingsComponent implements OnInit {
       next: (config) => {
         this.analysisStrategy.set(config.strategy);
         this.analysisMaxParallel.set(config.maxParallelTasks);
+        this.analysisDefaultMaxTokens.set(config.defaultMaxTokens != null ? String(config.defaultMaxTokens) : '');
         this.analysisStrategyLoading.set(false);
       },
       error: () => {
@@ -973,14 +1016,18 @@ export class SettingsComponent implements OnInit {
 
   saveAnalysisStrategy(): void {
     this.analysisStrategySaving.set(true);
+    const rawMaxTokens = this.analysisDefaultMaxTokens().trim();
+    const parsedMaxTokens = rawMaxTokens ? Number(rawMaxTokens) : null;
     const config = {
       strategy: this.analysisStrategy() as 'full_context' | 'orchestrated',
       maxParallelTasks: Math.min(10, Math.max(1, this.analysisMaxParallel())),
+      defaultMaxTokens: parsedMaxTokens && Number.isFinite(parsedMaxTokens) && parsedMaxTokens > 0 ? Math.floor(parsedMaxTokens) : null,
     };
     this.settingsSvc.saveAnalysisStrategy(config).subscribe({
       next: (saved) => {
         this.analysisStrategy.set(saved.strategy);
         this.analysisMaxParallel.set(saved.maxParallelTasks);
+        this.analysisDefaultMaxTokens.set(saved.defaultMaxTokens != null ? String(saved.defaultMaxTokens) : '');
         this.analysisStrategySaving.set(false);
         this.toast.success('Analysis strategy saved');
       },
