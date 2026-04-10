@@ -640,18 +640,18 @@ model ClientIntegration {
 // --- Application Logs ---
 
 model AppLog {
-  id         String   @id @default(uuid()) @db.Uuid
-  level      LogLevel
-  service    String
-  message    String
-  context    Json?
-  entityId   String?  @map("entity_id") @db.Uuid
-  entityType String?  @map("entity_type") // e.g. "ticket" or "operational_task"
-  error      String?
+  id            String   @id @default(uuid()) @db.Uuid
+  level         LogLevel
+  service       String
+  message       String
+  context       Json?
+  entityId      String?  @map("entity_id") @db.Uuid
+  entityType    String?  @map("entity_type") // e.g. "ticket" or "operational_task"
+  error         String?
   parentLogId   String?  @map("parent_log_id") @db.Uuid
   parentLogType String?  @map("parent_log_type")
   taskRun       Int?     @map("task_run")
-  createdAt  DateTime @default(now()) @map("created_at")
+  createdAt     DateTime @default(now()) @map("created_at")
 
   @@index([service, createdAt])
   @@index([level, createdAt])

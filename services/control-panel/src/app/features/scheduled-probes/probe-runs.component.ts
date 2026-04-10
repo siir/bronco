@@ -11,6 +11,7 @@ import {
   TextInputComponent,
   SelectComponent,
   PaginatorComponent,
+  IconComponent,
   type PaginatorPageEvent,
 } from '../../shared/components/index.js';
 import {
@@ -37,12 +38,13 @@ import { ToastService } from '../../core/services/toast.service';
     TextInputComponent,
     SelectComponent,
     PaginatorComponent,
+    IconComponent,
   ],
   template: `
     <div class="page-wrapper">
       <div class="page-header">
         <div class="header-left">
-          <app-bronco-button variant="ghost" size="sm" routerLink="/scheduled-probes">&larr; Back to Probes</app-bronco-button>
+          <app-bronco-button variant="ghost" size="sm" routerLink="/scheduled-probes"><app-icon name="back" size="sm" /> Back to Probes</app-bronco-button>
           @if (probe()) {
             <h1 class="page-title">
               {{ probe()!.name }}
@@ -98,17 +100,17 @@ import { ToastService } from '../../core/services/toast.service';
             @for (step of currentRun()!.steps ?? []; track step.id) {
               <div class="step-item">
                 @if (step.status === 'success') {
-                  <span class="step-icon step-success" aria-hidden="true">&#10003;</span>
+                  <span class="step-icon step-success" aria-hidden="true"><app-icon name="check" size="xs" /></span>
                 } @else if (step.status === 'running') {
                   <span class="step-icon step-running" aria-hidden="true">
                     <span class="spinner spinner-sm"></span>
                   </span>
                 } @else if (step.status === 'error') {
-                  <span class="step-icon step-error" aria-hidden="true">&#10005;</span>
+                  <span class="step-icon step-error" aria-hidden="true"><app-icon name="close" size="xs" /></span>
                 } @else if (step.status === 'skipped') {
-                  <span class="step-icon step-skipped" aria-hidden="true">&#8631;</span>
+                  <span class="step-icon step-skipped" aria-hidden="true"><app-icon name="rotate" size="xs" /></span>
                 } @else {
-                  <span class="step-icon step-pending" aria-hidden="true">&#9675;</span>
+                  <span class="step-icon step-pending" aria-hidden="true"><app-icon name="pending" size="xs" /></span>
                 }
                 <span class="step-name">{{ step.stepName }}</span>
               </div>
@@ -124,7 +126,6 @@ import { ToastService } from '../../core/services/toast.service';
             <app-select
               [value]="filterStatus"
               [options]="statusOptions"
-              placeholder=""
               (valueChange)="onStatusFilter($event)" />
           </app-form-field>
         </div>
@@ -186,7 +187,7 @@ import { ToastService } from '../../core/services/toast.service';
                   (click)="toggleExpand(r)"
                   [ariaLabel]="expandedRunId === r.id ? 'Collapse run details' : 'Expand run details'"
                   [ariaExpanded]="expandedRunId === r.id">
-                  {{ expandedRunId === r.id ? '\u25B2' : '\u25BC' }}
+                  <app-icon [name]="expandedRunId === r.id ? 'chevron-up' : 'chevron-down'" size="sm" />
                 </app-bronco-button>
               </div>
             </ng-template>
@@ -252,7 +253,7 @@ import { ToastService } from '../../core/services/toast.service';
                               size="sm"
                               [ariaLabel]="'Copy result to clipboard'"
                               (click)="copyToClipboard(step.detail!); $event.stopPropagation()">
-                              &#x2398;
+                              <app-icon name="copy" size="sm" />
                             </app-bronco-button>
                           </div>
                           @if (step.detail.length > 500 && !isStepExpanded(step.id)) {
@@ -318,7 +319,7 @@ import { ToastService } from '../../core/services/toast.service';
                             size="sm"
                             [ariaLabel]="'Copy step output to clipboard'"
                             (click)="copyToClipboard(step.detail!); $event.stopPropagation()">
-                            &#x2398;
+                            <app-icon name="copy" size="sm" />
                           </app-bronco-button>
                         </div>
                         @if (step.detail.length > 500 && !isStepExpanded(step.id)) {

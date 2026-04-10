@@ -17,7 +17,6 @@ import { FormFieldComponent, TextInputComponent, TextareaComponent, SelectCompon
           <app-select
             [value]="selectedClientId"
             [options]="clientOptions()"
-            placeholder="Select client..."
             (valueChange)="onClientChange($event)" />
         </app-form-field>
       }
@@ -110,7 +109,10 @@ export class TicketDialogComponent implements OnInit {
   ngOnInit(): void {
     if (!this.clientId()) {
       this.clientService.getClients().subscribe(clients => {
-        this.clientOptions.set(clients.map(c => ({ value: c.id, label: `${c.name} (${c.shortCode})` })));
+        this.clientOptions.set([
+          { value: '', label: 'Select client...' },
+          ...clients.map(c => ({ value: c.id, label: `${c.name} (${c.shortCode})` })),
+        ]);
       });
     } else {
       this.selectedClientId = this.clientId();

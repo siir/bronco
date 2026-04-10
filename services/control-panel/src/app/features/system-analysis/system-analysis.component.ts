@@ -57,7 +57,6 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
         <app-select
           [value]="statusFilter"
           [options]="statusFilterOptions"
-          [placeholder]="''"
           (valueChange)="statusFilter = $event; resetAndLoad()">
         </app-select>
       </div>

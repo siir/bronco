@@ -48,7 +48,6 @@ import { FormFieldComponent, TextInputComponent, SelectComponent, BroncoButtonCo
             [value]="clientId"
             [options]="clientOptions"
             [disabled]="isEdit"
-            placeholder="Select client..."
             (valueChange)="clientId = $event" />
         </app-form-field>
       }
@@ -58,7 +57,6 @@ import { FormFieldComponent, TextInputComponent, SelectComponent, BroncoButtonCo
           [value]="provider"
           [options]="providerOptions"
           [disabled]="loadingProviders"
-          placeholder="Select provider..."
           (valueChange)="provider = $event; onProviderChange()" />
       </app-form-field>
 
@@ -144,13 +142,19 @@ export class AiConfigDialogComponent implements OnInit {
   }
 
   get clientOptions(): Array<{ value: string; label: string }> {
-    return this.clients.map(c => ({ value: c.id, label: `${c.name} (${c.shortCode})` }));
+    return [
+      { value: '', label: 'Select client...' },
+      ...this.clients.map(c => ({ value: c.id, label: `${c.name} (${c.shortCode})` })),
+    ];
   }
 
   get providerOptions(): Array<{ value: string; label: string }> {
-    return this.providerTypes
-      .filter(p => p.routable || (this.isEdit && p.value === this.provider))
-      .map(p => ({ value: p.value, label: p.label }));
+    return [
+      { value: '', label: 'Select provider...' },
+      ...this.providerTypes
+        .filter(p => p.routable || (this.isEdit && p.value === this.provider))
+        .map(p => ({ value: p.value, label: p.label })),
+    ];
   }
 
   get modelOptions(): Array<{ value: string; label: string }> {

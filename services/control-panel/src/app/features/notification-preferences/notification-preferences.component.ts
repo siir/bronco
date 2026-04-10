@@ -121,7 +121,6 @@ const TAB_LABELS = ['Event Notifications', 'Operational Alerts'] as const;
                           <app-select
                             [value]="emailTargetSelection(pref)"
                             [options]="emailTargetOptions"
-                            [placeholder]="''"
                             (valueChange)="onEmailTargetChange(pref, $event)" />
                           @if (emailTargetSelection(pref) === 'custom') {
                             <input class="text-input compact-input" [(ngModel)]="pref.emailTarget" placeholder="user@example.com">
@@ -130,7 +129,6 @@ const TAB_LABELS = ['Event Notifications', 'Operational Alerts'] as const;
                             <app-select
                               [value]="selectedOperatorValue(pref.emailTarget)"
                               [options]="operatorOptions()"
-                              placeholder="Select operator"
                               (valueChange)="pref.emailTarget = $event" />
                           }
                         </div>
@@ -153,7 +151,6 @@ const TAB_LABELS = ['Event Notifications', 'Operational Alerts'] as const;
                           <app-select
                             [value]="slackTargetSelection(pref)"
                             [options]="slackTargetOptions"
-                            [placeholder]="''"
                             (valueChange)="onSlackTargetChange(pref, $event)" />
                           @if (slackTargetSelection(pref) === 'custom') {
                             <input class="text-input compact-input" [(ngModel)]="pref.slackTarget" placeholder="C0123456789">
@@ -162,7 +159,6 @@ const TAB_LABELS = ['Event Notifications', 'Operational Alerts'] as const;
                             <app-select
                               [value]="selectedOperatorValue(pref.slackTarget)"
                               [options]="operatorOptions()"
-                              placeholder="Select operator"
                               (valueChange)="pref.slackTarget = $event" />
                           }
                         </div>
@@ -206,9 +202,8 @@ const TAB_LABELS = ['Event Notifications', 'Operational Alerts'] as const;
                 <div class="form-grid">
                   <app-form-field label="Recipient Operator">
                     <app-select
-                      [value]="alertConfig().recipientOperatorId ?? ''"
+                      [value]="alertConfig().recipientOperatorId"
                       [options]="operatorEmailOptions()"
-                      placeholder="Select operator"
                       (valueChange)="setAlertRecipientOperator($event)" />
                   </app-form-field>
 
@@ -216,7 +211,6 @@ const TAB_LABELS = ['Event Notifications', 'Operational Alerts'] as const;
                     <app-select
                       [value]="'' + alertConfig().throttleMinutes"
                       [options]="throttleOptions"
-                      [placeholder]="''"
                       (valueChange)="setAlertThrottleMinutes(+$event)" />
                   </app-form-field>
                 </div>
@@ -437,8 +431,12 @@ export class NotificationPreferencesComponent implements OnInit {
 
   trackPref = (pref: NotificationPreference) => pref.id;
 
-  operatorOptions = signal<Array<{ value: string; label: string }>>([]);
-  operatorEmailOptions = signal<Array<{ value: string; label: string }>>([]);
+  operatorOptions = signal<Array<{ value: string; label: string }>>([
+    { value: 'operator:', label: 'Select operator' },
+  ]);
+  operatorEmailOptions = signal<Array<{ value: string; label: string }>>([
+    { value: '', label: 'Select operator' },
+  ]);
 
   ngOnInit(): void {
     const tabSlug = this.route.snapshot.queryParamMap.get('tab');
@@ -471,8 +469,14 @@ export class NotificationPreferencesComponent implements OnInit {
       next: ops => {
         const active = ops.filter(o => o.isActive !== false);
         this.operators.set(active);
-        this.operatorOptions.set(active.map(o => ({ value: 'operator:' + o.id, label: o.name })));
-        this.operatorEmailOptions.set(active.map(o => ({ value: o.id, label: `${o.name} (${o.email})` })));
+        this.operatorOptions.set([
+          { value: 'operator:', label: 'Select operator' },
+          ...active.map(o => ({ value: 'operator:' + o.id, label: o.name })),
+        ]);
+        this.operatorEmailOptions.set([
+          { value: '', label: 'Select operator' },
+          ...active.map(o => ({ value: o.id, label: `${o.name} (${o.email})` })),
+        ]);
       },
       error: () => { /* non-critical */ },
     });

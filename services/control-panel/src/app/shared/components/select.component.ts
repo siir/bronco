@@ -3,6 +3,16 @@ import { FormFieldComponent } from './form-field.component';
 
 let standaloneSelectCounter = 0;
 
+/**
+ * Native-select wrapper.
+ *
+ * The HTML `<select>` element has no real `placeholder` attribute, so this
+ * component does not pretend to. Whatever should be shown when "nothing" is
+ * selected (e.g. "All Categories", "— No preset —", "— Select —") must be
+ * supplied by the consumer as a regular option in the `options` array. The
+ * browser will display whichever option matches `value` — including an
+ * empty-string option for the "no selection" state.
+ */
 @Component({
   selector: 'app-select',
   standalone: true,
@@ -13,9 +23,6 @@ let standaloneSelectCounter = 0;
       [disabled]="disabled()"
       [attr.aria-label]="ariaLabel() || null"
       (change)="onChange($event)">
-      @if (placeholder()) {
-        <option value="" disabled [attr.selected]="!value() ? '' : null">{{ placeholder() }}</option>
-      }
       @for (opt of options(); track opt.value) {
         <option [value]="opt.value" [attr.selected]="opt.value === value() ? '' : null">{{ opt.label }}</option>
       }
@@ -59,7 +66,6 @@ export class SelectComponent {
 
   value = input<string>('');
   options = input.required<Array<{ value: string; label: string }>>();
-  placeholder = input<string>('Select...');
   disabled = input<boolean>(false);
   ariaLabel = input<string>('');
 

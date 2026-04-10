@@ -1,66 +1,80 @@
-import { Component, input } from '@angular/core';
+import { Component, input, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
+import { CardComponent, BroncoButtonComponent, IconComponent } from '../../shared/components/index.js';
 import { type TicketCostResponse } from '../../core/services/ai-usage.service';
 
 @Component({
   selector: 'app-ticket-detail-cost',
   standalone: true,
-  imports: [DatePipe, DecimalPipe],
+  imports: [DatePipe, DecimalPipe, CardComponent, BroncoButtonComponent, IconComponent],
   template: `
     @if (cost(); as c) {
       @if (c.callCount > 0) {
-        <div class="cost-summary">
-          <div class="cost-item">
-            <span class="cost-label">Total Cost</span>
-            <span class="cost-value">\${{ c.totalCostUsd | number:'1.4-4' }}</span>
+        <app-card padding="md" class="cost-card">
+          <div class="card-title-row">
+            <app-icon name="bolt" size="sm" class="card-title-icon" aria-hidden="true" />
+            <h3 class="card-title">AI Cost</h3>
           </div>
-          <div class="cost-item">
-            <span class="cost-label">AI Calls</span>
-            <span class="cost-value">{{ c.callCount | number }}</span>
+          <div class="cost-summary">
+            <div class="cost-item">
+              <span class="cost-label">Total Cost</span>
+              <span class="cost-value">\${{ c.totalCostUsd | number:'1.4-4' }}</span>
+            </div>
+            <div class="cost-item">
+              <span class="cost-label">AI Calls</span>
+              <span class="cost-value">{{ c.callCount | number }}</span>
+            </div>
+            <div class="cost-item">
+              <span class="cost-label">Input Tokens</span>
+              <span class="cost-value">{{ c.totalInputTokens | number }}</span>
+            </div>
+            <div class="cost-item">
+              <span class="cost-label">Output Tokens</span>
+              <span class="cost-value">{{ c.totalOutputTokens | number }}</span>
+            </div>
           </div>
-          <div class="cost-item">
-            <span class="cost-label">Input Tokens</span>
-            <span class="cost-value">{{ c.totalInputTokens | number }}</span>
-          </div>
-          <div class="cost-item">
-            <span class="cost-label">Output Tokens</span>
-            <span class="cost-value">{{ c.totalOutputTokens | number }}</span>
-          </div>
-        </div>
 
-        @if (c.breakdown.length > 0) {
-          <div class="cost-breakdown">
-            @for (item of c.breakdown; track item.provider + ':' + item.model) {
-              <div class="breakdown-group">
-                <div class="breakdown-header">
-                  <span class="provider-chip provider-{{ item.provider.toLowerCase() }}">{{ item.provider }}</span>
-                  <code class="model-name">{{ item.model }}</code>
-                  <span class="breakdown-stats">
-                    {{ item.callCount }} calls &middot;
-                    \${{ item.totalCostUsd | number:'1.4-4' }}
-                  </span>
-                </div>
-                @if (item.calls && item.calls.length > 0) {
-                  <div class="call-list">
-                    @for (call of item.calls; track call.id) {
-                      <div class="call-row">
-                        <span class="call-task">{{ call.taskType }}</span>
-                        <span class="call-tokens">{{ call.inputTokens | number }}in / {{ call.outputTokens | number }}out</span>
-                        @if (call.costUsd != null) {
-                          <span class="call-cost">\${{ call.costUsd | number:'1.4-4' }}</span>
-                        }
-                        @if (call.durationMs != null) {
-                          <span class="call-duration">{{ call.durationMs }}ms</span>
-                        }
-                        <span class="call-time">{{ call.createdAt | date:'shortTime' }}</span>
-                      </div>
-                    }
+          @if (c.breakdown.length > 0) {
+            <app-bronco-button variant="ghost" size="sm" (click)="toggleDetails()">
+              {{ detailsExpanded() ? 'Hide details' : 'Show details' }}
+              <app-icon [name]="detailsExpanded() ? 'chevron-up' : 'chevron-down'" size="xs" />
+            </app-bronco-button>
+          }
+
+          @if (detailsExpanded()) {
+            <div class="cost-breakdown">
+              @for (item of c.breakdown; track item.provider + ':' + item.model) {
+                <div class="breakdown-group">
+                  <div class="breakdown-header">
+                    <span class="provider-chip provider-{{ item.provider.toLowerCase() }}">{{ item.provider }}</span>
+                    <code class="model-name">{{ item.model }}</code>
+                    <span class="breakdown-stats">
+                      {{ item.callCount }} calls &middot;
+                      \${{ item.totalCostUsd | number:'1.4-4' }}
+                    </span>
                   </div>
-                }
-              </div>
-            }
-          </div>
-        }
+                  @if (item.calls && item.calls.length > 0) {
+                    <div class="call-list">
+                      @for (call of item.calls; track call.id) {
+                        <div class="call-row">
+                          <span class="call-task">{{ call.taskType }}</span>
+                          <span class="call-tokens">{{ call.inputTokens | number }}in / {{ call.outputTokens | number }}out</span>
+                          @if (call.costUsd != null) {
+                            <span class="call-cost">\${{ call.costUsd | number:'1.4-4' }}</span>
+                          }
+                          @if (call.durationMs != null) {
+                            <span class="call-duration">{{ call.durationMs }}ms</span>
+                          }
+                          <span class="call-time">{{ call.createdAt | date:'shortTime' }}</span>
+                        </div>
+                      }
+                    </div>
+                  }
+                </div>
+              }
+            </div>
+          }
+        </app-card>
       } @else {
         <p class="empty">No AI calls recorded for this ticket.</p>
       }
@@ -72,6 +86,19 @@ import { type TicketCostResponse } from '../../core/services/ai-usage.service';
       margin-bottom: 16px;
       font-family: var(--font-primary);
     }
+    .card-title-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .card-title {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .card-title-icon { color: var(--accent); }
     .cost-summary {
       display: flex;
       gap: 24px;
@@ -158,4 +185,9 @@ import { type TicketCostResponse } from '../../core/services/ai-usage.service';
 })
 export class TicketDetailCostComponent {
   cost = input<TicketCostResponse | null>(null);
+  detailsExpanded = signal(false);
+
+  toggleDetails(): void {
+    this.detailsExpanded.update(v => !v);
+  }
 }

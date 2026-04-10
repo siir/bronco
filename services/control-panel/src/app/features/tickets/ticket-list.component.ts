@@ -1,6 +1,7 @@
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { TicketService, Ticket, ACTIVE_STATUS_FILTER } from '../../core/services/ticket.service.js';
+import { ClientService, Client } from '../../core/services/client.service.js';
 import { TicketFilterPresetService, TicketFilterPreset } from '../../core/services/ticket-filter-preset.service.js';
 import { TicketDialogComponent } from './ticket-dialog.component.js';
 import { TicketQuickActionsDialogComponent } from './ticket-quick-actions-dialog.component.js';
@@ -10,10 +11,10 @@ import {
   DataTableColumnComponent,
   BroncoButtonComponent,
   ToolbarComponent,
-  SelectComponent,
   DialogComponent,
   StatusBadgeComponent,
   PriorityPillComponent,
+  IconComponent,
 } from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service.js';
 
@@ -30,6 +31,44 @@ const STATUS_PILLS: StatusPill[] = [
   { label: 'Resolved', value: 'RESOLVED' },
 ];
 
+const CATEGORY_LABELS: Record<string, string> = {
+  DATABASE_PERF: 'Database Perf',
+  BUG_FIX: 'Bug Fix',
+  FEATURE_REQUEST: 'Feature Request',
+  SCHEMA_CHANGE: 'Schema Change',
+  CODE_REVIEW: 'Code Review',
+  ARCHITECTURE: 'Architecture',
+  GENERAL: 'General',
+};
+
+const PRIORITY_LABELS: Record<string, string> = {
+  CRITICAL: 'Critical',
+  HIGH: 'High',
+  MEDIUM: 'Medium',
+  LOW: 'Low',
+};
+
+const SOURCE_LABELS: Record<string, string> = {
+  MANUAL: 'Manual',
+  EMAIL: 'Email',
+  AZURE_DEVOPS: 'Azure DevOps',
+  AI_DETECTED: 'AI Detected',
+  SCHEDULED: 'Scheduled',
+};
+
+const ANALYSIS_STATUS_LABELS: Record<string, string> = {
+  PENDING: 'Pending',
+  IN_PROGRESS: 'Analyzing',
+  COMPLETED: 'Completed',
+  FAILED: 'Failed',
+  SKIPPED: 'Skipped',
+};
+
+interface ActiveFilterChip {
+  key: 'category' | 'priority' | 'clientId' | 'source' | 'analysisStatus' | 'dates';
+  label: string;
+}
+
 @Component({
   standalone: true,
   imports: [
@@ -38,13 +77,13 @@ const STATUS_PILLS: StatusPill[] = [
     DataTableColumnComponent,
     BroncoButtonComponent,
     ToolbarComponent,
-    SelectComponent,
     DialogComponent,
     StatusBadgeComponent,
     PriorityPillComponent,
     TicketDialogComponent,
     TicketQuickActionsDialogComponent,
     TicketFilterDialogComponent,
+    IconComponent,
   ],
   template: `
     <div class="ticket-list-page">
@@ -65,48 +104,36 @@ const STATUS_PILLS: StatusPill[] = [
         }
       </div>
 
-      <!-- Toolbar with preset management, category filter, and filter button -->
+      <!-- Toolbar with filter button -->
       <app-toolbar>
-        <app-select
-          [value]="selectedPresetId()"
-          [options]="presetOptions()"
-          placeholder="— No preset —"
-          (valueChange)="onPresetSelected($event)" />
-        <app-bronco-button variant="icon" size="sm" (click)="savePreset()" title="Save current filters as preset">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13 5.5V13a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1h5.5L13 5.5z" stroke="currentColor" stroke-width="1.2"/><path d="M5 9h6M5 11h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
-        </app-bronco-button>
-
-        @if (selectedPresetId()) {
-          <app-bronco-button variant="icon" size="sm" (click)="deletePreset()" title="Delete preset">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M5 3V2a1 1 0 011-1h4a1 1 0 011 1v1M2 4h12M6 7v5M10 7v5M3 4l1 9a1 1 0 001 1h6a1 1 0 001-1l1-9" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </app-bronco-button>
-          <button
-            class="default-toggle"
-            [class.is-default]="isSelectedPresetDefault()"
-            (click)="toggleDefault(!isSelectedPresetDefault())"
-            title="Set as default preset">
-            {{ isSelectedPresetDefault() ? 'Default' : 'Set default' }}
-          </button>
-        }
-
         <span class="toolbar-spacer"></span>
-
-        <app-select
-          [value]="categoryFilter()"
-          [options]="categoryOptions"
-          placeholder="All Categories"
-          (valueChange)="onCategoryChange($event)" />
-
-        <app-bronco-button variant="ghost" (click)="showFilterDialog.set(true)">
+        <app-bronco-button variant="ghost" (click)="openFilterDialog()">
           <span class="filter-btn-content">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M4 8h8M6 12h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+            <app-icon name="filter" size="sm" />
             Filter
-            @if (hasAdvancedFilters()) {
+            @if (activeFilterChips().length > 0 || selectedPresetId()) {
               <span class="filter-dot"></span>
             }
           </span>
         </app-bronco-button>
       </app-toolbar>
+
+      <!-- Active filter chips -->
+      @if (activeFilterChips().length > 0) {
+        <div class="active-filter-chips">
+          @for (chip of activeFilterChips(); track chip.key) {
+            <button
+              type="button"
+              class="filter-chip"
+              (click)="removeFilter(chip.key)"
+              [title]="'Remove filter: ' + chip.label">
+              <span class="filter-chip-label">{{ chip.label }}</span>
+              <app-icon name="close" size="xs" />
+            </button>
+          }
+          <button type="button" class="clear-all-chip" (click)="clearAllAdvancedFilters()">Clear all</button>
+        </div>
+      }
 
       <app-data-table
         [data]="tickets()"
@@ -176,7 +203,7 @@ const STATUS_PILLS: StatusPill[] = [
         <app-data-column key="actions" header="" width="48px" [sortable]="false">
           <ng-template #cell let-row>
             <app-bronco-button variant="icon" size="sm" (click)="openQuickActions(row); $event.stopPropagation()" title="Quick actions">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="3" r="1.2" fill="currentColor"/><circle cx="8" cy="8" r="1.2" fill="currentColor"/><circle cx="8" cy="13" r="1.2" fill="currentColor"/></svg>
+              <app-icon name="more-vertical" size="sm" />
             </app-bronco-button>
           </ng-template>
         </app-data-column>
@@ -205,11 +232,18 @@ const STATUS_PILLS: StatusPill[] = [
 
     <!-- Advanced Filter Dialog -->
     @if (showFilterDialog()) {
-      <app-dialog [open]="true" title="Filter Tickets" maxWidth="520px" (openChange)="showFilterDialog.set(false)">
+      <app-dialog [open]="true" title="Filter Tickets" maxWidth="520px" (openChange)="cancelFilterDialog()">
         <app-ticket-filter-dialog
           [currentFilters]="advancedFilters()"
-          (apply)="applyAdvancedFilters($event); showFilterDialog.set(false)"
-          (reset)="resetAdvancedFilters(); showFilterDialog.set(false)" />
+          [presets]="presets()"
+          [selectedPresetId]="selectedPresetId()"
+          (apply)="applyAdvancedFilters($event)"
+          (cancel)="cancelFilterDialog()"
+          (close)="closeFilterDialog()"
+          (presetSelected)="onPresetSelected($event)"
+          (presetSaveRequested)="savePreset()"
+          (presetDeleteRequested)="deletePreset()"
+          (presetDefaultToggleRequested)="toggleDefault($event)" />
       </app-dialog>
     }
   `,
@@ -257,33 +291,10 @@ const STATUS_PILLS: StatusPill[] = [
     }
 
     .filter-pill.active {
-      background: var(--text-primary);
+      background: var(--accent);
       color: var(--text-on-accent);
-      border-color: var(--text-primary);
-      font-weight: 600;
-    }
-
-    /* Toolbar extras */
-    .default-toggle {
-      background: none;
-      border: 1px solid var(--border-light);
-      border-radius: var(--radius-sm);
-      padding: 4px 10px;
-      font-family: var(--font-primary);
-      font-size: 12px;
-      color: var(--text-tertiary);
-      cursor: pointer;
-      transition: all 120ms ease;
-    }
-
-    .default-toggle:hover {
-      background: var(--bg-hover);
-    }
-
-    .default-toggle.is-default {
-      background: var(--bg-active);
-      color: var(--accent);
       border-color: var(--accent);
+      font-weight: 600;
     }
 
     /* Filter button content */
@@ -300,6 +311,57 @@ const STATUS_PILLS: StatusPill[] = [
       border-radius: 50%;
       background: var(--accent);
       display: inline-block;
+    }
+
+    /* Active filter chips */
+    .active-filter-chips {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 6px;
+      padding: 8px 0 4px;
+    }
+
+    .filter-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: color-mix(in srgb, var(--accent) 12%, transparent);
+      border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+      color: var(--accent);
+      border-radius: var(--radius-pill);
+      padding: 4px 10px;
+      font-family: var(--font-primary);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 120ms ease, border-color 120ms ease;
+    }
+
+    .filter-chip:hover {
+      background: color-mix(in srgb, var(--accent) 20%, transparent);
+      border-color: var(--accent);
+    }
+
+    .filter-chip-label {
+      line-height: 1;
+    }
+
+    .clear-all-chip {
+      background: none;
+      border: none;
+      color: var(--text-tertiary);
+      font-family: var(--font-primary);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      padding: 4px 8px;
+      transition: color 120ms ease;
+    }
+
+    .clear-all-chip:hover {
+      color: var(--text-secondary);
     }
 
     /* Table cell styles */
@@ -355,12 +417,14 @@ const STATUS_PILLS: StatusPill[] = [
 export class TicketListComponent implements OnInit {
   private ticketService = inject(TicketService);
   private presetService = inject(TicketFilterPresetService);
+  private clientService = inject(ClientService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private toast = inject(ToastService);
 
   tickets = signal<Ticket[]>([]);
   presets = signal<TicketFilterPreset[]>([]);
+  clients = signal<Client[]>([]);
   statusFilter = signal(ACTIVE_STATUS_FILTER);
   categoryFilter = signal('');
   clientIdFilter = signal('');
@@ -371,38 +435,69 @@ export class TicketListComponent implements OnInit {
   showFilterDialog = signal(false);
   quickActionsTicket = signal<Ticket | null>(null);
 
+  /** Snapshot of the filter state taken when the filter dialog opens; used by Cancel to revert. */
+  private filterSnapshot: {
+    statusFilter: string;
+    categoryFilter: string;
+    clientIdFilter: string;
+    selectedPresetId: string;
+    advancedFilters: AdvancedFilters;
+  } | null = null;
+
   statusPills = STATUS_PILLS;
 
-  categoryOptions = [
-    { value: '', label: 'All Categories' },
-    { value: 'DATABASE_PERF', label: 'Database Perf' },
-    { value: 'BUG_FIX', label: 'Bug Fix' },
-    { value: 'FEATURE_REQUEST', label: 'Feature Request' },
-    { value: 'SCHEMA_CHANGE', label: 'Schema Change' },
-    { value: 'CODE_REVIEW', label: 'Code Review' },
-    { value: 'ARCHITECTURE', label: 'Architecture' },
-    { value: 'GENERAL', label: 'General' },
-  ];
-
   presetOptions = computed(() => {
-    return [
-      { value: '', label: '— No preset —' },
-      ...this.presets().map(p => ({
-        value: p.id,
-        label: p.name + (p.isDefault ? ' \u2605' : ''),
-      })),
-    ];
+    const options = this.presets().map(p => ({
+      value: p.id,
+      label: p.name + (p.isDefault ? ' \u2605' : ''),
+    }));
+    return [{ value: '', label: '— No preset —' }, ...options];
   });
 
-  hasAdvancedFilters = computed(() => {
-    const f = this.advancedFilters();
-    return !!(f.priority || f.clientId || f.source || f.analysisStatus || f.createdFrom || f.createdTo);
+  /**
+   * Chips representing every filter currently applied via the filter dialog
+   * (or via the standalone category signal, which the dialog syncs into).
+   * Each chip has an X affordance that clears just that filter.
+   */
+  activeFilterChips = computed<ActiveFilterChip[]>(() => {
+    const chips: ActiveFilterChip[] = [];
+    const adv = this.advancedFilters();
+    const category = this.categoryFilter();
+
+    if (category) {
+      chips.push({ key: 'category', label: `Category: ${CATEGORY_LABELS[category] ?? category}` });
+    }
+    if (adv.priority) {
+      const labels = adv.priority
+        .split(',')
+        .map(p => PRIORITY_LABELS[p] ?? p)
+        .join(', ');
+      chips.push({ key: 'priority', label: `Priority: ${labels}` });
+    }
+    if (adv.clientId) {
+      const client = this.clients().find(c => c.id === adv.clientId);
+      chips.push({ key: 'clientId', label: `Client: ${client?.name ?? adv.clientId}` });
+    }
+    if (adv.source) {
+      chips.push({ key: 'source', label: `Source: ${SOURCE_LABELS[adv.source] ?? adv.source}` });
+    }
+    if (adv.analysisStatus) {
+      chips.push({ key: 'analysisStatus', label: `Analysis: ${ANALYSIS_STATUS_LABELS[adv.analysisStatus] ?? adv.analysisStatus}` });
+    }
+    if (adv.createdFrom || adv.createdTo) {
+      const from = adv.createdFrom ? new Date(adv.createdFrom).toLocaleDateString() : '…';
+      const to = adv.createdTo ? new Date(adv.createdTo).toLocaleDateString() : '…';
+      chips.push({ key: 'dates', label: `Created: ${from} – ${to}` });
+    }
+
+    return chips;
   });
 
   trackById = (row: Ticket) => row.id;
 
   ngOnInit(): void {
     this.clientIdFilter.set(this.route.snapshot.queryParams['clientId'] ?? '');
+    this.clientService.getClients().subscribe(clients => this.clients.set(clients));
     this.loadPresets({
       next: () => {
         const defaultPreset = this.presets().find(p => p.isDefault);
@@ -427,7 +522,10 @@ export class TicketListComponent implements OnInit {
       createdFrom: adv.createdFrom || undefined,
       createdTo: adv.createdTo || undefined,
       limit: 100,
-    }).subscribe(tickets => this.tickets.set(tickets));
+    }).subscribe({
+      next: tickets => this.tickets.set(tickets),
+      error: err => this.toast.error(err.error?.error ?? 'Failed to load tickets'),
+    });
   }
 
   loadPresets(handlers?: { next?: () => void; error?: () => void }): void {
@@ -442,12 +540,6 @@ export class TicketListComponent implements OnInit {
 
   onPillClick(value: string): void {
     this.statusFilter.set(value);
-    this.selectedPresetId.set('');
-    this.load();
-  }
-
-  onCategoryChange(value: string): void {
-    this.categoryFilter.set(value);
     this.selectedPresetId.set('');
     this.load();
   }
@@ -545,16 +637,78 @@ export class TicketListComponent implements OnInit {
 
   applyAdvancedFilters(filters: AdvancedFilters): void {
     this.advancedFilters.set(filters);
-    // If the dialog set a category, sync it to the category filter
-    if (filters.category) {
-      this.categoryFilter.set(filters.category);
+    // Mirror the dialog's category into the standalone signal so presets
+    // capture/restore it correctly. Always sync — including clearing.
+    this.categoryFilter.set(filters.category);
+    // Any explicit field edit means the user has diverged from the preset.
+    // Picking a preset itself goes through onPresetSelected, not this method.
+    this.selectedPresetId.set('');
+    this.load();
+  }
+
+  openFilterDialog(): void {
+    this.filterSnapshot = {
+      statusFilter: this.statusFilter(),
+      categoryFilter: this.categoryFilter(),
+      clientIdFilter: this.clientIdFilter(),
+      selectedPresetId: this.selectedPresetId(),
+      advancedFilters: { ...this.advancedFilters() },
+    };
+    this.showFilterDialog.set(true);
+  }
+
+  /** Close the dialog and keep all live-applied changes. */
+  closeFilterDialog(): void {
+    this.filterSnapshot = null;
+    this.showFilterDialog.set(false);
+  }
+
+  /** Revert all filter state to the snapshot taken when the dialog opened, then close. */
+  cancelFilterDialog(): void {
+    if (this.filterSnapshot) {
+      const snap = this.filterSnapshot;
+      this.statusFilter.set(snap.statusFilter);
+      this.categoryFilter.set(snap.categoryFilter);
+      this.clientIdFilter.set(snap.clientIdFilter);
+      this.selectedPresetId.set(snap.selectedPresetId);
+      this.advancedFilters.set(snap.advancedFilters);
+      this.load();
+    }
+    this.filterSnapshot = null;
+    this.showFilterDialog.set(false);
+  }
+
+  removeFilter(key: ActiveFilterChip['key']): void {
+    const adv = this.advancedFilters();
+    switch (key) {
+      case 'category':
+        this.categoryFilter.set('');
+        this.advancedFilters.set({ ...adv, category: '' });
+        break;
+      case 'priority':
+        this.advancedFilters.set({ ...adv, priority: '' });
+        break;
+      case 'clientId':
+        this.advancedFilters.set({ ...adv, clientId: '' });
+        break;
+      case 'source':
+        this.advancedFilters.set({ ...adv, source: '' });
+        break;
+      case 'analysisStatus':
+        this.advancedFilters.set({ ...adv, analysisStatus: '' });
+        break;
+      case 'dates':
+        this.advancedFilters.set({ ...adv, createdFrom: '', createdTo: '' });
+        break;
     }
     this.selectedPresetId.set('');
     this.load();
   }
 
-  resetAdvancedFilters(): void {
+  clearAllAdvancedFilters(): void {
     this.advancedFilters.set({ ...EMPTY_ADVANCED_FILTERS });
+    this.categoryFilter.set('');
+    this.selectedPresetId.set('');
     this.load();
   }
 
@@ -584,5 +738,14 @@ export class TicketListComponent implements OnInit {
     if (!this.clientIdFilter()) {
       this.clientIdFilter.set(preset.clientIdFilter ?? '');
     }
+    // Also mirror category/client into `advancedFilters` so that:
+    // (a) the dialog's seed-on-open reflects the active preset, and
+    // (b) hitting Apply in the dialog doesn't emit empty values that would
+    //     clobber the preset's filters.
+    this.advancedFilters.update(adv => ({
+      ...adv,
+      category: preset.categoryFilter ?? '',
+      clientId: preset.clientIdFilter ?? adv.clientId,
+    }));
   }
 }

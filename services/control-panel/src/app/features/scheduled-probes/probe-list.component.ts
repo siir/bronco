@@ -8,6 +8,7 @@ import {
   ToolbarComponent,
   SelectComponent,
   ToggleSwitchComponent,
+  IconComponent,
 } from '../../shared/components/index.js';
 import { DialogComponent } from '../../shared/components/dialog.component';
 import { DetailPanelService } from '../../core/services/detail-panel.service.js';
@@ -38,6 +39,7 @@ const ACTION_LABELS: Record<string, string> = {
     DialogComponent,
     ProbeDialogComponent,
     ToggleSwitchComponent,
+    IconComponent,
   ],
   template: `
     <div class="probe-list-page">
@@ -50,7 +52,6 @@ const ACTION_LABELS: Record<string, string> = {
         <app-select
           [value]="filterClientId()"
           [options]="clientOptions()"
-          placeholder="All Clients"
           (valueChange)="onClientFilter($event)" />
       </app-toolbar>
 
@@ -127,10 +128,10 @@ const ACTION_LABELS: Record<string, string> = {
         <app-data-column key="actions" header="" width="120px" [sortable]="false">
           <ng-template #cell let-row>
             <div style="display: flex; gap: 2px;" (click)="$event.stopPropagation()">
-              <app-bronco-button variant="icon" size="sm" aria-label="Run history" [routerLink]="['/scheduled-probes', row.id, 'runs']" title="Run history">&#x1F4CB;</app-bronco-button>
-              <app-bronco-button variant="icon" size="sm" aria-label="Run now" (click)="runNow(row)" title="Run now">&#x25B6;</app-bronco-button>
-              <app-bronco-button variant="icon" size="sm" aria-label="Edit" (click)="editProbe(row)" title="Edit">&#x270E;</app-bronco-button>
-              <app-bronco-button variant="icon" size="sm" aria-label="Delete" (click)="deleteProbe(row)" title="Delete">&#x2715;</app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" aria-label="Run history" [routerLink]="['/scheduled-probes', row.id, 'runs']" title="Run history"><app-icon name="clipboard" size="sm" /></app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" aria-label="Run now" (click)="runNow(row)" title="Run now"><app-icon name="play" size="sm" /></app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" aria-label="Edit" (click)="editProbe(row)" title="Edit"><app-icon name="edit" size="sm" /></app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" aria-label="Delete" (click)="deleteProbe(row)" title="Delete"><app-icon name="close" size="sm" /></app-bronco-button>
             </div>
           </ng-template>
         </app-data-column>

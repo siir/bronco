@@ -1,12 +1,12 @@
 import { Component, input, output } from '@angular/core';
-import { BroncoButtonComponent } from '../../shared/components/index.js';
+import { BroncoButtonComponent, IconComponent } from '../../shared/components/index.js';
 import { MarkdownPipe } from '../../shared/pipes/markdown.pipe.js';
 import { type LogSummary } from '../../core/services/log-summary.service';
 
 @Component({
   selector: 'app-ticket-detail-log-digest',
   standalone: true,
-  imports: [BroncoButtonComponent, MarkdownPipe],
+  imports: [BroncoButtonComponent, IconComponent, MarkdownPipe],
   template: `
     <div class="digest-toolbar">
       <app-bronco-button
@@ -18,7 +18,7 @@ import { type LogSummary } from '../../core/services/log-summary.service';
         @if (generating()) {
           <span class="spinner" aria-hidden="true"></span> Summarizing...
         } @else {
-          <span aria-hidden="true">&#10024;</span> Summarize Recent Logs
+          <app-icon name="sparkles" size="sm" /> Summarize Recent Logs
         }
       </app-bronco-button>
     </div>

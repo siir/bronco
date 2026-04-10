@@ -56,7 +56,6 @@ const ALL_QUEUES = [
       <app-select
         [value]="selectedQueue()"
         [options]="queueOptions"
-        placeholder=""
         (valueChange)="onQueueFilter($event)" />
       @if (selectedQueue()) {
         <app-bronco-button variant="secondary" size="sm" (click)="retryAll()" [disabled]="acting()">

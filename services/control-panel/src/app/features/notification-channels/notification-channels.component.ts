@@ -12,6 +12,7 @@ import {
   DropdownMenuComponent,
   DropdownItemComponent,
   DialogComponent,
+  IconComponent,
 } from '../../shared/components/index.js';
 
 @Component({
@@ -25,6 +26,7 @@ import {
     DropdownItemComponent,
     DialogComponent,
     NotificationChannelDialogComponent,
+    IconComponent,
   ],
   template: `
     <div class="page-wrapper">
@@ -42,12 +44,8 @@ import {
       @if (channels().length === 0 && !loading()) {
         <app-card padding="md" class="empty-card">
           <div class="empty-content">
-            <span class="empty-icon" aria-hidden="true">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-                <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-                <line x1="1" y1="1" x2="23" y2="23"/>
-              </svg>
+            <span class="empty-icon">
+              <app-icon name="bell-off" size="xl" />
             </span>
             <div>
               <div class="empty-title">No notification channels configured</div>
@@ -62,17 +60,11 @@ import {
           <app-card padding="md" class="channel-card">
             <div class="channel-header">
               <div class="channel-name">
-                <span class="type-icon" aria-hidden="true">
+                <span class="type-icon">
                   @if (ch.type === 'EMAIL') {
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
-                      <polyline points="22,6 12,13 2,6"/>
-                    </svg>
+                    <app-icon name="email" size="sm" />
                   } @else {
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/>
-                      <line x1="12" y1="18" x2="12.01" y2="18"/>
-                    </svg>
+                    <app-icon name="bell" size="sm" />
                   }
                 </span>
                 {{ ch.name }}
@@ -84,7 +76,7 @@ import {
                   (checkedChange)="toggleActive(ch)"
                 ></app-toggle-switch>
                 <app-bronco-button variant="icon" size="sm" [attr.aria-label]="'Actions for ' + ch.name" #menuTrigger (click)="menu.toggle()">
-                  &#x22EE;
+                  <app-icon name="more-vertical" size="sm" />
                 </app-bronco-button>
                 <app-dropdown-menu #menu [trigger]="menuTrigger">
                   <app-dropdown-item (action)="openDialog(ch)">Edit</app-dropdown-item>

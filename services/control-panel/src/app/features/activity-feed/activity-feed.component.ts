@@ -47,7 +47,6 @@ const TYPE_META: Record<LogSummaryType, { label: string; color: string }> = {
         <app-select
           [value]="typeFilter"
           [options]="typeFilterOptions"
-          [placeholder]="''"
           (valueChange)="typeFilter = $event; resetAndLoad()">
         </app-select>
       </div>

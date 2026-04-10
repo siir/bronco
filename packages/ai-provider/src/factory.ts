@@ -231,10 +231,13 @@ export function createAIRouter(
   const usageWriter = async (entry: AiUsageEntry): Promise<string | undefined> => {
     if (!dbReady) return undefined;
     // Prisma JSON fields need undefined (not null) for "no value" — strip null conversationMetadata
-    const { conversationMetadata, ...rest } = entry;
-    const data = conversationMetadata != null
-      ? { ...rest, conversationMetadata: conversationMetadata as unknown as Record<string, unknown> }
-      : rest;
+    const { conversationMetadata, logId, ...rest } = entry;
+    const data = {
+      ...(logId ? { id: logId } : {}),
+      ...(conversationMetadata != null
+        ? { ...rest, conversationMetadata: conversationMetadata as unknown as Record<string, unknown> }
+        : rest),
+    };
     const row = await db.aiUsageLog.create({ data: data as Record<string, unknown> });
     return row.id;
   };

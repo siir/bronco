@@ -1,4 +1,5 @@
 import { Component, computed, input, output } from '@angular/core';
+import { IconComponent } from './icon.component';
 
 export interface PaginatorPageEvent {
   pageSize: number;
@@ -9,6 +10,7 @@ export interface PaginatorPageEvent {
 @Component({
   selector: 'app-paginator',
   standalone: true,
+  imports: [IconComponent],
   template: `
     <div class="paginator">
       <div class="paginator-section">
@@ -28,23 +30,23 @@ export interface PaginatorPageEvent {
           class="nav-btn"
           [disabled]="isFirstPage()"
           (click)="goToPage(0)"
-          aria-label="First page">&laquo;</button>
+          aria-label="First page"><app-icon name="skip-left" size="sm" /></button>
         <button
           class="nav-btn"
           [disabled]="isFirstPage()"
           (click)="goToPage(pageIndex() - 1)"
-          aria-label="Previous page">&lsaquo;</button>
+          aria-label="Previous page"><app-icon name="chevron-left" size="sm" /></button>
         <span class="page-indicator">Page {{ pageIndex() + 1 }} of {{ totalPages() }}</span>
         <button
           class="nav-btn"
           [disabled]="isLastPage()"
           (click)="goToPage(pageIndex() + 1)"
-          aria-label="Next page">&rsaquo;</button>
+          aria-label="Next page"><app-icon name="chevron-right" size="sm" /></button>
         <button
           class="nav-btn"
           [disabled]="isLastPage()"
           (click)="goToPage(totalPages() - 1)"
-          aria-label="Last page">&raquo;</button>
+          aria-label="Last page"><app-icon name="skip-right" size="sm" /></button>
       </div>
 
       <div class="paginator-section paginator-summary">

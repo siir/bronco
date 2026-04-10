@@ -2114,9 +2114,8 @@ async function executeOrchestratedSubTask(
     if (tools.length > 0) {
       const subTaskLogId = randomUUID();
       const orchCtx = orchestration
-        ? { orchestrationId: orchestration.id, orchestrationIteration: orchestration.iteration, isSubTask: true,
-            ...(orchestration.parentLogId ? { parentLogId: orchestration.parentLogId, parentLogType: 'ai' as const } : {}) }
-        : {};
+        ? { orchestrationId: orchestration.id, orchestrationIteration: orchestration.iteration, isSubTask: true, logId: subTaskLogId, ...(orchestration.parentLogId ? { parentLogId: orchestration.parentLogId, parentLogType: 'ai' as const } : {}) }
+        : { logId: subTaskLogId };
       const response = await ai.generateWithTools({
         taskType: TaskType.DEEP_ANALYSIS,
         context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, logId: subTaskLogId, ...orchCtx },
@@ -2185,9 +2184,13 @@ async function executeOrchestratedSubTask(
           );
         }
 
+        const summaryLogId = randomUUID();
+        const summaryOrchCtx = orchestration
+          ? { orchestrationId: orchestration.id, orchestrationIteration: orchestration.iteration, isSubTask: true, logId: summaryLogId, parentLogId: subTaskLogId, parentLogType: 'ai' }
+          : { logId: summaryLogId, parentLogId: subTaskLogId, parentLogType: 'ai' };
         const summaryResponse = await ai.generateWithTools({
           taskType: TaskType.DEEP_ANALYSIS,
-          context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, parentLogId: subTaskLogId, parentLogType: 'ai' as const, ...orchCtx },
+          context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, ...summaryOrchCtx },
           messages: [
             { role: 'user', content: task.prompt },
             { role: 'assistant', content: response.contentBlocks },
@@ -2233,10 +2236,10 @@ async function executeOrchestratedSubTask(
     }
 
     // No tools — pure analysis
+    const pureLogId = randomUUID();
     const orchCtx = orchestration
-      ? { orchestrationId: orchestration.id, orchestrationIteration: orchestration.iteration, isSubTask: true,
-          ...(orchestration.parentLogId ? { parentLogId: orchestration.parentLogId, parentLogType: 'ai' as const } : {}) }
-      : {};
+      ? { orchestrationId: orchestration.id, orchestrationIteration: orchestration.iteration, isSubTask: true, logId: pureLogId, ...(orchestration.parentLogId ? { parentLogId: orchestration.parentLogId, parentLogType: 'ai' as const } : {}) }
+      : { logId: pureLogId };
     const response = await ai.generate({
       taskType: TaskType.DEEP_ANALYSIS,
       context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, ...orchCtx },
@@ -3092,7 +3095,7 @@ async function executeRoutePipeline(
                 } else {
                   // Retry once on failure
                   try {
-                    const retryResult = await executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, environmentContext, task, agenticTools, mcpIntegrations, repoIdByPrefix);
+                    const retryResult = await executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, environmentContext, task, agenticTools, mcpIntegrations, repoIdByPrefix, { id: orchestrationId, iteration: i + 1, parentLogId: strategistLogId }, orchModelMap);
                     knowledgeDoc += `\n\n#### ${task.prompt} (retry)\n${retryResult.content}`;
                     orchTotalInputTokens += retryResult.inputTokens;
                     orchTotalOutputTokens += retryResult.outputTokens;

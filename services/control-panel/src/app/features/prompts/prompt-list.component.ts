@@ -16,6 +16,7 @@ import {
   DataTableComponent,
   DataTableColumnComponent,
   DialogComponent,
+  IconComponent,
 } from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service';
 
@@ -51,6 +52,7 @@ interface MergedModelRow {
     DialogComponent,
     KeywordDialogComponent,
     AiConfigDialogComponent,
+    IconComponent,
   ],
   template: `
     <div class="page-wrapper">
@@ -66,13 +68,11 @@ interface MergedModelRow {
               <app-select
                 [value]="groupFilter"
                 [options]="groupOptions()"
-                placeholder=""
                 (valueChange)="groupFilter = $event; applyPromptFilters()">
               </app-select>
               <app-select
                 [value]="taskTypeFilter"
                 [options]="taskTypeOptions()"
-                placeholder=""
                 (valueChange)="taskTypeFilter = $event; loadPrompts()">
               </app-select>
               <app-text-input
@@ -130,7 +130,6 @@ interface MergedModelRow {
               <app-select
                 [value]="categoryFilter"
                 [options]="categoryOptions()"
-                placeholder=""
                 (valueChange)="categoryFilter = $event; loadKeywords()">
               </app-select>
               <app-text-input
@@ -190,7 +189,7 @@ interface MergedModelRow {
                   <ng-template #cell let-row>
                     @if (row.source === 'CLIENT') {
                       <span class="indent-client">
-                        <span class="sub-row-arrow">&#x21B3;</span>
+                        <app-icon name="subdirectory" size="sm" class="sub-row-arrow" />
                         <span class="client-label">{{ row.clientLabel }}</span>
                       </span>
                     } @else {

@@ -13,7 +13,9 @@ export interface AIProviderClient {
 
 /** Entry written to persistent storage for every AI generation call. */
 export interface AiUsageEntry {
-  id?: string;
+  logId?: string;         // Pre-generated UUID for this entry's row ID
+  parentLogId?: string;   // FK to parent log entry
+  parentLogType?: 'ai' | 'app';
   provider: string;
   model: string;
   taskType: string;
@@ -30,8 +32,6 @@ export interface AiUsageEntry {
   responseText: string | null;
   billingMode?: string;
   conversationMetadata?: ConversationMetadata | null;
-  parentLogId?: string | null;
-  parentLogType?: 'ai' | 'app' | null;
   taskRun?: number | null;
 }
 

@@ -11,6 +11,7 @@ import {
   SelectComponent,
   ToggleSwitchComponent,
   DialogComponent,
+  IconComponent,
 } from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service';
 
@@ -25,13 +26,14 @@ import { ToastService } from '../../core/services/toast.service';
     ToggleSwitchComponent,
     DialogComponent,
     OverrideDialogComponent,
+    IconComponent,
   ],
   template: `
     @if (detail(); as d) {
       <div class="page-wrapper">
         <div class="page-header">
           <div class="header-left">
-            <app-bronco-button variant="ghost" size="sm" routerLink="/prompts">&#x2190; AI Prompts</app-bronco-button>
+            <app-bronco-button variant="ghost" size="sm" routerLink="/prompts"><app-icon name="back" size="sm" /> AI Prompts</app-bronco-button>
             <h1 class="page-title">{{ d.base.name }}</h1>
           </div>
         </div>
@@ -82,10 +84,10 @@ import { ToastService } from '../../core/services/toast.service';
                       (checkedChange)="toggleOverride(o)">
                     </app-toggle-switch>
                     <app-bronco-button variant="icon" size="sm" ariaLabel="Edit override" (click)="editOverride(o)">
-                      &#x270E;
+                      <app-icon name="edit" size="sm" />
                     </app-bronco-button>
                     <app-bronco-button variant="icon" size="sm" ariaLabel="Delete override" class="btn-delete" (click)="deleteOverride(o)">
-                      &#x1F5D1;
+                      <app-icon name="delete" size="sm" />
                     </app-bronco-button>
                   </div>
                 </div>
@@ -101,7 +103,7 @@ import { ToastService } from '../../core/services/toast.service';
         <app-card padding="md" class="section-card preview-card">
           <div class="card-header">
             <h2 class="section-title">Composed Preview</h2>
-            <app-bronco-button variant="secondary" size="sm" (click)="loadPreview()">&#x21BB; Refresh</app-bronco-button>
+            <app-bronco-button variant="secondary" size="sm" (click)="loadPreview()"><app-icon name="refresh" size="sm" /> Refresh</app-bronco-button>
           </div>
 
           <div class="preview-controls">
@@ -109,7 +111,6 @@ import { ToastService } from '../../core/services/toast.service';
               <app-select
                 [value]="selectedClientId"
                 [options]="clientOptions()"
-                placeholder=""
                 (valueChange)="onClientChange($event)">
               </app-select>
             </app-form-field>

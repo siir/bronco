@@ -5,13 +5,16 @@ RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 
 WORKDIR /app
 
-# Copy workspace config
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+# Copy workspace config (including .npmrc — required so pnpm knows the
+# @awesome.me / @fortawesome scopes resolve to npm.fontawesome.com instead
+# of registry.npmjs.org).
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc ./
 COPY services/control-panel/package.json services/control-panel/
 COPY packages/shared-ui/package.json packages/shared-ui/
 
 # Install dependencies
-RUN pnpm install --frozen-lockfile
+RUN --mount=type=secret,id=fontawesome_npm_auth_token,env=FONTAWESOME_NPM_AUTH_TOKEN \
+    pnpm install --frozen-lockfile
 
 # Copy source
 COPY packages/shared-ui/ packages/shared-ui/
@@ -27,13 +30,16 @@ RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 
 WORKDIR /app
 
-# Copy workspace config
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+# Copy workspace config (including .npmrc — required so pnpm knows the
+# @awesome.me / @fortawesome scopes resolve to npm.fontawesome.com instead
+# of registry.npmjs.org).
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc ./
 COPY services/ticket-portal/package.json services/ticket-portal/
 COPY packages/shared-ui/package.json packages/shared-ui/
 
 # Install dependencies
-RUN pnpm install --frozen-lockfile
+RUN --mount=type=secret,id=fontawesome_npm_auth_token,env=FONTAWESOME_NPM_AUTH_TOKEN \
+    pnpm install --frozen-lockfile
 
 # Copy source
 COPY packages/shared-ui/ packages/shared-ui/

@@ -1,11 +1,12 @@
 import { Component, contentChildren, input, output } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { DataTableColumnComponent } from './data-table-column.component';
+import { IconComponent } from './icon.component';
 
 @Component({
   selector: 'app-data-table',
   standalone: true,
-  imports: [NgTemplateOutlet],
+  imports: [NgTemplateOutlet, IconComponent],
   template: `
     <div class="table-container">
       @if (data().length === 0) {
@@ -30,7 +31,7 @@ import { DataTableColumnComponent } from './data-table-column.component';
                     {{ col.header() }}
                   }
                   @if (col.sortable() && sortColumn() === col.key()) {
-                    <span class="sort-indicator">{{ sortDirection() === 'asc' ? '\u25B2' : '\u25BC' }}</span>
+                    <app-icon class="sort-indicator" [name]="sortDirection() === 'asc' ? 'chevron-up' : 'chevron-down'" size="xs" />
                   }
                 </th>
               }

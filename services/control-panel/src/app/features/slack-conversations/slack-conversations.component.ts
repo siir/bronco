@@ -36,7 +36,6 @@ import { ToastService } from '../../core/services/toast.service';
           <app-select
             [value]="clientFilter"
             [options]="clientOptions()"
-            [placeholder]="''"
             (valueChange)="clientFilter = $event; resetAndLoad()">
           </app-select>
           <div class="filter-field">

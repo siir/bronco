@@ -29,21 +29,49 @@ const UNKNOWN_CLIENT_SHORT_CODE = '_unknown';
   template: `
     <div class="dashboard">
       <div class="stats-row">
-        <app-stat-card label="Open Tickets" [value]="openTickets() + ''" change="" changeType="neutral" />
-        <app-stat-card label="Critical" [value]="criticalTickets() + ''" change="" [changeType]="criticalTickets() > 0 ? 'negative' : 'neutral'" />
-        <app-stat-card label="Clients" [value]="clients().length + ''" change="" changeType="neutral" />
-        <app-stat-card label="Database Systems" [value]="totalSystems() + ''" change="" changeType="neutral" />
+        <app-stat-card
+          label="Open Tickets"
+          [value]="openTickets() + ''"
+          change=""
+          changeType="neutral"
+          icon="ticket"
+          iconVariant="warning" />
+        <app-stat-card
+          label="Critical"
+          [value]="criticalTickets() + ''"
+          change=""
+          [changeType]="criticalTickets() > 0 ? 'negative' : 'neutral'"
+          icon="warning"
+          [iconVariant]="criticalTickets() > 0 ? 'error' : 'neutral'" />
+        <app-stat-card
+          label="Clients"
+          [value]="clients().length + ''"
+          change=""
+          changeType="neutral"
+          icon="building"
+          iconVariant="accent" />
+        <app-stat-card
+          label="Database Systems"
+          [value]="totalSystems() + ''"
+          change=""
+          changeType="neutral"
+          icon="database"
+          iconVariant="success" />
         <app-stat-card
           label="Services"
           [value]="servicesValue()"
           [change]="servicesChange()"
-          [changeType]="servicesChangeType()" />
+          [changeType]="servicesChangeType()"
+          icon="check-circle"
+          [iconVariant]="servicesChangeType() === 'positive' ? 'success' : servicesChangeType() === 'negative' ? 'error' : 'neutral'" />
         @if (unknownClientTickets() > 0) {
           <app-stat-card
             label="Unassigned Client"
             [value]="unknownClientTickets() + ''"
             change="Needs attention"
-            changeType="negative" />
+            changeType="negative"
+            icon="question"
+            iconVariant="error" />
         }
       </div>
 

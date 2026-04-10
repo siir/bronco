@@ -139,6 +139,9 @@ export interface UnifiedLogEntry {
   systemPrompt?: string | null;
   responseText?: string | null;
   conversationMetadata?: Record<string, unknown> | null;
+  // lineage fields
+  parentLogId?: string | null;
+  parentLogType?: string | null;
   archive?: UnifiedLogArchive | null;
   // lineage fields
   parentLogId?: string | null;

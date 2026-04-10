@@ -17,6 +17,7 @@ import {
   FormFieldComponent,
   TextareaComponent,
   DialogComponent,
+  IconComponent,
 } from '../../shared/components/index.js';
 import { AiLogEntryComponent } from './ai-log-entry.component';
 import { TicketDetailSummaryComponent } from './ticket-detail-summary.component.js';
@@ -47,6 +48,13 @@ interface ConvTreeNode {
   depth: number;
 }
 
+interface ConvTreeNode {
+  entry: UnifiedLogEntry;
+  children: ConvTreeNode[];
+  depth: number;
+  collapsed: boolean;
+}
+
 @Component({
   standalone: true,
   imports: [
@@ -74,13 +82,14 @@ interface ConvTreeNode {
     TicketDetailFlowComponent,
     TicketDetailCostComponent,
     TicketDetailTimelineComponent,
+    IconComponent,
   ],
   template: `
     @if (ticket(); as t) {
       <div class="page-wrapper">
         <div class="page-header">
           <div class="header-left">
-            <a routerLink="/tickets" class="back-link">&larr; Tickets</a>
+            <a routerLink="/tickets" class="back-link"><app-icon name="back" size="sm" /> Tickets</a>
             <h1 class="page-title">
               @if (t.ticketNumber) { <span class="ticket-number">#{{ t.ticketNumber }}</span> }
               {{ t.subject }}
@@ -93,28 +102,25 @@ interface ConvTreeNode {
             <app-select
               [value]="t.priority"
               [options]="priorityOptions"
-              placeholder=""
               (valueChange)="updateField('priority', $event)" />
           </app-form-field>
           <app-form-field label="Status">
             <app-select
               [value]="t.status"
               [options]="statusOptions"
-              placeholder=""
               (valueChange)="updateStatus($event)" />
           </app-form-field>
           <app-form-field label="Category">
             <app-select
               [value]="t.category ?? ''"
               [options]="categoryOptions"
-              placeholder=""
               (valueChange)="updateField('category', $event || null)" />
           </app-form-field>
           <span class="source">via {{ t.source }}</span>
           <span class="date">{{ t.createdAt | date:'medium' }}</span>
           <span class="analysis-badge analysis-{{ t.analysisStatus.toLowerCase() }}">
             @if (t.analysisStatus === 'IN_PROGRESS') {
-              <span class="spin-icon" aria-hidden="true">&#10227;</span>
+              <app-icon name="spinner" size="sm" class="spin-icon" />
             }
             {{ formatAnalysisStatus(t.analysisStatus) }}
             @if (t.analysisStatus === 'COMPLETED' && t.lastAnalyzedAt) {
@@ -123,14 +129,14 @@ interface ConvTreeNode {
           </span>
           @if (t.analysisStatus === 'FAILED') {
             <app-bronco-button variant="destructive" size="sm" (click)="reanalyze()" [disabled]="reanalyzing()">
-              <span aria-hidden="true">&#x21bb;</span> Retry Analysis
+              <app-icon name="refresh" size="sm" /> Retry Analysis
             </app-bronco-button>
           }
         </div>
 
         @if (t.analysisStatus === 'FAILED' && t.analysisError) {
           <div class="analysis-error">
-            <span class="error-icon" aria-hidden="true">&#9888;</span>
+            <app-icon name="warning" size="sm" class="error-icon" />
             <span>{{ t.analysisError }}</span>
           </div>
         }
@@ -223,14 +229,12 @@ interface ConvTreeNode {
                 <app-select
                   [value]="unifiedTypeFilter()"
                   [options]="typeFilterOptions"
-                  placeholder=""
                   (valueChange)="unifiedTypeFilter.set($event); loadUnifiedLogs()" />
               </app-form-field>
               <app-form-field label="Level">
                 <app-select
                   [value]="logsLevelFilter()"
                   [options]="levelFilterOptions"
-                  placeholder=""
                   (valueChange)="logsLevelFilter.set($event); loadUnifiedLogs()" />
               </app-form-field>
               <app-form-field label="Search">
@@ -241,10 +245,10 @@ interface ConvTreeNode {
                   (keyup.enter)="onSearchEnter()" />
               </app-form-field>
               <app-bronco-button variant="icon" size="md" ariaLabel="Search" (click)="onSearchEnter()">
-                <span aria-hidden="true">&#x1F50D;</span>
+                <app-icon name="search" size="sm" />
               </app-bronco-button>
               <app-bronco-button variant="icon" size="md" ariaLabel="Refresh" (click)="loadUnifiedLogs()">
-                <span aria-hidden="true">&#x21bb;</span>
+                <app-icon name="refresh" size="sm" />
               </app-bronco-button>
             </div>
 
@@ -258,7 +262,7 @@ interface ConvTreeNode {
               @for (entry of ungroupedEntries(); track entry.id; let idx = $index) {
                 @if (isIterationHeader(entry)) {
                   <div class="iteration-group-header">
-                    <span class="iteration-icon" aria-hidden="true">&#x21bb;</span>
+                    <app-icon name="refresh" size="xs" class="iteration-icon" />
                     <span class="iteration-label">{{ extractIterationLabel(entry) }}</span>
                     <span class="log-seq">#{{ idx + 1 }}</span>
                     <span class="log-time" [attr.title]="entry.timestamp">{{ formatTime(entry.timestamp) }}</span>
@@ -281,7 +285,7 @@ interface ConvTreeNode {
                     @if (entry.context && hasKeys(entry.context)) {
                       <app-bronco-button variant="ghost" size="sm" class="log-expand-btn" (click)="expandedLogs[entry.id] = !expandedLogs[entry.id]">
                         {{ expandedLogs[entry.id] ? 'Hide metadata' : 'Show metadata' }}
-                        <span aria-hidden="true">{{ expandedLogs[entry.id] ? '\u25B4' : '\u25BE' }}</span>
+                        <app-icon [name]="expandedLogs[entry.id] ? 'chevron-up' : 'chevron-down'" size="xs" />
                       </app-bronco-button>
                       @if (expandedLogs[entry.id]) { <pre class="log-metadata">{{ entry.context | json }}</pre> }
                     }
@@ -299,7 +303,7 @@ interface ConvTreeNode {
                           [class.status-failed]="group.status === 'failed'"
                           [class.status-running]="group.status === 'running'"
                           aria-hidden="true">
-                      {{ group.status === 'completed' ? '\u2713' : group.status === 'failed' ? '\u2715' : '\u25CB' }}
+                      <app-icon [name]="group.status === 'completed' ? 'check' : group.status === 'failed' ? 'close' : 'pending'" size="xs" />
                     </span>
                     <span class="step-name">{{ group.stepName }}</span>
                     @if (group.aiCallCount > 0) {
@@ -310,14 +314,14 @@ interface ConvTreeNode {
                       }
                     }
                     <span class="step-entry-count">{{ group.entries.length }} entr{{ group.entries.length === 1 ? 'y' : 'ies' }}</span>
-                    <span class="step-chevron" aria-hidden="true">{{ group.expanded ? '\u25B4' : '\u25BE' }}</span>
+                    <app-icon [name]="group.expanded ? 'chevron-up' : 'chevron-down'" size="xs" class="step-chevron" />
                   </div>
                   @if (group.expanded) {
                     <div class="step-group-entries">
                       @for (entry of group.entries; track entry.id; let idx = $index) {
                         @if (isIterationHeader(entry)) {
                           <div class="iteration-group-header">
-                            <span class="iteration-icon" aria-hidden="true">&#x21bb;</span>
+                            <app-icon name="refresh" size="xs" class="iteration-icon" />
                             <span class="iteration-label">{{ extractIterationLabel(entry) }}</span>
                             <span class="log-time" [attr.title]="entry.timestamp">{{ formatTime(entry.timestamp) }}</span>
                           </div>
@@ -347,7 +351,7 @@ interface ConvTreeNode {
                             @if (entry.type === 'ai') {
                               <app-bronco-button variant="ghost" size="sm" class="log-expand-btn" (click)="expandedLogs[entry.id] = !expandedLogs[entry.id]">
                                 {{ expandedLogs[entry.id] ? 'Hide details' : 'Show details' }}
-                                <span aria-hidden="true">{{ expandedLogs[entry.id] ? '\u25B4' : '\u25BE' }}</span>
+                                <app-icon [name]="expandedLogs[entry.id] ? 'chevron-up' : 'chevron-down'" size="xs" />
                               </app-bronco-button>
                               @if (expandedLogs[entry.id]) {
                                 <div class="ai-detail-sections">
@@ -374,7 +378,7 @@ interface ConvTreeNode {
                               @if (entry.context && hasKeys(entry.context)) {
                                 <app-bronco-button variant="ghost" size="sm" class="log-expand-btn" (click)="expandedLogs[entry.id] = !expandedLogs[entry.id]">
                                   {{ expandedLogs[entry.id] ? 'Hide metadata' : 'Show metadata' }}
-                                  <span aria-hidden="true">{{ expandedLogs[entry.id] ? '\u25B4' : '\u25BE' }}</span>
+                                  <app-icon [name]="expandedLogs[entry.id] ? 'chevron-up' : 'chevron-down'" size="xs" />
                                 </app-bronco-button>
                                 @if (expandedLogs[entry.id]) { <pre class="log-metadata">{{ entry.context | json }}</pre> }
                               }
@@ -409,7 +413,77 @@ interface ConvTreeNode {
               </div>
             } @else if (conversationEntries().length === 0) {
               <div class="conv-empty"><p>No AI calls recorded for this ticket.</p></div>
+            } @else if (hasLineageData()) {
+              <!-- Tree view — new data with parentLogId lineage -->
+              <div class="conv-view">
+                @for (item of convTreeFlat(); track item.node.entry.id) {
+                  @if (item.visible) {
+                    @let entry = item.node.entry;
+                    @let node = item.node;
+                    <div class="conv-tree-node" [style.margin-left.px]="node.depth * 24">
+                      @if (entry.type === 'ai') {
+                        <div class="conv-ai-block">
+                          <div class="conv-ai-header">
+                            @if (node.children.length > 0) {
+                              <button type="button" class="conv-collapse-btn" (click)="toggleConvNode(node)" [attr.aria-label]="node.collapsed ? 'Expand' : 'Collapse'" [attr.aria-expanded]="!node.collapsed">
+                                <app-icon [name]="node.collapsed ? 'chevron-right' : 'chevron-down'" size="xs" />
+                              </button>
+                            }
+                            @if (node.depth > 0) { <app-icon name="subdirectory" size="xs" class="subtask-icon" /> }
+                            <span class="conv-task-type">{{ entry.taskType }}</span>
+                            <span class="conv-model">{{ entry.model }}</span>
+                            <span class="conv-tokens">{{ entry.inputTokens | number }}in / {{ entry.outputTokens | number }}out</span>
+                            @if (entry.costUsd != null) { <span class="conv-cost">\${{ entry.costUsd | number:'1.4-4' }}</span> }
+                          </div>
+                          @if (convMessages(entry).length > 0) {
+                            <div class="conv-turns">
+                              @for (turn of convMessages(entry); track $index) {
+                                <div class="conv-turn" [ngClass]="'conv-turn-' + turn.role">
+                                  <app-icon [name]="turn.role === 'user' ? 'user' : 'robot'" size="xs" class="conv-turn-role" />
+                                  @if (turn.toolName) { <span class="conv-tool-call"><app-icon name="wrench" size="xs" /> {{ turn.toolName }}</span> }
+                                  @if (turn.tokenCount) { <span class="conv-token-count">{{ turn.tokenCount | number }} tokens</span> }
+                                </div>
+                              }
+                            </div>
+                          }
+                          @if (entry.archive?.fullPrompt || entry.promptText) {
+                            <div class="conv-final-response conv-prompt-block">
+                              <span class="conv-final-label">Prompt</span>
+                              <pre class="conv-response-text" [class.clamped]="!convPromptExpanded[entry.id]">{{ convPromptText(entry) }}</pre>
+                              @if (isMultilineConvPrompt(entry)) {
+                                <app-bronco-button variant="ghost" size="sm" class="inline-expand-btn" (click)="convPromptExpanded[entry.id] = !convPromptExpanded[entry.id]">
+                                  {{ convPromptExpanded[entry.id] ? 'less' : 'more' }}
+                                  <app-icon [name]="convPromptExpanded[entry.id] ? 'chevron-up' : 'chevron-down'" size="xs" />
+                                </app-bronco-button>
+                              }
+                            </div>
+                          }
+                          @if (entry.archive?.fullResponse || entry.responseText) {
+                            <div class="conv-final-response">
+                              <span class="conv-final-label">Response</span>
+                              <pre class="conv-response-text" [class.clamped]="!convExpanded[entry.id]">{{ convResponseText(entry) }}</pre>
+                              @if (isMultilineConv(entry)) {
+                                <app-bronco-button variant="ghost" size="sm" class="inline-expand-btn" (click)="convExpanded[entry.id] = !convExpanded[entry.id]">
+                                  {{ convExpanded[entry.id] ? 'less' : 'more' }}
+                                  <app-icon [name]="convExpanded[entry.id] ? 'chevron-up' : 'chevron-down'" size="xs" />
+                                </app-bronco-button>
+                              }
+                            </div>
+                          }
+                        </div>
+                      } @else if (entry.type === 'tool' || entry.type === 'log' || entry.type === 'step' || entry.type === 'error') {
+                        <div class="conv-tool-node" [class.conv-tool-error]="entry.type === 'error'">
+                          <app-icon [name]="entry.type === 'error' ? 'close' : entry.type === 'step' ? 'pending' : 'wrench'" size="xs" class="conv-tool-icon" />
+                          <span class="conv-tool-msg">{{ entry.message }}</span>
+                          @if (entry.durationMs != null) { <span class="conv-tool-dur">{{ entry.durationMs }}ms</span> }
+                        </div>
+                      }
+                    </div>
+                  }
+                }
+              </div>
             } @else {
+              <!-- Legacy view: flat grouping by step + orchestrationId -->
               <div class="conv-view">
                 @if (hasTreeData()) {
                 <!-- Tree view: entries linked by parentLogId -->
@@ -485,7 +559,7 @@ interface ConvTreeNode {
                 @for (group of convStepGroups(); track $index) {
                   <div class="conv-step-section">
                     <div class="conv-step-label">
-                      <span class="conv-step-icon" aria-hidden="true">{{ group.status === 'completed' ? '\u2713' : group.status === 'failed' ? '\u2715' : '\u25CB' }}</span>
+                      <app-icon [name]="group.status === 'completed' ? 'check' : group.status === 'failed' ? 'close' : 'pending'" size="xs" class="conv-step-icon" />
                       {{ group.stepName }}
                     </div>
                     @for (entry of group.entries; track entry.id) {
@@ -501,8 +575,8 @@ interface ConvTreeNode {
                             <div class="conv-turns">
                               @for (turn of convMessages(entry); track $index) {
                                 <div class="conv-turn" [ngClass]="'conv-turn-' + turn.role">
-                                  <span class="conv-turn-role">{{ turn.role === 'user' ? '\u{1F464}' : '\u{1F916}' }}</span>
-                                  @if (turn.toolName) { <span class="conv-tool-call">\u{1F527} {{ turn.toolName }}</span> }
+                                  <app-icon [name]="turn.role === 'user' ? 'user' : 'robot'" size="xs" class="conv-turn-role" />
+                                  @if (turn.toolName) { <span class="conv-tool-call"><app-icon name="wrench" size="xs" /> {{ turn.toolName }}</span> }
                                   @if (turn.tokenCount) { <span class="conv-token-count">{{ turn.tokenCount | number }} tokens</span> }
                                 </div>
                               }
@@ -515,7 +589,7 @@ interface ConvTreeNode {
                               @if (isMultilineConvPrompt(entry)) {
                                 <app-bronco-button variant="ghost" size="sm" class="inline-expand-btn" (click)="convPromptExpanded[entry.id] = !convPromptExpanded[entry.id]">
                                   {{ convPromptExpanded[entry.id] ? 'less' : 'more' }}
-                                  <span aria-hidden="true">{{ convPromptExpanded[entry.id] ? '\u23F6' : '\u23F7' }}</span>
+                                  <app-icon [name]="convPromptExpanded[entry.id] ? 'chevron-up' : 'chevron-down'" size="xs" />
                                 </app-bronco-button>
                               }
                             </div>
@@ -527,7 +601,7 @@ interface ConvTreeNode {
                               @if (isMultilineConv(entry)) {
                                 <app-bronco-button variant="ghost" size="sm" class="inline-expand-btn" (click)="convExpanded[entry.id] = !convExpanded[entry.id]">
                                   {{ convExpanded[entry.id] ? 'less' : 'more' }}
-                                  <span aria-hidden="true">{{ convExpanded[entry.id] ? '\u23F6' : '\u23F7' }}</span>
+                                  <app-icon [name]="convExpanded[entry.id] ? 'chevron-up' : 'chevron-down'" size="xs" />
                                 </app-bronco-button>
                               }
                             </div>
@@ -537,7 +611,7 @@ interface ConvTreeNode {
                             @for (sub of getSubTasks(group.entries, orchestrationId); track sub.id) {
                               <div class="conv-subtask">
                                 <div class="conv-ai-header">
-                                  <span class="subtask-icon" aria-hidden="true">\u21B3</span>
+                                  <app-icon name="subdirectory" size="xs" class="subtask-icon" />
                                   <span class="conv-task-type">{{ sub.taskType }}</span>
                                   <span class="conv-model">{{ sub.model }}</span>
                                   <span class="conv-tokens">{{ sub.inputTokens | number }}in / {{ sub.outputTokens | number }}out</span>
@@ -550,7 +624,7 @@ interface ConvTreeNode {
                                     @if (isMultilineConvPrompt(sub)) {
                                       <app-bronco-button variant="ghost" size="sm" class="inline-expand-btn" (click)="convPromptExpanded[sub.id] = !convPromptExpanded[sub.id]">
                                         {{ convPromptExpanded[sub.id] ? 'less' : 'more' }}
-                                        <span aria-hidden="true">{{ convPromptExpanded[sub.id] ? '\u23F6' : '\u23F7' }}</span>
+                                        <app-icon [name]="convPromptExpanded[sub.id] ? 'chevron-up' : 'chevron-down'" size="xs" />
                                       </app-bronco-button>
                                     }
                                   </div>
@@ -562,7 +636,7 @@ interface ConvTreeNode {
                                     @if (isMultilineConv(sub)) {
                                       <app-bronco-button variant="ghost" size="sm" class="inline-expand-btn" (click)="convExpanded[sub.id] = !convExpanded[sub.id]">
                                         {{ convExpanded[sub.id] ? 'less' : 'more' }}
-                                        <span aria-hidden="true">{{ convExpanded[sub.id] ? '\u23F6' : '\u23F7' }}</span>
+                                        <app-icon [name]="convExpanded[sub.id] ? 'chevron-up' : 'chevron-down'" size="xs" />
                                       </app-bronco-button>
                                     }
                                   </div>
@@ -588,8 +662,8 @@ interface ConvTreeNode {
                         <div class="conv-turns">
                           @for (turn of convMessages(entry); track $index) {
                             <div class="conv-turn" [ngClass]="'conv-turn-' + turn.role">
-                              <span class="conv-turn-role">{{ turn.role === 'user' ? '\u{1F464}' : '\u{1F916}' }}</span>
-                              @if (turn.toolName) { <span class="conv-tool-call">\u{1F527} {{ turn.toolName }}</span> }
+                              <app-icon [name]="turn.role === 'user' ? 'user' : 'robot'" size="xs" class="conv-turn-role" />
+                              @if (turn.toolName) { <span class="conv-tool-call"><app-icon name="wrench" size="xs" /> {{ turn.toolName }}</span> }
                               @if (turn.tokenCount) { <span class="conv-token-count">{{ turn.tokenCount | number }} tokens</span> }
                             </div>
                           }
@@ -602,7 +676,7 @@ interface ConvTreeNode {
                           @if (isMultilineConvPrompt(entry)) {
                             <app-bronco-button variant="ghost" size="sm" class="inline-expand-btn" (click)="convPromptExpanded[entry.id] = !convPromptExpanded[entry.id]">
                               {{ convPromptExpanded[entry.id] ? 'less' : 'more' }}
-                              <span aria-hidden="true">{{ convPromptExpanded[entry.id] ? '\u23F6' : '\u23F7' }}</span>
+                              <app-icon [name]="convPromptExpanded[entry.id] ? 'chevron-up' : 'chevron-down'" size="xs" />
                             </app-bronco-button>
                           }
                         </div>
@@ -614,7 +688,7 @@ interface ConvTreeNode {
                           @if (isMultilineConv(entry)) {
                             <app-bronco-button variant="ghost" size="sm" class="inline-expand-btn" (click)="convExpanded[entry.id] = !convExpanded[entry.id]">
                               {{ convExpanded[entry.id] ? 'less' : 'more' }}
-                              <span aria-hidden="true">{{ convExpanded[entry.id] ? '\u23F6' : '\u23F7' }}</span>
+                              <app-icon [name]="convExpanded[entry.id] ? 'chevron-up' : 'chevron-down'" size="xs" />
                             </app-bronco-button>
                           }
                         </div>
@@ -681,12 +755,12 @@ interface ConvTreeNode {
 
         <div class="reanalyze-bar">
           <app-bronco-button variant="secondary" (click)="reanalyze()" [disabled]="reanalyzing()">
-            <span aria-hidden="true">&#x21bb;</span> Re-run Analysis
+            <app-icon name="refresh" size="sm" /> Re-run Analysis
           </app-bronco-button>
         </div>
 
         <button class="ai-fab" type="button" aria-label="Ask AI for Help" (click)="openAiHelp()">
-          <span aria-hidden="true">&#x2728;</span>
+          <app-icon name="sparkles" size="md" />
         </button>
       </div>
     } @else {
@@ -777,6 +851,7 @@ export class TicketDetailComponent implements OnInit {
     labels.push('Timeline');
     return labels;
   });
+
 
   logsTabLabel = computed(() => {
     const total = this.unifiedLogsTotal();
@@ -1301,6 +1376,45 @@ export class TicketDetailComponent implements OnInit {
     return entries.filter(e =>
       e.type === 'ai' && this.isSubTask(e) && this.getOrchestrationId(e) === orchestrationId
     );
+  }
+
+  /** Build a tree from parentLogId relationships. Returns root nodes. */
+  private buildConvTree(entries: UnifiedLogEntry[]): ConvTreeNode[] {
+    const nodeMap = new Map<string, ConvTreeNode>();
+    const roots: ConvTreeNode[] = [];
+
+    // Create nodes
+    for (const entry of entries) {
+      nodeMap.set(entry.id, { entry, children: [], depth: 0, collapsed: false });
+    }
+
+    // Link parents
+    for (const entry of entries) {
+      const node = nodeMap.get(entry.id)!;
+      if (entry.parentLogId && nodeMap.has(entry.parentLogId)) {
+        const parent = nodeMap.get(entry.parentLogId)!;
+        parent.children.push(node);
+        node.depth = parent.depth + 1;
+      } else {
+        roots.push(node);
+      }
+    }
+
+    // Propagate depths (parents may have been processed after children)
+    const setDepths = (node: ConvTreeNode, depth: number): void => {
+      node.depth = depth;
+      for (const child of node.children) {
+        setDepths(child, depth + 1);
+      }
+    };
+    for (const root of roots) setDepths(root, 0);
+
+    return roots;
+  }
+
+  toggleConvNode(node: ConvTreeNode): void {
+    node.collapsed = !node.collapsed;
+    this.convTree.set([...this.convTree()]);
   }
 
   convMessages(entry: UnifiedLogEntry): Array<{ role: string; tokenCount?: number; toolName?: string }> {
