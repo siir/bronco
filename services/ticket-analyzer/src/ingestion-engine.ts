@@ -449,6 +449,13 @@ async function executeIngestionPipeline(
           stepsSkipped++;
           break;
         }
+        // Skip if operator explicitly provided a category in the payload
+        if (payload['category'] && typeof payload['category'] === 'string' && isValidCategory(payload['category'] as string)) {
+          logger.info({ clientId, category: ctx.category }, 'Skipping CATEGORIZE — operator-provided value');
+          await safeTracker.skipStep(stepId, `Operator-provided category: ${ctx.category}`);
+          stepsSkipped++;
+          break;
+        }
         try {
           const promptKey = step.promptKeyOverride ?? 'imap.categorize.system';
           const taskType = (step.taskTypeOverride ?? TaskType.CATEGORIZE) as string;
@@ -491,6 +498,14 @@ async function executeIngestionPipeline(
       case RouteStepType.TRIAGE_PRIORITY: {
         if (ctx.threadResolution?.isReply) {
           await safeTracker.skipStep(stepId, 'Skipped for reply — ticket already exists');
+          stepsSkipped++;
+          break;
+        }
+        // Skip if operator explicitly provided a priority in the payload
+        const validPrioritiesCheck = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
+        if (payload['priority'] && typeof payload['priority'] === 'string' && validPrioritiesCheck.includes((payload['priority'] as string).toUpperCase())) {
+          logger.info({ clientId, priority: ctx.priority }, 'Skipping TRIAGE_PRIORITY — operator-provided value');
+          await safeTracker.skipStep(stepId, `Operator-provided priority: ${ctx.priority}`);
           stepsSkipped++;
           break;
         }
@@ -645,7 +660,7 @@ async function executeIngestionPipeline(
                 description: description || null,
                 summary: ctx.summary || null,
                 source: source as never,
-                category: (ctx.category !== 'GENERAL' ? ctx.category : null) as TicketCategory | null,
+                category: ctx.category as TicketCategory | null,
                 priority: ctx.priority as Priority,
                 ticketNumber,
                 externalRef,
@@ -1224,7 +1239,7 @@ export function createIngestionProcessor(deps: IngestionDeps) {
           ticketId: ctx.ticketId,
           clientId,
           source: source as TicketSource,
-          category: (ctx.category !== 'GENERAL' ? ctx.category : null) as TicketCreatedJob['category'],
+          category: ctx.category as TicketCreatedJob['category'],
         }, {
           jobId: `ticket-created-${ctx.ticketId}`,
           attempts: 4,
