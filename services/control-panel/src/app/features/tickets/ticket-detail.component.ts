@@ -644,6 +644,7 @@ export class TicketDetailComponent implements OnInit {
   tabsInOrder = computed<string[]>(() => {
     const t = this.ticket();
     const labels: string[] = [];
+    labels.push('AI Cost');
     if (this.emailBlurb()) labels.push('AI Summary');
     if (t?.summary) labels.push('Resolution Summary');
     labels.push('Details');
@@ -651,6 +652,7 @@ export class TicketDetailComponent implements OnInit {
     labels.push('Logs');
     labels.push('Conversation');
     labels.push('Log Digest');
+    labels.push('Timeline');
     return labels;
   });
 
