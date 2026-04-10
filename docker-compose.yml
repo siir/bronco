@@ -120,7 +120,6 @@ services:
       ARTIFACT_STORAGE_PATH: ${ARTIFACT_STORAGE_PATH:-/mnt/qnap/artifacts}
       API_KEY: ${API_KEY}
       MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-}
-      ANALYSIS_MAX_TOKENS: ${ANALYSIS_MAX_TOKENS:-8192}
       HEALTH_PORT: "3106"
     volumes:
       - ticket_analyzer_repos:/var/lib/ticket-analyzer/repos

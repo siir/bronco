@@ -151,6 +151,7 @@ export function createAIRouter(
       clientId: r.clientId,
       provider: r.provider,
       model: r.model,
+      maxTokens: r.maxTokens,
       isActive: r.isActive,
     }));
   });

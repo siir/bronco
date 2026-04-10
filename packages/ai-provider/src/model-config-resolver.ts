@@ -13,6 +13,7 @@ export interface ModelConfigRow {
   clientId: string | null;
   provider: string;
   model: string;
+  maxTokens: number | null;
   isActive: boolean;
 }
 
@@ -22,6 +23,7 @@ export interface ModelConfigRow {
 export interface ResolvedModelConfig {
   provider: string;
   model: string;
+  maxTokens: number | null;
   source: 'CLIENT' | 'APP_WIDE' | 'DEFAULT';
 }
 
@@ -71,6 +73,7 @@ function getDefaultConfig(taskType: string): ResolvedModelConfig {
   return {
     provider: isLocal ? AIProvider.LOCAL : AIProvider.CLAUDE,
     model: isLocal ? DEFAULT_OLLAMA_MODEL : DEFAULT_CLAUDE_MODEL,
+    maxTokens: null,
     source: 'DEFAULT',
   };
 }
@@ -107,14 +110,14 @@ export class ModelConfigResolver {
         (r) => r.scope === 'CLIENT' && r.clientId === clientId,
       );
       if (clientConfig) {
-        return { provider: clientConfig.provider, model: clientConfig.model, source: 'CLIENT' };
+        return { provider: clientConfig.provider, model: clientConfig.model, maxTokens: clientConfig.maxTokens, source: 'CLIENT' };
       }
     }
 
     // 2. APP_WIDE override (clientId must be null for a valid APP_WIDE row)
     const appConfig = active.find((r) => r.scope === 'APP_WIDE' && r.clientId === null);
     if (appConfig) {
-      return { provider: appConfig.provider, model: appConfig.model, source: 'APP_WIDE' };
+      return { provider: appConfig.provider, model: appConfig.model, maxTokens: appConfig.maxTokens, source: 'APP_WIDE' };
     }
 
     // 3. Hardcoded default

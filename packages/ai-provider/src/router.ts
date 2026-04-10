@@ -163,6 +163,14 @@ export class AIRouter {
       }
     }
 
+    // Resolve model config for maxTokens fallback (DB config → prompt config → request)
+    if (!finalRequest.maxTokens && this.modelConfigResolver) {
+      const modelConfig = await this.modelConfigResolver.resolve(finalRequest.taskType, clientId);
+      if (modelConfig.maxTokens) {
+        finalRequest = { ...finalRequest, maxTokens: modelConfig.maxTokens };
+      }
+    }
+
     // Use explicit provider/model override if provided, bypassing normal routing.
     // Cache the clientAiMode result here so we don't call the resolver twice
     // (once in getProvider() and again below for billing mode).
