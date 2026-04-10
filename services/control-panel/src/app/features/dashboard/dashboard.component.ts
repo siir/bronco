@@ -185,6 +185,7 @@ export class DashboardComponent implements OnInit {
 
     this.systemStatusService.getStatus().subscribe({
       next: (res) => {
+        this.servicesError.set(false);
         this.statusData.set(res);
         const mcpUp = res.mcpServers?.filter(s => s.status === 'UP').length ?? 0;
         const llmUp = res.llmProviders?.filter(l => l.status === 'UP').length ?? 0;
