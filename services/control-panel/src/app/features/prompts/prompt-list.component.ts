@@ -20,10 +20,13 @@ import {
 } from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service';
 
+const TAB_LABELS = ['Prompts', 'Keywords', 'AI Tasks'] as const;
+
 interface MergedModelRow {
   taskType: string;
   provider: string;
   model: string;
+  maxTokens: number | null;
   source: 'DEFAULT' | 'APP_WIDE' | 'CLIENT';
   configId: string | null;
   isActive: boolean;
@@ -204,6 +207,7 @@ interface MergedModelRow {
                 <app-data-column key="model" header="Model" [sortable]="false">
                   <ng-template #cell let-row>
                     <code class="model-name">{{ row.model }}</code>
+                    @if (row.maxTokens) { <span class="max-tokens-chip">max {{ row.maxTokens }}</span> }
                   </ng-template>
                 </app-data-column>
 
@@ -380,6 +384,11 @@ interface MergedModelRow {
       padding: 2px 6px;
       border-radius: var(--radius-sm);
     }
+    .max-tokens-chip {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      margin-left: 6px;
+    }
     .source-badge {
       font-size: 11px;
       font-weight: 600;
@@ -464,10 +473,10 @@ export class PromptListComponent implements OnInit {
   trackModelRow = (row: MergedModelRow) => (row.configId ?? row.taskType) + row.source + (row.clientLabel ?? '');
 
   ngOnInit(): void {
-    const tabParam = this.route.snapshot.queryParamMap.get('tab');
-    if (tabParam !== null) {
-      const tab = Number(tabParam);
-      if (Number.isInteger(tab) && tab >= 0 && tab <= 2) this.selectedTab.set(tab);
+    const tabSlug = this.route.snapshot.queryParamMap.get('tab');
+    if (tabSlug) {
+      const idx = TAB_LABELS.findIndex(l => this.toSlug(l) === tabSlug);
+      if (idx >= 0) this.selectedTab.set(idx);
     }
     this.loadPrompts();
     this.loadKeywords();
@@ -476,7 +485,17 @@ export class PromptListComponent implements OnInit {
 
   onTabChange(index: number): void {
     this.selectedTab.set(index);
-    this.router.navigate([], { queryParams: { tab: index }, queryParamsHandling: 'merge', replaceUrl: true });
+    const slug = this.toSlug(TAB_LABELS[index] ?? '');
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { tab: slug || null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  private toSlug(label: string): string {
+    return label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   }
 
   loadPrompts(): void {
@@ -614,6 +633,7 @@ export class PromptListComponent implements OnInit {
           taskType: d.taskType,
           provider: appWide.provider,
           model: appWide.model,
+          maxTokens: appWide.maxTokens,
           source: 'APP_WIDE',
           configId: appWide.id,
           isActive: true,
@@ -627,6 +647,7 @@ export class PromptListComponent implements OnInit {
           taskType: d.taskType,
           provider: d.provider,
           model: d.model,
+          maxTokens: null,
           source: 'DEFAULT',
           configId: appWide.id,
           isActive: false,
@@ -640,6 +661,7 @@ export class PromptListComponent implements OnInit {
           taskType: d.taskType,
           provider: d.provider,
           model: d.model,
+          maxTokens: null,
           source: 'DEFAULT',
           configId: null,
           isActive: true,
@@ -655,6 +677,7 @@ export class PromptListComponent implements OnInit {
           taskType: d.taskType,
           provider: c.provider,
           model: c.model,
+          maxTokens: c.maxTokens,
           source: 'CLIENT',
           configId: c.id,
           isActive: c.isActive,
@@ -715,7 +738,8 @@ export class PromptListComponent implements OnInit {
   getInactiveOverrideLabel(row: MergedModelRow): string {
     const config = this.modelConfigs().find(c => c.id === row.configId);
     if (!config) return '';
-    return `${config.provider} / ${config.model}`;
+    const base = `${config.provider} / ${config.model}`;
+    return config.maxTokens ? `${base} (max ${config.maxTokens})` : base;
   }
 
   deleteModelConfigById(configId: string): void {

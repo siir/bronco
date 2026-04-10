@@ -11,7 +11,6 @@ import {
   SelectComponent,
   TextInputComponent,
   ToggleSwitchComponent,
-  IconComponent,
 } from '../../../../shared/components/index.js';
 
 const PROVIDER_OPTIONS = [
@@ -33,7 +32,6 @@ const PROVIDER_OPTIONS = [
     SelectComponent,
     TextInputComponent,
     ToggleSwitchComponent,
-    IconComponent,
   ],
   template: `
     <div class="tab-section">
@@ -70,8 +68,8 @@ const PROVIDER_OPTIONS = [
         <app-data-column key="credActions" header="" [sortable]="false" width="100px">
           <ng-template #cell let-cred>
             <div class="row-actions">
-              <app-bronco-button variant="icon" size="sm" ariaLabel="Test credential" (click)="testCredential(cred)"><app-icon name="play" size="sm" /></app-bronco-button>
-              <app-bronco-button variant="icon" size="sm" ariaLabel="Delete credential" (click)="deleteCredential(cred)"><app-icon name="delete" size="sm" /></app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" ariaLabel="Test credential" (click)="testCredential(cred)">&#x25B6;</app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" ariaLabel="Delete credential" (click)="deleteCredential(cred)">&#x1F5D1;</app-bronco-button>
             </div>
           </ng-template>
         </app-data-column>
@@ -84,6 +82,7 @@ const PROVIDER_OPTIONS = [
             <app-select
               [value]="newProvider()"
               [options]="providerOptions"
+              placeholder="Select provider"
               (valueChange)="newProvider.set($event)" />
           </app-form-field>
           <app-form-field label="Label">
@@ -150,7 +149,7 @@ const PROVIDER_OPTIONS = [
     .key-mask {
       font-family: ui-monospace, 'SF Mono', Menlo, monospace;
       font-size: 12px;
-      color: var(--text-code);
+      color: var(--text-secondary);
       background: var(--bg-code);
       padding: 1px 6px;
       border-radius: var(--radius-sm);

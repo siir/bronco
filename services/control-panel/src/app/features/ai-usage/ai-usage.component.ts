@@ -34,6 +34,8 @@ const TAB_INDEX = {
   PROMPT_LOG: 2,
 } as const;
 
+const TAB_LABELS = ['Usage Summary', 'Model Costs', 'Prompt Log'] as const;
+
 /** Maximum number of log detail entries to keep in the client-side cache. */
 const MAX_DETAIL_CACHE_SIZE = 100;
 
@@ -959,10 +961,10 @@ export class AiUsageComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    const tabParam = this.route.snapshot.queryParamMap.get('tab');
-    if (tabParam !== null) {
-      const tab = Number(tabParam);
-      if (Number.isInteger(tab) && tab >= 0 && tab <= 2) this.selectedTab.set(tab);
+    const tabSlug = this.route.snapshot.queryParamMap.get('tab');
+    if (tabSlug) {
+      const idx = TAB_LABELS.findIndex(l => this.toSlug(l) === tabSlug);
+      if (idx >= 0) this.selectedTab.set(idx);
     }
 
     // Debounced text/number filters
@@ -1264,6 +1266,10 @@ export class AiUsageComponent implements OnInit {
     });
   }
 
+  private toSlug(label: string): string {
+    return label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  }
+
   private setDetailLoading(id: string, loading: boolean): void {
     const next = new Map(this.detailLoading());
     if (loading) {
@@ -1276,7 +1282,13 @@ export class AiUsageComponent implements OnInit {
 
   onTabChange(index: number): void {
     this.selectedTab.set(index);
-    this.router.navigate([], { queryParams: { tab: index }, queryParamsHandling: 'merge', replaceUrl: true });
+    const slug = this.toSlug(TAB_LABELS[index] ?? '');
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { tab: slug || null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
     if (index === TAB_INDEX.PROMPT_LOG && this.logs().length === 0) {
       this.loadLogs();
     }

@@ -324,6 +324,8 @@ export interface AnalyzerDeps {
   selfAnalysisQueue?: import('bullmq').Queue;
   /** Optional path for storing full MCP tool result artifacts on disk. */
   artifactStoragePath?: string;
+  /** Fetches the global default max tokens from DB settings (called per analysis). */
+  loadDefaultMaxTokens?: () => Promise<number | undefined>;
 }
 
 // ---------------------------------------------------------------------------
@@ -1776,6 +1778,7 @@ interface StrategistPlan {
   nextPrompt: string | null;
   done: boolean;
   finalAnalysis?: string;
+  parseError?: string;
 }
 
 function parseStrategistResponse(content: string): StrategistPlan {
@@ -1805,12 +1808,14 @@ function parseStrategistResponse(content: string): StrategistPlan {
     );
     // Treat unparseable responses as done to avoid burning tokens on a retry loop.
     // The raw content is surfaced as the final analysis so no work is lost.
+    const errMsg = error instanceof Error ? error.message : String(error);
     return {
       findings: content,
       tasks: [],
       nextPrompt: null,
       done: true,
       finalAnalysis: content,
+      parseError: errMsg,
     };
   }
 }
@@ -1987,6 +1992,7 @@ async function saveMcpToolArtifact(
   toolName: string,
   rawResult: string,
   storagePath: string,
+  artifactId?: string,
 ): Promise<void> {
   try {
     let isJson = false;
@@ -2008,6 +2014,7 @@ async function saveMcpToolArtifact(
     const relativePath = `tickets/${ticketId}/${filename}`;
     await db.artifact.create({
       data: {
+        ...(artifactId ? { id: artifactId } : {}),
         ticketId,
         filename,
         mimeType,
@@ -2046,6 +2053,7 @@ async function executeOrchestratedSubTask(
   const { ai } = deps;
   const map = modelMap ?? {};
   const model = map[task.model] ?? map.sonnet ?? 'claude-sonnet-4-6';
+  const defaultMaxTokens = await deps.loadDefaultMaxTokens?.() ?? undefined;
 
   const toolCalls: SubTaskResult['toolCalls'] = [];
   let inputTokens = 0;
@@ -2107,7 +2115,7 @@ async function executeOrchestratedSubTask(
     if (tools.length > 0) {
       const subTaskLogId = randomUUID();
       const orchCtx = orchestration
-        ? { orchestrationId: orchestration.id, orchestrationIteration: orchestration.iteration, isSubTask: true, logId: subTaskLogId, ...(orchestration.parentLogId ? { parentLogId: orchestration.parentLogId, parentLogType: 'ai' } : {}) }
+        ? { orchestrationId: orchestration.id, orchestrationIteration: orchestration.iteration, isSubTask: true, logId: subTaskLogId, ...(orchestration.parentLogId ? { parentLogId: orchestration.parentLogId, parentLogType: 'ai' as const } : {}) }
         : { logId: subTaskLogId };
       const response = await ai.generateWithTools({
         taskType: TaskType.DEEP_ANALYSIS,
@@ -2117,7 +2125,7 @@ async function executeOrchestratedSubTask(
         systemPrompt: subTaskSystemPrompt,
         providerOverride: 'CLAUDE',
         modelOverride: model,
-        maxTokens: 4096,
+        maxTokens: defaultMaxTokens,
       });
 
       passInput += response.usage?.inputTokens ?? 0;
@@ -2147,8 +2155,9 @@ async function executeOrchestratedSubTask(
             content: result.result,
             ...(result.isError ? { is_error: true } : {}),
           });
+          const artifactId = deps.artifactStoragePath && !result.isError ? randomUUID() : undefined;
           if (deps.artifactStoragePath && !result.isError) {
-            void saveMcpToolArtifact(deps.db, ticketId, toolUse.name, result.result, deps.artifactStoragePath).catch(error => {
+            void saveMcpToolArtifact(deps.db, ticketId, toolUse.name, result.result, deps.artifactStoragePath, artifactId).catch(error => {
               logger.warn({
                 err: error,
                 ticketId,
@@ -2157,19 +2166,19 @@ async function executeOrchestratedSubTask(
             });
           }
           if (result.isError) hasToolError = true;
-
-          // Write AppLog so tool calls appear in the conversation tree
+          // Write AppLog for sub-task tool calls with lineage back to this sub-task's AI call
           appLog.info(
-            `Orchestrated tool call: ${toolUse.name} (${elapsed}ms)`,
+            `Sub-task tool call: ${toolUse.name} (${elapsed}ms)`,
             {
               ticketId,
               tool: toolUse.name,
               durationMs: elapsed,
               params: toolUse.input ? JSON.stringify(toolUse.input).slice(0, 1000) : null,
-              resultPreview: result.result?.slice(0, 500) ?? null,
+              resultPreview: result.result?.slice(0, 2000) ?? null,
               isError: result.isError ?? false,
               parentLogId: subTaskLogId,
               parentLogType: 'ai',
+              ...(artifactId ? { artifactId } : {}),
             },
             ticketId,
             'ticket',
@@ -2192,7 +2201,7 @@ async function executeOrchestratedSubTask(
           systemPrompt: 'Summarize the tool results into a structured finding. Do not call additional tools.',
           providerOverride: 'CLAUDE',
           modelOverride: model,
-          maxTokens: 4096,
+          maxTokens: defaultMaxTokens,
         });
 
         passInput += summaryResponse.usage?.inputTokens ?? 0;
@@ -2230,7 +2239,7 @@ async function executeOrchestratedSubTask(
     // No tools — pure analysis
     const pureLogId = randomUUID();
     const orchCtx = orchestration
-      ? { orchestrationId: orchestration.id, orchestrationIteration: orchestration.iteration, isSubTask: true, logId: pureLogId, ...(orchestration.parentLogId ? { parentLogId: orchestration.parentLogId, parentLogType: 'ai' } : {}) }
+      ? { orchestrationId: orchestration.id, orchestrationIteration: orchestration.iteration, isSubTask: true, logId: pureLogId, ...(orchestration.parentLogId ? { parentLogId: orchestration.parentLogId, parentLogType: 'ai' as const } : {}) }
       : { logId: pureLogId };
     const response = await ai.generate({
       taskType: TaskType.DEEP_ANALYSIS,
@@ -2359,6 +2368,9 @@ async function executeRoutePipeline(
 ): Promise<void> {
   const { db, ai, mailer, mcpDatabaseUrl, senderSignature } = deps;
   const { ticketId, clientId, emailFrom, emailSubject, emailBody, emailMessageId } = ctx;
+
+  // Resolve default max tokens from DB settings (fresh read per pipeline execution)
+  const defaultMaxTokens = await deps.loadDefaultMaxTokens?.() ?? undefined;
 
   const safeName = sanitizeName(route.name);
   appLog.info(`Executing route "${safeName}" (${route.steps.length} steps)`, { ticketId, routeId: route.id, routeName: safeName }, ticketId, 'ticket');
@@ -3033,13 +3045,21 @@ async function executeRoutePipeline(
               systemPrompt: ORCHESTRATED_SYSTEM_PROMPT,
               providerOverride: 'CLAUDE',
               modelOverride: 'claude-opus-4-6',
-              maxTokens: 4096,
+              maxTokens: defaultMaxTokens,
             });
 
             orchTotalInputTokens += strategistResponse.usage?.inputTokens ?? 0;
             orchTotalOutputTokens += strategistResponse.usage?.outputTokens ?? 0;
 
             const plan = parseStrategistResponse(strategistResponse.content);
+
+            if (plan.parseError) {
+              appLog.error(
+                `Strategist JSON parse failed: ${plan.parseError}. Raw content used as final analysis.`,
+                { ticketId, iteration: i + 1, error: plan.parseError },
+                ticketId, 'ticket',
+              );
+            }
 
             knowledgeDoc += `\n\n### Iteration ${i + 1}\n${plan.findings}`;
 
@@ -3237,8 +3257,8 @@ async function executeRoutePipeline(
               systemPrompt: agenticSystemPrompt,
               tools: agenticTools,
               messages,
-              context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!(clientContext || environmentContext), logId: aiCallId, ...(previousAiCallId ? { parentLogId: previousAiCallId, parentLogType: 'ai' } : {}) },
-              maxTokens: 4096,
+              context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!(clientContext || environmentContext), logId: aiCallId, ...(previousAiCallId ? { parentLogId: previousAiCallId, parentLogType: 'ai' as const } : {}) },
+              maxTokens: defaultMaxTokens,
             });
           } catch (error) {
             if (error instanceof Error && /tool/i.test(error.message) && /support/i.test(error.message)) {
@@ -3314,8 +3334,9 @@ async function executeRoutePipeline(
               content: result.result,
               ...(result.isError ? { is_error: true } : {}),
             });
+            const agenticArtifactId = deps.artifactStoragePath && !result.isError ? randomUUID() : undefined;
             if (deps.artifactStoragePath && !result.isError) {
-              void saveMcpToolArtifact(deps.db, ticketId, toolUse.name, result.result, deps.artifactStoragePath).catch(error => {
+              void saveMcpToolArtifact(deps.db, ticketId, toolUse.name, result.result, deps.artifactStoragePath, agenticArtifactId).catch(error => {
                 logger.warn({
                   err: error,
                   ticketId,
@@ -3335,6 +3356,7 @@ async function executeRoutePipeline(
                 isError: result.isError ?? false,
                 parentLogId: aiCallId,
                 parentLogType: 'ai',
+                ...(agenticArtifactId ? { artifactId: agenticArtifactId } : {}),
               },
               ticketId,
               'ticket',

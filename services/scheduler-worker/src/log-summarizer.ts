@@ -15,7 +15,8 @@ const VALID_ATTENTION_LEVELS = new Set<string>(Object.values(AttentionLevel));
  * attentionLevel=NONE if parsing fails (backwards-compatible with older prompts).
  */
 function parseAiResponse(raw: string): { summary: string; attentionLevel: AttentionLevel } {
-  const trimmed = raw.trim();
+  // Strip markdown fences (```json ... ```) that LLMs sometimes add despite instructions
+  const trimmed = raw.trim().replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/, '').trim();
   try {
     const parsed = JSON.parse(trimmed) as Record<string, unknown>;
     const summary = typeof parsed.summary === 'string' ? parsed.summary.trim() : trimmed;

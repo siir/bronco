@@ -2,6 +2,7 @@ import { Component, inject, input, output, OnInit, signal } from '@angular/core'
 import { FormsModule } from '@angular/forms';
 import { TicketService } from '../../core/services/ticket.service.js';
 import { ClientService, Client } from '../../core/services/client.service.js';
+import { ContactService } from '../../core/services/contact.service.js';
 import { ToastService } from '../../core/services/toast.service.js';
 import { FormFieldComponent, TextInputComponent, TextareaComponent, SelectComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
@@ -16,7 +17,7 @@ import { FormFieldComponent, TextInputComponent, TextareaComponent, SelectCompon
           <app-select
             [value]="selectedClientId"
             [options]="clientOptions()"
-            (valueChange)="selectedClientId = $event" />
+            (valueChange)="onClientChange($event)" />
         </app-form-field>
       }
 
@@ -33,6 +34,14 @@ import { FormFieldComponent, TextInputComponent, TextareaComponent, SelectCompon
           placeholder="Optional description..."
           [rows]="4"
           (valueChange)="description = $event" />
+      </app-form-field>
+
+      <app-form-field label="Requester" hint="Optional — who submitted this request">
+        <app-select
+          [value]="requesterId"
+          [options]="requesterOptions()"
+          placeholder="Select requester..."
+          (valueChange)="requesterId = $event" />
       </app-form-field>
 
       <app-form-field label="Priority">
@@ -63,18 +72,19 @@ import { FormFieldComponent, TextInputComponent, TextareaComponent, SelectCompon
 export class TicketDialogComponent implements OnInit {
   private ticketService = inject(TicketService);
   private clientService = inject(ClientService);
+  private contactService = inject(ContactService);
   private toast = inject(ToastService);
 
   clientId = input<string>('');
   created = output<{ id: string }>();
   cancelled = output<void>();
 
-  clientOptions = signal<Array<{ value: string; label: string }>>([
-    { value: '', label: 'Select client...' },
-  ]);
+  clientOptions = signal<Array<{ value: string; label: string }>>([]);
+  requesterOptions = signal<Array<{ value: string; label: string }>>([]);
   selectedClientId = '';
   subject = '';
   description = '';
+  requesterId = '';
   priority = 'MEDIUM';
   category = '';
 
@@ -106,7 +116,26 @@ export class TicketDialogComponent implements OnInit {
       });
     } else {
       this.selectedClientId = this.clientId();
+      this.loadContacts(this.clientId());
     }
+  }
+
+  onClientChange(clientId: string): void {
+    this.selectedClientId = clientId;
+    this.requesterId = '';
+    if (clientId) {
+      this.loadContacts(clientId);
+    } else {
+      this.requesterOptions.set([]);
+    }
+  }
+
+  private loadContacts(clientId: string): void {
+    this.contactService.getContacts(clientId).subscribe(contacts => {
+      this.requesterOptions.set(
+        contacts.map(c => ({ value: c.id, label: c.role ? `${c.name} (${c.role})` : c.name })),
+      );
+    });
   }
 
   canSave(): boolean {
@@ -123,7 +152,8 @@ export class TicketDialogComponent implements OnInit {
       priority: this.priority,
       source: 'MANUAL',
       category: this.category || undefined,
-    }).subscribe({
+      ...(this.requesterId ? { requesterId: this.requesterId } : {}),
+    } as never).subscribe({
       next: (ticket) => {
         this.toast.success('Ticket created');
         this.created.emit({ id: ticket.id });

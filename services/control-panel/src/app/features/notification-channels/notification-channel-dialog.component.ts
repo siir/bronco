@@ -23,7 +23,7 @@ import { FormFieldComponent, TextInputComponent, SelectComponent, BroncoButtonCo
 
       @if (!isEdit) {
         <app-form-field label="Type">
-          <app-select [value]="type" [options]="typeOptions" (valueChange)="type = $event" />
+          <app-select [value]="type" [options]="typeOptions" (valueChange)="onTypeChange($event)" />
         </app-form-field>
       }
 
@@ -129,6 +129,12 @@ export class NotificationChannelDialogComponent implements OnInit {
         };
       }
     }
+  }
+
+  onTypeChange(newType: string): void {
+    this.type = newType;
+    this.emailConfig = { host: '', port: 587, user: '', password: '', from: '', to: '' };
+    this.pushoverConfig = { appToken: '', userKey: '' };
   }
 
   parsePort(val: string): number {

@@ -7,7 +7,6 @@ import {
   DataTableComponent,
   DataTableColumnComponent,
   DialogComponent,
-  IconComponent,
 } from '../../../../shared/components/index.js';
 import { RepoDialogComponent } from '../../../repos/repo-dialog.component';
 
@@ -20,7 +19,6 @@ import { RepoDialogComponent } from '../../../repos/repo-dialog.component';
     DataTableColumnComponent,
     DialogComponent,
     RepoDialogComponent,
-    IconComponent,
   ],
   template: `
     <div class="tab-section">
@@ -53,8 +51,8 @@ import { RepoDialogComponent } from '../../../repos/repo-dialog.component';
         <app-data-column key="actions" header="" [sortable]="false" width="100px">
           <ng-template #cell let-r>
             <div class="row-actions">
-              <app-bronco-button variant="icon" size="sm" ariaLabel="Edit repository" (click)="openEditDialog(r)"><app-icon name="edit" size="sm" /></app-bronco-button>
-              <app-bronco-button variant="icon" size="sm" ariaLabel="Delete repository" (click)="deleteRepo(r)"><app-icon name="delete" size="sm" /></app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" ariaLabel="Edit repository" (click)="openEditDialog(r)">&#x270E;</app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" ariaLabel="Delete repository" (click)="deleteRepo(r)">&#x1F5D1;</app-bronco-button>
             </div>
           </ng-template>
         </app-data-column>
@@ -98,7 +96,7 @@ import { RepoDialogComponent } from '../../../repos/repo-dialog.component';
     .repo-url {
       font-family: ui-monospace, 'SF Mono', Menlo, monospace;
       font-size: 12px;
-      color: var(--text-code);
+      color: var(--text-secondary);
       background: var(--bg-code);
       padding: 1px 6px;
       border-radius: var(--radius-sm);

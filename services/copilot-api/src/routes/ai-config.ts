@@ -134,9 +134,10 @@ export async function aiConfigRoutes(
       clientId?: string;
       provider: string;
       model: string;
+      maxTokens?: number | null;
     };
   }>('/api/ai-config', async (request, reply) => {
-    const { taskType, scope, provider, model } = request.body;
+    const { taskType, scope, provider, model, maxTokens } = request.body;
     const trimmedClientId = request.body.clientId?.trim() || null;
 
     if (!VALID_TASK_TYPES.has(taskType)) {
@@ -166,6 +167,7 @@ export async function aiConfigRoutes(
           clientId: trimmedClientId,
           provider,
           model: model.trim(),
+          ...(maxTokens !== undefined && { maxTokens }),
         },
       });
       modelConfigResolver.invalidate();
@@ -190,10 +192,11 @@ export async function aiConfigRoutes(
     Body: {
       provider?: string;
       model?: string;
+      maxTokens?: number | null;
       isActive?: boolean;
     };
   }>('/api/ai-config/:id', async (request) => {
-    const { provider, model, isActive } = request.body;
+    const { provider, model, maxTokens, isActive } = request.body;
 
     if (provider && !VALID_PROVIDERS.has(provider)) {
       return fastify.httpErrors.badRequest(`Invalid provider "${provider}". Must be LOCAL or CLAUDE.`);
@@ -208,6 +211,7 @@ export async function aiConfigRoutes(
         data: {
           ...(provider !== undefined && { provider }),
           ...(model !== undefined && { model: model.trim() }),
+          ...(maxTokens !== undefined && { maxTokens }),
           ...(isActive !== undefined && { isActive }),
         },
       });

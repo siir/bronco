@@ -75,6 +75,8 @@ import { type TicketCostResponse } from '../../core/services/ai-usage.service';
             </div>
           }
         </app-card>
+      } @else {
+        <p class="empty">No AI calls recorded for this ticket.</p>
       }
     }
   `,
@@ -84,18 +86,11 @@ import { type TicketCostResponse } from '../../core/services/ai-usage.service';
       margin-bottom: 16px;
       font-family: var(--font-primary);
     }
-    .cost-card {
-      background: var(--color-success-subtle);
-    }
     .card-title-row {
       display: flex;
       align-items: center;
       gap: 8px;
       margin-bottom: 12px;
-    }
-    .card-title-icon {
-      font-size: 18px;
-      color: var(--color-success);
     }
     .card-title {
       margin: 0;
@@ -103,6 +98,7 @@ import { type TicketCostResponse } from '../../core/services/ai-usage.service';
       font-weight: 600;
       color: var(--text-primary);
     }
+    .card-title-icon { color: var(--accent); }
     .cost-summary {
       display: flex;
       gap: 24px;
@@ -179,6 +175,11 @@ import { type TicketCostResponse } from '../../core/services/ai-usage.service';
       padding: 2px 6px;
       border-radius: var(--radius-sm);
       color: var(--text-primary);
+    }
+    .empty {
+      color: var(--text-tertiary);
+      padding: 16px;
+      text-align: center;
     }
   `],
 })
