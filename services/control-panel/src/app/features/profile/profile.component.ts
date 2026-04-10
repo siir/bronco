@@ -38,6 +38,7 @@ import { ToastService } from '../../core/services/toast.service';
               <button
                 class="theme-card"
                 [class.theme-card-active]="theme.id === themeService.currentTheme().id"
+                [attr.aria-pressed]="theme.id === themeService.currentTheme().id"
                 (click)="themeService.setTheme(theme.id)">
                 <div class="theme-card-preview" [class.theme-card-dark]="theme.isDark">
                   <span class="theme-swatch" [style.background]="theme.accentColor"></span>
