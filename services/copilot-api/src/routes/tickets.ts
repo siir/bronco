@@ -690,6 +690,8 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
       systemPrompt?: string | null;
       responseText?: string | null;
       conversationMetadata?: unknown;
+      parentLogId?: string | null;
+      parentLogType?: string | null;
       archive?: {
         fullPrompt: string;
         fullResponse: string;
@@ -726,6 +728,8 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
         context: log.context,
         error: log.error,
         durationMs: (ctx?.durationMs as number | null) ?? null,
+        parentLogId: log.parentLogId ?? null,
+        parentLogType: log.parentLogType ?? null,
       });
     }
 
@@ -746,6 +750,8 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
         systemPrompt: ai.systemPrompt,
         responseText: ai.responseText,
         conversationMetadata: ai.conversationMetadata,
+        parentLogId: ai.parentLogId ?? null,
+        parentLogType: ai.parentLogType ?? null,
         archive: (ai as unknown as { archive?: UnifiedEntry['archive'] }).archive ?? null,
       });
     }
