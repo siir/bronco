@@ -168,8 +168,8 @@ interface StepGroup {
           }
           <app-tab [label]="logsTabLabel()">
             <div class="logs-view-toggle">
-              <button class="view-btn" [class.view-active]="logsView() === 'raw'" (click)="setLogsView('raw')">Raw Logs</button>
               <button class="view-btn" [class.view-active]="logsView() === 'conversation'" (click)="setLogsView('conversation')">Conversation</button>
+              <button class="view-btn" [class.view-active]="logsView() === 'raw'" (click)="setLogsView('raw')">Raw Logs</button>
             </div>
 
             @if (logsView() === 'raw') {
@@ -647,7 +647,7 @@ export class TicketDetailComponent implements OnInit {
 
   // Tab tracking
   selectedTabIndex = signal(0);
-  logsView = signal<'raw' | 'conversation'>('raw');
+  logsView = signal<'raw' | 'conversation'>('conversation');
 
   /** Dynamic tab labels (depends on which conditional tabs are visible). */
   tabsInOrder = computed<string[]>(() => {
@@ -839,6 +839,10 @@ export class TicketDetailComponent implements OnInit {
           if (idx >= 0) {
             this.selectedTabIndex.set(idx);
           }
+        }
+        // Conversation is the default logs view — load it on first ticket load
+        if (this.logsView() === 'conversation') {
+          this.loadConversationEntries();
         }
       }
       const incoming = t.events ?? [];
