@@ -13,6 +13,7 @@ export interface AIProviderClient {
 
 /** Entry written to persistent storage for every AI generation call. */
 export interface AiUsageEntry {
+  id?: string;
   provider: string;
   model: string;
   taskType: string;
@@ -29,6 +30,8 @@ export interface AiUsageEntry {
   responseText: string | null;
   billingMode?: string;
   conversationMetadata?: ConversationMetadata | null;
+  parentLogId?: string | null;
+  parentLogType?: 'ai' | 'app' | null;
 }
 
 /** Lightweight conversation metadata persisted permanently on the usage log. */

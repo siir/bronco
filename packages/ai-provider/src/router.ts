@@ -233,7 +233,11 @@ export class AIRouter {
       // route through getExplicitProvider() which uses platform credentials, not BYOK keys.
       const billingMode = !usedExplicitOverride && cachedAiMode === 'byok' ? 'byok' : 'platform';
       const archiveWriter = this.archiveWriter;
+      const logId = request.context?.logId as string | undefined;
+      const parentLogId = request.context?.parentLogId as string | undefined;
+      const parentLogType = request.context?.parentLogType as 'ai' | 'app' | undefined;
       this.usageWriter({
+        ...(logId ? { id: logId } : {}),
         provider: response.provider,
         model: response.model,
         taskType: request.taskType,
@@ -250,6 +254,8 @@ export class AIRouter {
         responseText: response.content,
         billingMode,
         conversationMetadata: convMeta,
+        ...(parentLogId ? { parentLogId } : {}),
+        ...(parentLogType ? { parentLogType } : {}),
       }).then((usageLogId) => {
         if (archiveWriter && typeof usageLogId === 'string' && usageLogId) {
           archiveWriter({
@@ -391,7 +397,11 @@ export class AIRouter {
       // otherwise extract the last user message from the messages array.
       const toolPromptText = finalRequest.prompt ?? extractLastUserMessage(finalRequest.messages);
       const archiveWriter = this.archiveWriter;
+      const logId = request.context?.logId as string | undefined;
+      const parentLogId = request.context?.parentLogId as string | undefined;
+      const parentLogType = request.context?.parentLogType as 'ai' | 'app' | undefined;
       this.usageWriter({
+        ...(logId ? { id: logId } : {}),
         provider: response.provider,
         model: response.model,
         taskType: request.taskType,
@@ -408,6 +418,8 @@ export class AIRouter {
         responseText: response.content,
         billingMode,
         conversationMetadata: convMeta,
+        ...(parentLogId ? { parentLogId } : {}),
+        ...(parentLogType ? { parentLogType } : {}),
       }).then((usageLogId) => {
         if (archiveWriter && typeof usageLogId === 'string' && usageLogId) {
           archiveWriter({
