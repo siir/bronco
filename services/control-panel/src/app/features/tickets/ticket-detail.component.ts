@@ -1,6 +1,6 @@
 import { Component, DestroyRef, inject, OnInit, signal, input, computed } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CommonModule, DatePipe, DecimalPipe, JsonPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
@@ -596,6 +596,8 @@ export class TicketDetailComponent implements OnInit {
   private aiUsageService = inject(AiUsageService);
   private destroyRef = inject(DestroyRef);
   private toast = inject(ToastService);
+  private route = inject(ActivatedRoute);
+  private router = inject(Router);
 
   showAiHelpDialog = signal(false);
   aiHelpTitle = signal('');
@@ -802,6 +804,17 @@ export class TicketDetailComponent implements OnInit {
     this.loadCostSummary();
     this.loadPendingActions();
     this.destroyRef.onDestroy(() => this.stopPolling());
+
+    // Restore selected tab from query param
+    const tabSlug = this.route.snapshot.queryParamMap.get('tab');
+    if (tabSlug) {
+      const labels = this.tabsInOrder();
+      const idx = labels.findIndex(l => this.toSlug(l) === tabSlug);
+      if (idx >= 0) {
+        this.selectedTabIndex.set(idx);
+        if (labels[idx] === 'Conversation') this.loadConversationEntries();
+      }
+    }
   }
 
   loadPendingActions(): void {
@@ -1065,6 +1078,18 @@ export class TicketDetailComponent implements OnInit {
     if (labels[idx] === 'Conversation') {
       this.loadConversationEntries();
     }
+    // Persist tab in query param for refresh
+    const slug = this.toSlug(labels[idx] ?? '');
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { tab: slug || null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  private toSlug(label: string): string {
+    return label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   }
 
   isSubTask(entry: UnifiedLogEntry): boolean {
