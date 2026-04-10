@@ -648,12 +648,15 @@ model AppLog {
   entityId   String?  @map("entity_id") @db.Uuid
   entityType String?  @map("entity_type") // e.g. "ticket" or "operational_task"
   error      String?
+  parentLogId   String?  @map("parent_log_id") @db.Uuid
+  parentLogType String?  @map("parent_log_type")
   createdAt  DateTime @default(now()) @map("created_at")
 
   @@index([service, createdAt])
   @@index([level, createdAt])
   @@index([entityId, entityType])
   @@index([createdAt])
+  @@index([parentLogId])
   @@map("app_logs")
 }
 
@@ -699,6 +702,8 @@ model AiUsageLog {
   systemPrompt          String?  @map("system_prompt") @db.Text
   responseText          String?  @map("response_text") @db.Text
   conversationMetadata  Json?    @map("conversation_metadata")
+  parentLogId   String?  @map("parent_log_id") @db.Uuid
+  parentLogType String?  @map("parent_log_type")
   createdAt    DateTime @default(now()) @map("created_at")
 
   archive AiPromptArchive?
@@ -708,6 +713,7 @@ model AiUsageLog {
   @@index([clientId])
   @@index([createdAt])
   @@index([taskType])
+  @@index([parentLogId])
   @@map("ai_usage_logs")
 }
 
