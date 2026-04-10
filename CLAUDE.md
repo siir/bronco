@@ -105,6 +105,8 @@ The default task→provider mapping is shown below. These defaults can be overri
 
 System prompts for each task are registered in `packages/ai-provider/src/prompts/` and resolved at runtime via `PromptResolver`. Workers pass `promptKey` (e.g. `"imap.triage.system"`) instead of inline prompt strings, so prompt overrides (prepend/append, per-client) created in the control panel are applied at AI generation time.
 
+`maxTokens` is also configurable per task type via `AiModelConfig` (Settings page → AI Models). When unset, the provider default is used. Replaces the removed `ANALYSIS_MAX_TOKENS` env var.
+
 **Local LLM (Ollama)** — fast, cost-free (default):
 - `TRIAGE` — Set priority, extract key entities
 - `CATEGORIZE` — Classify into TicketCategory
@@ -356,6 +358,7 @@ pnpm dev:portal           # Start ticket portal (Angular, port 4201)
 | `.github/workflows/deploy-hugo.yml` | Deploy all Docker services to Hugo via GHCR. |
 | `services/copilot-api/src/routes/client-memory.ts` | Client memory CRUD endpoints with resolver cache invalidation. |
 | `services/copilot-api/src/routes/ticket-routes.ts` | Ticket route CRUD + step type registry for configurable analysis pipelines. |
+| `services/copilot-api/src/routes/artifacts.ts` | MCP tool artifact storage and retrieval endpoints (`/api/artifacts`). |
 | `services/copilot-api/src/routes/release-notes.ts` | Release notes API: commit ingestion, AI summarization, GitHub backfill, service filtering. |
 | `services/copilot-api/src/routes/ingest.ts` | Ingestion API: queue endpoints for email/scheduled/manual payloads, plus `GET /api/ingest/runs` and `GET /api/ingest/runs/:id` for run history. |
 | `services/ticket-analyzer/src/ingestion-engine.ts` | BullMQ processor for the ingestion pipeline; delegates to route steps and wraps tracker calls in a best-effort safeTracker proxy. |
