@@ -829,6 +829,18 @@ export class TicketDetailComponent implements OnInit {
   convPromptExpanded: Record<string, boolean> = {};
   convCollapsed: Record<string, boolean> = {};
   convTreeRoots = signal<ConvTreeNode[]>([]);
+  convTreeFlat = computed<Array<{ node: ConvTreeNode; visible: boolean }>>(() => {
+    const result: Array<{ node: ConvTreeNode; visible: boolean }> = [];
+    const walk = (nodes: ConvTreeNode[], parentVisible: boolean) => {
+      for (const node of nodes) {
+        const visible = parentVisible;
+        result.push({ node, visible });
+        walk(node.children, visible && !node.collapsed);
+      }
+    };
+    walk(this.convTreeRoots(), true);
+    return result;
+  });
   artifacts = signal<TicketArtifact[]>([]);
   artifactsLoaded = signal(false);
 
@@ -1260,41 +1272,12 @@ export class TicketDetailComponent implements OnInit {
     this.convTreeRoots.set(this.buildConvTree(entries));
   }
 
-  private buildConvTree(entries: UnifiedLogEntry[]): ConvTreeNode[] {
-    const entryIndex = new Map<string, ConvTreeNode>();
-    const roots: ConvTreeNode[] = [];
-
-    // First pass: create nodes for all entries
-    for (const entry of entries) {
-      entryIndex.set(entry.id, { entry, children: [], depth: 0 });
-    }
-
-    // Second pass: link children to parents
-    for (const entry of entries) {
-      const node = entryIndex.get(entry.id)!;
-      if (entry.parentLogId && entryIndex.has(entry.parentLogId)) {
-        const parent = entryIndex.get(entry.parentLogId)!;
-        node.depth = parent.depth + 1;
-        parent.children.push(node);
-      } else {
-        roots.push(node);
-      }
-    }
-
-    // Fix depths recursively for deeper nesting
-    const fixDepths = (nodes: ConvTreeNode[], depth: number) => {
-      for (const n of nodes) {
-        n.depth = depth;
-        fixDepths(n.children, depth + 1);
-      }
-    };
-    fixDepths(roots, 0);
-
-    return roots;
-  }
-
   hasTreeData(): boolean {
     return this.conversationEntries().some(e => !!e.parentLogId);
+  }
+
+  hasLineageData(): boolean {
+    return this.hasTreeData();
   }
 
   toggleCollapse(id: string): void {
@@ -1414,7 +1397,7 @@ export class TicketDetailComponent implements OnInit {
 
   toggleConvNode(node: ConvTreeNode): void {
     node.collapsed = !node.collapsed;
-    this.convTree.set([...this.convTree()]);
+    this.convTreeRoots.set([...this.convTreeRoots()]);
   }
 
   convMessages(entry: UnifiedLogEntry): Array<{ role: string; tokenCount?: number; toolName?: string }> {

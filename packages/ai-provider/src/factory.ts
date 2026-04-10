@@ -42,6 +42,7 @@ export interface AIRouterDb {
         clientId: string | null;
         provider: string;
         model: string;
+        maxTokens: number | null;
         isActive: boolean;
       }>
     >;

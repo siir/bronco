@@ -141,11 +141,8 @@ export interface UnifiedLogEntry {
   conversationMetadata?: Record<string, unknown> | null;
   // lineage fields
   parentLogId?: string | null;
-  parentLogType?: string | null;
-  archive?: UnifiedLogArchive | null;
-  // lineage fields
-  parentLogId?: string | null;
   parentLogType?: 'ai' | 'app' | null;
+  archive?: UnifiedLogArchive | null;
   taskRun?: number | null;
 }
 

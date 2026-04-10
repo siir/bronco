@@ -231,6 +231,7 @@ export class AiConfigDialogComponent implements OnInit {
   canSave(): boolean {
     if (!this.taskType || !this.provider || !this.model.trim()) return false;
     if (this.scope === 'CLIENT' && !this.clientId) return false;
+    if (this.maxTokensStr.trim() !== '' && this.parsedMaxTokens === null) return false;
     return true;
   }
 

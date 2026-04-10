@@ -9,7 +9,7 @@ import {
   DataTableColumnComponent,
   DialogComponent,
 } from '../../../../shared/components/index.js';
-import { ClientUserDialogComponent } from '../../client-user-dialog.component';
+import { ClientUserDialogComponent } from '../../client-user-dialog.component.js';
 
 @Component({
   selector: 'app-client-users-tab',

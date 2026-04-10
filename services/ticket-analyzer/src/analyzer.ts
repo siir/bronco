@@ -2053,6 +2053,7 @@ async function executeOrchestratedSubTask(
   const { ai } = deps;
   const map = modelMap ?? {};
   const model = map[task.model] ?? map.sonnet ?? 'claude-sonnet-4-6';
+  const defaultMaxTokens = await deps.loadDefaultMaxTokens?.() ?? undefined;
 
   const toolCalls: SubTaskResult['toolCalls'] = [];
   let inputTokens = 0;
@@ -2118,7 +2119,7 @@ async function executeOrchestratedSubTask(
         : { logId: subTaskLogId };
       const response = await ai.generateWithTools({
         taskType: TaskType.DEEP_ANALYSIS,
-        context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, logId: subTaskLogId, ...orchCtx },
+        context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, ...orchCtx },
         messages: [{ role: 'user', content: task.prompt }],
         tools,
         systemPrompt: subTaskSystemPrompt,

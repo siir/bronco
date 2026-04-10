@@ -45,7 +45,7 @@ import { FormFieldComponent, TextInputComponent, TextareaComponent, ToggleSwitch
           <app-text-input
             [value]="sortOrder.toString()"
             type="number"
-            (valueChange)="sortOrder = +$event" />
+            (valueChange)="sortOrder = parseSortOrder($event)" />
         </app-form-field>
         <div class="toggle-field">
           <app-toggle-switch
@@ -99,6 +99,11 @@ export class ClientEnvironmentDialogComponent implements OnInit {
       this.sortOrder = env.sortOrder ?? 0;
       this.isDefault = env.isDefault ?? false;
     }
+  }
+
+  parseSortOrder(val: string): number {
+    const n = parseInt(val, 10);
+    return isNaN(n) ? 0 : n;
   }
 
   save(): void {
