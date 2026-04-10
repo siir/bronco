@@ -140,6 +140,9 @@ export interface UnifiedLogEntry {
   responseText?: string | null;
   conversationMetadata?: Record<string, unknown> | null;
   archive?: UnifiedLogArchive | null;
+  // lineage fields
+  parentLogId?: string | null;
+  parentLogType?: 'ai' | 'app' | null;
 }
 
 export interface UnifiedLogsResponse {

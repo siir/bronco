@@ -652,3 +652,64 @@
   color: var(--text-primary);
   box-shadow: var(--shadow-card);
 }
+
+/* Tree view */
+.conv-tree-node {
+  transition: padding-left 150ms ease;
+}
+.conv-collapse-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  padding: 2px 4px;
+  line-height: 1;
+}
+.conv-collapse-btn:hover {
+  color: var(--text-primary);
+}
+.conv-child-count {
+  font-size: 10px;
+  color: var(--text-tertiary);
+}
+.conv-tool-entry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 4px 8px;
+  margin-bottom: 4px;
+  border-left: 2px solid var(--color-info);
+  background: var(--color-info-subtle, var(--bg-secondary));
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.conv-tool-icon {
+  font-size: 12px;
+}
+.conv-tool-msg {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.conv-log-entry {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 3px 8px;
+  margin-bottom: 2px;
+  border-left: 2px solid var(--border-secondary);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.conv-log-error {
+  border-left-color: var(--color-error);
+  color: var(--color-error);
+}
+.conv-log-warn {
+  border-left-color: var(--color-warning);
+}
+.conv-log-msg {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
