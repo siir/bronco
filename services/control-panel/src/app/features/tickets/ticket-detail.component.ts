@@ -46,12 +46,6 @@ interface ConvTreeNode {
   entry: UnifiedLogEntry;
   children: ConvTreeNode[];
   depth: number;
-}
-
-interface ConvTreeNode {
-  entry: UnifiedLogEntry;
-  children: ConvTreeNode[];
-  depth: number;
   collapsed: boolean;
 }
 

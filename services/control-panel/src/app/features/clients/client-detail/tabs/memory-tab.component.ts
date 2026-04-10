@@ -49,8 +49,8 @@ const SOURCE_OPTIONS = [
             <span class="type-icon">{{ memoryTypeIcon(mem.memoryType) }}</span>
             <strong class="memory-title">{{ mem.title }}</strong>
             <span class="chip chip-type chip-type-{{ mem.memoryType.toLowerCase() }}">{{ mem.memoryType }}</span>
-            <span class="chip chip-source chip-source-{{ (mem.source ?? 'MANUAL').toLowerCase() }}">
-              {{ (mem.source ?? 'MANUAL') === 'AI_LEARNED' ? 'AI' : 'MANUAL' }}
+            <span class="chip chip-source chip-source-{{ mem.source.toLowerCase() }}">
+              {{ mem.source === 'AI_LEARNED' ? 'AI' : 'MANUAL' }}
             </span>
             @if (mem.category) {
               <span class="chip chip-category">{{ mem.category }}</span>

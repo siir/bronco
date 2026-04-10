@@ -153,7 +153,7 @@ export class TicketDialogComponent implements OnInit {
       source: 'MANUAL',
       category: this.category || undefined,
       ...(this.requesterId ? { requesterId: this.requesterId } : {}),
-    } as never).subscribe({
+    }).subscribe({
       next: (ticket) => {
         this.toast.success('Ticket created');
         this.created.emit({ id: ticket.id });

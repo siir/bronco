@@ -193,7 +193,7 @@ export class TicketService {
     return this.api.get(`/tickets/${id}`);
   }
 
-  createTicket(data: Partial<Ticket> & { clientId: string; subject: string }): Observable<Ticket> {
+  createTicket(data: Partial<Ticket> & { clientId: string; subject: string; requesterId?: string }): Observable<Ticket> {
     return this.api.post<Ticket>('/tickets', data);
   }
 

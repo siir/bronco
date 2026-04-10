@@ -12,7 +12,7 @@ import {
 import { McpServerInfoComponent } from '../../../../shared/components/mcp-server-info.component';
 import { IntegrationDialogComponent } from '../../../integrations/integration-dialog.component';
 
-const SENSITIVE_KEYS = ['encryptedPassword', 'encryptedPat', 'password', 'pat', 'token', 'secret', 'apiKey'];
+const SENSITIVE_KEYS = ['encryptedPassword', 'encryptedPat', 'encryptedBotToken', 'encryptedAppToken', 'password', 'pat', 'token', 'secret', 'apiKey'];
 
 @Component({
   selector: 'app-client-integrations-tab',
@@ -240,10 +240,26 @@ export class ClientIntegrationsTabComponent implements OnInit {
   }
 
   redactConfig(config: Record<string, unknown>): Record<string, unknown> {
-    const redacted: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(config)) {
-      redacted[key] = SENSITIVE_KEYS.includes(key) ? '********' : value;
+    return this.redactValue(config) as Record<string, unknown>;
+  }
+
+  /**
+   * Recursively walks an arbitrary value and redacts any field whose key
+   * appears in `SENSITIVE_KEYS`. Handles nested objects and arrays so secrets
+   * buried in nested integration configs aren't accidentally rendered in the
+   * JSON preview.
+   */
+  private redactValue(value: unknown): unknown {
+    if (Array.isArray(value)) {
+      return value.map(v => this.redactValue(v));
     }
-    return redacted;
+    if (value !== null && typeof value === 'object') {
+      const out: Record<string, unknown> = {};
+      for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
+        out[key] = SENSITIVE_KEYS.includes(key) ? '********' : this.redactValue(v);
+      }
+      return out;
+    }
+    return value;
   }
 }
