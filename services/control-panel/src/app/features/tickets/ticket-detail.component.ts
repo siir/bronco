@@ -167,6 +167,12 @@ interface StepGroup {
             </app-tab>
           }
           <app-tab [label]="logsTabLabel()">
+            <div class="logs-view-toggle">
+              <button class="view-btn" [class.view-active]="logsView() === 'raw'" (click)="setLogsView('raw')">Raw Logs</button>
+              <button class="view-btn" [class.view-active]="logsView() === 'conversation'" (click)="setLogsView('conversation')">Conversation</button>
+            </div>
+
+            @if (logsView() === 'raw') {
             <!-- Cost summary card -->
             @if (costSummary(); as cs) {
               @if (cs.callCount > 0) {
@@ -381,8 +387,7 @@ interface StepGroup {
                 <app-bronco-button variant="secondary" size="sm" (click)="loadMoreUnifiedLogs()">Load more</app-bronco-button>
               </div>
             }
-          </app-tab>
-          <app-tab label="Conversation">
+            } @else {
             @if (conversationLoading()) {
               <div class="indeterminate-bar"><span class="indeterminate-track"></span></div>
             } @else if (!conversationLoaded()) {
@@ -535,6 +540,7 @@ interface StepGroup {
                 }
               </div>
             }
+            }
           </app-tab>
           <app-tab label="Log Digest">
             <app-ticket-detail-log-digest
@@ -641,6 +647,7 @@ export class TicketDetailComponent implements OnInit {
 
   // Tab tracking
   selectedTabIndex = signal(0);
+  logsView = signal<'raw' | 'conversation'>('raw');
 
   /** Dynamic tab labels (depends on which conditional tabs are visible). */
   tabsInOrder = computed<string[]>(() => {
@@ -652,7 +659,6 @@ export class TicketDetailComponent implements OnInit {
     labels.push('Details');
     if (t?.knowledgeDoc || this.editingKnowledgeDoc()) labels.push('Knowledge');
     labels.push('Logs');
-    labels.push('Conversation');
     labels.push('Log Digest');
     labels.push('Timeline');
     return labels;
@@ -832,7 +838,6 @@ export class TicketDetailComponent implements OnInit {
           const idx = labels.findIndex(l => this.toSlug(l) === tabSlug);
           if (idx >= 0) {
             this.selectedTabIndex.set(idx);
-            if (labels[idx] === 'Conversation') this.loadConversationEntries();
           }
         }
       }
@@ -1081,9 +1086,6 @@ export class TicketDetailComponent implements OnInit {
   onTabIndexChange(idx: number): void {
     this.selectedTabIndex.set(idx);
     const labels = this.tabsInOrder();
-    if (labels[idx] === 'Conversation') {
-      this.loadConversationEntries();
-    }
     // Persist tab in query param for refresh
     const slug = this.toSlug(labels[idx] ?? '');
     this.router.navigate([], {
@@ -1092,6 +1094,13 @@ export class TicketDetailComponent implements OnInit {
       queryParamsHandling: 'merge',
       replaceUrl: true,
     });
+  }
+
+  setLogsView(view: 'raw' | 'conversation'): void {
+    this.logsView.set(view);
+    if (view === 'conversation') {
+      this.loadConversationEntries();
+    }
   }
 
   private toSlug(label: string): string {

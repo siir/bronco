@@ -624,3 +624,31 @@
   transition: opacity 120ms ease;
 }
 .ai-fab:hover { opacity: 0.85; }
+
+.logs-view-toggle {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 12px;
+  background: var(--bg-muted);
+  border-radius: var(--radius-md);
+  padding: 2px;
+  width: fit-content;
+}
+.view-btn {
+  padding: 5px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--font-primary);
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.view-btn:hover { color: var(--text-primary); }
+.view-active {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-card);
+}
