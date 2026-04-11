@@ -47,7 +47,7 @@ export async function portalTicketRoutes(fastify: FastifyInstance, opts: PortalT
     if (portalUser.userType === ClientUserType.ADMIN) return true;
 
     // Check if user is a follower (any type)
-    if (ticket.followers.some((f) => f.contact.email === portalUser.email)) return true;
+    if (ticket.followers.some((f) => f.contact?.email === portalUser.email)) return true;
 
     // Check metadata portalCreatorId
     const meta = ticket.metadata as Record<string, unknown> | null;

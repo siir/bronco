@@ -27,3 +27,4 @@ export * from './system-config.js';
 export * from './operator.js';
 export * from './action-safety.js';
 export * from './self-client.js';
+export * from './person.js';

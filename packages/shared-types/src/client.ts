@@ -81,6 +81,7 @@ export interface Repository {
   updatedAt: Date;
 }
 
+/** @deprecated Use Person from './person.js' instead. Will be removed in session 3. */
 export interface Contact {
   id: string;
   clientId: string;
