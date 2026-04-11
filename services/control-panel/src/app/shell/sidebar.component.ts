@@ -32,7 +32,6 @@ import { FailedJobsService } from '../core/services/failed-jobs.service';
 
         <div class="nav-section">
           <span class="section-label">Operations</span>
-          <a routerLink="/system-status" routerLinkActive="nav-active" class="nav-item">System Status</a>
           <a routerLink="/scheduled-probes" routerLinkActive="nav-active" class="nav-item">Scheduled Probes</a>
           <a routerLink="/ingestion-jobs" routerLinkActive="nav-active" class="nav-item">Ingestion Jobs</a>
           <a routerLink="/failed-jobs" routerLinkActive="nav-active" class="nav-item">Failed Jobs @if (failedJobsBadge() > 0) { <span class="badge">{{ failedJobsBadge() }}</span> }</a>
@@ -57,12 +56,16 @@ import { FailedJobsService } from '../core/services/failed-jobs.service';
         </div>
 
         <div class="nav-section">
+          <span class="section-label">System</span>
+          <a routerLink="/system-status" routerLinkActive="nav-active" class="nav-item">Status</a>
+          <a routerLink="/settings" routerLinkActive="nav-active" class="nav-item">Settings</a>
+          <a routerLink="/users" routerLinkActive="nav-active" class="nav-item">User Maint</a>
+        </div>
+
+        <div class="nav-section">
           <span class="section-label">Account</span>
           <a routerLink="/profile" routerLinkActive="nav-active" class="nav-item">Profile</a>
           <a routerLink="/notification-preferences" routerLinkActive="nav-active" class="nav-item">Notifications</a>
-          <a routerLink="/users" routerLinkActive="nav-active" class="nav-item">User Maint</a>
-          <a routerLink="/system-settings" routerLinkActive="nav-active" class="nav-item">System Settings</a>
-          <a routerLink="/settings" routerLinkActive="nav-active" class="nav-item">Settings</a>
         </div>
       </div>
 
