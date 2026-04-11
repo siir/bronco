@@ -15,6 +15,7 @@ import { ClientUsersTabComponent } from './client-detail/tabs/users-tab.componen
 import { ClientAiCredentialsTabComponent } from './client-detail/tabs/ai-credentials-tab.component';
 import { ClientInvoicesTabComponent } from './client-detail/tabs/invoices-tab.component';
 import { ClientAiUsageTabComponent } from './client-detail/tabs/ai-usage-tab.component';
+import { ClientConfigTabComponent } from './client-detail/tabs/config-tab.component';
 
 const CLIENT_DETAIL_TAB_SLUGS = [
   'systems',
@@ -28,6 +29,7 @@ const CLIENT_DETAIL_TAB_SLUGS = [
   'ai-credentials',
   'invoices',
   'ai-usage',
+  'config',
 ] as const;
 type ClientDetailTabSlug = (typeof CLIENT_DETAIL_TAB_SLUGS)[number];
 
@@ -37,11 +39,11 @@ type ClientDetailTabSlug = (typeof CLIENT_DETAIL_TAB_SLUGS)[number];
     TabGroupComponent, TabComponent, ClientHeaderComponent,
     ClientSystemsTabComponent, ClientContactsTabComponent, ClientReposTabComponent, ClientIntegrationsTabComponent,
     ClientTicketsTabComponent, ClientMemoryTabComponent, ClientEnvironmentsTabComponent, ClientUsersTabComponent,
-    ClientAiCredentialsTabComponent, ClientInvoicesTabComponent, ClientAiUsageTabComponent,
+    ClientAiCredentialsTabComponent, ClientInvoicesTabComponent, ClientAiUsageTabComponent, ClientConfigTabComponent,
   ],
   template: `
     @if (client(); as c) {
-      <app-client-header [client]="c" (clientChange)="onClientUpdated($event)" />
+      <app-client-header [client]="c" />
 
       <app-tab-group [selectedIndex]="selectedTab()" (selectedIndexChange)="onTabChange($event)">
         <app-tab label="Systems">
@@ -86,6 +88,10 @@ type ClientDetailTabSlug = (typeof CLIENT_DETAIL_TAB_SLUGS)[number];
 
         <app-tab label="AI Usage">
           <app-client-ai-usage-tab [clientId]="id()" />
+        </app-tab>
+
+        <app-tab label="Config">
+          <app-client-config-tab [client]="c" (clientChange)="onClientUpdated($event)" />
         </app-tab>
       </app-tab-group>
     } @else {
