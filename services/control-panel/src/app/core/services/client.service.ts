@@ -18,7 +18,17 @@ export interface Client {
   slackChannelId: string | null;
   createdAt: string;
   updatedAt: string;
-  _count?: { tickets: number; systems: number };
+  invoicedTotalUsd?: number;
+  _count?: {
+    tickets: number;
+    systems: number;
+    codeRepos: number;
+    integrations: number;
+    clientMemories: number;
+    environments: number;
+    clientUsers: number;
+    invoices: number;
+  };
   contacts?: Contact[];
   systems?: System[];
 }
