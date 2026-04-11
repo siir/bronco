@@ -28,7 +28,7 @@ export async function clientRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get<{ Params: { id: string } }>('/api/clients/:id', async (request) => {
     const client = await fastify.db.client.findUnique({
       where: { id: request.params.id },
-      include: { contacts: true, systems: true },
+      include: { contacts: true, systems: true, _count: { select: { tickets: true, systems: true } } },
     });
     if (!client) return fastify.httpErrors.notFound('Client not found');
     return client;
