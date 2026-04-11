@@ -28,21 +28,19 @@ export function registerPeopleTools(server: McpServer, { db }: ServerDeps): void
     'Create a new person (unified contact + portal user) for a client.',
     {
       clientId: z.string().uuid().describe('The client ID'),
-      name: z.string().optional().describe('Person name'),
-      email: z.string().email().optional().describe('Person email'),
-      phone: z.string().optional().describe('Person phone number'),
-      role: z.string().optional().describe('Person role/title'),
+      name: z.string().describe('Person name'),
+      email: z.string().email().describe('Person email'),
+      phone: z.string().optional().describe('Phone number'),
+      role: z.string().optional().describe('Role/title'),
       slackUserId: z.string().optional().describe('Slack user ID'),
       isPrimary: z.boolean().optional().describe('Whether this is the primary contact for the client'),
-      hasPortalAccess: z.boolean().optional().describe('Whether this person has portal access'),
-      userType: z.string().optional().describe('User type (e.g., CONTACT, PORTAL_USER, BOTH)'),
+      hasPortalAccess: z.boolean().optional().describe('Whether this person can log into the portal'),
+      userType: z.enum(['ADMIN', 'USER']).optional().describe('Portal user type: ADMIN or USER'),
       isActive: z.boolean().optional().describe('Whether this person is active'),
     },
     async (params) => {
-      const { clientId, ...fields } = params;
-      const data: Record<string, unknown> = { clientId };
-      if (fields.name !== undefined) data.name = fields.name;
-      if (fields.email !== undefined) data.email = fields.email;
+      const { clientId, name, email, ...fields } = params;
+      const data: Record<string, unknown> = { clientId, name, email };
       if (fields.phone !== undefined) data.phone = fields.phone;
       if (fields.role !== undefined) data.role = fields.role;
       if (fields.slackUserId !== undefined) data.slackUserId = fields.slackUserId;
@@ -61,21 +59,19 @@ export function registerPeopleTools(server: McpServer, { db }: ServerDeps): void
     'Update an existing person (unified contact + portal user).',
     {
       personId: z.string().uuid().describe('The person ID'),
-      clientId: z.string().uuid().optional().describe('New client ID'),
       name: z.string().optional().describe('New name'),
       email: z.string().email().optional().describe('New email'),
       phone: z.string().optional().describe('New phone'),
       role: z.string().optional().describe('New role'),
       slackUserId: z.string().optional().describe('Slack user ID'),
       isPrimary: z.boolean().optional().describe('Whether this is the primary contact for the client'),
-      hasPortalAccess: z.boolean().optional().describe('Whether this person has portal access'),
-      userType: z.string().optional().describe('User type (e.g., CONTACT, PORTAL_USER, BOTH)'),
+      hasPortalAccess: z.boolean().optional().describe('Whether this person can log into the portal'),
+      userType: z.enum(['ADMIN', 'USER']).optional().describe('Portal user type: ADMIN or USER'),
       isActive: z.boolean().optional().describe('Whether this person is active'),
     },
     async (params) => {
       const { personId, ...fields } = params;
       const data: Record<string, unknown> = {};
-      if (fields.clientId !== undefined) data.clientId = fields.clientId;
       if (fields.name !== undefined) data.name = fields.name;
       if (fields.email !== undefined) data.email = fields.email;
       if (fields.phone !== undefined) data.phone = fields.phone;
