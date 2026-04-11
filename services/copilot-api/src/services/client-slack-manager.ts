@@ -141,7 +141,7 @@ export class ClientSlackManager {
 
   /**
    * Register a Socket Mode message handler on a client's Slack connection.
-   * When a message arrives, resolve the sender to a Contact and enqueue for ingestion.
+   * When a message arrives, resolve the sender to a Person and enqueue for ingestion.
    */
   private registerMessageHandler(entry: ClientSlackEntry): void {
     // SocketModeClient emits envelopes: { envelope_id, payload, ack, body, ... }
@@ -161,7 +161,7 @@ export class ClientSlackManager {
 
   /**
    * Handle an inbound Slack message from a client workspace.
-   * Resolves the sender to a Contact and enqueues an ingestion job.
+   * Resolves the sender to a Person and enqueues an ingestion job.
    */
   private async handleInboundMessage(entry: ClientSlackEntry, event: Record<string, unknown>): Promise<void> {
     // Extract message fields from the Slack event
@@ -180,10 +180,10 @@ export class ClientSlackManager {
       return;
     }
 
-    // Resolve Slack user to a Contact
-    const contact = await this.resolveContact(entry.clientId, slackUserId);
+    // Resolve Slack user to a Person
+    const person = await this.resolvePerson(entry.clientId, slackUserId);
 
-    if (!contact) {
+    if (!person) {
       // Check if client allows self-registration
       const client = await this.db.client.findUnique({
         where: { id: entry.clientId },
@@ -191,10 +191,10 @@ export class ClientSlackManager {
       });
 
       if (client?.allowSelfRegistration) {
-        // Auto-create contact with Slack user info
+        // Auto-create person with Slack user info
         const userInfo = await this.fetchSlackUserInfo(entry.client, slackUserId);
         if (userInfo) {
-          const newContact = await this.db.contact.create({
+          const newPerson = await this.db.person.create({
             data: {
               clientId: entry.clientId,
               name: userInfo.name,
@@ -202,12 +202,12 @@ export class ClientSlackManager {
               slackUserId,
             },
           });
-          await this.enqueueSlackIngestion(entry, slackUserId, userInfo.name, channelId, text, newContact.id);
+          await this.enqueueSlackIngestion(entry, slackUserId, userInfo.name, channelId, text, newPerson.id);
           return;
         }
       }
 
-      // No contact match and no self-registration — reply with guidance
+      // No person match and no self-registration — reply with guidance
       try {
         await entry.client.sendMessage(
           channelId,
@@ -219,7 +219,7 @@ export class ClientSlackManager {
       return;
     }
 
-    await this.enqueueSlackIngestion(entry, slackUserId, contact.name, channelId, text, contact.id);
+    await this.enqueueSlackIngestion(entry, slackUserId, person.name, channelId, text, person.id);
   }
 
   /**
@@ -244,16 +244,16 @@ export class ClientSlackManager {
 
     if (!ticketEvent) {
       // Thread not associated with a ticket — treat as a new message
-      const contact = await this.resolveContact(entry.clientId, slackUserId);
-      if (contact) {
-        await this.enqueueSlackIngestion(entry, slackUserId, contact.name, channelId, text, contact.id);
+      const person = await this.resolvePerson(entry.clientId, slackUserId);
+      if (person) {
+        await this.enqueueSlackIngestion(entry, slackUserId, person.name, channelId, text, person.id);
       }
       return;
     }
 
-    // Resolve contact
-    const contact = await this.resolveContact(entry.clientId, slackUserId);
-    const contactName = contact?.name ?? slackUserId;
+    // Resolve person
+    const person = await this.resolvePerson(entry.clientId, slackUserId);
+    const personName = person?.name ?? slackUserId;
 
     // Append as SLACK_INBOUND event on the existing ticket
     await this.db.ticketEvent.create({
@@ -261,7 +261,7 @@ export class ClientSlackManager {
         ticketId: ticketEvent.ticketId,
         eventType: 'SLACK_INBOUND',
         content: text,
-        actor: contactName,
+        actor: personName,
         metadata: { slackUserId, slackChannelId: channelId, slackThreadTs: threadTs },
       },
     });
@@ -308,9 +308,9 @@ export class ClientSlackManager {
     logger.info({ clientId: entry.clientId, slackUserId, channelId }, 'Slack message enqueued for ingestion');
   }
 
-  /** Resolve a Slack user ID to a Contact record. */
-  private async resolveContact(clientId: string, slackUserId: string): Promise<{ id: string; name: string; email: string } | null> {
-    return this.db.contact.findFirst({
+  /** Resolve a Slack user ID to a Person record. */
+  private async resolvePerson(clientId: string, slackUserId: string): Promise<{ id: string; name: string; email: string } | null> {
+    return this.db.person.findFirst({
       where: { clientId, slackUserId },
       select: { id: true, name: true, email: true },
     });

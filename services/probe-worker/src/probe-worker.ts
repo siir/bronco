@@ -700,17 +700,17 @@ async function createTicketFromProbe(
   title?: string,
 ): Promise<{ id: string; clientId: string }> {
   // Resolve requester from operatorEmail in actionConfig
-  let requesterContactId: string | undefined;
+  let requesterPersonId: string | undefined;
   const operatorEmail = (probe.actionConfig as Record<string, unknown> | null)?.['operatorEmail'];
   if (typeof operatorEmail === 'string' && operatorEmail.trim()) {
     const trimmedOperatorEmail = operatorEmail.trim();
-    const contact = await db.contact.findFirst({
+    const person = await db.person.findFirst({
       where: { email: { equals: trimmedOperatorEmail, mode: 'insensitive' }, clientId: probe.clientId },
       select: { id: true },
     });
-    requesterContactId = contact?.id ?? undefined;
-    if (!requesterContactId) {
-      logger.warn({ probeId: probe.id, operatorEmail }, 'operatorEmail specified but no matching contact found — ticket will have no requester');
+    requesterPersonId = person?.id ?? undefined;
+    if (!requesterPersonId) {
+      logger.warn({ probeId: probe.id, operatorEmail }, 'operatorEmail specified but no matching person found — ticket will have no requester');
     }
   }
 
@@ -731,9 +731,9 @@ async function createTicketFromProbe(
             toolName: probe.toolName,
             integrationId: probe.integrationId,
           },
-          ...(requesterContactId && {
+          ...(requesterPersonId && {
             followers: {
-              create: { contactId: requesterContactId, followerType: 'REQUESTER' },
+              create: { personId: requesterPersonId, followerType: 'REQUESTER' },
             },
           }),
         },

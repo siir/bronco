@@ -18,13 +18,13 @@ function requirePortalAdmin(request: { portalUser?: PortalUser }): PortalUser {
 export async function portalUserRoutes(fastify: FastifyInstance): Promise<void> {
   /**
    * GET /api/portal/users
-   * List all client users for this client (ADMIN only).
+   * List all portal users for this client (ADMIN only).
    */
   fastify.get('/api/portal/users', async (request) => {
     const portalUser = requirePortalAdmin(request);
 
-    const users = await fastify.db.clientUser.findMany({
-      where: { clientId: portalUser.clientId },
+    const users = await fastify.db.person.findMany({
+      where: { clientId: portalUser.clientId, hasPortalAccess: true },
       select: {
         id: true,
         email: true,
@@ -42,7 +42,7 @@ export async function portalUserRoutes(fastify: FastifyInstance): Promise<void> 
 
   /**
    * POST /api/portal/users
-   * Create a new client user (ADMIN only).
+   * Create or grant portal access to a person (ADMIN only).
    */
   fastify.post<{ Body: { email: string; password: string; name: string; userType?: string } }>(
     '/api/portal/users',
@@ -64,30 +64,59 @@ export async function portalUserRoutes(fastify: FastifyInstance): Promise<void> 
         return reply.code(400).send({ error: 'Invalid userType. Must be ADMIN or USER' });
       }
 
-      const existing = await fastify.db.clientUser.findUnique({ where: { email } });
-      if (existing) {
-        return reply.code(409).send({ error: 'A user with this email already exists' });
-      }
-
+      const resolvedUserType = userType === ClientUserType.ADMIN ? ClientUserType.ADMIN : ClientUserType.USER;
       const passwordHash = await bcrypt.hash(password, 10);
-      const user = await fastify.db.clientUser.create({
-        data: {
-          email,
-          passwordHash,
-          name: name.trim(),
-          clientId: portalUser.clientId,
-          userType: (userType === ClientUserType.ADMIN ? ClientUserType.ADMIN : ClientUserType.USER),
-        },
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          userType: true,
-          isActive: true,
-          lastLoginAt: true,
-          createdAt: true,
-        },
+
+      const existing = await fastify.db.person.findUnique({
+        where: { clientId_email: { clientId: portalUser.clientId, email } },
       });
+
+      let user;
+      if (existing) {
+        if (existing.hasPortalAccess) {
+          return reply.code(409).send({ error: 'A user with this email already exists' });
+        }
+        // Upgrade existing contact to portal user
+        user = await fastify.db.person.update({
+          where: { id: existing.id },
+          data: {
+            name: name.trim(),
+            passwordHash,
+            hasPortalAccess: true,
+            userType: resolvedUserType,
+            isActive: true,
+          },
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            userType: true,
+            isActive: true,
+            lastLoginAt: true,
+            createdAt: true,
+          },
+        });
+      } else {
+        user = await fastify.db.person.create({
+          data: {
+            email,
+            passwordHash,
+            name: name.trim(),
+            clientId: portalUser.clientId,
+            userType: resolvedUserType,
+            hasPortalAccess: true,
+          },
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            userType: true,
+            isActive: true,
+            lastLoginAt: true,
+            createdAt: true,
+          },
+        });
+      }
 
       return reply.code(201).send(user);
     },
@@ -95,7 +124,7 @@ export async function portalUserRoutes(fastify: FastifyInstance): Promise<void> 
 
   /**
    * PATCH /api/portal/users/:id
-   * Update a client user (ADMIN only).
+   * Update a portal user (ADMIN only).
    */
   fastify.patch<{ Params: { id: string }; Body: { name?: string; email?: string; userType?: string; isActive?: boolean } }>(
     '/api/portal/users/:id',
@@ -108,21 +137,23 @@ export async function portalUserRoutes(fastify: FastifyInstance): Promise<void> 
         return reply.code(400).send({ error: 'Invalid userType. Must be ADMIN or USER' });
       }
 
-      // Verify user belongs to same client
-      const target = await fastify.db.clientUser.findUnique({ where: { id } });
-      if (!target || target.clientId !== portalUser.clientId) {
+      // Verify user belongs to same client and has portal access
+      const target = await fastify.db.person.findUnique({ where: { id } });
+      if (!target || target.clientId !== portalUser.clientId || !target.hasPortalAccess) {
         return reply.code(404).send({ error: 'User not found' });
       }
 
       const email = rawEmail?.trim().toLowerCase();
-      if (email) {
-        const existing = await fastify.db.clientUser.findUnique({ where: { email } });
+      if (email && email !== target.email) {
+        const existing = await fastify.db.person.findUnique({
+          where: { clientId_email: { clientId: portalUser.clientId, email } },
+        });
         if (existing && existing.id !== id) {
           return reply.code(409).send({ error: 'Email is already in use' });
         }
       }
 
-      const updated = await fastify.db.clientUser.update({
+      const updated = await fastify.db.person.update({
         where: { id },
         data: {
           ...(name && { name: name.trim() }),
@@ -147,7 +178,7 @@ export async function portalUserRoutes(fastify: FastifyInstance): Promise<void> 
 
   /**
    * DELETE /api/portal/users/:id
-   * Deactivate a client user (ADMIN only). Does not actually delete.
+   * Revoke portal access (ADMIN only). Does not delete the underlying Person.
    */
   fastify.delete<{ Params: { id: string } }>(
     '/api/portal/users/:id',
@@ -160,12 +191,12 @@ export async function portalUserRoutes(fastify: FastifyInstance): Promise<void> 
         return reply.code(400).send({ error: 'Cannot deactivate your own account' });
       }
 
-      const target = await fastify.db.clientUser.findUnique({ where: { id } });
-      if (!target || target.clientId !== portalUser.clientId) {
+      const target = await fastify.db.person.findUnique({ where: { id } });
+      if (!target || target.clientId !== portalUser.clientId || !target.hasPortalAccess) {
         return reply.code(404).send({ error: 'User not found' });
       }
 
-      await fastify.db.clientUser.update({
+      await fastify.db.person.update({
         where: { id },
         data: { isActive: false },
       });

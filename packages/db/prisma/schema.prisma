@@ -62,41 +62,6 @@ model TicketFilterPreset {
   @@map("ticket_filter_presets")
 }
 
-// --- Client Portal Users (separate auth from control panel) ---
-
-model ClientUser {
-  id           String         @id @default(uuid()) @db.Uuid
-  email        String         @unique
-  passwordHash String         @map("password_hash")
-  name         String
-  clientId     String         @map("client_id") @db.Uuid
-  userType     ClientUserType @default(USER) @map("user_type")
-  isActive     Boolean        @default(true) @map("is_active")
-  lastLoginAt  DateTime?      @map("last_login_at")
-  createdAt    DateTime       @default(now()) @map("created_at")
-  updatedAt    DateTime       @updatedAt @map("updated_at")
-
-  client        Client                   @relation(fields: [clientId], references: [id])
-  refreshTokens ClientUserRefreshToken[]
-
-  @@index([clientId])
-  @@map("client_users")
-}
-
-model ClientUserRefreshToken {
-  id        String    @id @default(uuid()) @db.Uuid
-  jti       String    @unique @db.Uuid
-  userId    String    @map("user_id") @db.Uuid
-  expiresAt DateTime  @map("expires_at")
-  revokedAt DateTime? @map("revoked_at")
-  createdAt DateTime  @default(now()) @map("created_at")
-
-  user ClientUser @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@map("client_user_refresh_tokens")
-}
-
 // --- People (unified contact + portal user per client) ---
 
 model Person {
@@ -181,7 +146,6 @@ model Client {
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
-  contacts     Contact[]
   people       Person[]
   systems      System[]
   tickets      Ticket[]
@@ -189,7 +153,6 @@ model Client {
   repositories Repository[]
   integrations    ClientIntegration[]
   users           User[]
-  clientUsers     ClientUser[]
   promptOverrides PromptOverride[]
   aiModelConfigs  AiModelConfig[]
   systemAnalyses  SystemAnalysis[]
@@ -245,24 +208,6 @@ model ClientAiCredential {
   @@index([clientId])
   @@index([clientId, provider, isActive], map: "client_ai_credentials_client_id_provider_is_active_idx")
   @@map("client_ai_credentials")
-}
-
-model Contact {
-  id          String   @id @default(uuid()) @db.Uuid
-  clientId    String   @map("client_id") @db.Uuid
-  name        String
-  email       String
-  phone       String?
-  role        String?
-  slackUserId String?  @map("slack_user_id")
-  isPrimary   Boolean  @default(false) @map("is_primary")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-
-  client           Client           @relation(fields: [clientId], references: [id])
-  ticketFollowers  TicketFollower[]
-
-  @@map("contacts")
 }
 
 // --- Repositories (client source code) ---
@@ -379,18 +324,14 @@ model Ticket {
 model TicketFollower {
   id           String       @id @default(uuid()) @db.Uuid
   ticketId     String       @map("ticket_id") @db.Uuid
-  contactId    String?      @map("contact_id") @db.Uuid
-  personId     String?      @map("person_id") @db.Uuid
+  personId     String       @map("person_id") @db.Uuid
   followerType FollowerType @default(FOLLOWER) @map("follower_type")
   createdAt    DateTime     @default(now()) @map("created_at")
 
-  ticket  Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  contact Contact? @relation(fields: [contactId], references: [id])
-  person  Person?  @relation(fields: [personId], references: [id])
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  person Person @relation(fields: [personId], references: [id])
 
-  @@unique([ticketId, contactId])
   @@unique([ticketId, personId])
-  @@index([contactId])
   @@index([personId])
   @@map("ticket_followers")
 }

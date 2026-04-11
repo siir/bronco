@@ -50,8 +50,8 @@ async function main() {
 
   console.log('Seeded client:', client.name);
 
-  // Create a sample contact
-  const contact = await prisma.contact.upsert({
+  // Create a sample person
+  const person = await prisma.person.upsert({
     where: { id: '00000000-0000-0000-0000-000000000001' },
     update: {},
     create: {
@@ -64,7 +64,7 @@ async function main() {
     },
   });
 
-  console.log('Seeded contact:', contact.name);
+  console.log('Seeded person:', person.name);
 
   // Primary: Azure SQL Managed Instance (current production use case)
   const miSystem = await prisma.system.upsert({
@@ -133,7 +133,7 @@ async function main() {
       priority: 'HIGH',
       ticketNumber: 1,
       followers: {
-        create: { contactId: contact.id, followerType: 'REQUESTER' },
+        create: { personId: person.id, followerType: 'REQUESTER' },
       },
     },
   });

@@ -71,7 +71,7 @@ export interface ManualIngestionPayload {
   description?: string;
   priority?: string;
   category?: string;
-  /** Contact ID for the ticket requester. */
+  /** Person ID for the ticket requester. */
   contactId?: string;
   systemId?: string;
   environmentId?: string;
@@ -82,9 +82,9 @@ export interface PortalIngestionPayload {
   subject: string;
   description?: string;
   priority?: string;
-  /** Portal user ID (ClientUser.id) who created the ticket. */
+  /** Portal user ID (Person.id) who created the ticket. */
   portalCreatorId: string;
-  /** Contact ID resolved from the portal user's email. */
+  /** Person ID resolved from the portal user's email. */
   contactId?: string;
 }
 

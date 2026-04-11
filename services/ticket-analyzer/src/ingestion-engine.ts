@@ -123,7 +123,7 @@ interface IngestionContext {
   priority: string;
   /** Set by CREATE_TICKET step. */
   ticketId: string | null;
-  /** Contact ID to add as requester follower. */
+  /** Person ID to add as requester follower. */
   requesterId: string | null;
   /** Set by RESOLVE_THREAD step — indicates whether this email is a reply to an existing ticket. */
   threadResolution: ThreadResolution | null;

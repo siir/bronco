@@ -2,7 +2,7 @@ import { Component, inject, input, output, OnInit, signal } from '@angular/core'
 import { FormsModule } from '@angular/forms';
 import { TicketService } from '../../core/services/ticket.service.js';
 import { ClientService, Client } from '../../core/services/client.service.js';
-import { ContactService } from '../../core/services/contact.service.js';
+import { PersonService } from '../../core/services/person.service.js';
 import { ToastService } from '../../core/services/toast.service.js';
 import { FormFieldComponent, TextInputComponent, TextareaComponent, SelectComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
@@ -72,7 +72,7 @@ import { FormFieldComponent, TextInputComponent, TextareaComponent, SelectCompon
 export class TicketDialogComponent implements OnInit {
   private ticketService = inject(TicketService);
   private clientService = inject(ClientService);
-  private contactService = inject(ContactService);
+  private personService = inject(PersonService);
   private toast = inject(ToastService);
 
   clientId = input<string>('');
@@ -116,7 +116,7 @@ export class TicketDialogComponent implements OnInit {
       });
     } else {
       this.selectedClientId = this.clientId();
-      this.loadContacts(this.clientId());
+      this.loadPeople(this.clientId());
     }
   }
 
@@ -124,16 +124,16 @@ export class TicketDialogComponent implements OnInit {
     this.selectedClientId = clientId;
     this.requesterId = '';
     if (clientId) {
-      this.loadContacts(clientId);
+      this.loadPeople(clientId);
     } else {
       this.requesterOptions.set([]);
     }
   }
 
-  private loadContacts(clientId: string): void {
-    this.contactService.getContacts(clientId).subscribe(contacts => {
+  private loadPeople(clientId: string): void {
+    this.personService.getPeople(clientId).subscribe(people => {
       this.requesterOptions.set(
-        contacts.map(c => ({ value: c.id, label: c.role ? `${c.name} (${c.role})` : c.name })),
+        people.map(p => ({ value: p.id, label: p.role ? `${p.name} (${p.role})` : p.name })),
       );
     });
   }
