@@ -15,11 +15,20 @@ const appLog = new AppLogger('ticket-analyzer');
 
 const ANALYSIS_STRATEGY_KEY = 'system-config-analysis-strategy';
 
+let maxTokensCache: { value: number | undefined; expiresAt: number } | null = null;
+const MAX_TOKENS_CACHE_TTL_MS = 60_000; // 1 minute
+
 async function loadDefaultMaxTokens(db: import('@bronco/db').PrismaClient): Promise<number | undefined> {
+  const now = Date.now();
+  if (maxTokensCache && now < maxTokensCache.expiresAt) {
+    return maxTokensCache.value;
+  }
   try {
     const row = await db.appSetting.findUnique({ where: { key: ANALYSIS_STRATEGY_KEY } });
     const val = (row?.value as Record<string, unknown> | null)?.['defaultMaxTokens'];
-    return typeof val === 'number' && val > 0 ? val : undefined;
+    const result = typeof val === 'number' && val > 0 ? val : undefined;
+    maxTokensCache = { value: result, expiresAt: now + MAX_TOKENS_CACHE_TTL_MS };
+    return result;
   } catch {
     return undefined;
   }

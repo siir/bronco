@@ -165,7 +165,7 @@ export class AIRouter {
       }
     }
 
-    // Resolve model config for maxTokens fallback (DB config → prompt config → request)
+    // maxTokens resolution: request (highest priority, already applied) → DB per-task model config → global default loader
     if (!finalRequest.maxTokens && this.modelConfigResolver) {
       const modelConfig = await this.modelConfigResolver.resolve(finalRequest.taskType, clientId);
       if (modelConfig.maxTokens) {
@@ -310,7 +310,7 @@ export class AIRouter {
       }
     }
 
-    // Resolve model config for maxTokens fallback (DB config → prompt config → request)
+    // maxTokens resolution: request (highest priority, already applied) → DB per-task model config → global default loader
     if (!finalRequest.maxTokens && this.modelConfigResolver) {
       const modelConfig = await this.modelConfigResolver.resolve(finalRequest.taskType, clientId);
       if (modelConfig.maxTokens) {
