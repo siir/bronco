@@ -39,7 +39,7 @@ export async function portalTicketRoutes(fastify: FastifyInstance, opts: PortalT
       select: {
         clientId: true,
         metadata: true,
-        followers: { select: { contact: { select: { email: true } } } },
+        followers: { select: { person: { select: { email: true } } } },
       },
     });
 
@@ -47,7 +47,7 @@ export async function portalTicketRoutes(fastify: FastifyInstance, opts: PortalT
     if (portalUser.userType === ClientUserType.ADMIN) return true;
 
     // Check if user is a follower (any type)
-    if (ticket.followers.some((f) => f.contact?.email === portalUser.email)) return true;
+    if (ticket.followers.some((f) => f.person?.email === portalUser.email)) return true;
 
     // Check metadata portalCreatorId
     const meta = ticket.metadata as Record<string, unknown> | null;
@@ -100,7 +100,7 @@ export async function portalTicketRoutes(fastify: FastifyInstance, opts: PortalT
       // USER type: only see their own tickets
       if (portalUser.userType !== ClientUserType.ADMIN) {
         where['OR'] = [
-          { followers: { some: { contact: { email: portalUser.email } } } },
+          { followers: { some: { person: { email: portalUser.email } } } },
           { metadata: { path: ['portalCreatorId'], equals: portalUser.id } },
           { events: { some: { actor: portalUser.email } } },
         ];
@@ -135,7 +135,7 @@ export async function portalTicketRoutes(fastify: FastifyInstance, opts: PortalT
 
     if (portalUser.userType !== ClientUserType.ADMIN) {
       where['OR'] = [
-        { followers: { some: { contact: { email: portalUser.email } } } },
+        { followers: { some: { person: { email: portalUser.email } } } },
         { metadata: { path: ['portalCreatorId'], equals: portalUser.id } },
         { events: { some: { actor: portalUser.email } } },
       ];
@@ -179,7 +179,7 @@ export async function portalTicketRoutes(fastify: FastifyInstance, opts: PortalT
         where: { id },
         include: {
           system: { select: { name: true } },
-          followers: { include: { contact: { select: { name: true, email: true } } }, orderBy: { createdAt: 'asc' } },
+          followers: { include: { person: { select: { name: true, email: true } } }, orderBy: { createdAt: 'asc' } },
           events: { orderBy: { createdAt: 'asc' }, take: 200 },
           artifacts: { select: { id: true, filename: true, mimeType: true, sizeBytes: true, description: true, createdAt: true } },
         },
@@ -214,21 +214,17 @@ export async function portalTicketRoutes(fastify: FastifyInstance, opts: PortalT
         }
       }
 
-      // Find or create a contact for this portal user so we can pass the contactId to the ingestion pipeline
-      let contact = await fastify.db.contact.findFirst({
-        where: { clientId: portalUser.clientId, email: portalUser.email },
+      // Find or create a person for this portal user so we can pass the personId to the ingestion pipeline
+      let person = await fastify.db.person.findFirst({
+        where: { clientId: portalUser.clientId, email: { equals: portalUser.email, mode: 'insensitive' } },
       });
 
-      if (!contact) {
-        const portalUserRecord = await fastify.db.clientUser.findUnique({
-          where: { id: portalUser.id },
-          select: { name: true },
-        });
-        contact = await fastify.db.contact.create({
+      if (!person) {
+        person = await fastify.db.person.create({
           data: {
             clientId: portalUser.clientId,
             email: portalUser.email,
-            name: portalUserRecord?.name ?? portalUser.email,
+            name: portalUser.email.split('@')[0] ?? portalUser.email,
           },
         });
       }
@@ -243,7 +239,7 @@ export async function portalTicketRoutes(fastify: FastifyInstance, opts: PortalT
             description: description?.trim() || undefined,
             priority,
             portalCreatorId: portalUser.id,
-            contactId: contact.id,
+            contactId: person.id,
           },
         };
 
@@ -278,7 +274,7 @@ export async function portalTicketRoutes(fastify: FastifyInstance, opts: PortalT
               ticketNumber: portalTicketNumber,
               metadata: { portalCreatorId: portalUser.id },
               followers: {
-                create: { contactId: contact.id, followerType: 'REQUESTER' },
+                create: { personId: person.id, followerType: 'REQUESTER' },
               },
             },
           });

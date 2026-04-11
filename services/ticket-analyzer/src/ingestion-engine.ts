@@ -602,26 +602,26 @@ async function executeIngestionPipeline(
           break;
         }
 
-        // Resolve requester contact from payload
+        // Resolve requester person from payload
         const operatorEmail = payloadStr(payload, 'operatorEmail');
         const contactId = payloadStr(payload, 'contactId');
-        let requesterContactId: string | undefined;
+        let requesterPersonId: string | undefined;
         if (contactId) {
-          // Verify payload contactId belongs to this client
-          const verified = await db.contact.findFirst({
+          // Verify payload contactId (now a person ID) belongs to this client
+          const verified = await db.person.findFirst({
             where: { id: contactId, clientId },
             select: { id: true },
           });
-          requesterContactId = verified?.id ?? undefined;
+          requesterPersonId = verified?.id ?? undefined;
         }
-        if (!requesterContactId && operatorEmail) {
-          const contact = await db.contact.findFirst({
+        if (!requesterPersonId && operatorEmail) {
+          const person = await db.person.findFirst({
             where: { email: { equals: operatorEmail.trim(), mode: 'insensitive' }, clientId },
             select: { id: true },
           });
-          requesterContactId = contact?.id ?? undefined;
+          requesterPersonId = person?.id ?? undefined;
         }
-        ctx.requesterId = requesterContactId ?? null;
+        ctx.requesterId = requesterPersonId ?? null;
 
         // Build ticket subject — use accumulated title or fall back to payload
         const subject = ctx.title
@@ -667,9 +667,9 @@ async function executeIngestionPipeline(
                 ...(systemId && { systemId }),
                 ...(environmentId && { environmentId }),
                 metadata: Object.keys(metadata).length > 0 ? (metadata as Prisma.InputJsonValue) : Prisma.DbNull,
-                ...(requesterContactId && {
+                ...(requesterPersonId && {
                   followers: {
-                    create: { contactId: requesterContactId, followerType: 'REQUESTER' },
+                    create: { personId: requesterPersonId, followerType: 'REQUESTER' },
                   },
                 }),
               },
@@ -775,13 +775,13 @@ async function executeIngestionPipeline(
 
           let addedCount = 0;
           if (email) {
-            const contact = await db.contact.findFirst({
+            const person = await db.person.findFirst({
               where: { email: { equals: email, mode: 'insensitive' }, clientId },
               select: { id: true },
             });
-            if (contact) {
+            if (person) {
               await db.ticketFollower.create({
-                data: { ticketId: ctx.ticketId, contactId: contact.id, followerType },
+                data: { ticketId: ctx.ticketId, personId: person.id, followerType },
               }).catch((err) => {
                 if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') return;
                 throw err;
@@ -789,16 +789,16 @@ async function executeIngestionPipeline(
               addedCount = 1;
             }
           } else if (emailDomain) {
-            const contacts = await db.contact.findMany({
+            const people = await db.person.findMany({
               where: { email: { endsWith: `@${emailDomain}`, mode: 'insensitive' }, clientId },
               select: { id: true },
             });
-            if (contacts.length > 0) {
+            if (people.length > 0) {
               await db.ticketFollower.createMany({
-                data: contacts.map(c => ({ ticketId: ctx.ticketId!, contactId: c.id, followerType })),
+                data: people.map(p => ({ ticketId: ctx.ticketId!, personId: p.id, followerType })),
                 skipDuplicates: true,
               });
-              addedCount = contacts.length;
+              addedCount = people.length;
             }
           }
           const stepDuration = Date.now() - stepStart;
@@ -844,11 +844,11 @@ async function executeIngestionPipeline(
           const fromName = payloadStr(payload, 'fromName');
           let recipientName = fromName;
           if (!recipientName) {
-            const contact = await db.contact.findFirst({
+            const person = await db.person.findFirst({
               where: { clientId, email: { equals: emailFrom, mode: 'insensitive' } },
               select: { name: true },
             });
-            recipientName = contact?.name || emailFrom.split('@')[0] || 'there';
+            recipientName = person?.name || emailFrom.split('@')[0] || 'there';
           }
           const subject = ctx.title || payloadStr(payload, 'subject');
           const promptKey = step.promptKeyOverride ?? 'imap.draft-receipt.system';

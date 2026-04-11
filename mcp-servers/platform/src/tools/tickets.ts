@@ -59,7 +59,7 @@ export function registerTicketTools(server: McpServer, { db }: ServerDeps): void
           client: { select: { id: true, name: true, shortCode: true } },
           system: { select: { id: true, name: true, host: true } },
           assignedOperator: { select: { id: true, name: true, email: true } },
-          followers: { include: { contact: { select: { id: true, name: true, email: true } } } },
+          followers: { include: { person: { select: { id: true, name: true, email: true } } } },
           events: { orderBy: { createdAt: 'desc' }, take: 50 },
           pendingActions: { where: { status: 'pending' } },
         },

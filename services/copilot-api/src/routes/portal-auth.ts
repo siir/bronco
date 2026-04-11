@@ -27,35 +27,41 @@ function signPortalRefreshToken(secret: string, userId: string, jti: string): st
 }
 
 export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> {
-  async function issueRefreshToken(userId: string): Promise<string> {
+  async function issueRefreshToken(personId: string): Promise<string> {
     const jti = randomUUID();
     const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS);
 
-    await fastify.db.clientUserRefreshToken.create({
-      data: { jti, userId, expiresAt },
+    await fastify.db.personRefreshToken.create({
+      data: { jti, personId, expiresAt },
     });
 
-    return signPortalRefreshToken(fastify.portalJwtSecret, userId, jti);
+    return signPortalRefreshToken(fastify.portalJwtSecret, personId, jti);
   }
 
   /**
    * POST /api/portal/auth/login
    */
-  fastify.post<{ Body: { email: string; password: string } }>(
+  fastify.post<{ Body: { email: string; password: string; clientId?: string } }>(
     '/api/portal/auth/login',
     async (request, reply) => {
-      const { email, password } = request.body;
+      const { email, password, clientId } = request.body;
 
       if (!email || !password) {
         return reply.code(400).send({ error: 'Email and password are required' });
       }
 
-      const user = await fastify.db.clientUser.findUnique({
-        where: { email: email.trim().toLowerCase() },
-        include: { client: { select: { name: true, shortCode: true } } },
-      });
+      const emailNorm = email.trim().toLowerCase();
+      const user = clientId
+        ? await fastify.db.person.findUnique({
+            where: { clientId_email: { clientId, email: emailNorm } },
+            include: { client: { select: { name: true, shortCode: true } } },
+          })
+        : await fastify.db.person.findFirst({
+            where: { email: emailNorm, hasPortalAccess: true },
+            include: { client: { select: { name: true, shortCode: true } } },
+          });
 
-      if (!user || !user.isActive) {
+      if (!user || !user.isActive || !user.hasPortalAccess || !user.passwordHash) {
         return reply.code(401).send({ error: 'Invalid email or password' });
       }
 
@@ -64,12 +70,12 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
         return reply.code(401).send({ error: 'Invalid email or password' });
       }
 
-      await fastify.db.clientUser.update({
+      await fastify.db.person.update({
         where: { id: user.id },
         data: { lastLoginAt: new Date() },
       });
 
-      const userType = user.userType as ClientUserType;
+      const userType = (user.userType ?? 'USER') as ClientUserType;
       const accessToken = signPortalAccessToken(fastify.portalJwtSecret, {
         id: user.id,
         email: user.email,
@@ -86,7 +92,7 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
           email: user.email,
           name: user.name,
           clientId: user.clientId,
-          userType: user.userType,
+          userType,
           client: user.client,
         },
       };
@@ -117,7 +123,7 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
       }
 
       if (payload.jti) {
-        const result = await fastify.db.clientUserRefreshToken.updateMany({
+        const result = await fastify.db.personRefreshToken.updateMany({
           where: { jti: payload.jti, revokedAt: null },
           data: { revokedAt: new Date() },
         });
@@ -127,13 +133,13 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
         }
       }
 
-      const user = await fastify.db.clientUser.findUnique({ where: { id: payload.sub } });
+      const user = await fastify.db.person.findUnique({ where: { id: payload.sub } });
 
-      if (!user || !user.isActive) {
+      if (!user || !user.isActive || !user.hasPortalAccess) {
         return reply.code(401).send({ error: 'User not found or inactive' });
       }
 
-      const userType = user.userType as ClientUserType;
+      const userType = (user.userType ?? 'USER') as ClientUserType;
       const newAccessToken = signPortalAccessToken(fastify.portalJwtSecret, {
         id: user.id,
         email: user.email,
@@ -180,12 +186,6 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
         return reply.code(400).send({ error: 'Please use your company email address to register' });
       }
 
-      // Check if email already exists
-      const existing = await fastify.db.clientUser.findUnique({ where: { email } });
-      if (existing) {
-        return reply.code(409).send({ error: 'An account with this email already exists' });
-      }
-
       // Find client by domain mapping
       const client = await fastify.db.client.findFirst({
         where: {
@@ -201,21 +201,41 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
       }
 
       const passwordHash = await bcrypt.hash(password, 10);
-      const user = await fastify.db.clientUser.create({
-        data: {
-          email,
-          passwordHash,
-          name: name.trim(),
-          clientId: client.id,
-          userType: 'USER',
-        },
+
+      // Check if person already exists for this client (may be a contact without portal access)
+      const existing = await fastify.db.person.findUnique({
+        where: { clientId_email: { clientId: client.id, email } },
       });
 
+      let user;
+      if (existing) {
+        if (existing.hasPortalAccess) {
+          return reply.code(409).send({ error: 'An account with this email already exists' });
+        }
+        // Upgrade existing contact to portal user
+        user = await fastify.db.person.update({
+          where: { id: existing.id },
+          data: { passwordHash, hasPortalAccess: true, userType: 'USER', name: name.trim() },
+        });
+      } else {
+        user = await fastify.db.person.create({
+          data: {
+            email,
+            passwordHash,
+            name: name.trim(),
+            clientId: client.id,
+            userType: 'USER',
+            hasPortalAccess: true,
+          },
+        });
+      }
+
+      const userType = (user.userType ?? 'USER') as ClientUserType;
       const accessToken = signPortalAccessToken(fastify.portalJwtSecret, {
         id: user.id,
         email: user.email,
         clientId: user.clientId,
-        userType: user.userType as ClientUserType,
+        userType,
       });
       const refreshToken = await issueRefreshToken(user.id);
 
@@ -227,7 +247,7 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
           email: user.email,
           name: user.name,
           clientId: user.clientId,
-          userType: user.userType,
+          userType,
           client,
         },
       };
@@ -243,7 +263,7 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
       return reply.code(401).send({ error: 'Portal authentication required' });
     }
 
-    const user = await fastify.db.clientUser.findUnique({
+    const user = await fastify.db.person.findUnique({
       where: { id: portalUser.id },
       select: {
         id: true,
@@ -251,6 +271,7 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
         name: true,
         clientId: true,
         userType: true,
+        hasPortalAccess: true,
         isActive: true,
         lastLoginAt: true,
         createdAt: true,
@@ -258,7 +279,7 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
       },
     });
 
-    if (!user || !user.isActive) {
+    if (!user || !user.isActive || !user.hasPortalAccess) {
       return reply.code(401).send({ error: 'User not found or inactive' });
     }
 
@@ -283,13 +304,15 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
       }
 
       if (email) {
-        const existing = await fastify.db.clientUser.findUnique({ where: { email } });
+        const existing = await fastify.db.person.findFirst({
+          where: { clientId: portalUser.clientId, email },
+        });
         if (existing && existing.id !== portalUser.id) {
           return reply.code(409).send({ error: 'Email is already in use' });
         }
       }
 
-      const updated = await fastify.db.clientUser.update({
+      const updated = await fastify.db.person.update({
         where: { id: portalUser.id },
         data: {
           ...(name && { name: name.trim() }),
@@ -322,8 +345,8 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
         return reply.code(400).send({ error: 'New password must be at least 8 characters' });
       }
 
-      const user = await fastify.db.clientUser.findUnique({ where: { id: portalUser.id } });
-      if (!user) {
+      const user = await fastify.db.person.findUnique({ where: { id: portalUser.id } });
+      if (!user || !user.passwordHash) {
         return reply.code(401).send({ error: 'User not found' });
       }
 
@@ -333,7 +356,7 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
       }
 
       const passwordHash = await bcrypt.hash(newPassword, 10);
-      await fastify.db.clientUser.update({
+      await fastify.db.person.update({
         where: { id: portalUser.id },
         data: { passwordHash },
       });

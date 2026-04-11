@@ -162,7 +162,7 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
       include: {
         client: true,
         system: true,
-        followers: { include: { contact: true }, orderBy: { createdAt: 'asc' } },
+        followers: { include: { person: true }, orderBy: { createdAt: 'asc' } },
         events: { orderBy: { createdAt: 'asc' } },
         artifacts: true,
       },
@@ -193,11 +193,11 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     if (category && !VALID_CATEGORIES.has(category)) return fastify.httpErrors.badRequest(`Invalid category: ${category}`);
 
     if (requesterId) {
-      const requesterContact = await fastify.db.contact.findUnique({
+      const requesterPerson = await fastify.db.person.findUnique({
         where: { id: requesterId },
         select: { clientId: true },
       });
-      if (!requesterContact || requesterContact.clientId !== clientId) {
+      if (!requesterPerson || requesterPerson.clientId !== clientId) {
         return fastify.httpErrors.badRequest(`requesterId does not belong to client ${clientId}`);
       }
     }
@@ -233,15 +233,15 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
         backoff: { type: 'exponential', delay: 30_000 },
       });
 
-      // Auto-provision a CLIENT user account for the requester contact
+      // Auto-provision a CLIENT user account for the requester
       if (requesterId) {
-        const contact = await fastify.db.contact.findUnique({
+        const person = await fastify.db.person.findUnique({
           where: { id: requesterId },
           select: { email: true, name: true, clientId: true },
         });
-        if (contact) {
+        if (person) {
           try {
-            await ensureClientUser(fastify.db, contact);
+            await ensureClientUser(fastify.db, person);
           } catch (error) {
             fastify.log.error({ err: error }, 'Failed to auto-provision CLIENT user');
           }
@@ -276,7 +276,7 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
             ticketNumber: apiTicketNumber,
             ...(requesterId && {
               followers: {
-                create: { contactId: requesterId, followerType: 'REQUESTER' },
+                create: { personId: requesterId, followerType: 'REQUESTER' },
               },
             }),
           },
@@ -305,15 +305,15 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
       });
     }
 
-    // Auto-provision a CLIENT user account for the requester contact
+    // Auto-provision a CLIENT user account for the requester
     if (requesterId) {
-      const contact = await fastify.db.contact.findUnique({
+      const person = await fastify.db.person.findUnique({
         where: { id: requesterId },
         select: { email: true, name: true, clientId: true },
       });
-      if (contact) {
+      if (person) {
         try {
-          await ensureClientUser(fastify.db, contact);
+          await ensureClientUser(fastify.db, person);
         } catch (error) {
           fastify.log.error({ err: error }, 'Failed to auto-provision CLIENT user');
         }
