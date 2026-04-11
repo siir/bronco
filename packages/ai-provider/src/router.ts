@@ -105,6 +105,7 @@ export class AIRouter {
   private costLookup: AiCostLookup | undefined;
   private byokCredentialResolver: ((clientId: string, provider: string) => Promise<string | null>) | undefined;
   private clientAiModeResolver: ((clientId: string) => Promise<string | null>) | undefined;
+  private defaultMaxTokensLoader: (() => Promise<number | undefined>) | undefined;
 
   /** Cache of provider instances keyed by provider, model, baseUrl, and a hash of the apiKey (see getOrCreateProvider()). */
   private providerCache = new Map<string, AIProviderClient>();
@@ -119,6 +120,7 @@ export class AIRouter {
     this.costLookup = config.costLookup;
     this.byokCredentialResolver = config.byokCredentialResolver;
     this.clientAiModeResolver = config.clientAiModeResolver;
+    this.defaultMaxTokensLoader = config.defaultMaxTokensLoader;
   }
 
   async generate(request: AIRequest): Promise<AIResponse> {
@@ -168,6 +170,14 @@ export class AIRouter {
       const modelConfig = await this.modelConfigResolver.resolve(finalRequest.taskType, clientId);
       if (modelConfig.maxTokens) {
         finalRequest = { ...finalRequest, maxTokens: modelConfig.maxTokens };
+      }
+    }
+
+    // Global default fallback (AnalysisStrategy.defaultMaxTokens)
+    if (!finalRequest.maxTokens && this.defaultMaxTokensLoader) {
+      const globalDefault = await this.defaultMaxTokensLoader();
+      if (globalDefault) {
+        finalRequest = { ...finalRequest, maxTokens: globalDefault };
       }
     }
 
@@ -297,6 +307,22 @@ export class AIRouter {
         finalRequest.systemPrompt = finalRequest.systemPrompt
           ? `${finalRequest.systemPrompt}\n\n${memory.content}`
           : memory.content;
+      }
+    }
+
+    // Resolve model config for maxTokens fallback (DB config → prompt config → request)
+    if (!finalRequest.maxTokens && this.modelConfigResolver) {
+      const modelConfig = await this.modelConfigResolver.resolve(finalRequest.taskType, clientId);
+      if (modelConfig.maxTokens) {
+        finalRequest.maxTokens = modelConfig.maxTokens;
+      }
+    }
+
+    // Global default fallback (AnalysisStrategy.defaultMaxTokens)
+    if (!finalRequest.maxTokens && this.defaultMaxTokensLoader) {
+      const globalDefault = await this.defaultMaxTokensLoader();
+      if (globalDefault) {
+        finalRequest.maxTokens = globalDefault;
       }
     }
 

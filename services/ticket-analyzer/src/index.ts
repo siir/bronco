@@ -63,6 +63,7 @@ async function main(): Promise<void> {
   // --- AI router (DB-backed provider config) ---
   const { ai, clientMemoryResolver } = createAIRouter(db, {
     encryptionKey: config.ENCRYPTION_KEY,
+    defaultMaxTokensLoader: () => loadDefaultMaxTokens(db),
   });
 
   // --- Queues ---

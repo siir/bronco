@@ -101,6 +101,11 @@ export interface AIRouterDb {
 export interface CreateAIRouterConfig {
   /** Encryption key for decrypting API keys stored in the DB. */
   encryptionKey: string;
+  /**
+   * Optional loader for the global default maxTokens (AnalysisStrategy.defaultMaxTokens).
+   * Used as the final fallback in the maxTokens resolution chain.
+   */
+  defaultMaxTokensLoader?: () => Promise<number | undefined>;
 }
 
 /**
@@ -324,6 +329,7 @@ export function createAIRouter(
     costLookup,
     byokCredentialResolver,
     clientAiModeResolver,
+    defaultMaxTokensLoader: config.defaultMaxTokensLoader,
   });
 
   return {
