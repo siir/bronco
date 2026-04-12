@@ -239,7 +239,7 @@ export async function portalTicketRoutes(fastify: FastifyInstance, opts: PortalT
             description: description?.trim() || undefined,
             priority,
             portalCreatorId: portalUser.id,
-            contactId: person.id,
+            personId: person.id,
           },
         };
 

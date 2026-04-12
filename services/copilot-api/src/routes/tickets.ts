@@ -221,7 +221,7 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
           description,
           priority,
           category,
-          contactId: requesterId,
+          personId: requesterId,
           systemId,
           environmentId: environmentId ?? undefined,
         },

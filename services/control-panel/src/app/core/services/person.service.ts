@@ -36,7 +36,7 @@ export class PersonService {
     return this.api.post<Person>('/people', data);
   }
 
-  updatePerson(id: string, data: Partial<Person>): Observable<Person> {
+  updatePerson(id: string, data: Partial<Person> & { password?: string }): Observable<Person> {
     return this.api.patch<Person>(`/people/${id}`, data);
   }
 

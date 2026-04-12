@@ -119,47 +119,48 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
       return reply.code(404).send({ error: 'Client not found' });
     }
 
-    // Uniqueness check scoped to client
-    const existing = await fastify.db.person.findFirst({ where: { clientId, email } });
-    if (existing) {
-      return reply.code(409).send({ error: 'A person with this email already exists for this client' });
-    }
-
     const passwordHash = hasPortalAccess && password ? await bcrypt.hash(password, 10) : null;
 
-    const person = await fastify.db.person.create({
-      data: {
-        clientId,
-        name: name.trim(),
-        email,
-        phone: phone ?? null,
-        role: role ?? null,
-        slackUserId: slackUserId ?? null,
-        isPrimary: isPrimary ?? false,
-        hasPortalAccess: hasPortalAccess ?? false,
-        ...(passwordHash ? { passwordHash } : {}),
-        ...(hasPortalAccess ? { userType: (userType === 'ADMIN' ? 'ADMIN' : 'USER') as 'ADMIN' | 'USER' } : {}),
-      },
-      select: {
-        id: true,
-        clientId: true,
-        name: true,
-        email: true,
-        phone: true,
-        role: true,
-        slackUserId: true,
-        isPrimary: true,
-        hasPortalAccess: true,
-        userType: true,
-        isActive: true,
-        lastLoginAt: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
+    try {
+      const person = await fastify.db.person.create({
+        data: {
+          clientId,
+          name: name.trim(),
+          email,
+          phone: phone ?? null,
+          role: role ?? null,
+          slackUserId: slackUserId ?? null,
+          isPrimary: isPrimary ?? false,
+          hasPortalAccess: hasPortalAccess ?? false,
+          ...(passwordHash ? { passwordHash } : {}),
+          ...(hasPortalAccess ? { userType: (userType === 'ADMIN' ? 'ADMIN' : 'USER') as 'ADMIN' | 'USER' } : {}),
+        },
+        select: {
+          id: true,
+          clientId: true,
+          name: true,
+          email: true,
+          phone: true,
+          role: true,
+          slackUserId: true,
+          isPrimary: true,
+          hasPortalAccess: true,
+          userType: true,
+          isActive: true,
+          lastLoginAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
 
-    reply.code(201);
-    return person;
+      reply.code(201);
+      return person;
+    } catch (err) {
+      if (isPrismaError(err, 'P2002')) {
+        return reply.code(409).send({ error: 'A person with this email already exists for this client' });
+      }
+      throw err;
+    }
   });
 
   /**
@@ -175,12 +176,13 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
       slackUserId?: string | null;
       isPrimary?: boolean;
       hasPortalAccess?: boolean;
+      password?: string;
       userType?: string;
       isActive?: boolean;
     };
   }>('/api/people/:id', async (request, reply) => {
     const { id } = request.params;
-    const { name, email: rawEmail, phone, role, slackUserId, isPrimary, hasPortalAccess, userType, isActive } = request.body;
+    const { name, email: rawEmail, phone, role, slackUserId, isPrimary, hasPortalAccess, password, userType, isActive } = request.body;
 
     if (userType && userType !== 'ADMIN' && userType !== 'USER') {
       return reply.code(400).send({ error: 'Invalid userType. Must be ADMIN or USER' });
@@ -189,6 +191,14 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
     const target = await fastify.db.person.findUnique({ where: { id } });
     if (!target) {
       return reply.code(404).send({ error: 'Person not found' });
+    }
+
+    // Enabling portal access requires a password to be set — otherwise the person cannot log in.
+    // To set/change a password on an existing portal user, use POST /api/people/:id/reset-password.
+    if (hasPortalAccess === true && !target.hasPortalAccess) {
+      if (!password || password.length < 8) {
+        return reply.code(400).send({ error: 'password (minimum 8 characters) is required when enabling portal access' });
+      }
     }
 
     const email = rawEmail?.trim().toLowerCase();
@@ -203,6 +213,11 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
       }
     }
 
+    const newPasswordHash =
+      hasPortalAccess === true && !target.hasPortalAccess && password
+        ? await bcrypt.hash(password, 10)
+        : undefined;
+
     try {
       return await fastify.db.person.update({
         where: { id },
@@ -214,6 +229,7 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
           ...(slackUserId !== undefined && { slackUserId }),
           ...(isPrimary !== undefined && { isPrimary }),
           ...(hasPortalAccess !== undefined && { hasPortalAccess }),
+          ...(newPasswordHash && { passwordHash: newPasswordHash }),
           ...(userType !== undefined && { userType: userType as 'ADMIN' | 'USER' }),
           ...(isActive !== undefined && { isActive }),
         },

@@ -278,14 +278,14 @@ export class ClientSlackManager {
     slackUsername: string,
     channelId: string,
     text: string,
-    contactId: string,
+    personId: string,
   ): Promise<void> {
     const payload: SlackIngestionPayload = {
       slackUserId,
       slackUsername,
       slackChannelId: channelId,
       text,
-      contactId,
+      personId,
       integrationId: entry.integrationId,
     };
 

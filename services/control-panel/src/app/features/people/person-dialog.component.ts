@@ -48,12 +48,14 @@ import {
           <app-toggle-switch
             [checked]="form.hasPortalAccess"
             label="Portal access"
-            (checkedChange)="form.hasPortalAccess = $event" />
+            (checkedChange)="onPortalAccessChange($event)" />
         </div>
 
         @if (form.hasPortalAccess) {
-          @if (!isEdit) {
-            <app-form-field label="Password" hint="Minimum 8 characters">
+          @if (!isEdit || form.enablingPortalAccess) {
+            <app-form-field
+              [label]="isEdit ? 'Password (required to enable portal access)' : 'Password'"
+              hint="Minimum 8 characters">
               <app-text-input
                 [value]="form.password"
                 type="password"
@@ -123,15 +125,21 @@ export class PersonDialogComponent implements OnInit {
     slackUserId: '',
     isPrimary: false,
     hasPortalAccess: false,
+    /** True when editing an existing person who did NOT previously have portal access. */
+    enablingPortalAccess: false,
     password: '',
     userType: 'USER' as 'USER' | 'ADMIN',
     isActive: true,
   };
 
+  /** Whether the person being edited originally had portal access (set once in ngOnInit). */
+  private originalHasPortalAccess = false;
+
   ngOnInit(): void {
     const p = this.person();
     if (p) {
       this.isEdit = true;
+      this.originalHasPortalAccess = p.hasPortalAccess;
       this.form = {
         name: p.name,
         email: p.email,
@@ -140,11 +148,18 @@ export class PersonDialogComponent implements OnInit {
         slackUserId: p.slackUserId ?? '',
         isPrimary: p.isPrimary,
         hasPortalAccess: p.hasPortalAccess,
+        enablingPortalAccess: false,
         password: '',
         userType: (p.userType ?? 'USER') as 'USER' | 'ADMIN',
         isActive: p.isActive,
       };
     }
+  }
+
+  onPortalAccessChange(value: boolean): void {
+    this.form.hasPortalAccess = value;
+    // Track when an existing non-portal person is being upgraded — password is required.
+    this.form.enablingPortalAccess = this.isEdit && !this.originalHasPortalAccess && value;
   }
 
   onUserTypeChange(value: string): void {
@@ -153,14 +168,15 @@ export class PersonDialogComponent implements OnInit {
 
   canSave(): boolean {
     if (!this.form.name || !this.form.email) return false;
-    if (!this.isEdit && this.form.hasPortalAccess && this.form.password.length < 8) return false;
+    // Password required when creating with portal access, or when enabling portal access on an existing person.
+    if (this.form.hasPortalAccess && (this.form.enablingPortalAccess || !this.isEdit) && this.form.password.length < 8) return false;
     return true;
   }
 
   save(): void {
     const p = this.person();
     if (this.isEdit && p) {
-      const update: Partial<Person> = {
+      const update: Partial<Person> & { password?: string } = {
         name: this.form.name,
         email: this.form.email,
         phone: this.form.phone === '' ? null : this.form.phone,
@@ -172,6 +188,10 @@ export class PersonDialogComponent implements OnInit {
       if (this.form.hasPortalAccess) {
         update.userType = this.form.userType;
         update.isActive = this.form.isActive;
+      }
+      // Send password when enabling portal access on an existing contact.
+      if (this.form.enablingPortalAccess && this.form.password) {
+        update.password = this.form.password;
       }
       this.personService.updatePerson(p.id, update).subscribe({
         next: () => {

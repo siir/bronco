@@ -604,12 +604,12 @@ async function executeIngestionPipeline(
 
         // Resolve requester person from payload
         const operatorEmail = payloadStr(payload, 'operatorEmail');
-        const contactId = payloadStr(payload, 'contactId');
+        const personId = payloadStr(payload, 'personId');
         let requesterPersonId: string | undefined;
-        if (contactId) {
-          // Verify payload contactId (now a person ID) belongs to this client
+        if (personId) {
+          // Verify the payload personId belongs to this client
           const verified = await db.person.findFirst({
-            where: { id: contactId, clientId },
+            where: { id: personId, clientId },
             select: { id: true },
           });
           requesterPersonId = verified?.id ?? undefined;

@@ -236,7 +236,7 @@ Respond with ONLY one word: ACTIONABLE or NOISE`,
       date: emailDate,
       hasAttachments: hasAttachments || undefined,
       emailHash,
-      contactId: person?.id,
+      personId: person?.id,
     };
 
     const ingestionJob: IngestionJob = {

@@ -178,7 +178,8 @@ export async function portalUserRoutes(fastify: FastifyInstance): Promise<void> 
 
   /**
    * DELETE /api/portal/users/:id
-   * Revoke portal access (ADMIN only). Does not delete the underlying Person.
+   * Revoke portal access (ADMIN only). Clears hasPortalAccess, passwordHash, userType, and
+   * revokes all refresh tokens. The underlying Person record is retained for ticket history.
    */
   fastify.delete<{ Params: { id: string } }>(
     '/api/portal/users/:id',
@@ -186,9 +187,9 @@ export async function portalUserRoutes(fastify: FastifyInstance): Promise<void> 
       const portalUser = requirePortalAdmin(request);
       const { id } = request.params;
 
-      // Cannot deactivate yourself
+      // Cannot revoke your own access
       if (id === portalUser.id) {
-        return reply.code(400).send({ error: 'Cannot deactivate your own account' });
+        return reply.code(400).send({ error: 'Cannot revoke your own portal access' });
       }
 
       const target = await fastify.db.person.findUnique({ where: { id } });
@@ -196,12 +197,24 @@ export async function portalUserRoutes(fastify: FastifyInstance): Promise<void> 
         return reply.code(404).send({ error: 'User not found' });
       }
 
-      await fastify.db.person.update({
-        where: { id },
-        data: { isActive: false },
+      // Revoke all active refresh tokens
+      await fastify.db.personRefreshToken.updateMany({
+        where: { personId: id, revokedAt: null },
+        data: { revokedAt: new Date() },
       });
 
-      return { message: 'User deactivated' };
+      // Clear portal access fields
+      await fastify.db.person.update({
+        where: { id },
+        data: {
+          hasPortalAccess: false,
+          passwordHash: null,
+          userType: null,
+          isActive: false,
+        },
+      });
+
+      return { message: 'Portal access revoked' };
     },
   );
 }

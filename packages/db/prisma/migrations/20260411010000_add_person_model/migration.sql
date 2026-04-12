@@ -65,17 +65,19 @@ ALTER TABLE "ticket_followers" ADD CONSTRAINT "ticket_followers_person_id_fkey" 
 -- Data migration: populate people from contacts and client_users
 
 -- 1. Insert all contacts as people (no portal access)
--- Contacts keep their original UUIDs so ticket_followers.person_id can be set directly
+-- Contacts keep their original UUIDs so ticket_followers.person_id can be set directly.
+-- Emails are normalised to lowercase so new auth lookups (which always lowercase) match stored values.
 INSERT INTO "people" ("id", "client_id", "name", "email", "phone", "role", "slack_user_id", "is_primary", "has_portal_access", "is_active", "created_at", "updated_at")
-SELECT "id", "client_id", "name", "email", "phone", "role", "slack_user_id", "is_primary", false, true, "created_at", "updated_at"
+SELECT "id", "client_id", "name", lower("email"), "phone", "role", "slack_user_id", "is_primary", false, true, "created_at", "updated_at"
 FROM "contacts";
 
 -- 2. Insert client_users that DON'T match an existing contact (by client_id + email)
+-- Emails are normalised to lowercase for consistency with new auth lookup behaviour.
 INSERT INTO "people" ("id", "client_id", "name", "email", "password_hash", "user_type", "has_portal_access", "is_active", "last_login_at", "created_at", "updated_at")
-SELECT cu."id", cu."client_id", cu."name", cu."email", cu."password_hash", cu."user_type", true, cu."is_active", cu."last_login_at", cu."created_at", cu."updated_at"
+SELECT cu."id", cu."client_id", cu."name", lower(cu."email"), cu."password_hash", cu."user_type", true, cu."is_active", cu."last_login_at", cu."created_at", cu."updated_at"
 FROM "client_users" cu
 WHERE NOT EXISTS (
-  SELECT 1 FROM "people" p WHERE p."client_id" = cu."client_id" AND lower(p."email") = lower(cu."email")
+  SELECT 1 FROM "people" p WHERE p."client_id" = cu."client_id" AND p."email" = lower(cu."email")
 );
 
 -- 3. For client_users that DO match a contact, update the person with portal fields
@@ -85,7 +87,7 @@ SET "password_hash" = cu."password_hash",
     "has_portal_access" = true,
     "last_login_at" = cu."last_login_at"
 FROM "client_users" cu
-WHERE p."client_id" = cu."client_id" AND lower(p."email") = lower(cu."email");
+WHERE p."client_id" = cu."client_id" AND p."email" = lower(cu."email");
 
 -- 4. Backfill person_id on ticket_followers from contact_id
 -- Contact IDs were preserved as Person IDs in step 1
