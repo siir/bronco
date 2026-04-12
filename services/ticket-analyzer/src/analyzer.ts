@@ -341,7 +341,7 @@ async function loadAnalysisContext(
 
   const ticket = await db.ticket.findUnique({
     where: { id: ticketId },
-    select: { clientId: true, subject: true, source: true, description: true, followers: { where: { followerType: 'REQUESTER' }, select: { contact: { select: { email: true } } }, orderBy: { createdAt: 'asc' }, take: 1 } },
+    select: { clientId: true, subject: true, source: true, description: true, followers: { where: { followerType: 'REQUESTER' }, select: { person: { select: { email: true } } }, orderBy: { createdAt: 'asc' }, take: 1 } },
   });
 
   if (!ticket) {
@@ -386,7 +386,7 @@ async function loadAnalysisContext(
     return {
       ticketId,
       clientId: ticket.clientId,
-      emailFrom: ticket.followers[0]?.contact?.email ?? undefined,
+      emailFrom: ticket.followers[0]?.person?.email ?? undefined,
       emailSubject: ticket.subject ?? '(No subject)',
       emailBody: ticket.description ?? '',
       emailMessageId: undefined,
@@ -479,13 +479,13 @@ async function updateTicketSummary(
     where: { id: ticketId },
     include: {
       client: { select: { name: true } },
-      followers: { where: { followerType: 'REQUESTER' }, include: { contact: { select: { name: true, email: true } } }, orderBy: { createdAt: 'asc' }, take: 1 },
+      followers: { where: { followerType: 'REQUESTER' }, include: { person: { select: { name: true, email: true } } }, orderBy: { createdAt: 'asc' }, take: 1 },
       events: { orderBy: { createdAt: 'desc' }, take: SUMMARY_EVENT_LIMIT },
     },
   });
   if (!ticket) return;
 
-  const requester = ticket.followers[0]?.contact;
+  const requester = ticket.followers[0]?.person;
 
   // Build a timeline digest for the LLM (most recent N events, chronological)
   const eventDigest = ticket.events
@@ -557,22 +557,22 @@ async function resolveRecipientName(
   emailFrom: string,
   clientId?: string | null,
 ): Promise<string> {
-  // 1. Check if there's a contact record with a name (scoped to client to prevent cross-tenant leakage)
-  const contact = await db.contact.findFirst({
+  // 1. Check if there's a person record with a name (scoped to client to prevent cross-tenant leakage)
+  const person = await db.person.findFirst({
     where: {
       email: { equals: emailFrom, mode: 'insensitive' },
       ...(clientId ? { clientId } : {}),
     },
     select: { name: true },
   });
-  if (contact?.name) return contact.name;
+  if (person?.name) return person.name;
 
   // 2. Check the ticket's requester follower
   const requesterFollower = await db.ticketFollower.findFirst({
     where: { ticketId, followerType: 'REQUESTER' },
-    include: { contact: { select: { name: true } } },
+    include: { person: { select: { name: true } } },
   });
-  if (requesterFollower?.contact?.name) return requesterFollower.contact.name;
+  if (requesterFollower?.person?.name) return requesterFollower.person.name;
 
   // 3. Look for fromName in the inbound email event metadata
   const inboundEvent = await db.ticketEvent.findFirst({
@@ -4214,27 +4214,27 @@ async function executeRoutePipeline(
         const rawDomain = stepConfig?.['emailDomain'];
         const followerType = (stepConfig?.['followerType'] === 'REQUESTER' ? 'REQUESTER' : 'FOLLOWER') as 'REQUESTER' | 'FOLLOWER';
 
-        const contactsToAdd: Array<{ id: string }> = [];
+        const peopleToAdd: Array<{ id: string }> = [];
 
         if (typeof rawEmail === 'string' && rawEmail.trim()) {
-          const contact = await db.contact.findFirst({
+          const person = await db.person.findFirst({
             where: { email: { equals: rawEmail.trim(), mode: 'insensitive' }, clientId: ctx.clientId },
             select: { id: true },
           });
-          if (contact) {
-            contactsToAdd.push(contact);
+          if (person) {
+            peopleToAdd.push(person);
           } else {
-            appLog.warn(`ADD_FOLLOWER skipped — no contact found for email "${rawEmail}"`, { ticketId, email: rawEmail }, ticketId, 'ticket');
+            appLog.warn(`ADD_FOLLOWER skipped — no person found for email "${rawEmail}"`, { ticketId, email: rawEmail }, ticketId, 'ticket');
           }
         } else if (typeof rawDomain === 'string' && rawDomain.trim()) {
-          const domainContacts = await db.contact.findMany({
+          const domainPeople = await db.person.findMany({
             where: { email: { endsWith: `@${rawDomain.trim().toLowerCase()}`, mode: 'insensitive' }, clientId: ctx.clientId },
             select: { id: true },
           });
-          if (domainContacts.length > 0) {
-            contactsToAdd.push(...domainContacts);
+          if (domainPeople.length > 0) {
+            peopleToAdd.push(...domainPeople);
           } else {
-            appLog.warn(`ADD_FOLLOWER skipped — no contacts found for domain "${rawDomain}"`, { ticketId, domain: rawDomain }, ticketId, 'ticket');
+            appLog.warn(`ADD_FOLLOWER skipped — no people found for domain "${rawDomain}"`, { ticketId, domain: rawDomain }, ticketId, 'ticket');
           }
         } else {
           appLog.warn('ADD_FOLLOWER skipped — no email or emailDomain in step config', { ticketId, stepId: step.id }, ticketId, 'ticket');
@@ -4242,16 +4242,16 @@ async function executeRoutePipeline(
         }
 
         let addedCount = 0;
-        for (const c of contactsToAdd) {
+        for (const p of peopleToAdd) {
           try {
             await db.ticketFollower.upsert({
-              where: { ticketId_contactId: { ticketId, contactId: c.id } },
-              create: { ticketId, contactId: c.id, followerType },
+              where: { ticketId_personId: { ticketId, personId: p.id } },
+              create: { ticketId, personId: p.id, followerType },
               update: { followerType },
             });
             addedCount++;
           } catch (err) {
-            logger.warn({ err, ticketId, contactId: c.id }, 'Failed to add follower');
+            logger.warn({ err, ticketId, personId: p.id }, 'Failed to add follower');
           }
         }
         if (addedCount > 0) {

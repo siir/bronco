@@ -6,10 +6,10 @@ import { environment } from '../../../environments/environment';
 export interface TicketFollower {
   id: string;
   ticketId: string;
-  contactId: string;
+  personId: string;
   followerType: 'REQUESTER' | 'FOLLOWER';
   createdAt: string;
-  contact?: { name: string; email: string };
+  person?: { name: string; email: string };
 }
 
 export interface Ticket {

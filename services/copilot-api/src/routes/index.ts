@@ -7,7 +7,7 @@ import type { Config } from '../config.js';
 import { requireRole } from '../plugins/auth.js';
 import { healthRoutes } from './health.js';
 import { clientRoutes } from './clients.js';
-import { contactRoutes } from './contacts.js';
+import { peopleRoutes } from './people.js';
 import { systemRoutes } from './systems.js';
 import { ticketRoutes } from './tickets.js';
 import { artifactRoutes } from './artifacts.js';
@@ -36,7 +36,6 @@ import { clientEnvironmentRoutes } from './client-environments.js';
 import { portalAuthRoutes } from './portal-auth.js';
 import { portalTicketRoutes } from './portal-tickets.js';
 import { portalUserRoutes } from './portal-users.js';
-import { clientUserRoutes } from './client-users.js';
 import { clientAiCredentialRoutes } from './client-ai-credentials.js';
 import { userRoutes } from './users.js';
 import { scheduledProbeRoutes } from './scheduled-probes.js';
@@ -87,7 +86,7 @@ export async function registerRoutes(fastify: FastifyInstance, opts: RouteOpts):
     scoped.addHook('preHandler', controlPanelGuard);
 
     await scoped.register(clientRoutes);
-    await scoped.register(contactRoutes);
+    await scoped.register(peopleRoutes);
     await scoped.register(systemRoutes);
     await scoped.register(ticketRoutes, { logSummarizeQueue: opts.logSummarizeQueue, systemAnalysisQueue: opts.systemAnalysisQueue, clientLearningQueue: opts.clientLearningQueue, ticketCreatedQueue: opts.ticketCreatedQueue, ingestQueue: opts.ingestQueue, ai: opts.ai });
     await scoped.register(artifactRoutes, { config: opts.config });
@@ -112,7 +111,6 @@ export async function registerRoutes(fastify: FastifyInstance, opts: RouteOpts):
     await scoped.register(ticketRouteRoutes, { ai: opts.ai });
     await scoped.register(clientMemoryRoutes, { clientMemoryResolver: opts.clientMemoryResolver });
     await scoped.register(clientEnvironmentRoutes);
-    await scoped.register(clientUserRoutes);
     await scoped.register(clientAiCredentialRoutes, { encryptionKey: opts.config.ENCRYPTION_KEY });
     await scoped.register(userRoutes);
     await scoped.register(scheduledProbeRoutes, { probeQueue: opts.probeQueue });

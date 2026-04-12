@@ -80,16 +80,3 @@ export interface Repository {
   createdAt: Date;
   updatedAt: Date;
 }
-
-export interface Contact {
-  id: string;
-  clientId: string;
-  name: string;
-  email: string;
-  phone: string | null;
-  role: string | null;
-  slackUserId: string | null;
-  isPrimary: boolean;
-  createdAt: Date;
-  updatedAt: Date;
-}

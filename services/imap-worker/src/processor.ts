@@ -166,17 +166,17 @@ Respond with ONLY one word: ACTIONABLE or NOISE`,
       }
     }
 
-    // --- Contact / client resolution ---
-    const contact = await db.contact.findFirst({
+    // --- Person / client resolution ---
+    const person = await db.person.findFirst({
       where: { email: { equals: fromAddress, mode: 'insensitive' } },
       include: { client: true },
     });
 
-    appLog.info(contact ? `Sender matched to contact: ${contact.name} (client: ${contact.client.name})` : `No contact match for sender: ${fromAddress}`, { from: fromAddress, contactId: contact?.id, clientId: contact?.clientId });
+    appLog.info(person ? `Sender matched to person: ${person.name} (client: ${person.client.name})` : `No person match for sender: ${fromAddress}`, { from: fromAddress, personId: person?.id, clientId: person?.clientId });
 
     // Domain-based routing
     let domainClient: { id: string } | null = null;
-    if (!contact) {
+    if (!person) {
       const domain = fromAddress.split('@')[1]?.toLowerCase();
       if (domain) {
         domainClient = await db.client.findFirst({
@@ -184,30 +184,30 @@ Respond with ONLY one word: ACTIONABLE or NOISE`,
           select: { id: true },
         });
         if (domainClient) {
-          appLog.warn(`Matched sender by domain mapping: ${domain} — no contact record exists, consider adding a contact`, { domain, clientId: domainClient.id, from: fromAddress });
+          appLog.warn(`Matched sender by domain mapping: ${domain} — no person record exists, consider adding one`, { domain, clientId: domainClient.id, from: fromAddress });
         } else {
           appLog.info(`No domain mapping match for: ${domain}`, { domain, from: fromAddress });
         }
       }
     }
 
-    logClientId = contact?.clientId ?? domainClient?.id ?? null;
+    logClientId = person?.clientId ?? domainClient?.id ?? null;
 
     // Auto-provision CLIENT user
-    if (contact) {
+    if (person) {
       try {
         await ensureClientUser(db, {
-          email: contact.email,
-          name: contact.name,
-          clientId: contact.clientId,
+          email: person.email,
+          name: person.name,
+          clientId: person.clientId,
         });
       } catch (error) {
-        appLog.error('Failed to auto-provision CLIENT user', { err: error, email: contact.email });
+        appLog.error('Failed to auto-provision CLIENT user', { err: error, email: person.email });
       }
     }
 
     // --- Resolve client ID (fall back to _unknown) ---
-    const clientId = contact?.clientId ?? domainClient?.id ?? (
+    const clientId = person?.clientId ?? domainClient?.id ?? (
       await db.client.upsert({
         where: { shortCode: '_unknown' },
         create: { name: 'Unknown', shortCode: '_unknown' },
@@ -236,7 +236,7 @@ Respond with ONLY one word: ACTIONABLE or NOISE`,
       date: emailDate,
       hasAttachments: hasAttachments || undefined,
       emailHash,
-      contactId: contact?.id,
+      personId: person?.id,
     };
 
     const ingestionJob: IngestionJob = {

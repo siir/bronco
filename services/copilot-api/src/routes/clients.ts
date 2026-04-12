@@ -29,7 +29,7 @@ export async function clientRoutes(fastify: FastifyInstance): Promise<void> {
     const client = await fastify.db.client.findUnique({
       where: { id: request.params.id },
       include: {
-        contacts: true,
+        people: true,
         systems: true,
         _count: {
           select: {
@@ -39,7 +39,7 @@ export async function clientRoutes(fastify: FastifyInstance): Promise<void> {
             integrations: true,
             clientMemories: true,
             environments: true,
-            clientUsers: true,
+            people: true,
             invoices: true,
           },
         },

@@ -65,7 +65,7 @@ import { TicketService, type Ticket, type TicketEvent } from '../../core/service
             }
             @if (t.system) { <p><strong>System:</strong> {{ t.system.name }}</p> }
             @for (f of t.followers || []; track f.id) {
-              @if (f.followerType === 'REQUESTER' && f.contact) { <p><strong>Submitted by:</strong> {{ f.contact.name }} ({{ f.contact.email }})</p> }
+              @if (f.followerType === 'REQUESTER' && f.person) { <p><strong>Submitted by:</strong> {{ f.person.name }} ({{ f.person.email }})</p> }
             }
           </div>
         </mat-tab>

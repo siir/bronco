@@ -28,8 +28,8 @@ export interface EmailIngestionPayload {
   hasAttachments?: boolean;
   /** SHA-256 hash of the raw email source for dedup. */
   emailHash?: string;
-  /** Pre-resolved contact ID for the sender (if matched by imap-worker). */
-  contactId?: string;
+  /** Pre-resolved Person ID for the sender (if matched by imap-worker). */
+  personId?: string;
 }
 
 /** Probe result payload submitted by probe-worker. */
@@ -71,8 +71,8 @@ export interface ManualIngestionPayload {
   description?: string;
   priority?: string;
   category?: string;
-  /** Contact ID for the ticket requester. */
-  contactId?: string;
+  /** Person ID for the ticket requester. */
+  personId?: string;
   systemId?: string;
   environmentId?: string;
 }
@@ -82,10 +82,10 @@ export interface PortalIngestionPayload {
   subject: string;
   description?: string;
   priority?: string;
-  /** Portal user ID (ClientUser.id) who created the ticket. */
+  /** Portal user ID (Person.id) who created the ticket. */
   portalCreatorId: string;
-  /** Contact ID resolved from the portal user's email. */
-  contactId?: string;
+  /** Person ID resolved from the portal user's email. */
+  personId?: string;
 }
 
 /** Slack message payload submitted by client-slack-manager. */
@@ -95,6 +95,6 @@ export interface SlackIngestionPayload {
   slackChannelId: string;
   slackThreadTs?: string;
   text: string;
-  contactId?: string;
+  personId?: string;
   integrationId: string;
 }
