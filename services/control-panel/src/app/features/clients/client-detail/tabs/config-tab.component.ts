@@ -140,12 +140,10 @@ export class ClientConfigTabComponent {
   slackValue = signal('');
   domainsValue = signal('');
   notesValue = signal('');
-  private initialized = false;
 
   ngOnChanges(): void {
     const c = this.client();
-    if (c && !this.initialized) {
-      this.initialized = true;
+    if (c) {
       this.slackValue.set(c.slackChannelId ?? '');
       this.domainsValue.set((c.domainMappings).join(', '));
       this.notesValue.set(c.notes ?? '');
