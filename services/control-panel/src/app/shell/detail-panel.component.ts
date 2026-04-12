@@ -1,10 +1,11 @@
 import { Component, effect, inject, signal } from '@angular/core';
 import { Subscription } from 'rxjs';
 import { Router, RouterLink } from '@angular/router';
-import { DatePipe, SlicePipe } from '@angular/common';
+import { DatePipe, DecimalPipe, SlicePipe } from '@angular/common';
 import { DetailPanelService, DetailEntityType } from '../core/services/detail-panel.service';
 import { TicketService, Ticket, TicketEvent, TicketAiUsageLog, UnifiedLogEntry } from '../core/services/ticket.service';
 import { ClientService, Client } from '../core/services/client.service';
+import { AiUsageService, type AiUsageClientSummary } from '../core/services/ai-usage.service';
 import { ScheduledProbeService, ScheduledProbe } from '../core/services/scheduled-probe.service';
 import { SystemStatusService, ComponentStatus, QueueStats, SystemStatusResponse } from '../core/services/system-status.service';
 import { SystemAnalysisService, SystemAnalysis } from '../core/services/system-analysis.service';
@@ -44,6 +45,7 @@ const STATUS_MAP: Record<string, 'open' | 'in_progress' | 'analyzing' | 'resolve
   standalone: true,
   imports: [
     DatePipe,
+    DecimalPipe,
     SlicePipe,
     RouterLink,
     StatusBadgeComponent,
@@ -302,6 +304,30 @@ const STATUS_MAP: Record<string, 'open' | 'in_progress' | 'analyzing' | 'resolve
                 <span class="field-value">{{ c._count?.tickets ?? 0 }}</span>
               </div>
               <div class="field-row">
+                <span class="field-label">Repos</span>
+                <span class="field-value">{{ c._count?.codeRepos ?? 0 }}</span>
+              </div>
+              <div class="field-row">
+                <span class="field-label">Integrations</span>
+                <span class="field-value">{{ c._count?.integrations ?? 0 }}</span>
+              </div>
+              <div class="field-row">
+                <span class="field-label">Memory</span>
+                <span class="field-value">{{ c._count?.clientMemories ?? 0 }} entries</span>
+              </div>
+              <div class="field-row">
+                <span class="field-label">Environments</span>
+                <span class="field-value">{{ c._count?.environments ?? 0 }}</span>
+              </div>
+              <div class="field-row">
+                <span class="field-label">Users</span>
+                <span class="field-value">{{ c._count?.clientUsers ?? 0 }}</span>
+              </div>
+              <div class="field-row">
+                <span class="field-label">Invoices</span>
+                <span class="field-value">{{ c._count?.invoices ?? 0 }}@if (c.invoicedTotalUsd) { &middot; {{ '$' + (c.invoicedTotalUsd | number:'1.2-2') }} }</span>
+              </div>
+              <div class="field-row">
                 <span class="field-label">AI Mode</span>
                 <span class="field-value">{{ c.aiMode }}</span>
               </div>
@@ -330,6 +356,25 @@ const STATUS_MAP: Record<string, 'open' | 'in_progress' | 'analyzing' | 'resolve
               }
             } @else {
               <p class="placeholder-text">No systems</p>
+            }
+          </app-tab>
+          <app-tab label="AI Usage">
+            @if (clientAiUsage(); as usage) {
+              <div class="usage-grid">
+                @for (w of usage.windows; track w.label) {
+                  <div class="usage-card">
+                    <span class="usage-window">{{ w.label }}</span>
+                    <span class="usage-cost">{{ '$' + (w.billedCostUsd | number:'1.2-2') }}</span>
+                    <span class="usage-detail">{{ w.requestCount | number }} calls</span>
+                    <span class="usage-detail">{{ w.totalTokens | number }} tokens</span>
+                  </div>
+                }
+              </div>
+              @if (usage.billingMarkupPercent > 1) {
+                <p class="usage-note">Markup: {{ ((usage.billingMarkupPercent - 1) * 100) | number:'1.0-0' }}%</p>
+              }
+            } @else {
+              <p class="placeholder-text">Loading usage data...</p>
             }
           </app-tab>
         </app-tab-group>
@@ -887,6 +932,43 @@ const STATUS_MAP: Record<string, 'open' | 'in_progress' | 'analyzing' | 'resolve
       padding-left: 20px;
       padding-right: 20px;
     }
+    .usage-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      padding: 12px 20px;
+    }
+    .usage-card {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding: 10px 12px;
+      background: var(--bg-page);
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-light);
+    }
+    .usage-window {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .usage-cost {
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .usage-detail {
+      font-size: 11px;
+      color: var(--text-tertiary);
+    }
+    .usage-note {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      padding: 4px 20px 8px;
+      margin: 0;
+    }
     app-tab-group .list-item {
       padding-left: 20px;
       padding-right: 20px;
@@ -1122,6 +1204,7 @@ export class DetailPanelComponent {
   private readonly router = inject(Router);
   private readonly ticketService = inject(TicketService);
   private readonly clientService = inject(ClientService);
+  private readonly aiUsageService = inject(AiUsageService);
   private readonly probeService = inject(ScheduledProbeService);
   private readonly systemStatusService = inject(SystemStatusService);
   private readonly systemAnalysisService = inject(SystemAnalysisService);
@@ -1129,6 +1212,7 @@ export class DetailPanelComponent {
 
   ticket = signal<Ticket | null>(null);
   client = signal<Client | null>(null);
+  clientAiUsage = signal<AiUsageClientSummary | null>(null);
   probe = signal<ScheduledProbe | null>(null);
   systemComponent = signal<ComponentStatus | null>(null);
   systemQueueStats = signal<QueueStats | null>(null);
@@ -1206,12 +1290,17 @@ export class DetailPanelComponent {
           sub = { unsubscribe: () => subs.forEach(s => s.unsubscribe()) } as Subscription;
           break;
         }
-        case 'client':
-          sub = this.clientService.getClient(id).subscribe({
+        case 'client': {
+          const clientSub = this.clientService.getClient(id).subscribe({
             next: (c) => { this.client.set(c); this.loading.set(false); },
             error: () => { this.error.set(true); this.loading.set(false); },
           });
+          const usageSub = this.aiUsageService.getClientSummary(id).subscribe({
+            next: (s) => this.clientAiUsage.set(s),
+          });
+          sub = { unsubscribe: () => { clientSub.unsubscribe(); usageSub.unsubscribe(); } } as Subscription;
           break;
+        }
         case 'probe':
           sub = this.probeService.getProbe(id).subscribe({
             next: (p) => { this.probe.set(p); this.loading.set(false); },
