@@ -224,7 +224,7 @@ export async function portalTicketRoutes(fastify: FastifyInstance, opts: PortalT
           data: {
             clientId: portalUser.clientId,
             email: portalUser.email,
-            name: portalUser.email.split('@')[0] ?? portalUser.email,
+            name: portalUser.name || portalUser.email.split('@')[0] || portalUser.email,
           },
         });
       }
