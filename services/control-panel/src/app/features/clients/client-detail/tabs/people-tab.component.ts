@@ -46,15 +46,11 @@ import { PersonDialogComponent } from '../../../people/person-dialog.component';
         <app-data-column key="role" header="Role" [sortable]="false">
           <ng-template #cell let-p>{{ p.role ?? '-' }}</ng-template>
         </app-data-column>
-        <app-data-column key="portal" header="Portal" [sortable]="false" width="100px">
+        <app-data-column key="access" header="Access" [sortable]="false" width="130px">
           <ng-template #cell let-p>
-            @if (p.hasPortalAccess) {
-              <span class="chip" [class.chip-admin]="p.userType === 'ADMIN'" [class.chip-user]="p.userType !== 'ADMIN'">
-                {{ p.userType === 'ADMIN' ? 'Admin' : 'User' }}
-              </span>
-            } @else {
-              <span class="muted">-</span>
-            }
+            <span class="chip" [class.chip-admin]="accessLabel(p) === 'Ops Admin' || accessLabel(p) === 'Portal Admin'" [class.chip-operator]="accessLabel(p) === 'Ops Operator' || accessLabel(p) === 'Portal Operator'" [class.chip-user]="accessLabel(p) === 'Portal User' || accessLabel(p) === 'Contact'">
+              {{ accessLabel(p) }}
+            </span>
           </ng-template>
         </app-data-column>
         <app-data-column key="status" header="Status" [sortable]="false" width="110px">
@@ -134,6 +130,10 @@ import { PersonDialogComponent } from '../../../people/person-dialog.component';
       background: var(--color-info-subtle);
       color: var(--color-info);
     }
+    .chip-operator {
+      background: var(--color-warning-subtle, var(--bg-muted));
+      color: var(--color-warning, var(--text-secondary));
+    }
     .chip-user {
       background: var(--bg-muted);
       color: var(--text-secondary);
@@ -167,6 +167,21 @@ export class ClientPeopleTabComponent implements OnInit {
   editing = signal<Person | null>(null);
 
   trackById = (p: Person): string => p.id;
+
+  accessLabel(p: Person): 'Ops Admin' | 'Ops Operator' | 'Portal Admin' | 'Portal Operator' | 'Portal User' | 'Contact' {
+    // Ops access takes precedence. ADMIN → Ops Admin; anything else (OPERATOR, USER, null)
+    // defensively falls through to Ops Operator as the lowest ops tier.
+    if (p.hasOpsAccess) {
+      return p.userType === 'ADMIN' ? 'Ops Admin' : 'Ops Operator';
+    }
+    // Portal access without ops access: ADMIN → Portal Admin, OPERATOR → Portal Operator, USER/null → Portal User.
+    if (p.hasPortalAccess) {
+      if (p.userType === 'ADMIN') return 'Portal Admin';
+      if (p.userType === 'OPERATOR') return 'Portal Operator';
+      return 'Portal User';
+    }
+    return 'Contact';
+  }
 
   ngOnInit(): void {
     this.load();

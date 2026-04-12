@@ -13,8 +13,16 @@ export { buildUtcCron } from './cron-tz.js';
 export type { BuildUtcCronOpts } from './cron-tz.js';
 export { Mailer } from './mailer.js';
 export type { SmtpConfig, ReplyOptions } from './mailer.js';
-export { notifyOperators } from './notify-operators.js';
-export type { OperatorRecord, NotifyOperatorsOpts, NotifyOperatorsResult, SlackSender, NotificationPreference } from './notify-operators.js';
+export { notifyOperators, notifyClientOperators } from './notify-operators.js';
+export type {
+  OperatorRecord,
+  NotifyOperatorsOpts,
+  NotifyOperatorsResult,
+  SlackSender,
+  NotificationPreference,
+  ClientOperatorRecord,
+  NotifyClientOperatorsOpts,
+} from './notify-operators.js';
 export { loadSmtpFromDb } from './smtp-loader.js';
 export { loadImapFromDb } from './imap-loader.js';
 export type { ImapDbConfig } from './imap-loader.js';

@@ -3,6 +3,7 @@ export interface Operator {
   email: string;
   name: string;
   isActive: boolean;
+  isAdmin: boolean;
   notifyEmail: boolean;
   notifySlack: boolean;
   slackUserId: string | null;

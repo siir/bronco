@@ -4,7 +4,7 @@ import type { AIRouter, ClientMemoryResolver, ModelConfigResolver, ProviderConfi
 import type { TicketCreatedJob, IngestionJob } from '@bronco/shared-types';
 import { UserRole } from '@bronco/shared-types';
 import type { Config } from '../config.js';
-import { requireRole } from '../plugins/auth.js';
+import { requireRole, requireOpsAccess } from '../plugins/auth.js';
 import { healthRoutes } from './health.js';
 import { clientRoutes } from './clients.js';
 import { peopleRoutes } from './people.js';
@@ -77,19 +77,30 @@ export async function registerRoutes(fastify: FastifyInstance, opts: RouteOpts):
   await fastify.register(portalTicketRoutes, { config: opts.config, ticketCreatedQueue: opts.ticketCreatedQueue, ingestQueue: opts.ingestQueue });
   await fastify.register(portalUserRoutes);
 
-  // Control panel routes — require ADMIN or OPERATOR role.
-  // API-key callers (service-to-service) pass through; only JWT-authenticated
-  // CLIENT users are blocked.
+  // Client-scoped control panel routes — accessible to operators AND portal
+  // users with hasOpsAccess (client-scoped ops people).
+  const opsAccessGuard = requireOpsAccess(UserRole.ADMIN, UserRole.OPERATOR);
+
+  await fastify.register(async (scoped) => {
+    scoped.addHook('preHandler', opsAccessGuard);
+
+    await scoped.register(clientRoutes);
+    await scoped.register(peopleRoutes);
+    await scoped.register(ticketRoutes, { logSummarizeQueue: opts.logSummarizeQueue, systemAnalysisQueue: opts.systemAnalysisQueue, clientLearningQueue: opts.clientLearningQueue, ticketCreatedQueue: opts.ticketCreatedQueue, ingestQueue: opts.ingestQueue, ai: opts.ai });
+    await scoped.register(artifactRoutes, { config: opts.config });
+    await scoped.register(aiUsageRoutes, { ai: opts.ai });
+    await scoped.register(ticketFilterPresetRoutes);
+    await scoped.register(pendingActionRoutes);
+  });
+
+  // Admin-only control panel routes — require ADMIN or OPERATOR JWT.
+  // Portal users (even with hasOpsAccess) cannot access these.
   const controlPanelGuard = requireRole(UserRole.ADMIN, UserRole.OPERATOR);
 
   await fastify.register(async (scoped) => {
     scoped.addHook('preHandler', controlPanelGuard);
 
-    await scoped.register(clientRoutes);
-    await scoped.register(peopleRoutes);
     await scoped.register(systemRoutes);
-    await scoped.register(ticketRoutes, { logSummarizeQueue: opts.logSummarizeQueue, systemAnalysisQueue: opts.systemAnalysisQueue, clientLearningQueue: opts.clientLearningQueue, ticketCreatedQueue: opts.ticketCreatedQueue, ingestQueue: opts.ingestQueue, ai: opts.ai });
-    await scoped.register(artifactRoutes, { config: opts.config });
     await scoped.register(repoRoutes);
     await scoped.register(issueJobRoutes, { issueResolveQueue: opts.issueResolveQueue });
     await scoped.register(integrationRoutes, { encryptionKey: opts.config.ENCRYPTION_KEY, mcpDiscoveryQueue: opts.mcpDiscoveryQueue, onSlackIntegrationChange: opts.onSlackIntegrationChange });
@@ -101,7 +112,6 @@ export async function registerRoutes(fastify: FastifyInstance, opts: RouteOpts):
     await scoped.register(aiConfigRoutes, { modelConfigResolver: opts.modelConfigResolver, ai: opts.ai });
     await scoped.register(aiProviderRoutes, { providerConfigResolver: opts.providerConfigResolver, encryptionKey: opts.config.ENCRYPTION_KEY });
     await scoped.register(systemStatusRoutes, { config: opts.config });
-    await scoped.register(aiUsageRoutes, { ai: opts.ai });
     await scoped.register(systemAnalysisRoutes, { systemAnalysisQueue: opts.systemAnalysisQueue });
     await scoped.register(systemIssuesRoutes, { redisUrl: opts.config.REDIS_URL });
     await scoped.register(notificationChannelRoutes, { encryptionKey: opts.config.ENCRYPTION_KEY });
@@ -114,14 +124,12 @@ export async function registerRoutes(fastify: FastifyInstance, opts: RouteOpts):
     await scoped.register(clientAiCredentialRoutes, { encryptionKey: opts.config.ENCRYPTION_KEY });
     await scoped.register(userRoutes);
     await scoped.register(scheduledProbeRoutes, { probeQueue: opts.probeQueue });
-    await scoped.register(ticketFilterPresetRoutes);
     await scoped.register(ingestRoutes, { ingestQueue: opts.ingestQueue });
     await scoped.register(invoiceRoutes, { invoiceStoragePath: opts.config.INVOICE_STORAGE_PATH });
     await scoped.register(failedJobRoutes, { queueMap: opts.queueMap });
     await scoped.register(emailLogRoutes);
     await scoped.register(operatorRoutes);
     await scoped.register(notificationPreferenceRoutes);
-    await scoped.register(pendingActionRoutes);
     await scoped.register(slackConversationRoutes);
   });
 }

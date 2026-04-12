@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { AiMode } from '@bronco/shared-types';
+import { resolveClientScope, scopeToWhere, getOperatorClientIds } from '../plugins/client-scope.js';
 
 const VALID_AI_MODES = new Set<string>(Object.values(AiMode));
 
@@ -17,9 +18,17 @@ function validateDomainMappings(domains: string[] | undefined): string[] | undef
 }
 
 export async function clientRoutes(fastify: FastifyInstance): Promise<void> {
-  fastify.get('/api/clients', async () => {
+  fastify.get('/api/clients', async (request) => {
+    const scope = await resolveClientScope(request, (operatorId) =>
+      getOperatorClientIds(fastify.db, operatorId),
+    );
+
+    // Apply scope filter — translate clientId to client.id for direct client queries
+    const scopeWhere = scopeToWhere(scope);
+    const idFilter = scopeWhere.clientId !== undefined ? { id: scopeWhere.clientId } : {};
+
     return fastify.db.client.findMany({
-      where: { isInternal: false },
+      where: { isInternal: false, ...idFilter },
       include: { _count: { select: { tickets: true, systems: true } } },
       orderBy: { name: 'asc' },
     });
@@ -71,10 +80,10 @@ export async function clientRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  fastify.patch<{ Params: { id: string }; Body: { name?: string; notes?: string; isActive?: boolean; autoRouteTickets?: boolean; allowSelfRegistration?: boolean; domainMappings?: string[]; companyProfile?: string | null; systemsProfile?: string | null; aiMode?: string; billingPeriod?: string; billingAnchorDay?: number; billingMarkupPercent?: number; slackChannelId?: string | null } }>(
+  fastify.patch<{ Params: { id: string }; Body: { name?: string; notes?: string; isActive?: boolean; autoRouteTickets?: boolean; allowSelfRegistration?: boolean; domainMappings?: string[]; companyProfile?: string | null; systemsProfile?: string | null; aiMode?: string; billingPeriod?: string; billingAnchorDay?: number; billingMarkupPercent?: number; slackChannelId?: string | null; notificationMode?: string } }>(
     '/api/clients/:id',
     async (request, reply) => {
-      const { aiMode, billingPeriod, billingAnchorDay, billingMarkupPercent, ...rest } = request.body;
+      const { aiMode, billingPeriod, billingAnchorDay, billingMarkupPercent, notificationMode, ...rest } = request.body;
       if (aiMode !== undefined && !VALID_AI_MODES.has(aiMode)) {
         return reply.code(400).send({ error: `Invalid aiMode "${aiMode}". Valid: ${[...VALID_AI_MODES].join(', ')}` });
       }
@@ -90,6 +99,15 @@ export async function clientRoutes(fastify: FastifyInstance): Promise<void> {
           throw Object.assign(new Error('billingMarkupPercent must be a finite number between 1.0 and 10.0'), { statusCode: 400 });
         }
       }
+      if (notificationMode !== undefined) {
+        if (notificationMode !== 'client' && notificationMode !== 'operator') {
+          return reply.code(400).send({ error: "notificationMode must be 'client' or 'operator'" });
+        }
+        // Only platform admins/operators may flip notification mode. Portal ops users are read-only on this field.
+        if (!request.user) {
+          return reply.code(403).send({ error: 'Only platform operators may change notificationMode' });
+        }
+      }
       const domainMappings = validateDomainMappings(rest.domainMappings);
       return fastify.db.client.update({
         where: { id: request.params.id },
@@ -100,6 +118,7 @@ export async function clientRoutes(fastify: FastifyInstance): Promise<void> {
           ...(billingPeriod !== undefined && { billingPeriod }),
           ...(billingAnchorDay !== undefined && { billingAnchorDay }),
           ...(billingMarkupPercent !== undefined && { billingMarkupPercent }),
+          ...(notificationMode !== undefined && { notificationMode }),
         },
       });
     },

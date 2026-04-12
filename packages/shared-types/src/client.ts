@@ -20,6 +20,12 @@ export const BillingPeriod = {
 } as const;
 export type BillingPeriod = (typeof BillingPeriod)[keyof typeof BillingPeriod];
 
+export const NotificationMode = {
+  CLIENT: 'client',
+  OPERATOR: 'operator',
+} as const;
+export type NotificationMode = (typeof NotificationMode)[keyof typeof NotificationMode];
+
 export interface Client {
   id: string;
   name: string;
@@ -27,6 +33,7 @@ export interface Client {
   isActive: boolean;
   autoRouteTickets: boolean;
   allowSelfRegistration: boolean;
+  notificationMode: NotificationMode;
   aiMode: AiMode;
   notes: string | null;
   companyProfile: string | null;

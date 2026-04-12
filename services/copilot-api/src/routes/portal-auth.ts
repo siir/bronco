@@ -11,10 +11,17 @@ const REFRESH_TOKEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 
 function signPortalAccessToken(
   secret: string,
-  user: { id: string; email: string; clientId: string; userType: ClientUserType },
+  user: { id: string; email: string; clientId: string; userType: ClientUserType; hasOpsAccess: boolean },
 ): string {
   return jwt.sign(
-    { sub: user.id, email: user.email, clientId: user.clientId, userType: user.userType, type: 'portal_access' },
+    {
+      sub: user.id,
+      email: user.email,
+      clientId: user.clientId,
+      userType: user.userType,
+      hasOpsAccess: user.hasOpsAccess,
+      type: 'portal_access',
+    },
     secret,
     { expiresIn: ACCESS_TOKEN_EXPIRY },
   );
@@ -81,6 +88,7 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
         email: user.email,
         clientId: user.clientId,
         userType,
+        hasOpsAccess: user.hasOpsAccess,
       });
       const refreshToken = await issueRefreshToken(user.id);
 
@@ -93,6 +101,7 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
           name: user.name,
           clientId: user.clientId,
           userType,
+          hasOpsAccess: user.hasOpsAccess,
           client: user.client,
         },
       };
@@ -145,6 +154,7 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
         email: user.email,
         clientId: user.clientId,
         userType,
+        hasOpsAccess: user.hasOpsAccess,
       });
       const newRefreshToken = await issueRefreshToken(user.id);
 
@@ -236,6 +246,7 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
         email: user.email,
         clientId: user.clientId,
         userType,
+        hasOpsAccess: user.hasOpsAccess,
       });
       const refreshToken = await issueRefreshToken(user.id);
 
@@ -248,6 +259,7 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
           name: user.name,
           clientId: user.clientId,
           userType,
+          hasOpsAccess: user.hasOpsAccess,
           client,
         },
       };
@@ -272,6 +284,7 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
         clientId: true,
         userType: true,
         hasPortalAccess: true,
+        hasOpsAccess: true,
         isActive: true,
         lastLoginAt: true,
         createdAt: true,

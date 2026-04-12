@@ -283,6 +283,77 @@ async function dispatchWithPreference(
   return emailRecipients;
 }
 
+/**
+ * A client-side person who can receive notifications routed to a client (used
+ * when `client.notificationMode === 'operator'`). These are people on the
+ * client team with `userType` of OPERATOR or ADMIN.
+ */
+export interface ClientOperatorRecord {
+  id: string;
+  email: string;
+  name: string;
+  userType: string;
+  slackUserId: string | null;
+}
+
+export interface NotifyClientOperatorsOpts {
+  subject: string;
+  body: string;
+  clientId: string;
+  slack?: SlackSender;
+  /** Optional Slack channel for the client (sends a channel message in addition to DMs). */
+  slackChannelId?: string;
+}
+
+/**
+ * Notify client operators (people on the client team with userType ADMIN/OPERATOR
+ * and hasOpsAccess). Used by the NOTIFY_OPERATOR step when a client has
+ * `notificationMode === 'operator'` and wants resolution notifications routed to
+ * its own ops team instead of (or in addition to) the platform operators.
+ *
+ * Returns the list of email addresses that received the notification.
+ */
+export async function notifyClientOperators(
+  mailer: Mailer,
+  getClientOperators: (clientId: string) => Promise<ClientOperatorRecord[]>,
+  opts: NotifyClientOperatorsOpts,
+): Promise<string[]> {
+  const operators = await getClientOperators(opts.clientId);
+  const recipients: string[] = [];
+
+  if (operators.length === 0) {
+    logger.warn({ clientId: opts.clientId }, 'No client operators to notify');
+  }
+
+  for (const op of operators) {
+    try {
+      await mailer.send({ to: op.email, subject: opts.subject, body: opts.body });
+      recipients.push(op.email);
+      logger.info({ to: op.email, clientId: opts.clientId }, 'Client operator notification sent');
+    } catch (err) {
+      logger.error({ err, to: op.email }, 'Failed to send client operator notification');
+    }
+
+    if (op.slackUserId && opts.slack?.isConnected()) {
+      try {
+        await opts.slack.sendDM(op.slackUserId, `*${opts.subject}*\n${opts.body}`);
+      } catch (err) {
+        logger.warn({ err, slackUserId: op.slackUserId }, 'Failed to send client operator Slack DM');
+      }
+    }
+  }
+
+  if (opts.slackChannelId && opts.slack?.isConnected()) {
+    try {
+      await opts.slack.sendMessage(opts.slackChannelId, `*${opts.subject}*\n${opts.body}`);
+    } catch (err) {
+      logger.warn({ err, channelId: opts.slackChannelId }, 'Failed to send client Slack channel notification');
+    }
+  }
+
+  return recipients;
+}
+
 function resolveEmailRecipients(
   operators: OperatorRecord[],
   emailTarget: string,
