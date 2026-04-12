@@ -9,7 +9,7 @@ AI-augmented database and software architecture operations platform. Single-oper
 - **Monorepo**: pnpm workspaces. Shared packages in `packages/`, services in `services/`, MCP servers in `mcp-servers/`.
 - **Control plane DB**: PostgreSQL (Prisma ORM). Schema at `packages/db/prisma/schema.prisma`.
 - **Client databases**: Azure SQL Managed Instances (primary, SQL cred auth), on-prem SQL Server (future clients). Connected via MCP database server (Node.js/Express) running on Hugo in Docker Compose. The MCP server reads system configs directly from the control plane Postgres `System` table and decrypts passwords using `ENCRYPTION_KEY`.
-- **MCP Platform Server**: Exposes all Bronco platform operations (tickets, clients, contacts, probes, AI usage, etc.) as MCP tools. Uses Prisma directly (no HTTP hop to copilot-api). Runs on Hugo in Docker Compose (port 3110).
+- **MCP Platform Server**: Exposes all Bronco platform operations (tickets, clients, people, probes, AI usage, etc.) as MCP tools. Uses Prisma directly (no HTTP hop to copilot-api). Runs on Hugo in Docker Compose (port 3110).
 - **AI routing**: Local Ollama for triage/categorize/summarize/extract; Claude API for deep analysis, code review, architecture review, bug analysis, schema review, feature analysis.
 - **Hugo** (control plane VM): Ubuntu 24.04 LTS on ESXi NUC. Runs copilot-api (Fastify), imap-worker, ticket-analyzer, devops-worker, issue-resolver, status-monitor, slack-worker, scheduler-worker, mcp-database, mcp-platform, mcp-repo, Postgres, Redis, Caddy via Docker Compose.
 - **Mac mini (siiriaplex)**: Runs Ollama for local LLM inference.
@@ -356,6 +356,9 @@ pnpm dev:portal           # Start ticket portal (Angular, port 4201)
 | `services/control-panel/src/app/shared/components/mcp-server-info.component.ts` | Reusable Angular component for MCP server info display. |
 | `.github/workflows/ci.yml` | CI: typecheck + build on push to staging. |
 | `.github/workflows/deploy-hugo.yml` | Deploy all Docker services to Hugo via GHCR. |
+| `services/copilot-api/src/routes/people.ts` | People (unified Contact + Portal User) CRUD endpoints; replaces legacy contacts.ts and client-users.ts. |
+| `packages/shared-types/src/person.ts` | Person model — unified contact/portal-user with `hasPortalAccess` discriminator. |
+| `mcp-servers/platform/src/tools/people.ts` | MCP people tools (list, get, create, update, delete). |
 | `services/copilot-api/src/routes/client-memory.ts` | Client memory CRUD endpoints with resolver cache invalidation. |
 | `services/copilot-api/src/routes/ticket-routes.ts` | Ticket route CRUD + step type registry for configurable analysis pipelines. |
 | `services/copilot-api/src/routes/artifacts.ts` | MCP tool artifact storage and retrieval endpoints (`/api/artifacts`). |
