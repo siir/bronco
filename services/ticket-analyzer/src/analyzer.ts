@@ -2125,7 +2125,7 @@ async function executeOrchestratedSubTask(
         systemPrompt: subTaskSystemPrompt,
         providerOverride: 'CLAUDE',
         modelOverride: model,
-        maxTokens: defaultMaxTokens,
+        maxTokens: defaultMaxTokens ?? 4096,
       });
 
       passInput += response.usage?.inputTokens ?? 0;
@@ -2201,7 +2201,7 @@ async function executeOrchestratedSubTask(
           systemPrompt: 'Summarize the tool results into a structured finding. Do not call additional tools.',
           providerOverride: 'CLAUDE',
           modelOverride: model,
-          maxTokens: defaultMaxTokens,
+          maxTokens: defaultMaxTokens ?? 4096,
         });
 
         passInput += summaryResponse.usage?.inputTokens ?? 0;
@@ -3045,7 +3045,7 @@ async function executeRoutePipeline(
               systemPrompt: ORCHESTRATED_SYSTEM_PROMPT,
               providerOverride: 'CLAUDE',
               modelOverride: 'claude-opus-4-6',
-              maxTokens: defaultMaxTokens,
+              maxTokens: defaultMaxTokens ?? 4096,
             });
 
             orchTotalInputTokens += strategistResponse.usage?.inputTokens ?? 0;
@@ -3258,7 +3258,7 @@ async function executeRoutePipeline(
               tools: agenticTools,
               messages,
               context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!(clientContext || environmentContext), logId: aiCallId, ...(previousAiCallId ? { parentLogId: previousAiCallId, parentLogType: 'ai' as const } : {}) },
-              maxTokens: defaultMaxTokens,
+              maxTokens: defaultMaxTokens ?? 4096,
             });
           } catch (error) {
             if (error instanceof Error && /tool/i.test(error.message) && /support/i.test(error.message)) {

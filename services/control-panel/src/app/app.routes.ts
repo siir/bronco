@@ -89,7 +89,8 @@ export const routes: Routes = [
       },
       {
         path: 'system-settings',
-        loadComponent: () => import('./features/system-settings/system-settings.component').then(m => m.SystemSettingsComponent),
+        redirectTo: '/cp/settings?tab=smtp',
+        pathMatch: 'full',
       },
       {
         path: 'settings',

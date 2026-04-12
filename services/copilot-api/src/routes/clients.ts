@@ -28,10 +28,35 @@ export async function clientRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get<{ Params: { id: string } }>('/api/clients/:id', async (request) => {
     const client = await fastify.db.client.findUnique({
       where: { id: request.params.id },
-      include: { people: true, systems: true, _count: { select: { tickets: true, systems: true } } },
+      include: {
+        people: true,
+        systems: true,
+        _count: {
+          select: {
+            tickets: true,
+            systems: true,
+            codeRepos: true,
+            integrations: true,
+            clientMemories: true,
+            environments: true,
+            people: true,
+            invoices: true,
+          },
+        },
+      },
     });
     if (!client) return fastify.httpErrors.notFound('Client not found');
-    return client;
+
+    // Sum invoiced amount
+    const invoiceAgg = await fastify.db.invoice.aggregate({
+      where: { clientId: request.params.id },
+      _sum: { totalBilledCostUsd: true },
+    });
+
+    return {
+      ...client,
+      invoicedTotalUsd: invoiceAgg._sum.totalBilledCostUsd ?? 0,
+    };
   });
 
   fastify.post<{ Body: { name: string; shortCode: string; notes?: string; domainMappings?: string[] } }>(
