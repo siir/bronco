@@ -1,14 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { AiMode } from '@bronco/shared-types';
-import { resolveClientScope, scopeToWhere } from '../plugins/client-scope.js';
-
-async function getOperatorClientIds(fastify: FastifyInstance, operatorId: string): Promise<string[]> {
-  const rows = await fastify.db.operatorClient.findMany({
-    where: { operatorId },
-    select: { clientId: true },
-  });
-  return rows.map((r) => r.clientId);
-}
+import { resolveClientScope, scopeToWhere, getOperatorClientIds } from '../plugins/client-scope.js';
 
 const VALID_AI_MODES = new Set<string>(Object.values(AiMode));
 
@@ -28,17 +20,12 @@ function validateDomainMappings(domains: string[] | undefined): string[] | undef
 export async function clientRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get('/api/clients', async (request) => {
     const scope = await resolveClientScope(request, (operatorId) =>
-      getOperatorClientIds(fastify, operatorId),
+      getOperatorClientIds(fastify.db, operatorId),
     );
 
-    // Apply scope filter (clientId field) translated to client.id for client list queries
+    // Apply scope filter — translate clientId to client.id for direct client queries
     const scopeWhere = scopeToWhere(scope);
-    const idFilter =
-      scopeWhere.clientId === undefined
-        ? {}
-        : typeof scopeWhere.clientId === 'string'
-          ? { id: scopeWhere.clientId }
-          : { id: scopeWhere.clientId };
+    const idFilter = scopeWhere.clientId !== undefined ? { id: scopeWhere.clientId } : {};
 
     return fastify.db.client.findMany({
       where: { isInternal: false, ...idFilter },

@@ -339,6 +339,7 @@ export async function notifyPlanGenerated(opts: {
                 subject,
                 body,
                 clientId,
+                slack: opts.slack,
                 slackChannelId: client.slackChannelId ?? undefined,
               },
             );

@@ -1,4 +1,17 @@
 import type { FastifyRequest } from 'fastify';
+import type { PrismaClient } from '@bronco/db';
+
+/**
+ * Look up the list of client IDs assigned to a scoped operator. Centralised
+ * here so it isn't duplicated across every route file that calls resolveClientScope.
+ */
+export async function getOperatorClientIds(db: PrismaClient, operatorId: string): Promise<string[]> {
+  const rows = await db.operatorClient.findMany({
+    where: { operatorId },
+    select: { clientId: true },
+  });
+  return rows.map((r) => r.clientId);
+}
 
 export type ClientScope =
   | { type: 'all' }

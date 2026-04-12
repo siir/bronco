@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
-import { resolveClientScope } from '../plugins/client-scope.js';
+import { resolveClientScope, getOperatorClientIds } from '../plugins/client-scope.js';
 
 const emailSchema = z.string().email('Invalid email format');
 
@@ -10,14 +10,6 @@ const OPS_USER_TYPES = new Set(['ADMIN', 'OPERATOR']);
 
 function isPrismaError(err: unknown, code: string): boolean {
   return err instanceof Error && 'code' in err && (err as { code: string }).code === code;
-}
-
-async function getOperatorClientIds(fastify: FastifyInstance, operatorId: string): Promise<string[]> {
-  const rows = await fastify.db.operatorClient.findMany({
-    where: { operatorId },
-    select: { clientId: true },
-  });
-  return rows.map((r) => r.clientId);
 }
 
 /**
@@ -31,7 +23,7 @@ async function checkClientAccess(
   clientId: string | undefined,
 ): Promise<{ allowed: boolean }> {
   const scope = await resolveClientScope(request, (operatorId) =>
-    getOperatorClientIds(fastify, operatorId),
+    getOperatorClientIds(fastify.db, operatorId),
   );
   if (scope.type === 'all') return { allowed: true };
   if (scope.type === 'assigned') {
@@ -67,7 +59,7 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
 
       // Resolve scope and apply filtering
       const scope = await resolveClientScope(request, (operatorId) =>
-        getOperatorClientIds(fastify, operatorId),
+        getOperatorClientIds(fastify.db, operatorId),
       );
       let scopedClientIdFilter: string | { in: string[] } | undefined;
       if (scope.type === 'assigned') {

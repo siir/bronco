@@ -5,15 +5,7 @@ import { ensureClientUser, Prisma } from '@bronco/db';
 import { TicketStatus, TicketCategory, TicketEventType, Priority, TicketSource, TaskType, isClosedStatus, AnalysisStatus, SufficiencyStatus, LogLevel } from '@bronco/shared-types';
 import { getSelfAnalysisConfig } from '@bronco/shared-utils';
 import type { TicketCreatedJob, IngestionJob } from '@bronco/shared-types';
-import { resolveClientScope } from '../plugins/client-scope.js';
-
-async function getOperatorClientIds(fastify: FastifyInstance, operatorId: string): Promise<string[]> {
-  const rows = await fastify.db.operatorClient.findMany({
-    where: { operatorId },
-    select: { clientId: true },
-  });
-  return rows.map((r) => r.clientId);
-}
+import { resolveClientScope, getOperatorClientIds } from '../plugins/client-scope.js';
 
 interface TicketRouteOpts {
   logSummarizeQueue?: Queue;
@@ -103,7 +95,7 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
 
       // Resolve caller's client scope (platform admin → all, scoped operator → assigned, person → single)
       const scope = await resolveClientScope(request, (operatorId) =>
-        getOperatorClientIds(fastify, operatorId),
+        getOperatorClientIds(fastify.db, operatorId),
       );
       let scopedClientIdFilter: string | { in: string[] } | undefined;
       if (scope.type === 'assigned') {

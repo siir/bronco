@@ -4184,7 +4184,7 @@ async function executeRoutePipeline(
             try {
               const client = await db.client.findUnique({
                 where: { id: ctx.clientId },
-                select: { notificationMode: true, slackChannelId: true },
+                select: { notificationMode: true },
               });
               if (client && client.notificationMode === NotificationMode.OPERATOR) {
                 const sent = await notifyClientOperatorsFn(
@@ -4211,7 +4211,6 @@ async function executeRoutePipeline(
                     subject: notifySubject,
                     body: notifyBody,
                     clientId: ctx.clientId,
-                    slackChannelId: client.slackChannelId ?? undefined,
                   },
                 );
                 clientNotified.push(...sent);

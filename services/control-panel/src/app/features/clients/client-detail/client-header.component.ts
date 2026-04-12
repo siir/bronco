@@ -9,16 +9,6 @@ import {
   ToggleSwitchComponent,
 } from '../../../shared/components/index.js';
 
-// Duck-typed surface for scoped-ops detection. Workstream A is adding either
-// `isScopedOpsUser()` to AuthService or an `isPortalOpsUser` flag on the user
-// signal. We read defensively so this file compiles before that lands.
-type AuthWithScopedCheck = AuthService & {
-  isScopedOpsUser?: () => boolean;
-};
-type UserWithPortalFlag = {
-  isPortalOpsUser?: boolean;
-};
-
 @Component({
   selector: 'app-client-header',
   standalone: true,
@@ -125,27 +115,11 @@ export class ClientHeaderComponent {
   clientChange = output<Client>();
 
   private clientService = inject(ClientService);
-  private auth = inject(AuthService) as AuthWithScopedCheck;
+  private auth = inject(AuthService);
   private toast = inject(ToastService);
   private destroyRef = inject(DestroyRef);
 
-  isScoped = computed(() => {
-    // Prefer the dedicated helper once workstream A ships it.
-    if (typeof this.auth.isScopedOpsUser === 'function') {
-      try {
-        return this.auth.isScopedOpsUser();
-      } catch {
-        // Fall through to the user-flag fallback below.
-      }
-    }
-    // Fallback: check for the flag workstream A is adding to the user payload.
-    const user = this.auth.currentUser() as (UserWithPortalFlag | null);
-    if (user && typeof user.isPortalOpsUser === 'boolean') {
-      return user.isPortalOpsUser;
-    }
-    // Neither surface exists yet — default to showing the toggle.
-    return false;
-  });
+  isScoped = computed(() => this.auth.isScopedOpsUser());
 
   onNotificationModeChange(operatorMode: boolean): void {
     const c = this.client();
