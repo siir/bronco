@@ -12,7 +12,8 @@ export interface Person {
   slackUserId: string | null;
   isPrimary: boolean;
   hasPortalAccess: boolean;
-  userType: 'ADMIN' | 'USER' | null;
+  hasOpsAccess: boolean;
+  userType: 'ADMIN' | 'OPERATOR' | 'USER' | null;
   isActive: boolean;
   lastLoginAt: string | null;
   createdAt: string;

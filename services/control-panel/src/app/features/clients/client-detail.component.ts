@@ -41,7 +41,7 @@ type ClientDetailTabSlug = (typeof CLIENT_DETAIL_TAB_SLUGS)[number];
   ],
   template: `
     @if (client(); as c) {
-      <app-client-header [client]="c" />
+      <app-client-header [client]="c" (clientChange)="onClientUpdated($event)" />
 
       <app-tab-group [selectedIndex]="selectedTab()" (selectedIndexChange)="onTabChange($event)">
         <app-tab label="Systems">

@@ -5,6 +5,15 @@ import { ensureClientUser, Prisma } from '@bronco/db';
 import { TicketStatus, TicketCategory, TicketEventType, Priority, TicketSource, TaskType, isClosedStatus, AnalysisStatus, SufficiencyStatus, LogLevel } from '@bronco/shared-types';
 import { getSelfAnalysisConfig } from '@bronco/shared-utils';
 import type { TicketCreatedJob, IngestionJob } from '@bronco/shared-types';
+import { resolveClientScope } from '../plugins/client-scope.js';
+
+async function getOperatorClientIds(fastify: FastifyInstance, operatorId: string): Promise<string[]> {
+  const rows = await fastify.db.operatorClient.findMany({
+    where: { operatorId },
+    select: { clientId: true },
+  });
+  return rows.map((r) => r.clientId);
+}
 
 interface TicketRouteOpts {
   logSummarizeQueue?: Queue;
@@ -92,9 +101,31 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
         return fastify.httpErrors.badRequest('assignedOperatorId must be a valid UUID or "unassigned"');
       }
 
+      // Resolve caller's client scope (platform admin → all, scoped operator → assigned, person → single)
+      const scope = await resolveClientScope(request, (operatorId) =>
+        getOperatorClientIds(fastify, operatorId),
+      );
+      let scopedClientIdFilter: string | { in: string[] } | undefined;
+      if (scope.type === 'assigned') {
+        // No assigned clients → empty result set
+        if (scope.clientIds.length === 0) return [];
+        // If caller passed an explicit clientId filter, intersect with assigned clients
+        if (clientId) {
+          if (!scope.clientIds.includes(clientId)) return [];
+          scopedClientIdFilter = clientId;
+        } else {
+          scopedClientIdFilter = { in: scope.clientIds };
+        }
+      } else if (scope.type === 'single') {
+        if (clientId && clientId !== scope.clientId) return [];
+        scopedClientIdFilter = scope.clientId;
+      } else if (clientId) {
+        scopedClientIdFilter = clientId;
+      }
+
       return fastify.db.ticket.findMany({
         where: {
-          ...(clientId && { clientId }),
+          ...(scopedClientIdFilter !== undefined && { clientId: scopedClientIdFilter }),
           ...(statusFilter && { status: statusFilter }),
           ...(category && { category: category as TicketCategory }),
           ...(priorityFilter && { priority: priorityFilter }),

@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@bronco/db';
+import { NotificationMode } from '@bronco/shared-types';
 import type { ResolutionPlan } from '@bronco/shared-types';
-import { Mailer, SlackClient, createLogger, decrypt, looksEncrypted, notifyOperators } from '@bronco/shared-utils';
+import { Mailer, SlackClient, createLogger, decrypt, looksEncrypted, notifyOperators, notifyClientOperators } from '@bronco/shared-utils';
 import type { SlackMessageResult, SlackSender } from '@bronco/shared-utils';
 
 const logger = createLogger('issue-resolver:notify');
@@ -296,6 +297,56 @@ export async function notifyPlanGenerated(opts: {
         );
 
         logger.info({ issueJobId }, 'Plan email notification dispatched via notifyOperators');
+
+        // If the client is configured for operator-mode notifications, also notify
+        // its own ops people (userType ADMIN/OPERATOR with hasOpsAccess).
+        try {
+          const job = await db.issueJob.findUnique({
+            where: { id: issueJobId },
+            select: {
+              ticket: {
+                select: {
+                  clientId: true,
+                  client: { select: { notificationMode: true, slackChannelId: true } },
+                },
+              },
+            },
+          });
+          const clientId = job?.ticket?.clientId;
+          const client = job?.ticket?.client;
+          if (clientId && client && client.notificationMode === NotificationMode.OPERATOR) {
+            await notifyClientOperators(
+              mailer,
+              async (cid) => {
+                const rows = await db.person.findMany({
+                  where: {
+                    clientId: cid,
+                    userType: { in: ['OPERATOR', 'ADMIN'] },
+                    isActive: true,
+                    hasOpsAccess: true,
+                  },
+                  select: { id: true, email: true, name: true, userType: true, slackUserId: true },
+                });
+                return rows.map((r) => ({
+                  id: r.id,
+                  email: r.email,
+                  name: r.name,
+                  userType: r.userType ?? 'USER',
+                  slackUserId: r.slackUserId,
+                }));
+              },
+              {
+                subject,
+                body,
+                clientId,
+                slackChannelId: client.slackChannelId ?? undefined,
+              },
+            );
+            logger.info({ issueJobId, clientId }, 'Plan email also routed to client operators');
+          }
+        } catch (err) {
+          logger.warn({ issueJobId, err }, 'Failed to route plan notification to client operators');
+        }
       } finally {
         await mailer.close();
       }

@@ -1,5 +1,6 @@
 export const ClientUserType = {
   ADMIN: 'ADMIN',
+  OPERATOR: 'OPERATOR',
   USER: 'USER',
 } as const;
 export type ClientUserType = (typeof ClientUserType)[keyof typeof ClientUserType];

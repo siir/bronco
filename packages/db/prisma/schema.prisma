@@ -76,6 +76,7 @@ model Person {
   passwordHash    String?   @map("password_hash")
   userType        ClientUserType? @map("user_type")
   hasPortalAccess Boolean   @default(false) @map("has_portal_access")
+  hasOpsAccess    Boolean   @default(false) @map("has_ops_access")
   lastLoginAt     DateTime? @map("last_login_at")
   isActive        Boolean   @default(true) @map("is_active")
   createdAt       DateTime  @default(now()) @map("created_at")
@@ -111,6 +112,7 @@ model Operator {
   email        String   @unique
   name         String
   isActive     Boolean  @default(true) @map("is_active")
+  isAdmin      Boolean  @default(false) @map("is_admin")
   notifyEmail  Boolean  @default(true) @map("notify_email")
   notifySlack  Boolean  @default(false) @map("notify_slack")
   slackUserId  String?  @map("slack_user_id")
@@ -120,8 +122,24 @@ model Operator {
   assignedTickets    Ticket[]
   approvedJobs       IssueJob[] @relation("ApprovedByOperator")
   slackConversations SlackConversationLog[]
+  assignedClients    OperatorClient[]
 
   @@map("operators")
+}
+
+model OperatorClient {
+  id         String   @id @default(uuid()) @db.Uuid
+  operatorId String   @map("operator_id") @db.Uuid
+  clientId   String   @map("client_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  operator Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  client   Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([operatorId, clientId])
+  @@index([operatorId])
+  @@index([clientId])
+  @@map("operator_clients")
 }
 
 // --- Core entities ---
@@ -133,6 +151,7 @@ model Client {
   isActive              Boolean  @default(true) @map("is_active")
   autoRouteTickets      Boolean  @default(true) @map("auto_route_tickets")
   allowSelfRegistration Boolean  @default(false) @map("allow_self_registration")
+  notificationMode      String   @default("client") @map("notification_mode") // 'operator' | 'client'
   aiMode                String   @default("platform") @map("ai_mode")
   notes                String?
   companyProfile       String?  @map("company_profile")
@@ -165,6 +184,7 @@ model Client {
   ingestionRuns       IngestionRun[]
   emailProcessingLogs EmailProcessingLog[]
   slackConversations  SlackConversationLog[]
+  operatorAssignments OperatorClient[]
 
   @@map("clients")
 }
@@ -1079,6 +1099,7 @@ enum UserRole {
 
 enum ClientUserType {
   ADMIN
+  OPERATOR
   USER
 
   @@map("client_user_type")
