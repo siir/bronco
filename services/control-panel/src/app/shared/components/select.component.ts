@@ -24,7 +24,7 @@ let standaloneSelectCounter = 0;
       [attr.aria-label]="ariaLabel() || null"
       (change)="onChange($event)">
       @for (opt of options(); track opt.value) {
-        <option [value]="opt.value" [attr.selected]="opt.value === value() ? '' : null">{{ opt.label }}</option>
+        <option [value]="opt.value" [selected]="opt.value === value()">{{ opt.label }}</option>
       }
     </select>
   `,
