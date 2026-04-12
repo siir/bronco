@@ -84,4 +84,10 @@ export interface AIRouterConfig {
   byokCredentialResolver?: (clientId: string, provider: string) => Promise<string | null>;
   /** Optional resolver that returns the client's aiMode ('platform' | 'byok'). */
   clientAiModeResolver?: (clientId: string) => Promise<string | null>;
+  /**
+   * Optional loader for the global default maxTokens (AnalysisStrategy.defaultMaxTokens).
+   * Used as the final fallback in the maxTokens resolution chain, after request,
+   * prompt-resolved, and per-task/client AiModelConfig values.
+   */
+  defaultMaxTokensLoader?: () => Promise<number | undefined>;
 }

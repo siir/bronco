@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { ApiService } from './api.service';
+import type { Person } from './person.service';
 
 export interface Client {
   id: string;
@@ -18,23 +19,19 @@ export interface Client {
   slackChannelId: string | null;
   createdAt: string;
   updatedAt: string;
-  _count?: { tickets: number; systems: number };
-  contacts?: Contact[];
+  invoicedTotalUsd?: number;
+  _count?: {
+    tickets: number;
+    systems: number;
+    codeRepos: number;
+    integrations: number;
+    clientMemories: number;
+    environments: number;
+    people: number;
+    invoices: number;
+  };
+  people?: Person[];
   systems?: System[];
-}
-
-export interface Contact {
-  id: string;
-  clientId: string;
-  name: string;
-  email: string;
-  phone: string | null;
-  role: string | null;
-  slackUserId: string | null;
-  isPrimary: boolean;
-  createdAt: string;
-  updatedAt: string;
-  client?: { name: string; shortCode: string };
 }
 
 export interface System {

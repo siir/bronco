@@ -11,6 +11,12 @@ import {
   TicketStatusConfig,
   TicketCategoryConfig,
   SelfAnalysisConfig,
+  SmtpSystemConfig,
+  DevOpsSystemConfig,
+  GithubSystemConfig,
+  ImapSystemConfig,
+  SlackSystemConfig,
+  PromptRetentionConfig,
 } from '../../core/services/settings.service';
 import { ExternalServiceDialogComponent } from './external-service-dialog.component';
 import { StatusConfigDialogComponent } from './status-config-dialog.component';
@@ -31,7 +37,7 @@ import {
 } from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service';
 
-const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External Services', 'Action Safety', 'Analysis Strategy', 'Self Analysis'] as const;
+const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External Services', 'Action Safety', 'Analysis Strategy', 'Self Analysis', 'SMTP', 'Azure DevOps', 'GitHub', 'IMAP', 'Slack', 'Prompt Retention'] as const;
 
 @Component({
   standalone: true,
@@ -55,7 +61,7 @@ const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External
   ],
   template: `
     <div class="page-wrapper">
-      <h1 class="page-title">Settings</h1>
+      <h1 class="page-title">System Settings</h1>
 
       <app-tab-group [selectedIndex]="selectedTab()" (selectedIndexChange)="onTabChange($event)">
         <!-- General tab -->
@@ -435,6 +441,128 @@ const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External
             </app-card>
           </div>
         </app-tab>
+
+        <!-- SMTP Tab -->
+        <app-tab label="SMTP">
+          <div class="tab-content">
+            <app-card>
+              <h2 class="section-title">SMTP Configuration</h2>
+              <p class="hint">Configure the SMTP server used for sending emails. Password is encrypted at rest.</p>
+              <div class="form-grid">
+                <app-form-field label="Host"><input class="text-input" [(ngModel)]="smtp.host" placeholder="smtp.example.com"></app-form-field>
+                <app-form-field label="Port"><input class="text-input" type="number" [(ngModel)]="smtp.port" placeholder="587"></app-form-field>
+                <app-form-field label="User"><input class="text-input" [(ngModel)]="smtp.user" placeholder="user&#64;example.com"></app-form-field>
+                <app-form-field label="Password"><input class="text-input" type="password" [(ngModel)]="smtp.password"></app-form-field>
+                <app-form-field label="From Address"><input class="text-input" [(ngModel)]="smtp.from" placeholder="noreply&#64;example.com"></app-form-field>
+                <app-form-field label="From Name"><input class="text-input" [(ngModel)]="smtp.fromName" placeholder="Bronco"></app-form-field>
+              </div>
+              <div class="card-actions">
+                <app-bronco-button variant="primary" (click)="saveSmtp()" [disabled]="sysConfigSaving()">Save</app-bronco-button>
+                <app-bronco-button variant="secondary" (click)="testSmtp()" [disabled]="sysConfigTesting()">{{ sysConfigTesting() ? 'Testing...' : 'Test Connection' }}</app-bronco-button>
+              </div>
+            </app-card>
+          </div>
+        </app-tab>
+
+        <!-- Azure DevOps Tab -->
+        <app-tab label="Azure DevOps">
+          <div class="tab-content">
+            <app-card>
+              <h2 class="section-title">Azure DevOps Configuration</h2>
+              <p class="hint">Configure the Azure DevOps integration for work item sync. PAT is encrypted at rest.</p>
+              <div class="form-grid">
+                <app-form-field label="Organization URL"><input class="text-input" [(ngModel)]="devops.orgUrl" placeholder="https://dev.azure.com/myorg"></app-form-field>
+                <app-form-field label="Project"><input class="text-input" [(ngModel)]="devops.project" placeholder="MyProject"></app-form-field>
+                <app-form-field label="Personal Access Token"><input class="text-input" type="password" [(ngModel)]="devops.pat"></app-form-field>
+                <app-form-field label="Assigned User"><input class="text-input" [(ngModel)]="devops.assignedUser" placeholder="user&#64;example.com"></app-form-field>
+                <app-form-field label="Client Short Code"><input class="text-input" [(ngModel)]="devops.clientShortCode"></app-form-field>
+                <app-form-field label="Poll Interval (seconds)"><input class="text-input" type="number" [(ngModel)]="devops.pollIntervalSeconds" placeholder="120"></app-form-field>
+              </div>
+              <div class="card-actions">
+                <app-bronco-button variant="primary" (click)="saveDevOps()" [disabled]="sysConfigSaving()">Save</app-bronco-button>
+                <app-bronco-button variant="secondary" (click)="testDevOps()" [disabled]="sysConfigTesting()">{{ sysConfigTesting() ? 'Testing...' : 'Test Connection' }}</app-bronco-button>
+              </div>
+            </app-card>
+          </div>
+        </app-tab>
+
+        <!-- GitHub Tab -->
+        <app-tab label="GitHub">
+          <div class="tab-content">
+            <app-card>
+              <h2 class="section-title">GitHub Configuration</h2>
+              <p class="hint">Configure the GitHub token used for repository access and release notes. Token is encrypted at rest.</p>
+              <div class="form-grid">
+                <app-form-field label="Token"><input class="text-input" type="password" [(ngModel)]="github.token"></app-form-field>
+                <app-form-field label="Repository"><input class="text-input" [(ngModel)]="github.repo" placeholder="owner/repo"></app-form-field>
+              </div>
+              <div class="card-actions">
+                <app-bronco-button variant="primary" (click)="saveGithub()" [disabled]="sysConfigSaving()">Save</app-bronco-button>
+                <app-bronco-button variant="secondary" (click)="testGithub()" [disabled]="sysConfigTesting()">{{ sysConfigTesting() ? 'Testing...' : 'Test Connection' }}</app-bronco-button>
+              </div>
+            </app-card>
+          </div>
+        </app-tab>
+
+        <!-- IMAP Tab -->
+        <app-tab label="IMAP">
+          <div class="tab-content">
+            <app-card>
+              <h2 class="section-title">IMAP Configuration</h2>
+              <p class="hint">Configure the IMAP server used for polling inbound emails. Password is encrypted at rest.</p>
+              <div class="form-grid">
+                <app-form-field label="Host"><input class="text-input" [(ngModel)]="imapConfig.host" placeholder="imap.example.com"></app-form-field>
+                <app-form-field label="Port"><input class="text-input" type="number" [(ngModel)]="imapConfig.port" placeholder="993"></app-form-field>
+                <app-form-field label="User"><input class="text-input" [(ngModel)]="imapConfig.user" placeholder="user&#64;example.com"></app-form-field>
+                <app-form-field label="Password"><input class="text-input" type="password" [(ngModel)]="imapConfig.password"></app-form-field>
+                <app-form-field label="Poll Interval (seconds)"><input class="text-input" type="number" [(ngModel)]="imapConfig.pollIntervalSeconds" placeholder="60"></app-form-field>
+              </div>
+              <div class="card-actions">
+                <app-bronco-button variant="primary" (click)="saveImap()" [disabled]="sysConfigSaving()">Save</app-bronco-button>
+                <app-bronco-button variant="secondary" (click)="testImap()" [disabled]="sysConfigTesting()">{{ sysConfigTesting() ? 'Testing...' : 'Test Connection' }}</app-bronco-button>
+              </div>
+            </app-card>
+          </div>
+        </app-tab>
+
+        <!-- Slack Tab -->
+        <app-tab label="Slack">
+          <div class="tab-content">
+            <app-card>
+              <h2 class="section-title">Slack Configuration</h2>
+              <p class="hint">Configure Slack integration for operator notifications via Socket Mode. Tokens are encrypted at rest.</p>
+              <div class="form-grid">
+                <div class="toggle-row">
+                  <app-toggle-switch label="Enabled" [checked]="slackConfig.enabled" (checkedChange)="slackConfig.enabled = $event" />
+                </div>
+                <app-form-field label="Bot Token (xoxb-...)"><input class="text-input" type="password" [(ngModel)]="slackConfig.botToken" placeholder="xoxb-..."></app-form-field>
+                <app-form-field label="App-Level Token (xapp-...)"><input class="text-input" type="password" [(ngModel)]="slackConfig.appToken" placeholder="xapp-..."></app-form-field>
+                <app-form-field label="Default Channel ID"><input class="text-input" [(ngModel)]="slackConfig.defaultChannelId" placeholder="C0123456789"></app-form-field>
+              </div>
+              <div class="card-actions">
+                <app-bronco-button variant="primary" (click)="saveSlackConfig()" [disabled]="sysConfigSaving()">Save</app-bronco-button>
+                <app-bronco-button variant="secondary" (click)="testSlackConfig()" [disabled]="sysConfigTesting()">{{ sysConfigTesting() ? 'Testing...' : 'Test Connection' }}</app-bronco-button>
+              </div>
+            </app-card>
+          </div>
+        </app-tab>
+
+        <!-- Prompt Retention Tab -->
+        <app-tab label="Prompt Retention">
+          <div class="tab-content">
+            <app-card>
+              <h2 class="section-title">Prompt Retention Policy</h2>
+              <p class="hint">Configure how long full AI prompt/response archives are retained before being summarized and deleted.</p>
+              <div class="form-grid">
+                <app-form-field label="Full prompt retention (days)"><input class="text-input" type="number" [(ngModel)]="promptRetention.fullRetentionDays" min="1" placeholder="30"></app-form-field>
+                <app-form-field label="Summary retention (days after summarization)"><input class="text-input" type="number" [(ngModel)]="promptRetention.summaryRetentionDays" min="1" placeholder="90"></app-form-field>
+              </div>
+              <div class="card-actions">
+                <app-bronco-button variant="primary" (click)="savePromptRetention()" [disabled]="sysConfigSaving()">Save</app-bronco-button>
+              </div>
+            </app-card>
+          </div>
+        </app-tab>
       </app-tab-group>
     </div>
 
@@ -734,6 +862,7 @@ export class SettingsComponent implements OnInit {
     this.loadActionSafety();
     this.loadAnalysisStrategy();
     this.loadSelfAnalysis();
+    this.loadSystemConfigs();
   }
 
   onTabChange(index: number): void {
@@ -1080,4 +1209,42 @@ export class SettingsComponent implements OnInit {
       },
     });
   }
+
+  // ─── System Config (SMTP, DevOps, GitHub, IMAP, Slack, Prompt Retention) ───
+
+  sysConfigSaving = signal(false);
+  sysConfigTesting = signal(false);
+
+  smtp: SmtpSystemConfig = { host: '', port: 587, user: '', password: '', from: '', fromName: '' };
+  devops: DevOpsSystemConfig = { orgUrl: '', project: '', pat: '', assignedUser: '', clientShortCode: '', pollIntervalSeconds: 120 };
+  github: GithubSystemConfig = { token: '', repo: '' };
+  imapConfig: ImapSystemConfig = { host: '', port: 993, user: '', password: '', pollIntervalSeconds: 60 };
+  slackConfig: SlackSystemConfig = { botToken: '', appToken: '', defaultChannelId: '', enabled: false };
+  promptRetention: PromptRetentionConfig = { fullRetentionDays: 30, summaryRetentionDays: 90 };
+
+  private loadSystemConfigs(): void {
+    this.settingsSvc.getSmtpConfig().subscribe({ next: (c) => { if (c) this.smtp = { ...this.smtp, ...c }; } });
+    this.settingsSvc.getDevOpsConfig().subscribe({ next: (c) => { if (c) this.devops = { ...this.devops, ...c }; } });
+    this.settingsSvc.getGithubConfig().subscribe({ next: (c) => { if (c) this.github = { ...this.github, ...c }; } });
+    this.settingsSvc.getImapConfig().subscribe({ next: (c) => { if (c) this.imapConfig = { ...this.imapConfig, ...c }; } });
+    this.settingsSvc.getSlackConfig().subscribe({ next: (c) => { if (c) this.slackConfig = { ...this.slackConfig, ...c }; } });
+    this.settingsSvc.getPromptRetention().subscribe({ next: (c) => { if (c) this.promptRetention = { ...this.promptRetention, ...c }; } });
+  }
+
+  saveSmtp(): void { this.sysConfigSaving.set(true); this.settingsSvc.updateSmtpConfig(this.smtp).subscribe({ next: (c) => { this.smtp = { ...this.smtp, ...c }; this.toast.success('SMTP config saved'); this.sysConfigSaving.set(false); }, error: () => { this.toast.error('Failed to save'); this.sysConfigSaving.set(false); } }); }
+  testSmtp(): void { this.sysConfigTesting.set(true); this.settingsSvc.testSmtpConfig().subscribe({ next: (r) => { r.success ? this.toast.success(r.message || 'Success') : this.toast.error(r.error || 'Test failed'); this.sysConfigTesting.set(false); }, error: () => { this.toast.error('Test failed'); this.sysConfigTesting.set(false); } }); }
+
+  saveDevOps(): void { this.sysConfigSaving.set(true); this.settingsSvc.updateDevOpsConfig(this.devops).subscribe({ next: (c) => { this.devops = { ...this.devops, ...c }; this.toast.success('DevOps config saved'); this.sysConfigSaving.set(false); }, error: () => { this.toast.error('Failed to save'); this.sysConfigSaving.set(false); } }); }
+  testDevOps(): void { this.sysConfigTesting.set(true); this.settingsSvc.testDevOpsConfig().subscribe({ next: (r) => { r.success ? this.toast.success(r.message || 'Success') : this.toast.error(r.error || 'Test failed'); this.sysConfigTesting.set(false); }, error: () => { this.toast.error('Test failed'); this.sysConfigTesting.set(false); } }); }
+
+  saveGithub(): void { this.sysConfigSaving.set(true); this.settingsSvc.updateGithubConfig(this.github).subscribe({ next: (c) => { this.github = { ...this.github, ...c }; this.toast.success('GitHub config saved'); this.sysConfigSaving.set(false); }, error: () => { this.toast.error('Failed to save'); this.sysConfigSaving.set(false); } }); }
+  testGithub(): void { this.sysConfigTesting.set(true); this.settingsSvc.testGithubConfig().subscribe({ next: (r) => { r.success ? this.toast.success(r.message || 'Success') : this.toast.error(r.error || 'Test failed'); this.sysConfigTesting.set(false); }, error: () => { this.toast.error('Test failed'); this.sysConfigTesting.set(false); } }); }
+
+  saveImap(): void { this.sysConfigSaving.set(true); this.settingsSvc.saveImapConfig(this.imapConfig).subscribe({ next: (c) => { this.imapConfig = { ...this.imapConfig, ...c }; this.toast.success('IMAP config saved'); this.sysConfigSaving.set(false); }, error: () => { this.toast.error('Failed to save'); this.sysConfigSaving.set(false); } }); }
+  testImap(): void { this.sysConfigTesting.set(true); this.settingsSvc.testImapConnection().subscribe({ next: (r) => { r.success ? this.toast.success(r.message || 'Success') : this.toast.error(r.error || 'Test failed'); this.sysConfigTesting.set(false); }, error: () => { this.toast.error('Test failed'); this.sysConfigTesting.set(false); } }); }
+
+  saveSlackConfig(): void { this.sysConfigSaving.set(true); this.settingsSvc.saveSlackConfig(this.slackConfig).subscribe({ next: (c) => { this.slackConfig = { ...this.slackConfig, ...c }; this.toast.success('Slack config saved'); this.sysConfigSaving.set(false); }, error: () => { this.toast.error('Failed to save'); this.sysConfigSaving.set(false); } }); }
+  testSlackConfig(): void { this.sysConfigTesting.set(true); this.settingsSvc.testSlackConnection().subscribe({ next: (r) => { r.success ? this.toast.success(r.message || 'Success') : this.toast.error(r.error || 'Test failed'); this.sysConfigTesting.set(false); }, error: () => { this.toast.error('Test failed'); this.sysConfigTesting.set(false); } }); }
+
+  savePromptRetention(): void { this.sysConfigSaving.set(true); this.settingsSvc.savePromptRetention(this.promptRetention).subscribe({ next: (c: PromptRetentionConfig) => { this.promptRetention = { ...this.promptRetention, ...c }; this.toast.success('Prompt retention saved'); this.sysConfigSaving.set(false); }, error: () => { this.toast.error('Failed to save'); this.sysConfigSaving.set(false); } }); }
 }

@@ -5,29 +5,29 @@ import { TabGroupComponent, TabComponent } from '../../shared/components/index.j
 import { ClientHeaderComponent } from './client-detail/client-header.component';
 import { ClientService, Client } from '../../core/services/client.service';
 import { ClientSystemsTabComponent } from './client-detail/tabs/systems-tab.component';
-import { ClientContactsTabComponent } from './client-detail/tabs/contacts-tab.component';
+import { ClientPeopleTabComponent } from './client-detail/tabs/people-tab.component';
 import { ClientReposTabComponent } from './client-detail/tabs/repos-tab.component';
 import { ClientIntegrationsTabComponent } from './client-detail/tabs/integrations-tab.component';
 import { ClientTicketsTabComponent } from './client-detail/tabs/tickets-tab.component';
 import { ClientMemoryTabComponent } from './client-detail/tabs/memory-tab.component';
 import { ClientEnvironmentsTabComponent } from './client-detail/tabs/environments-tab.component';
-import { ClientUsersTabComponent } from './client-detail/tabs/users-tab.component';
 import { ClientAiCredentialsTabComponent } from './client-detail/tabs/ai-credentials-tab.component';
 import { ClientInvoicesTabComponent } from './client-detail/tabs/invoices-tab.component';
 import { ClientAiUsageTabComponent } from './client-detail/tabs/ai-usage-tab.component';
+import { ClientConfigTabComponent } from './client-detail/tabs/config-tab.component';
 
 const CLIENT_DETAIL_TAB_SLUGS = [
   'systems',
-  'contacts',
+  'people',
   'repos',
   'integrations',
   'tickets',
   'memory',
   'environments',
-  'users',
   'ai-credentials',
   'invoices',
   'ai-usage',
+  'config',
 ] as const;
 type ClientDetailTabSlug = (typeof CLIENT_DETAIL_TAB_SLUGS)[number];
 
@@ -35,21 +35,21 @@ type ClientDetailTabSlug = (typeof CLIENT_DETAIL_TAB_SLUGS)[number];
   standalone: true,
   imports: [
     TabGroupComponent, TabComponent, ClientHeaderComponent,
-    ClientSystemsTabComponent, ClientContactsTabComponent, ClientReposTabComponent, ClientIntegrationsTabComponent,
-    ClientTicketsTabComponent, ClientMemoryTabComponent, ClientEnvironmentsTabComponent, ClientUsersTabComponent,
-    ClientAiCredentialsTabComponent, ClientInvoicesTabComponent, ClientAiUsageTabComponent,
+    ClientSystemsTabComponent, ClientPeopleTabComponent, ClientReposTabComponent, ClientIntegrationsTabComponent,
+    ClientTicketsTabComponent, ClientMemoryTabComponent, ClientEnvironmentsTabComponent,
+    ClientAiCredentialsTabComponent, ClientInvoicesTabComponent, ClientAiUsageTabComponent, ClientConfigTabComponent,
   ],
   template: `
     @if (client(); as c) {
-      <app-client-header [client]="c" (clientChange)="onClientUpdated($event)" />
+      <app-client-header [client]="c" />
 
       <app-tab-group [selectedIndex]="selectedTab()" (selectedIndexChange)="onTabChange($event)">
         <app-tab label="Systems">
           <app-client-systems-tab [clientId]="id()" />
         </app-tab>
 
-        <app-tab label="Contacts">
-          <app-client-contacts-tab [clientId]="id()" />
+        <app-tab label="People">
+          <app-client-people-tab [clientId]="id()" />
         </app-tab>
 
         <app-tab label="Repos">
@@ -72,10 +72,6 @@ type ClientDetailTabSlug = (typeof CLIENT_DETAIL_TAB_SLUGS)[number];
           <app-client-environments-tab [clientId]="id()" />
         </app-tab>
 
-        <app-tab label="Users">
-          <app-client-users-tab [clientId]="id()" />
-        </app-tab>
-
         <app-tab label="AI Credentials">
           <app-client-ai-credentials-tab [clientId]="id()" />
         </app-tab>
@@ -86,6 +82,10 @@ type ClientDetailTabSlug = (typeof CLIENT_DETAIL_TAB_SLUGS)[number];
 
         <app-tab label="AI Usage">
           <app-client-ai-usage-tab [clientId]="id()" />
+        </app-tab>
+
+        <app-tab label="Config">
+          <app-client-config-tab [client]="c" (clientChange)="onClientUpdated($event)" />
         </app-tab>
       </app-tab-group>
     } @else {

@@ -83,14 +83,14 @@ export async function notifyClientContactDM(
   const entry = opts.clientSlackManager.getClientEntry(clientId);
   if (!entry) return;
 
-  const contact = await opts.db.contact.findUnique({
+  const person = await opts.db.person.findUnique({
     where: { id: contactId },
     select: { slackUserId: true },
   });
-  if (!contact?.slackUserId) return;
+  if (!person?.slackUserId) return;
 
   try {
-    await entry.client.sendDM(contact.slackUserId, message);
+    await entry.client.sendDM(person.slackUserId, message);
     logger.info({ clientId, contactId }, 'Client contact DM sent');
   } catch (err) {
     logger.warn({ err, clientId, contactId }, 'Failed to send client contact DM');

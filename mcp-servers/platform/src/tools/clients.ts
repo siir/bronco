@@ -20,7 +20,7 @@ export function registerClientTools(server: McpServer, { db }: ServerDeps): void
             select: {
               systems: true,
               tickets: true,
-              contacts: true,
+              people: true,
             },
           },
         },
@@ -33,7 +33,7 @@ export function registerClientTools(server: McpServer, { db }: ServerDeps): void
 
   server.tool(
     'get_client',
-    'Get full client detail with systems, contacts, and integrations.',
+    'Get full client detail with systems, people, and integrations.',
     {
       clientId: z.string().uuid().describe('The client ID'),
     },
@@ -44,7 +44,7 @@ export function registerClientTools(server: McpServer, { db }: ServerDeps): void
           systems: {
             select: { id: true, name: true, dbEngine: true, host: true, environment: true, isActive: true },
           },
-          contacts: {
+          people: {
             select: { id: true, name: true, email: true, phone: true, role: true, isPrimary: true },
           },
           integrations: {

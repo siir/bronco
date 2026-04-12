@@ -407,7 +407,7 @@ interface ConvTreeNode {
               </div>
             } @else if (conversationEntries().length === 0) {
               <div class="conv-empty"><p>No AI calls recorded for this ticket.</p></div>
-            } @else if (hasLineageData()) {
+            } @else if (hasTreeData()) {
               <!-- Tree view — new data with parentLogId lineage -->
               <div class="conv-view">
                 @for (item of convTreeFlat(); track item.node.entry.id) {
@@ -477,79 +477,8 @@ interface ConvTreeNode {
                 }
               </div>
             } @else {
-              <!-- Legacy view: flat grouping by step + orchestrationId -->
+              <!-- Legacy flat view: step groups + orchestrationId fallback -->
               <div class="conv-view">
-                @if (hasTreeData()) {
-                <!-- Tree view: entries linked by parentLogId -->
-                @for (node of flattenTree(convTreeRoots()); track node.entry.id) {
-                  <div class="conv-tree-node" [style.padding-left.px]="node.depth * 20">
-                    @if (node.entry.type === 'ai') {
-                      <div class="conv-ai-block">
-                        <div class="conv-ai-header">
-                          @if (node.children.length > 0) {
-                            <button class="conv-collapse-btn" (click)="toggleCollapse(node.entry.id)" [attr.aria-expanded]="!isCollapsed(node.entry.id)">
-                              {{ isCollapsed(node.entry.id) ? '\u25B6' : '\u25BC' }}
-                            </button>
-                          }
-                          <span class="conv-task-type">{{ node.entry.taskType }}</span>
-                          <span class="conv-model">{{ node.entry.model }}</span>
-                          <span class="conv-tokens">{{ node.entry.inputTokens | number }}in / {{ node.entry.outputTokens | number }}out</span>
-                          @if (node.entry.costUsd != null) { <span class="conv-cost">\${{ node.entry.costUsd | number:'1.4-4' }}</span> }
-                          @if (node.children.length > 0) { <span class="conv-child-count">({{ node.children.length }})</span> }
-                        </div>
-                        @if (convMessages(node.entry).length > 0) {
-                          <div class="conv-turns">
-                            @for (turn of convMessages(node.entry); track $index) {
-                              <div class="conv-turn" [ngClass]="'conv-turn-' + turn.role">
-                                <span class="conv-turn-role">{{ turn.role === 'user' ? '\u{1F464}' : '\u{1F916}' }}</span>
-                                @if (turn.toolName) { <span class="conv-tool-call">\u{1F527} {{ turn.toolName }}</span> }
-                                @if (turn.tokenCount) { <span class="conv-token-count">{{ turn.tokenCount | number }} tokens</span> }
-                              </div>
-                            }
-                          </div>
-                        }
-                        @if (node.entry.archive?.fullPrompt || node.entry.promptText) {
-                          <div class="conv-final-response conv-prompt-block">
-                            <span class="conv-final-label">Prompt</span>
-                            <pre class="conv-response-text" [class.clamped]="!convPromptExpanded[node.entry.id]">{{ convPromptText(node.entry) }}</pre>
-                            @if (isMultilineConvPrompt(node.entry)) {
-                              <app-bronco-button variant="ghost" size="sm" class="inline-expand-btn" (click)="convPromptExpanded[node.entry.id] = !convPromptExpanded[node.entry.id]">
-                                {{ convPromptExpanded[node.entry.id] ? 'less' : 'more' }}
-                                <span aria-hidden="true">{{ convPromptExpanded[node.entry.id] ? '\u23F6' : '\u23F7' }}</span>
-                              </app-bronco-button>
-                            }
-                          </div>
-                        }
-                        @if (node.entry.archive?.fullResponse || node.entry.responseText) {
-                          <div class="conv-final-response">
-                            <span class="conv-final-label">Response</span>
-                            <pre class="conv-response-text" [class.clamped]="!convExpanded[node.entry.id]">{{ convResponseText(node.entry) }}</pre>
-                            @if (isMultilineConv(node.entry)) {
-                              <app-bronco-button variant="ghost" size="sm" class="inline-expand-btn" (click)="convExpanded[node.entry.id] = !convExpanded[node.entry.id]">
-                                {{ convExpanded[node.entry.id] ? 'less' : 'more' }}
-                                <span aria-hidden="true">{{ convExpanded[node.entry.id] ? '\u23F6' : '\u23F7' }}</span>
-                              </app-bronco-button>
-                            }
-                          </div>
-                        }
-                      </div>
-                    } @else if (node.entry.type === 'tool') {
-                      <div class="conv-tool-entry">
-                        <span class="conv-tool-icon" aria-hidden="true">\u{1F527}</span>
-                        <span class="conv-tool-msg">{{ node.entry.message }}</span>
-                        @if (node.entry.context?.['artifactId']) {
-                          <a class="artifact-link" [href]="ticketService.getArtifactDownloadUrl('' + node.entry.context!['artifactId'])" download>&#x2B73; Full output</a>
-                        }
-                      </div>
-                    } @else {
-                      <div class="conv-log-entry conv-log-{{ node.entry.level?.toLowerCase() ?? 'info' }}">
-                        <span class="conv-log-msg">{{ node.entry.message }}</span>
-                      </div>
-                    }
-                  </div>
-                }
-                } @else {
-                <!-- Legacy flat view: step groups + orchestration fallback -->
                 @for (group of convStepGroups(); track $index) {
                   <div class="conv-step-section">
                     <div class="conv-step-label">
@@ -690,7 +619,6 @@ interface ConvTreeNode {
                     </div>
                   }
                 }
-                }
               </div>
             }
             }
@@ -821,7 +749,6 @@ export class TicketDetailComponent implements OnInit {
   convUngrouped = signal<UnifiedLogEntry[]>([]);
   convExpanded: Record<string, boolean> = {};
   convPromptExpanded: Record<string, boolean> = {};
-  convCollapsed: Record<string, boolean> = {};
   convTreeRoots = signal<ConvTreeNode[]>([]);
   convTreeFlat = computed<Array<{ node: ConvTreeNode; visible: boolean }>>(() => {
     const result: Array<{ node: ConvTreeNode; visible: boolean }> = [];
@@ -1268,32 +1195,6 @@ export class TicketDetailComponent implements OnInit {
 
   hasTreeData(): boolean {
     return this.conversationEntries().some(e => !!e.parentLogId);
-  }
-
-  hasLineageData(): boolean {
-    return this.hasTreeData();
-  }
-
-  toggleCollapse(id: string): void {
-    this.convCollapsed[id] = !this.convCollapsed[id];
-  }
-
-  isCollapsed(id: string): boolean {
-    return !!this.convCollapsed[id];
-  }
-
-  flattenTree(roots: ConvTreeNode[]): ConvTreeNode[] {
-    const result: ConvTreeNode[] = [];
-    const walk = (nodes: ConvTreeNode[]) => {
-      for (const node of nodes) {
-        result.push(node);
-        if (!this.isCollapsed(node.entry.id)) {
-          walk(node.children);
-        }
-      }
-    };
-    walk(roots);
-    return result;
   }
 
   loadConversationEntries(): void {

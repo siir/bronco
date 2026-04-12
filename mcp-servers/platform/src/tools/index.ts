@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ServerDeps } from '../server.js';
 import { registerTicketTools } from './tickets.js';
-import { registerContactTools } from './contacts.js';
+import { registerPeopleTools } from './people.js';
 import { registerClientTools } from './clients.js';
 import { registerSystemTools } from './systems.js';
 import { registerProbeTools } from './probes.js';
@@ -16,7 +16,7 @@ import { registerSlackConversationTools } from './slack-conversations.js';
 
 export function registerAllTools(server: McpServer, deps: ServerDeps): void {
   registerTicketTools(server, deps);
-  registerContactTools(server, deps);
+  registerPeopleTools(server, deps);
   registerClientTools(server, deps);
   registerSystemTools(server, deps);
   registerProbeTools(server, deps);

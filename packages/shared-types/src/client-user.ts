@@ -4,18 +4,6 @@ export const ClientUserType = {
 } as const;
 export type ClientUserType = (typeof ClientUserType)[keyof typeof ClientUserType];
 
-export interface ClientUser {
-  id: string;
-  email: string;
-  name: string;
-  clientId: string;
-  userType: ClientUserType;
-  isActive: boolean;
-  lastLoginAt: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
 /** Common consumer email domains to exclude from domain-based client matching */
 export const CONSUMER_EMAIL_DOMAINS = [
   'gmail.com',

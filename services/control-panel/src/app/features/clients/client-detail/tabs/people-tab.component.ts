@@ -1,7 +1,6 @@
 import { Component, DestroyRef, inject, input, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { DatePipe } from '@angular/common';
-import { ClientUser, ClientUserService } from '../../../../core/services/client-user.service';
+import { Person, PersonService } from '../../../../core/services/person.service';
 import { ToastService } from '../../../../core/services/toast.service';
 import {
   BroncoButtonComponent,
@@ -9,65 +8,71 @@ import {
   DataTableColumnComponent,
   DialogComponent,
 } from '../../../../shared/components/index.js';
-import { ClientUserDialogComponent } from '../../client-user-dialog.component.js';
+import { PersonDialogComponent } from '../../../people/person-dialog.component';
 
 @Component({
-  selector: 'app-client-users-tab',
+  selector: 'app-client-people-tab',
   standalone: true,
   imports: [
-    DatePipe,
     BroncoButtonComponent,
     DataTableComponent,
     DataTableColumnComponent,
     DialogComponent,
-    ClientUserDialogComponent,
+    PersonDialogComponent,
   ],
   template: `
     <div class="tab-section">
       <div class="section-header">
-        <h3 class="section-title">Portal Users</h3>
-        <app-bronco-button variant="primary" size="sm" (click)="openAddDialog()">+ Add User</app-bronco-button>
+        <h3 class="section-title">People</h3>
+        <app-bronco-button variant="primary" size="sm" (click)="openAddDialog()">+ Add Person</app-bronco-button>
       </div>
 
       <app-data-table
-        [data]="users()"
+        [data]="people()"
         [trackBy]="trackById"
         [rowClickable]="false"
-        emptyMessage="No portal users for this client.">
+        emptyMessage="No people added.">
         <app-data-column key="name" header="Name" [sortable]="false">
-          <ng-template #cell let-u>{{ u.name }}</ng-template>
+          <ng-template #cell let-p>
+            {{ p.name }}
+            @if (p.isPrimary) {
+              <span class="primary-star" title="Primary contact">&#x2605;</span>
+            }
+          </ng-template>
         </app-data-column>
         <app-data-column key="email" header="Email" [sortable]="false">
-          <ng-template #cell let-u>{{ u.email }}</ng-template>
+          <ng-template #cell let-p>{{ p.email }}</ng-template>
         </app-data-column>
-        <app-data-column key="userType" header="Type" [sortable]="false" width="100px">
-          <ng-template #cell let-u>
-            <span class="chip" [class.chip-admin]="u.userType === 'ADMIN'" [class.chip-user]="u.userType !== 'ADMIN'">
-              {{ u.userType }}
-            </span>
-          </ng-template>
+        <app-data-column key="role" header="Role" [sortable]="false">
+          <ng-template #cell let-p>{{ p.role ?? '-' }}</ng-template>
         </app-data-column>
-        <app-data-column key="isActiveUser" header="Status" [sortable]="false" width="110px">
-          <ng-template #cell let-u>
-            <span class="chip" [class.chip-active]="u.isActive" [class.chip-inactive]="!u.isActive">
-              {{ u.isActive ? 'Active' : 'Inactive' }}
-            </span>
-          </ng-template>
-        </app-data-column>
-        <app-data-column key="lastLogin" header="Last Login" [sortable]="false" width="160px">
-          <ng-template #cell let-u>
-            @if (u.lastLoginAt) {
-              {{ u.lastLoginAt | date:'short' }}
+        <app-data-column key="portal" header="Portal" [sortable]="false" width="100px">
+          <ng-template #cell let-p>
+            @if (p.hasPortalAccess) {
+              <span class="chip" [class.chip-admin]="p.userType === 'ADMIN'" [class.chip-user]="p.userType !== 'ADMIN'">
+                {{ p.userType === 'ADMIN' ? 'Admin' : 'User' }}
+              </span>
             } @else {
-              <span class="muted">Never</span>
+              <span class="muted">-</span>
+            }
+          </ng-template>
+        </app-data-column>
+        <app-data-column key="status" header="Status" [sortable]="false" width="110px">
+          <ng-template #cell let-p>
+            @if (p.hasPortalAccess) {
+              <span class="chip" [class.chip-active]="p.isActive" [class.chip-inactive]="!p.isActive">
+                {{ p.isActive ? 'Active' : 'Inactive' }}
+              </span>
+            } @else {
+              <span class="muted">-</span>
             }
           </ng-template>
         </app-data-column>
         <app-data-column key="actions" header="" [sortable]="false" width="100px">
-          <ng-template #cell let-u>
+          <ng-template #cell let-p>
             <div class="row-actions">
-              <app-bronco-button variant="icon" size="sm" ariaLabel="Edit user" (click)="openEditDialog(u)">&#x270E;</app-bronco-button>
-              <app-bronco-button variant="icon" size="sm" ariaLabel="Deactivate user" (click)="deleteUser(u.id)">&#x1F6AB;</app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" ariaLabel="Edit person" (click)="openEditDialog(p)">&#x270E;</app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" ariaLabel="Delete person" (click)="deletePerson(p.id)">&#x1F5D1;</app-bronco-button>
             </div>
           </ng-template>
         </app-data-column>
@@ -77,12 +82,12 @@ import { ClientUserDialogComponent } from '../../client-user-dialog.component.js
     @if (showDialog()) {
       <app-dialog
         [open]="true"
-        [title]="editing() ? 'Edit User' : 'Create Portal User'"
+        [title]="editing() ? 'Edit Person' : 'Add Person'"
         maxWidth="500px"
         (openChange)="showDialog.set(false)">
-        <app-client-user-dialog-content
+        <app-person-dialog-content
           [clientId]="clientId()"
-          [user]="editing() ?? undefined"
+          [person]="editing() ?? undefined"
           (saved)="onSaved()"
           (cancelled)="showDialog.set(false)" />
       </app-dialog>
@@ -106,6 +111,13 @@ import { ClientUserDialogComponent } from '../../client-user-dialog.component.js
       font-size: 16px;
       font-weight: 600;
       color: var(--text-primary);
+    }
+
+    .primary-star {
+      color: var(--color-warning);
+      font-size: 16px;
+      line-height: 1;
+      margin-left: 4px;
     }
 
     .chip {
@@ -143,27 +155,27 @@ import { ClientUserDialogComponent } from '../../client-user-dialog.component.js
     }
   `],
 })
-export class ClientUsersTabComponent implements OnInit {
+export class ClientPeopleTabComponent implements OnInit {
   clientId = input.required<string>();
 
-  private userService = inject(ClientUserService);
+  private personService = inject(PersonService);
   private toast = inject(ToastService);
   private destroyRef = inject(DestroyRef);
 
-  users = signal<ClientUser[]>([]);
+  people = signal<Person[]>([]);
   showDialog = signal(false);
-  editing = signal<ClientUser | null>(null);
+  editing = signal<Person | null>(null);
 
-  trackById = (u: ClientUser): string => u.id;
+  trackById = (p: Person): string => p.id;
 
   ngOnInit(): void {
     this.load();
   }
 
   load(): void {
-    this.userService.getUsers(this.clientId())
+    this.personService.getPeople(this.clientId())
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(u => this.users.set(u));
+      .subscribe(p => this.people.set(p));
   }
 
   openAddDialog(): void {
@@ -171,8 +183,8 @@ export class ClientUsersTabComponent implements OnInit {
     this.showDialog.set(true);
   }
 
-  openEditDialog(user: ClientUser): void {
-    this.editing.set(user);
+  openEditDialog(person: Person): void {
+    this.editing.set(person);
     this.showDialog.set(true);
   }
 
@@ -181,15 +193,15 @@ export class ClientUsersTabComponent implements OnInit {
     this.load();
   }
 
-  deleteUser(id: string): void {
-    this.userService.deleteUser(id)
+  deletePerson(id: string): void {
+    this.personService.deletePerson(id)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: () => {
-          this.toast.success('User deactivated');
+          this.toast.success('Person deleted');
           this.load();
         },
-        error: (err) => this.toast.error(err.error?.message ?? err.error?.error ?? 'Deactivation failed'),
+        error: (err) => this.toast.error(err.error?.message ?? err.error?.error ?? 'Delete failed'),
       });
   }
 }
