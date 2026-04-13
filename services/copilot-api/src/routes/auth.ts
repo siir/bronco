@@ -54,7 +54,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
       const user = await fastify.db.user.findUnique({ where: { email: email.toLowerCase() } });
 
       if (!user || !user.isActive) {
-        return reply.code(401).send({ error: 'Invalid email or password' });
+        return reply.code(401).send({ error: 'Invalid email or password', code: 'OPERATOR_NOT_FOUND' });
       }
 
       const valid = await bcrypt.compare(password, user.passwordHash);

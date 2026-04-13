@@ -12,6 +12,7 @@ export interface JwtPayload {
 export interface PortalJwtPayload {
   sub: string;
   email: string;
+  name: string;
   clientId: string;
   userType: ClientUserType;
   hasOpsAccess: boolean;
@@ -27,6 +28,7 @@ export interface AuthUser {
 export interface PortalUser {
   id: string;
   email: string;
+  name: string;
   clientId: string;
   userType: ClientUserType;
   hasOpsAccess: boolean;
@@ -80,6 +82,7 @@ export const authPlugin = fp(async (fastify, opts: AuthPluginOpts) => {
           request.portalUser = {
             id: payload.sub,
             email: payload.email,
+            name: payload.name ?? '',
             clientId: payload.clientId,
             userType: payload.userType,
             hasOpsAccess: payload.hasOpsAccess ?? false,
@@ -99,6 +102,7 @@ export const authPlugin = fp(async (fastify, opts: AuthPluginOpts) => {
           request.portalUser = {
             id: payload.sub,
             email: payload.email,
+            name: payload.name ?? '',
             clientId: payload.clientId,
             userType: payload.userType,
             hasOpsAccess: true,

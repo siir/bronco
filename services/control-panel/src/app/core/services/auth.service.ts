@@ -110,13 +110,18 @@ export class AuthService {
     return this.http.post<OperatorLoginResponse>(`${this.baseUrl}/auth/login`, { email, password }).pipe(
       tap(res => this.applyOperatorLogin(res)),
       catchError((err: HttpErrorResponse) => {
-        if (err.status !== 401 && err.status !== 403) {
-          return throwError(() => err);
+        // Fall through to portal login when:
+        //   - OPERATOR_NOT_FOUND: email doesn't exist as an operator (or account is inactive)
+        //   - 403: operator exists and password is correct, but role is CLIENT — the account
+        //     is a portal user and should authenticate via the portal auth endpoint instead.
+        // If the operator exists but the password is wrong (401 without code), surface the error.
+        const body = err.error as Record<string, unknown> | null;
+        if (body?.['code'] === 'OPERATOR_NOT_FOUND' || err.status === 403) {
+          return this.http.post<PortalLoginResponse>(`${this.baseUrl}/portal/auth/login`, { email, password }).pipe(
+            tap(res => this.applyPortalLogin(res)),
+          );
         }
-        // Operator login failed — try portal login
-        return this.http.post<PortalLoginResponse>(`${this.baseUrl}/portal/auth/login`, { email, password }).pipe(
-          tap(res => this.applyPortalLogin(res)),
-        );
+        return throwError(() => err);
       }),
     );
   }
