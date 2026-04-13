@@ -438,8 +438,7 @@ export async function scheduledProbeRoutes(
       orderBy: { startedAt: 'desc' },
       include: { steps: { orderBy: { stepOrder: 'asc' } } },
     });
-    if (!run) return fastify.httpErrors.notFound('No active run');
-    return run;
+    return run ?? null;
   });
 
   // Get single run with steps
