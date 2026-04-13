@@ -72,7 +72,7 @@ import { ToastService } from '../../core/services/toast.service';
 
       <!-- Table -->
       <div class="table-card">
-        <app-data-table [data]="logs()" [trackBy]="trackById" [rowClickable]="true" (rowClick)="toggleExpand($event.id)" emptyMessage="No email logs found.">
+        <app-data-table [data]="logs()" [trackBy]="trackById" [rowClickable]="true" [expandedRow]="getExpandedLog()" (rowClick)="toggleExpand($event.id)" emptyMessage="No email logs found.">
           <app-data-column key="from" header="From" [sortable]="false">
             <ng-template #cell let-log>
               <div class="from-cell">
@@ -155,12 +155,9 @@ import { ToastService } from '../../core/services/toast.service';
               </app-dropdown-menu>
             </ng-template>
           </app-data-column>
-        </app-data-table>
 
-        <!-- Expanded detail -->
-        @for (log of logs(); track log.id) {
-          @if (expandedId() === log.id) {
-            <div class="detail-panel">
+          <ng-template #expandedRow let-log>
+            <div class="detail-panel" (click)="$event.stopPropagation()">
               @if (log.errorMessage) {
                 <div class="detail-section error-block">
                   <div class="detail-label">Error</div>
@@ -192,8 +189,8 @@ import { ToastService } from '../../core/services/toast.service';
                 }
               }
             </div>
-          }
-        }
+          </ng-template>
+        </app-data-table>
 
         <app-paginator
           [length]="total()"
@@ -418,6 +415,11 @@ export class EmailLogComponent implements OnInit, OnDestroy {
 
   toggleExpand(id: string): void {
     this.expandedId.set(this.expandedId() === id ? null : id);
+  }
+
+  getExpandedLog(): EmailProcessingLog | null {
+    const id = this.expandedId();
+    return id ? this.logs().find((l) => l.id === id) ?? null : null;
   }
 
   retryEmail(log: EmailProcessingLog): void {
