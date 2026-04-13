@@ -145,7 +145,7 @@ import { ToastService } from '../../core/services/toast.service';
                 @if (log.status === 'failed' || log.classification === 'NOISE' || log.classification === 'AUTO_REPLY') {
                   <app-dropdown-item (action)="retryEmail(log)">Retry</app-dropdown-item>
                 }
-                <app-dropdown-item (action)="toggleExpand(log.id)">Details</app-dropdown-item>
+                <app-dropdown-item (action)="expandFromMenu(log.id)">Details</app-dropdown-item>
                 <app-dropdown-divider />
                 <app-dropdown-label>Reclassify as:</app-dropdown-label>
                 <app-dropdown-item (action)="reclassify(log, 'TICKET_WORTHY')">Ticket Worthy</app-dropdown-item>
@@ -413,8 +413,18 @@ export class EmailLogComponent implements OnInit, OnDestroy {
     this.load();
   }
 
+  private expandLock = false;
+
   toggleExpand(id: string): void {
+    if (this.expandLock) return;
     this.expandedId.set(this.expandedId() === id ? null : id);
+  }
+
+  /** Called from dropdown — guards against the row click that fires when the backdrop closes. */
+  expandFromMenu(id: string): void {
+    this.expandLock = true;
+    this.expandedId.set(this.expandedId() === id ? null : id);
+    setTimeout(() => { this.expandLock = false; });
   }
 
   getExpandedLog(): EmailProcessingLog | null {
