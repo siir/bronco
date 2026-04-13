@@ -327,7 +327,9 @@ async function executeProbe(
 
     // Step 3: Evaluate result
     let stepId = await tracker.startStep('Evaluate result');
-    if (!toolResult || toolResult.trim().length === 0) {
+    const trimmed = toolResult?.trim() ?? '';
+    const isEmpty = trimmed.length === 0 || trimmed === '[]' || trimmed === '{}';
+    if (!toolResult || isEmpty) {
       appLog.info(`Probe "${probe.name}" skipped — empty result`, { probeId: probe.id, clientId: probe.clientId, toolName: probe.toolName }, probe.id, 'probe');
       await tracker.skipStep(stepId, 'Empty tool result');
       await tracker.completeRun('skipped', 'Empty tool result');
