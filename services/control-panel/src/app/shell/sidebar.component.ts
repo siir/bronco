@@ -236,7 +236,7 @@ export class SidebarComponent implements OnInit {
 
   readonly version = toSignal(this.versionService.getVersion(), { initialValue: '' });
   readonly ticketBadge = signal(0);
-  readonly failedJobsBadge = signal(0);
+  readonly failedJobsBadge = this.failedJobsService.totalCount;
 
   /** True when the signed-in principal is a scoped client-side ops user. */
   readonly isScoped = computed(() => this.authService.isScopedOpsUser());
@@ -269,10 +269,10 @@ export class SidebarComponent implements OnInit {
         this.ticketBadge.set(count);
       });
 
+    // Seed the failed-jobs badge — subsequent list() calls from the
+    // failed-jobs page automatically update the shared totalCount signal.
     this.failedJobsService.list({ limit: 1 })
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(res => {
-        this.failedJobsBadge.set(res.total);
-      });
+      .subscribe();
   }
 }
