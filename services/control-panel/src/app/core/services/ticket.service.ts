@@ -1,5 +1,5 @@
-import { Injectable, inject } from '@angular/core';
-import { Observable } from 'rxjs';
+import { Injectable, inject, signal } from '@angular/core';
+import { Observable, tap } from 'rxjs';
 import { ApiService } from './api.service';
 
 /** Comma-separated active status values for API queries. Single source of truth for the UI. */
@@ -181,12 +181,22 @@ export interface TicketArtifact {
 export class TicketService {
   private api = inject(ApiService);
 
+  private static readonly ACTIVE_STATUSES = ACTIVE_STATUS_FILTER.split(',');
+
+  /** Active ticket count (OPEN + IN_PROGRESS + WAITING), updated on every getStats() call. */
+  readonly activeCount = signal(0);
+
   getTickets(filters?: { clientId?: string; status?: string; category?: string; priority?: string; source?: string; analysisStatus?: string; createdFrom?: string; createdTo?: string; limit?: number; offset?: number }): Observable<Ticket[]> {
     return this.api.get<Ticket[]>('/tickets', filters as Record<string, string | number>);
   }
 
   getStats(clientId?: string): Observable<TicketStats> {
-    return this.api.get<TicketStats>('/tickets/stats', clientId ? { clientId } : undefined);
+    return this.api.get<TicketStats>('/tickets/stats', clientId ? { clientId } : undefined).pipe(
+      tap((stats) => {
+        const count = TicketService.ACTIVE_STATUSES.reduce((sum, s) => sum + (stats.byStatus[s] ?? 0), 0);
+        this.activeCount.set(count);
+      }),
+    );
   }
 
   getTicket(id: string): Observable<Ticket & { events: TicketEvent[] }> {
