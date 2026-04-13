@@ -12,6 +12,7 @@ import {
   DataTableComponent,
   DataTableColumnComponent,
   PaginatorComponent,
+  IconComponent,
   type PaginatorPageEvent,
 } from '../../../../shared/components/index.js';
 
@@ -27,13 +28,14 @@ const PAGE_SIZE = 25;
     CardComponent,
     DataTableComponent,
     DataTableColumnComponent,
+    IconComponent,
     PaginatorComponent,
   ],
   template: `
     <div class="tab-section">
       <div class="section-header">
         <h3 class="section-title">AI Usage</h3>
-        <app-bronco-button variant="secondary" size="sm" (click)="loadAll()">&#x21BB; Refresh</app-bronco-button>
+        <app-bronco-button variant="secondary" size="sm" (click)="loadAll()"><app-icon name="refresh" size="sm" /> Refresh</app-bronco-button>
       </div>
 
       @if (loading()) {

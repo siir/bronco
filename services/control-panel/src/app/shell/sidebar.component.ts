@@ -1,10 +1,10 @@
-import { Component, DestroyRef, computed, inject, OnInit, signal } from '@angular/core';
+import { Component, DestroyRef, computed, inject, OnInit } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { AuthService } from '../core/services/auth.service';
 import { ThemeService } from '../core/services/theme.service';
 import { VersionService } from '../core/services/version.service';
-import { TicketService, ACTIVE_STATUS_FILTER } from '../core/services/ticket.service';
+import { TicketService } from '../core/services/ticket.service';
 import { FailedJobsService } from '../core/services/failed-jobs.service';
 
 @Component({
@@ -235,8 +235,8 @@ export class SidebarComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
 
   readonly version = toSignal(this.versionService.getVersion(), { initialValue: '' });
-  readonly ticketBadge = signal(0);
-  readonly failedJobsBadge = signal(0);
+  readonly ticketBadge = this.ticketService.activeCount;
+  readonly failedJobsBadge = this.failedJobsService.totalCount;
 
   /** True when the signed-in principal is a scoped client-side ops user. */
   readonly isScoped = computed(() => this.authService.isScopedOpsUser());
@@ -260,19 +260,14 @@ export class SidebarComponent implements OnInit {
       return;
     }
 
-    const activeStatuses = ACTIVE_STATUS_FILTER.split(',');
-
+    // Seed both badges — subsequent getStats()/list() calls from their
+    // respective pages automatically update the shared signals.
     this.ticketService.getStats()
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(stats => {
-        const count = activeStatuses.reduce((sum, s) => sum + (stats.byStatus[s] ?? 0), 0);
-        this.ticketBadge.set(count);
-      });
+      .subscribe();
 
     this.failedJobsService.list({ limit: 1 })
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(res => {
-        this.failedJobsBadge.set(res.total);
-      });
+      .subscribe();
   }
 }

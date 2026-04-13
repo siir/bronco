@@ -1,7 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpErrorResponse } from '@angular/common/http';
-import { Observable, of, throwError } from 'rxjs';
-import { catchError } from 'rxjs/operators';
+import { Observable } from 'rxjs';
 import { ApiService } from './api.service';
 
 export interface ProbeRunStep {
@@ -135,9 +133,7 @@ export class ScheduledProbeService {
   }
 
   getCurrentRun(probeId: string): Observable<ProbeRun | null> {
-    return this.api.get<ProbeRun>(`/scheduled-probes/${probeId}/runs/current`).pipe(
-      catchError((err: HttpErrorResponse) => err.status === 404 ? of(null) : throwError(() => err)),
-    );
+    return this.api.get<ProbeRun | null>(`/scheduled-probes/${probeId}/runs/current`);
   }
 
   purgeRuns(probeId: string): Observable<{ deleted: number }> {

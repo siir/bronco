@@ -1,4 +1,4 @@
-import { Component, contentChildren, input, output } from '@angular/core';
+import { Component, contentChild, contentChildren, input, output, TemplateRef } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { DataTableColumnComponent } from './data-table-column.component';
 import { IconComponent } from './icon.component';
@@ -41,6 +41,7 @@ import { IconComponent } from './icon.component';
             @for (row of data(); track trackBy()(row)) {
               <tr
                 [class.clickable]="rowClickable()"
+                [class.expanded-row]="expandedRow() === row"
                 [attr.tabindex]="rowClickable() ? 0 : null"
                 (click)="rowClickable() ? rowClick.emit(row) : null"
                 (keydown.enter)="rowClickable() ? rowClick.emit(row) : null"
@@ -51,6 +52,20 @@ import { IconComponent } from './icon.component';
                   </td>
                 }
               </tr>
+              @if (subtitleTpl()) {
+                <tr class="subtitle-row" [class.clickable]="rowClickable()" (click)="rowClickable() ? rowClick.emit(row) : null">
+                  <td [attr.colspan]="columns().length">
+                    <ng-container [ngTemplateOutlet]="subtitleTpl()!" [ngTemplateOutletContext]="{ $implicit: row }" />
+                  </td>
+                </tr>
+              }
+              @if (expandedRow() === row && expandedTpl()) {
+                <tr class="expanded-detail-row">
+                  <td [attr.colspan]="columns().length">
+                    <ng-container [ngTemplateOutlet]="expandedTpl()!" [ngTemplateOutletContext]="{ $implicit: row }" />
+                  </td>
+                </tr>
+              }
             }
           </tbody>
         </table>
@@ -116,8 +131,43 @@ import { IconComponent } from './icon.component';
       transition: background 120ms ease;
     }
 
-    tr.clickable:hover {
+    tr.clickable:hover,
+    tr.clickable:hover + .subtitle-row,
+    tr.clickable:has(+ .subtitle-row:hover) {
       background: var(--bg-hover);
+    }
+
+    .subtitle-row.clickable:hover {
+      background: var(--bg-hover);
+    }
+
+    tr:has(+ .subtitle-row) td {
+      border-bottom: none;
+      padding-bottom: 4px;
+    }
+
+    .subtitle-row td {
+      padding: 0 16px 14px;
+      font-size: 12px;
+      color: var(--text-tertiary);
+      border-bottom: 1px solid var(--border-light);
+    }
+
+    .subtitle-row:has(td:empty) {
+      display: none;
+    }
+
+    tr.expanded-row td {
+      border-bottom-color: transparent;
+    }
+
+    .expanded-detail-row td {
+      padding: 0 16px 16px;
+      border-bottom: 1px solid var(--border-light);
+    }
+
+    .expanded-detail-row:hover {
+      background: transparent;
     }
 
     .table-empty {
@@ -136,11 +186,14 @@ export class DataTableComponent<T = unknown> {
   sortDirection = input<'asc' | 'desc'>('asc');
   rowClickable = input<boolean>(true);
   emptyMessage = input<string>('No data');
+  expandedRow = input<T | null>(null);
 
   rowClick = output<T>();
   sortChange = output<{ column: string; direction: 'asc' | 'desc' }>();
 
   columns = contentChildren(DataTableColumnComponent);
+  expandedTpl = contentChild<TemplateRef<{ $implicit: T }>>('expandedRow');
+  subtitleTpl = contentChild<TemplateRef<unknown>>('subtitle');
 
   onSort(key: string): void {
     const direction = this.sortColumn() === key && this.sortDirection() === 'asc' ? 'desc' : 'asc';

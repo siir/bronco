@@ -1,5 +1,5 @@
-import { Injectable, inject } from '@angular/core';
-import { Observable } from 'rxjs';
+import { Injectable, inject, signal } from '@angular/core';
+import { Observable, tap } from 'rxjs';
 import { ApiService } from './api.service';
 
 export interface FailedJob {
@@ -25,8 +25,13 @@ export interface FailedJobsResponse {
 export class FailedJobsService {
   private api = inject(ApiService);
 
+  /** Total failed job count, updated on every list() call. */
+  readonly totalCount = signal(0);
+
   list(params?: { queue?: string; limit?: number; offset?: number }): Observable<FailedJobsResponse> {
-    return this.api.get<FailedJobsResponse>('/failed-jobs', params as Record<string, string | number>);
+    return this.api.get<FailedJobsResponse>('/failed-jobs', params as Record<string, string | number>).pipe(
+      tap((res) => this.totalCount.set(res.total)),
+    );
   }
 
   retry(queue: string, jobId: string): Observable<{ retried: boolean }> {
