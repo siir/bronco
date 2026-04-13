@@ -51,8 +51,15 @@ import {
             (checkedChange)="onPortalAccessChange($event)" />
         </div>
 
-        @if (form.hasPortalAccess) {
-          @if (!isEdit || form.enablingPortalAccess) {
+        <div class="toggle-row">
+          <app-toggle-switch
+            [checked]="form.hasOpsAccess"
+            label="Ops access (control panel for this client)"
+            (checkedChange)="onOpsAccessChange($event)" />
+        </div>
+
+        @if (form.hasPortalAccess || form.hasOpsAccess) {
+          @if (form.hasPortalAccess && (!isEdit || form.enablingPortalAccess)) {
             <app-form-field
               [label]="isEdit ? 'Password (required to enable portal access)' : 'Password'"
               hint="Minimum 8 characters">
@@ -68,6 +75,9 @@ import {
               [options]="userTypeOptions"
               (valueChange)="onUserTypeChange($event)" />
           </app-form-field>
+          @if (form.hasOpsAccess && form.userType === 'USER') {
+            <p class="hint-warning">Ops access requires user type Operator or Admin.</p>
+          }
           @if (isEdit) {
             <div class="toggle-row">
               <app-toggle-switch
@@ -98,6 +108,7 @@ import {
       border-top: 1px solid var(--border-subtle);
     }
     .toggle-row { display: flex; align-items: center; }
+    .hint-warning { font-size: 12px; color: var(--color-warning, #b07d00); margin: 0; }
     .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
   `],
 })
@@ -114,6 +125,7 @@ export class PersonDialogComponent implements OnInit {
 
   userTypeOptions = [
     { value: 'USER', label: 'User' },
+    { value: 'OPERATOR', label: 'Operator' },
     { value: 'ADMIN', label: 'Admin' },
   ];
 
@@ -125,10 +137,11 @@ export class PersonDialogComponent implements OnInit {
     slackUserId: '',
     isPrimary: false,
     hasPortalAccess: false,
+    hasOpsAccess: false,
     /** True when editing an existing person who did NOT previously have portal access. */
     enablingPortalAccess: false,
     password: '',
-    userType: 'USER' as 'USER' | 'ADMIN',
+    userType: 'USER' as 'USER' | 'OPERATOR' | 'ADMIN',
     isActive: true,
   };
 
@@ -148,9 +161,10 @@ export class PersonDialogComponent implements OnInit {
         slackUserId: p.slackUserId ?? '',
         isPrimary: p.isPrimary,
         hasPortalAccess: p.hasPortalAccess,
+        hasOpsAccess: p.hasOpsAccess ?? false,
         enablingPortalAccess: false,
         password: '',
-        userType: (p.userType ?? 'USER') as 'USER' | 'ADMIN',
+        userType: (p.userType ?? 'USER') as 'USER' | 'OPERATOR' | 'ADMIN',
         isActive: p.isActive,
       };
     }
@@ -162,14 +176,24 @@ export class PersonDialogComponent implements OnInit {
     this.form.enablingPortalAccess = this.isEdit && !this.originalHasPortalAccess && value;
   }
 
+  onOpsAccessChange(value: boolean): void {
+    this.form.hasOpsAccess = value;
+    // Ops access requires OPERATOR or ADMIN — bump USER to OPERATOR.
+    if (value && this.form.userType === 'USER') {
+      this.form.userType = 'OPERATOR';
+    }
+  }
+
   onUserTypeChange(value: string): void {
-    this.form.userType = value === 'ADMIN' ? 'ADMIN' : 'USER';
+    this.form.userType = (value === 'ADMIN' || value === 'OPERATOR' ? value : 'USER') as 'USER' | 'OPERATOR' | 'ADMIN';
   }
 
   canSave(): boolean {
     if (!this.form.name || !this.form.email) return false;
     // Password required when creating with portal access, or when enabling portal access on an existing person.
     if (this.form.hasPortalAccess && (this.form.enablingPortalAccess || !this.isEdit) && this.form.password.length < 8) return false;
+    // Ops access requires non-USER user type
+    if (this.form.hasOpsAccess && this.form.userType === 'USER') return false;
     return true;
   }
 
@@ -184,8 +208,9 @@ export class PersonDialogComponent implements OnInit {
         slackUserId: this.form.slackUserId === '' ? null : this.form.slackUserId,
         isPrimary: this.form.isPrimary,
         hasPortalAccess: this.form.hasPortalAccess,
+        hasOpsAccess: this.form.hasOpsAccess,
       };
-      if (this.form.hasPortalAccess) {
+      if (this.form.hasPortalAccess || this.form.hasOpsAccess) {
         update.userType = this.form.userType;
         update.isActive = this.form.isActive;
       }
@@ -210,9 +235,12 @@ export class PersonDialogComponent implements OnInit {
         slackUserId: this.form.slackUserId || undefined,
         isPrimary: this.form.isPrimary,
         hasPortalAccess: this.form.hasPortalAccess,
+        hasOpsAccess: this.form.hasOpsAccess,
       };
       if (this.form.hasPortalAccess) {
         create.password = this.form.password;
+      }
+      if (this.form.hasPortalAccess || this.form.hasOpsAccess) {
         create.userType = this.form.userType;
       }
       this.personService.createPerson(create).subscribe({

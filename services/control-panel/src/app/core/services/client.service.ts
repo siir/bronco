@@ -10,6 +10,7 @@ export interface Client {
   isActive: boolean;
   autoRouteTickets: boolean;
   allowSelfRegistration: boolean;
+  notificationMode: 'client' | 'operator';
   aiMode: string;
   notes: string | null;
   companyProfile: string | null;

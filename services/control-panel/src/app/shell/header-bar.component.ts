@@ -1,5 +1,8 @@
 import { Component, input } from '@angular/core';
 
+const isMac = /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent);
+const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
 @Component({
   selector: 'app-header-bar',
   standalone: true,
@@ -8,7 +11,9 @@ import { Component, input } from '@angular/core';
       <span class="page-title">{{ title() }}</span>
       <button class="search-trigger" type="button" aria-label="Search">
         <span class="search-text">Search...</span>
-        <kbd class="search-kbd">&#x2318;K</kbd>
+        @if (!isMobile) {
+          <kbd class="search-kbd">{{ shortcutHint }}</kbd>
+        }
       </button>
     </header>
   `,
@@ -63,4 +68,6 @@ import { Component, input } from '@angular/core';
 })
 export class HeaderBarComponent {
   title = input<string>('Dashboard');
+  readonly isMobile = isMobile;
+  readonly shortcutHint = isMac ? '⌘K' : 'Ctrl+K';
 }

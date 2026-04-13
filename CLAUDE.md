@@ -295,11 +295,13 @@ This applies to both automated reviewers (Copilot) and human reviewers. The goal
 
 ## Build and Test
 
+**Build order matters.** On a fresh checkout (or after `pnpm clean`), you MUST run `pnpm build` BEFORE `pnpm typecheck`. Workspace packages like `ai-provider`, `shared-utils`, and the services depend on the compiled `.d.ts` outputs of `shared-types` and `shared-utils`. Running `pnpm typecheck` first will fail with errors like `Cannot find module '@bronco/shared-types' or its corresponding type declarations` because those declarations only exist after `pnpm build` produces them in each package's `dist/` folder. The same rule applies after pulling changes that touch `packages/shared-types/`, `packages/shared-utils/`, or `packages/db/` — rebuild before typechecking.
+
 ```bash
 pnpm install              # Install all dependencies
-pnpm build                # Build all packages
-pnpm typecheck            # Type check all packages
-pnpm clean                # Remove all dist/ folders
+pnpm build                # Build all packages (REQUIRED before typecheck on a fresh checkout)
+pnpm typecheck            # Type check all packages (run AFTER pnpm build)
+pnpm clean                # Remove all dist/ folders (after this, re-run pnpm build before typecheck)
 
 pnpm db:generate          # Regenerate Prisma client
 pnpm db:migrate           # Run Prisma migrations

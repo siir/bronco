@@ -7,8 +7,8 @@ import { Prisma } from '@bronco/db';
 import type { PrismaClient } from '@bronco/db';
 import type { TicketCategory, Priority, TicketStatus, TicketSource, AnalysisJob } from '@bronco/shared-types';
 import { AIRouter } from '@bronco/ai-provider';
-import { TaskType, RouteStepType, isClosedStatus, AnalysisStatus, SufficiencyStatus, SufficiencyConfidence } from '@bronco/shared-types';
-import { createLogger, AppLogger, createPrismaLogWriter, decrypt, looksEncrypted, MCP_TOOL_TIMEOUT_MS, mcpUrl, callMcpToolViaSdk, notifyOperators as notifyOperatorsFn, getSelfAnalysisConfig } from '@bronco/shared-utils';
+import { TaskType, RouteStepType, isClosedStatus, AnalysisStatus, SufficiencyStatus, SufficiencyConfidence, NotificationMode } from '@bronco/shared-types';
+import { createLogger, AppLogger, createPrismaLogWriter, decrypt, looksEncrypted, MCP_TOOL_TIMEOUT_MS, mcpUrl, callMcpToolViaSdk, notifyOperators as notifyOperatorsFn, notifyClientOperators as notifyClientOperatorsFn, getSelfAnalysisConfig } from '@bronco/shared-utils';
 import type { AIToolDefinition, AIMessage, AIToolUseBlock, AITextBlock, AIToolResponse, AIToolResultBlock } from '@bronco/shared-types';
 import type { Mailer, ReplyOptions } from '@bronco/shared-utils';
 import { executeRecommendations } from './recommendation-executor.js';
@@ -4178,18 +4178,61 @@ async function executeRoutePipeline(
                 getPreference: (evt) => db.notificationPreference.findUnique({ where: { event: evt } }),
               },
             );
-            if (notified.length > 0) {
+
+            // Also notify client operators if the client has notificationMode='operator'
+            const clientNotified: string[] = [];
+            try {
+              const client = await db.client.findUnique({
+                where: { id: ctx.clientId },
+                select: { notificationMode: true },
+              });
+              if (client && client.notificationMode === NotificationMode.OPERATOR) {
+                const sent = await notifyClientOperatorsFn(
+                  mailer,
+                  async (clientId) => {
+                    const rows = await db.person.findMany({
+                      where: {
+                        clientId,
+                        userType: { in: ['OPERATOR', 'ADMIN'] },
+                        isActive: true,
+                        hasOpsAccess: true,
+                      },
+                      select: { id: true, email: true, name: true, userType: true, slackUserId: true },
+                    });
+                    return rows.map((r) => ({
+                      id: r.id,
+                      email: r.email,
+                      name: r.name,
+                      userType: r.userType ?? 'USER',
+                      slackUserId: r.slackUserId,
+                    }));
+                  },
+                  {
+                    subject: notifySubject,
+                    body: notifyBody,
+                    clientId: ctx.clientId,
+                  },
+                );
+                clientNotified.push(...sent);
+              }
+            } catch (err) {
+              const errMsg = err instanceof Error ? err.message : String(err);
+              appLog.warn(`NOTIFY_OPERATOR client routing failed: ${errMsg}`, { err, ticketId }, ticketId, 'ticket');
+            }
+
+            const allNotified = [...notified, ...clientNotified];
+            if (allNotified.length > 0) {
               await db.ticketEvent.create({
                 data: {
                   ticketId,
                   eventType: 'EMAIL_OUTBOUND',
                   content: notifyBody,
-                  metadata: { type: 'operator_notification', to: notified, subject: notifySubject },
+                  metadata: { type: 'operator_notification', to: allNotified, subject: notifySubject },
                   actor: 'system:analyzer',
                 },
               });
               const stepDuration = Date.now() - stepStart;
-              appLog.info(`Operator notifications sent to ${notified.join(', ')} (${(stepDuration / 1000).toFixed(1)}s)`, { ticketId, to: notified, durationMs: stepDuration }, ticketId, 'ticket');
+              appLog.info(`Operator notifications sent to ${allNotified.join(', ')} (${(stepDuration / 1000).toFixed(1)}s)`, { ticketId, to: allNotified, durationMs: stepDuration }, ticketId, 'ticket');
               stepsSucceeded++;
             } else {
               appLog.warn('NOTIFY_OPERATOR skipped — no operators configured for email notifications', { ticketId, stepId: step.id }, ticketId, 'ticket');

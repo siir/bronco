@@ -1,10 +1,10 @@
-import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import { Component, DestroyRef, computed, inject, OnInit } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { AuthService } from '../core/services/auth.service';
 import { ThemeService } from '../core/services/theme.service';
 import { VersionService } from '../core/services/version.service';
-import { TicketService, ACTIVE_STATUS_FILTER } from '../core/services/ticket.service';
+import { TicketService } from '../core/services/ticket.service';
 import { FailedJobsService } from '../core/services/failed-jobs.service';
 
 @Component({
@@ -22,51 +22,68 @@ import { FailedJobsService } from '../core/services/failed-jobs.service';
       </div>
 
       <div class="nav-sections">
-        <div class="nav-section">
-          <span class="section-label">Main</span>
-          <a routerLink="/dashboard" routerLinkActive="nav-active" class="nav-item">Dashboard</a>
-          <a routerLink="/tickets" routerLinkActive="nav-active" class="nav-item">Tickets @if (ticketBadge() > 0) { <span class="badge">{{ ticketBadge() }}</span> }</a>
-          <a routerLink="/activity" routerLinkActive="nav-active" class="nav-item">Activity Feed</a>
-          <a routerLink="/clients" routerLinkActive="nav-active" class="nav-item">Clients</a>
-        </div>
+        @if (isScoped()) {
+          <div class="nav-section">
+            <span class="section-label">Main</span>
+            <a routerLink="/tickets" routerLinkActive="nav-active" class="nav-item">Tickets @if (ticketBadge() > 0) { <span class="badge">{{ ticketBadge() }}</span> }</a>
+          </div>
+          @if (scopedClientLink(); as clientLink) {
+            <div class="nav-section">
+              <span class="section-label">Client</span>
+              <a [routerLink]="clientLink" routerLinkActive="nav-active" class="nav-item">Client Details</a>
+            </div>
+          }
+          <div class="nav-section">
+            <span class="section-label">Account</span>
+            <a routerLink="/profile" routerLinkActive="nav-active" class="nav-item">Profile</a>
+          </div>
+        } @else {
+          <div class="nav-section">
+            <span class="section-label">Main</span>
+            <a routerLink="/dashboard" routerLinkActive="nav-active" class="nav-item">Dashboard</a>
+            <a routerLink="/tickets" routerLinkActive="nav-active" class="nav-item">Tickets @if (ticketBadge() > 0) { <span class="badge">{{ ticketBadge() }}</span> }</a>
+            <a routerLink="/activity" routerLinkActive="nav-active" class="nav-item">Activity Feed</a>
+            <a routerLink="/clients" routerLinkActive="nav-active" class="nav-item">Clients</a>
+          </div>
 
-        <div class="nav-section">
-          <span class="section-label">Operations</span>
-          <a routerLink="/scheduled-probes" routerLinkActive="nav-active" class="nav-item">Scheduled Probes</a>
-          <a routerLink="/ingestion-jobs" routerLinkActive="nav-active" class="nav-item">Ingestion Jobs</a>
-          <a routerLink="/failed-jobs" routerLinkActive="nav-active" class="nav-item">Failed Jobs @if (failedJobsBadge() > 0) { <span class="badge">{{ failedJobsBadge() }}</span> }</a>
-          <a routerLink="/logs" routerLinkActive="nav-active" class="nav-item">Logs</a>
-          <a routerLink="/email-logs" routerLinkActive="nav-active" class="nav-item">Email Log</a>
-        </div>
+          <div class="nav-section">
+            <span class="section-label">Operations</span>
+            <a routerLink="/scheduled-probes" routerLinkActive="nav-active" class="nav-item">Scheduled Probes</a>
+            <a routerLink="/ingestion-jobs" routerLinkActive="nav-active" class="nav-item">Ingestion Jobs</a>
+            <a routerLink="/failed-jobs" routerLinkActive="nav-active" class="nav-item">Failed Jobs @if (failedJobsBadge() > 0) { <span class="badge">{{ failedJobsBadge() }}</span> }</a>
+            <a routerLink="/logs" routerLinkActive="nav-active" class="nav-item">Logs</a>
+            <a routerLink="/email-logs" routerLinkActive="nav-active" class="nav-item">Email Log</a>
+          </div>
 
-        <div class="nav-section">
-          <span class="section-label">AI</span>
-          <a routerLink="/prompts" routerLinkActive="nav-active" class="nav-item">AI Prompts</a>
-          <a routerLink="/ai-providers" routerLinkActive="nav-active" class="nav-item">AI Providers</a>
-          <a routerLink="/ai-usage" routerLinkActive="nav-active" class="nav-item">AI Usage</a>
-          <a routerLink="/ticket-routes" routerLinkActive="nav-active" class="nav-item">Ticket Routes</a>
-          <a routerLink="/system-analysis" routerLinkActive="nav-active" class="nav-item">System Analysis</a>
-          <a routerLink="/system-issues" routerLinkActive="nav-active" class="nav-item">System Issues</a>
-        </div>
+          <div class="nav-section">
+            <span class="section-label">AI</span>
+            <a routerLink="/prompts" routerLinkActive="nav-active" class="nav-item">AI Prompts</a>
+            <a routerLink="/ai-providers" routerLinkActive="nav-active" class="nav-item">AI Providers</a>
+            <a routerLink="/ai-usage" routerLinkActive="nav-active" class="nav-item">AI Usage</a>
+            <a routerLink="/ticket-routes" routerLinkActive="nav-active" class="nav-item">Ticket Routes</a>
+            <a routerLink="/system-analysis" routerLinkActive="nav-active" class="nav-item">System Analysis</a>
+            <a routerLink="/system-issues" routerLinkActive="nav-active" class="nav-item">System Issues</a>
+          </div>
 
-        <div class="nav-section">
-          <span class="section-label">Integrations</span>
-          <a routerLink="/slack-conversations" routerLinkActive="nav-active" class="nav-item">Slack Conversations</a>
-          <a routerLink="/release-notes" routerLinkActive="nav-active" class="nav-item">Release Notes</a>
-        </div>
+          <div class="nav-section">
+            <span class="section-label">Integrations</span>
+            <a routerLink="/slack-conversations" routerLinkActive="nav-active" class="nav-item">Slack Conversations</a>
+            <a routerLink="/release-notes" routerLinkActive="nav-active" class="nav-item">Release Notes</a>
+          </div>
 
-        <div class="nav-section">
-          <span class="section-label">System</span>
-          <a routerLink="/system-status" routerLinkActive="nav-active" class="nav-item">Status</a>
-          <a routerLink="/settings" routerLinkActive="nav-active" class="nav-item">Settings</a>
-          <a routerLink="/users" routerLinkActive="nav-active" class="nav-item">User Maint</a>
-        </div>
+          <div class="nav-section">
+            <span class="section-label">System</span>
+            <a routerLink="/system-status" routerLinkActive="nav-active" class="nav-item">Status</a>
+            <a routerLink="/settings" routerLinkActive="nav-active" class="nav-item">Settings</a>
+            <a routerLink="/users" routerLinkActive="nav-active" class="nav-item">User Maint</a>
+          </div>
 
-        <div class="nav-section">
-          <span class="section-label">Account</span>
-          <a routerLink="/profile" routerLinkActive="nav-active" class="nav-item">Profile</a>
-          <a routerLink="/notification-preferences" routerLinkActive="nav-active" class="nav-item">Notifications</a>
-        </div>
+          <div class="nav-section">
+            <span class="section-label">Account</span>
+            <a routerLink="/profile" routerLinkActive="nav-active" class="nav-item">Profile</a>
+            <a routerLink="/notification-preferences" routerLinkActive="nav-active" class="nav-item">Notifications</a>
+          </div>
+        }
       </div>
 
       <div class="sidebar-footer">
@@ -218,23 +235,39 @@ export class SidebarComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
 
   readonly version = toSignal(this.versionService.getVersion(), { initialValue: '' });
-  readonly ticketBadge = signal(0);
-  readonly failedJobsBadge = signal(0);
+  readonly ticketBadge = this.ticketService.activeCount;
+  readonly failedJobsBadge = this.failedJobsService.totalCount;
+
+  /** True when the signed-in principal is a scoped client-side ops user. */
+  readonly isScoped = computed(() => this.authService.isScopedOpsUser());
+
+  /**
+   * Deep link to the scoped user's client detail page. Returns null when the
+   * clientId isn't available (shouldn't happen for a valid scoped session, but
+   * we guard against it so the template can just @if on it).
+   */
+  readonly scopedClientLink = computed(() => {
+    const user = this.authService.currentUser();
+    if (!user?.isPortalOpsUser || !user.clientId) return null;
+    return ['/clients', user.clientId];
+  });
 
   ngOnInit(): void {
-    const activeStatuses = ACTIVE_STATUS_FILTER.split(',');
+    // Scoped ops users don't have permission to fetch global ticket stats or
+    // the failed-jobs queue, so skip those calls entirely — they would just
+    // 403 and noise up the console.
+    if (this.isScoped()) {
+      return;
+    }
 
+    // Seed both badges — subsequent getStats()/list() calls from their
+    // respective pages automatically update the shared signals.
     this.ticketService.getStats()
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(stats => {
-        const count = activeStatuses.reduce((sum, s) => sum + (stats.byStatus[s] ?? 0), 0);
-        this.ticketBadge.set(count);
-      });
+      .subscribe();
 
     this.failedJobsService.list({ limit: 1 })
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(res => {
-        this.failedJobsBadge.set(res.total);
-      });
+      .subscribe();
   }
 }

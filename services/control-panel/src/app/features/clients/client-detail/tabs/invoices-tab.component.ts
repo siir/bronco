@@ -8,6 +8,7 @@ import {
   DataTableComponent,
   DataTableColumnComponent,
   DialogComponent,
+  IconComponent,
 } from '../../../../shared/components/index.js';
 import { GenerateInvoiceDialogComponent } from '../../generate-invoice-dialog.component';
 
@@ -21,6 +22,7 @@ import { GenerateInvoiceDialogComponent } from '../../generate-invoice-dialog.co
     DataTableComponent,
     DataTableColumnComponent,
     DialogComponent,
+    IconComponent,
     GenerateInvoiceDialogComponent,
   ],
   template: `
@@ -64,8 +66,8 @@ import { GenerateInvoiceDialogComponent } from '../../generate-invoice-dialog.co
                  target="_blank"
                  rel="noopener noreferrer"
                  aria-label="Download PDF"
-                 title="Download PDF">&#x2B07;</a>
-              <app-bronco-button variant="icon" size="sm" ariaLabel="Delete invoice" (click)="deleteInvoice(inv)">&#x1F5D1;</app-bronco-button>
+                 title="Download PDF"><app-icon name="download" size="sm" /></a>
+              <app-bronco-button variant="icon" size="sm" ariaLabel="Delete invoice" (click)="deleteInvoice(inv)"><app-icon name="delete" size="sm" /></app-bronco-button>
             </div>
           </ng-template>
         </app-data-column>

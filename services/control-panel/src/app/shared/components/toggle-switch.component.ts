@@ -39,18 +39,20 @@ import { Component, input, output } from '@angular/core';
       width: 36px;
       height: 20px;
       border-radius: 10px;
-      background: var(--border-medium);
+      background: var(--text-tertiary);
+      opacity: 0.4;
       border: none;
       padding: 2px;
       cursor: pointer;
       position: relative;
-      transition: background 120ms ease;
+      transition: background 120ms ease, opacity 120ms ease;
       display: flex;
       align-items: center;
     }
 
     .toggle-track.active {
-      background: var(--accent);
+      background: var(--color-success);
+      opacity: 1;
     }
 
     .toggle-thumb {

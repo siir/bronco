@@ -72,7 +72,7 @@ import { ToastService } from '../../core/services/toast.service';
 
       <!-- Table -->
       <div class="table-card">
-        <app-data-table [data]="logs()" [trackBy]="trackById" [rowClickable]="true" (rowClick)="toggleExpand($event.id)" emptyMessage="No email logs found.">
+        <app-data-table [data]="logs()" [trackBy]="trackById" [rowClickable]="true" [expandedRow]="getExpandedLog()" (rowClick)="toggleExpand($event.id)" emptyMessage="No email logs found.">
           <app-data-column key="from" header="From" [sortable]="false">
             <ng-template #cell let-log>
               <div class="from-cell">
@@ -145,7 +145,7 @@ import { ToastService } from '../../core/services/toast.service';
                 @if (log.status === 'failed' || log.classification === 'NOISE' || log.classification === 'AUTO_REPLY') {
                   <app-dropdown-item (action)="retryEmail(log)">Retry</app-dropdown-item>
                 }
-                <app-dropdown-item (action)="toggleExpand(log.id)">Details</app-dropdown-item>
+                <app-dropdown-item (action)="expandFromMenu(log.id)">Details</app-dropdown-item>
                 <app-dropdown-divider />
                 <app-dropdown-label>Reclassify as:</app-dropdown-label>
                 <app-dropdown-item (action)="reclassify(log, 'TICKET_WORTHY')">Ticket Worthy</app-dropdown-item>
@@ -155,12 +155,9 @@ import { ToastService } from '../../core/services/toast.service';
               </app-dropdown-menu>
             </ng-template>
           </app-data-column>
-        </app-data-table>
 
-        <!-- Expanded detail -->
-        @for (log of logs(); track log.id) {
-          @if (expandedId() === log.id) {
-            <div class="detail-panel">
+          <ng-template #expandedRow let-log>
+            <div class="detail-panel" (click)="$event.stopPropagation()">
               @if (log.errorMessage) {
                 <div class="detail-section error-block">
                   <div class="detail-label">Error</div>
@@ -192,8 +189,8 @@ import { ToastService } from '../../core/services/toast.service';
                 }
               }
             </div>
-          }
-        }
+          </ng-template>
+        </app-data-table>
 
         <app-paginator
           [length]="total()"
@@ -416,8 +413,23 @@ export class EmailLogComponent implements OnInit, OnDestroy {
     this.load();
   }
 
+  private expandLock = false;
+
   toggleExpand(id: string): void {
+    if (this.expandLock) return;
     this.expandedId.set(this.expandedId() === id ? null : id);
+  }
+
+  /** Called from dropdown — guards against the row click that fires when the backdrop closes. */
+  expandFromMenu(id: string): void {
+    this.expandLock = true;
+    this.expandedId.set(this.expandedId() === id ? null : id);
+    requestAnimationFrame(() => { this.expandLock = false; });
+  }
+
+  getExpandedLog(): EmailProcessingLog | null {
+    const id = this.expandedId();
+    return id ? this.logs().find((l) => l.id === id) ?? null : null;
   }
 
   retryEmail(log: EmailProcessingLog): void {
