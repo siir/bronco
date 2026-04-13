@@ -424,7 +424,7 @@ export class EmailLogComponent implements OnInit, OnDestroy {
   expandFromMenu(id: string): void {
     this.expandLock = true;
     this.expandedId.set(this.expandedId() === id ? null : id);
-    setTimeout(() => { this.expandLock = false; });
+    requestAnimationFrame(() => { this.expandLock = false; });
   }
 
   getExpandedLog(): EmailProcessingLog | null {

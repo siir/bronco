@@ -772,7 +772,7 @@ export class ProbeRunsComponent implements OnInit, OnDestroy {
             this.formattedJsonCache.set(step.id, null);
           }
         }
-        this.expandedRun.set(r);
+        if (this.expandedRunId() === run.id) this.expandedRun.set(r);
       },
       error: () => {
         this.expandedRunId.set(null);

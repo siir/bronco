@@ -153,7 +153,7 @@ import { IconComponent } from './icon.component';
       border-bottom: 1px solid var(--border-light);
     }
 
-    .subtitle-row:empty {
+    .subtitle-row:has(td:empty) {
       display: none;
     }
 
@@ -192,7 +192,7 @@ export class DataTableComponent<T = unknown> {
   sortChange = output<{ column: string; direction: 'asc' | 'desc' }>();
 
   columns = contentChildren(DataTableColumnComponent);
-  expandedTpl = contentChild<TemplateRef<unknown>>('expandedRow');
+  expandedTpl = contentChild<TemplateRef<{ $implicit: T }>>('expandedRow');
   subtitleTpl = contentChild<TemplateRef<unknown>>('subtitle');
 
   onSort(key: string): void {
