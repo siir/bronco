@@ -1,9 +1,9 @@
 <!-- MCP_SPEC_META
-version: 2026-04-08T14:17:24Z
-source_commit: 3068510701771d04fdb7f8b876409a7d93b8446f
+version: 2026-04-13T17:25:17Z
+source_commit: 1049c0ebefaffe588015eefa034b51daac882ff5
 generator: ai
-proc_count: 105
-mcp_proc_count: 66
+proc_count: 106
+mcp_proc_count: 67
 table_count: 52
 func_count: 9
 view_count: 7
@@ -123,10 +123,17 @@ trigger_count: 1
   - `@Hours INT = 24` — Hours to look back when `@StartTime` is NULL
 - **Description**: Return deadlock events from `cdre.DeadlocksLogDetails` within the specified time window. Includes session ID, host, login, application, database, deadlock role, wait resource, wait type, statement, and deadlock graph XML. Useful for targeted investigation of a specific incident window.
 
+#### `deadlock_graph`
+- **Procedure**: `cdre.DeadlocksGraph`
+- **Parameters**:
+  - `@Id INT` — Row ID from `cdre.DeadlocksLogDetails` (required); obtain from `deadlock_events` or `deadlock_status`
+- **Description**: Return the raw XML deadlock graph for a single deadlock event. Use to inspect the full deadlock graph structure including all participants, resources, and lock modes.
+
 #### `deadlock_analysis`
 - **Procedure**: `cdre.DeadlocksAnalysis`
 - **Parameters**:
   - `@DAYS_BACK INT = 7` — Number of days to analyze
+  - `@DatabaseName SYSNAME = NULL` — Filter to a specific database (NULL = all)
 - **Returns**: Multiple result sets including daily deadlock incident counts, trend comparison, top wait resources, top applications involved, top victim queries, and top resource pairs that deadlock together.
 
 ---
@@ -391,7 +398,7 @@ trigger_count: 1
   - `@DaysBack INT = 7` — Days of history to return
   - `@Debug BIT = 0` — Debug mode
   - `@Help BIT = 0` — Display help information
-- **Description**: Return SQL Server Agent alert history from `msdb`, showing recent alert firings and counts.
+- **Description**: Return SQL Server Agent alert history from `msdb`, showing recent alert firings and counts by alert name.
 
 #### `msdb_database_mail_log`
 - **Procedure**: `cdre.Msdb_DatabaseMailLog`
@@ -422,14 +429,6 @@ trigger_count: 1
   - `@Help BIT = 0` — Display help information
 - **Description**: Return recent schema change events from `dev.SchemaChangeLog`, captured by the `dev_trg_LogSchemaChanges` DDL trigger. Includes event type, object name, login, program, and the T-SQL command executed. Useful for auditing recent deployments or tracking unintended schema changes.
 
-#### `msdb_alert_history`
-- **Procedure**: `cdre.Msdb_AlertHistory`
-- **Parameters**:
-  - `@DaysBack INT = 7` — Days of history to return
-  - `@Debug BIT = 0` — Debug mode
-  - `@Help BIT = 0` — Display help information
-- **Description**: Return SQL Server Agent alert history from `msdb`, showing recent alert firings and counts by alert name.
-
 #### `evo_error_log`
 - **Procedure**: `cdre.Evo_ErrorLog`
 - **Parameters**:
@@ -450,22 +449,6 @@ trigger_count: 1
   - `@Debug BIT = 0` — Debug mode
   - `@Help BIT = 0` — Display help information
 - **Description**: Summarize Evolution application errors grouped by procedure and error message, showing frequency and most recent occurrence. This is a tracked legacy exception that queries a cross-application database.
-
-#### `data_sync_job_history`
-- **Procedure**: `cdre.DataSync_JobHistory`
-- **Parameters**:
-  - `@DaysBack INT = 3` — Number of days of history to return
-  - `@Debug BIT = 0` — Debug mode
-  - `@Help BIT = 0` — Display help information
-- **Description**: Report on Azure Data Sync job history, showing sync status, errors, and timing for recent sync operations.
-
-#### `data_sync_queue_status`
-- **Procedure**: `cdre.DataSync_QueueStatus`
-- **Parameters**:
-  - `@HoursBack INT = 24` — Hours of history to return
-  - `@Debug BIT = 0` — Debug mode
-  - `@Help BIT = 0` — Display help information
-- **Description**: Report on Azure Data Sync queue depth and processing status. Shows pending, processing, and completed sync operations within the specified window. Note: this tool uses a dynamic database name sourced from an environment variable and is a tracked legacy exception using `ExecuteQueryAsync`.
 
 ---
 
@@ -521,6 +504,22 @@ trigger_count: 1
   - `@BlockingRelevantOnly BIT = 0` — Show only sessions involved in blocking
   - `@CommandSearch VARCHAR(MAX) = ''` — Filter by command text substring
 - **Description**: Display active sessions with blocking chain analysis, filtering, and search capabilities. Parses `sys.dm_exec_sessions` and `sys.dm_exec_requests` with configurable filters.
+
+#### `data_sync_job_history`
+- **Procedure**: `cdre.DataSync_JobHistory`
+- **Parameters**:
+  - `@DaysBack INT = 3` — Number of days of history to return
+  - `@Debug BIT = 0` — Debug mode
+  - `@Help BIT = 0` — Display help information
+- **Description**: Report on Azure Data Sync job history, showing sync status, errors, and timing for recent sync operations.
+
+#### `data_sync_queue_status`
+- **Procedure**: `cdre.DataSync_QueueStatus`
+- **Parameters**:
+  - `@HoursBack INT = 24` — Hours of history to return
+  - `@Debug BIT = 0` — Debug mode
+  - `@Help BIT = 0` — Display help information
+- **Description**: Report on Azure Data Sync queue depth and processing status. Shows pending, processing, and completed sync operations within the specified window. Note: this tool uses a dynamic database name sourced from an environment variable and is a tracked legacy exception using `ExecuteQueryAsync`.
 
 ---
 
@@ -1013,4 +1012,5 @@ In the SaaS architecture, the Worker Service (Quartz.NET) connects to client ser
 - **Job runtime anomaly prerequisites** — `cdre.JobRuntimeAnomaly_Detection` requires that baselines have been calculated first by the `DBA - Job Runtime Baseline Update` job (runs daily at 1:00 AM). If `cdre.JobRuntimeBaseline` is empty, the detection procedure will return no results rather than an error. Surface a warning to the MCP client in this case.
 - **`cdre.BlockingAlertConfig` `MatchType`** — the `MatchType` column is constrained to `'Exact'` or `'Like'`. When writing MCP resource update logic for this table, validate this constraint client-side before submitting to avoid a check constraint violation.
 - **`cdre.QueryMonitorConfig` `FilterType`** — constrained to `'INCLUDE'` or `'EXCLUDE'`. Validate client-side before insert/update.
+- **Deployment order dependency** — the toolkit must be deployed in the order: Schemas → Tables → Functions → Stored Procedures → SQL Agent Jobs → configuration table population. MCP tools that call procedures referencing configuration tables (e.g., `cdre.BlockingAlertMonitor`, `cdre.QueryMonitorPullFromRingBuffer`) will return empty or unexpected results if the corresponding configuration tables have not been populated after deployment.
 - **Post-investigation tooling review** — after any debugging session using MCP tools, review every tool call and `run_custom_query` made and evaluate whether new stored procedures, MCP tools, or logging improvements should be proposed. Any reusable query run more than once is a candidate for a `cdre.*` procedure and corresponding MCP tool. Track gaps in `TODO.md`.
