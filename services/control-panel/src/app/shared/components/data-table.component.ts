@@ -52,6 +52,13 @@ import { IconComponent } from './icon.component';
                   </td>
                 }
               </tr>
+              @if (subtitleTpl()) {
+                <tr class="subtitle-row" [class.clickable]="rowClickable()" (click)="rowClickable() ? rowClick.emit(row) : null">
+                  <td [attr.colspan]="columns().length">
+                    <ng-container [ngTemplateOutlet]="subtitleTpl()!" [ngTemplateOutletContext]="{ $implicit: row }" />
+                  </td>
+                </tr>
+              }
               @if (expandedRow() === row && expandedTpl()) {
                 <tr class="expanded-detail-row">
                   <td [attr.colspan]="columns().length">
@@ -124,8 +131,30 @@ import { IconComponent } from './icon.component';
       transition: background 120ms ease;
     }
 
-    tr.clickable:hover {
+    tr.clickable:hover,
+    tr.clickable:hover + .subtitle-row,
+    tr.clickable:has(+ .subtitle-row:hover) {
       background: var(--bg-hover);
+    }
+
+    .subtitle-row.clickable:hover {
+      background: var(--bg-hover);
+    }
+
+    tr:has(+ .subtitle-row) td {
+      border-bottom: none;
+      padding-bottom: 4px;
+    }
+
+    .subtitle-row td {
+      padding: 0 16px 14px;
+      font-size: 12px;
+      color: var(--text-tertiary);
+      border-bottom: 1px solid var(--border-light);
+    }
+
+    .subtitle-row:empty {
+      display: none;
     }
 
     tr.expanded-row td {
@@ -164,6 +193,7 @@ export class DataTableComponent<T = unknown> {
 
   columns = contentChildren(DataTableColumnComponent);
   expandedTpl = contentChild<TemplateRef<unknown>>('expandedRow');
+  subtitleTpl = contentChild<TemplateRef<unknown>>('subtitle');
 
   onSort(key: string): void {
     const direction = this.sortColumn() === key && this.sortDirection() === 'asc' ? 'desc' : 'asc';

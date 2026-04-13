@@ -8,6 +8,7 @@ import {
   CardComponent,
   ToggleSwitchComponent,
   DialogComponent,
+  IconComponent,
 } from '../../../../shared/components/index.js';
 import { McpServerInfoComponent } from '../../../../shared/components/mcp-server-info.component';
 import { IntegrationDialogComponent } from '../../../integrations/integration-dialog.component';
@@ -23,6 +24,7 @@ const SENSITIVE_KEYS = ['encryptedPassword', 'encryptedPat', 'encryptedBotToken'
     CardComponent,
     ToggleSwitchComponent,
     DialogComponent,
+    IconComponent,
     McpServerInfoComponent,
     IntegrationDialogComponent,
   ],
@@ -46,7 +48,7 @@ const SENSITIVE_KEYS = ['encryptedPassword', 'encryptedPat', 'encryptedBotToken'
               [label]="integ.isActive ? 'Active' : 'Inactive'"
               (checkedChange)="toggleIntegration(integ, $event)" />
             <span class="spacer"></span>
-            <app-bronco-button variant="icon" size="sm" ariaLabel="Edit integration" (click)="openEditDialog(integ)">&#x270E;</app-bronco-button>
+            <app-bronco-button variant="icon" size="sm" ariaLabel="Edit integration" (click)="openEditDialog(integ)"><app-icon name="edit" size="sm" /></app-bronco-button>
             <app-bronco-button variant="icon" size="sm" ariaLabel="Delete integration" (click)="deleteIntegration(integ.id)">&#x1F5D1;</app-bronco-button>
           </div>
           @if (integ.notes) { <p class="integ-notes">{{ integ.notes }}</p> }

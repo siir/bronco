@@ -8,6 +8,7 @@ import {
   DialogComponent,
   SelectComponent,
   ToggleSwitchComponent,
+  IconComponent,
 } from '../../../../shared/components/index.js';
 import { ClientMemoryDialogComponent } from '../../client-memory-dialog.component';
 
@@ -24,6 +25,7 @@ const SOURCE_OPTIONS = [
     BroncoButtonComponent,
     CardComponent,
     DialogComponent,
+    IconComponent,
     SelectComponent,
     ToggleSwitchComponent,
     ClientMemoryDialogComponent,
@@ -60,7 +62,7 @@ const SOURCE_OPTIONS = [
               [label]="mem.isActive ? 'Active' : 'Inactive'"
               (checkedChange)="toggleMemory(mem, $event)" />
             <span class="spacer"></span>
-            <app-bronco-button variant="icon" size="sm" ariaLabel="Edit memory" (click)="openEditDialog(mem)">&#x270E;</app-bronco-button>
+            <app-bronco-button variant="icon" size="sm" ariaLabel="Edit memory" (click)="openEditDialog(mem)"><app-icon name="edit" size="sm" /></app-bronco-button>
             <app-bronco-button variant="icon" size="sm" ariaLabel="Delete memory" (click)="deleteMemory(mem.id)">&#x1F5D1;</app-bronco-button>
           </div>
           @if (mem.tags.length) {

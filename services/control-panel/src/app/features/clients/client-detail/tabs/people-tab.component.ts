@@ -7,6 +7,7 @@ import {
   DataTableComponent,
   DataTableColumnComponent,
   DialogComponent,
+  IconComponent,
 } from '../../../../shared/components/index.js';
 import { PersonDialogComponent } from '../../../people/person-dialog.component';
 
@@ -18,6 +19,7 @@ import { PersonDialogComponent } from '../../../people/person-dialog.component';
     DataTableComponent,
     DataTableColumnComponent,
     DialogComponent,
+    IconComponent,
     PersonDialogComponent,
   ],
   template: `
@@ -67,7 +69,7 @@ import { PersonDialogComponent } from '../../../people/person-dialog.component';
         <app-data-column key="actions" header="" [sortable]="false" width="100px">
           <ng-template #cell let-p>
             <div class="row-actions">
-              <app-bronco-button variant="icon" size="sm" ariaLabel="Edit person" (click)="openEditDialog(p)">&#x270E;</app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" ariaLabel="Edit person" (click)="openEditDialog(p)"><app-icon name="edit" size="sm" /></app-bronco-button>
               <app-bronco-button variant="icon" size="sm" ariaLabel="Delete person" (click)="deletePerson(p.id)">&#x1F5D1;</app-bronco-button>
             </div>
           </ng-template>

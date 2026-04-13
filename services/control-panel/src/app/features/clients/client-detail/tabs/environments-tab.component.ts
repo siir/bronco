@@ -7,6 +7,7 @@ import {
   CardComponent,
   DialogComponent,
   ToggleSwitchComponent,
+  IconComponent,
 } from '../../../../shared/components/index.js';
 import { ClientEnvironmentDialogComponent } from '../../client-environment-dialog.component';
 
@@ -17,6 +18,7 @@ import { ClientEnvironmentDialogComponent } from '../../client-environment-dialo
     BroncoButtonComponent,
     CardComponent,
     DialogComponent,
+    IconComponent,
     ToggleSwitchComponent,
     ClientEnvironmentDialogComponent,
   ],
@@ -41,7 +43,7 @@ import { ClientEnvironmentDialogComponent } from '../../client-environment-dialo
               [label]="env.isActive ? 'Active' : 'Inactive'"
               (checkedChange)="toggleEnvironment(env, $event)" />
             <span class="spacer"></span>
-            <app-bronco-button variant="icon" size="sm" ariaLabel="Edit environment" (click)="openEditDialog(env)">&#x270E;</app-bronco-button>
+            <app-bronco-button variant="icon" size="sm" ariaLabel="Edit environment" (click)="openEditDialog(env)"><app-icon name="edit" size="sm" /></app-bronco-button>
             <app-bronco-button variant="icon" size="sm" ariaLabel="Delete environment" (click)="deleteEnvironment(env)">&#x1F5D1;</app-bronco-button>
           </div>
           @if (env.description) { <p class="env-desc">{{ env.description }}</p> }

@@ -34,6 +34,7 @@ import {
   DropdownMenuComponent,
   DropdownItemComponent,
   DialogComponent,
+  IconComponent,
 } from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service';
 
@@ -55,6 +56,7 @@ const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External
     DropdownMenuComponent,
     DropdownItemComponent,
     DialogComponent,
+    IconComponent,
     ExternalServiceDialogComponent,
     StatusConfigDialogComponent,
     CategoryConfigDialogComponent,
@@ -166,7 +168,7 @@ const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External
                 <app-data-column key="actions" header="" [sortable]="false" width="60px">
                   <ng-template #cell let-s>
                     <app-bronco-button variant="icon" size="sm" title="Edit" (click)="editStatus(s)">
-                      Edit
+                      <app-icon name="edit" size="sm" />
                     </app-bronco-button>
                   </ng-template>
                 </app-data-column>
@@ -225,7 +227,7 @@ const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External
                 <app-data-column key="actions" header="" [sortable]="false" width="60px">
                   <ng-template #cell let-c>
                     <app-bronco-button variant="icon" size="sm" title="Edit" (click)="editCategory(c)">
-                      Edit
+                      <app-icon name="edit" size="sm" />
                     </app-bronco-button>
                   </ng-template>
                 </app-data-column>

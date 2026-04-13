@@ -63,12 +63,7 @@ const ACTION_LABELS: Record<string, string> = {
 
         <app-data-column key="name" header="Name" [sortable]="false">
           <ng-template #cell let-row>
-            <div>
-              <span style="font-weight: 500; color: var(--text-primary);">{{ row.name }}</span>
-              @if (row.description) {
-                <div style="font-size: 12px; color: var(--text-tertiary); margin-top: 2px;">{{ row.description }}</div>
-              }
-            </div>
+            <span style="font-weight: 500; color: var(--text-primary);">{{ row.name }}</span>
           </ng-template>
         </app-data-column>
 
@@ -136,6 +131,11 @@ const ACTION_LABELS: Record<string, string> = {
           </ng-template>
         </app-data-column>
 
+        <ng-template #subtitle let-row>
+          @if (row.description) {
+            {{ row.description }}
+          }
+        </ng-template>
       </app-data-table>
     </div>
 
