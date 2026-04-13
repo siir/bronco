@@ -141,6 +141,7 @@ import { ToastService } from '../../core/services/toast.service';
         <app-data-table
           [data]="runs()"
           [trackBy]="trackByRunId"
+          [expandedRow]="expandedRunId() ? getRunById(expandedRunId()!) : null"
           (rowClick)="toggleExpand($event)"
           emptyMessage="No probe runs found">
 
@@ -185,13 +186,150 @@ import { ToastService } from '../../core/services/toast.service';
                   variant="icon"
                   size="sm"
                   (click)="toggleExpand(r)"
-                  [ariaLabel]="expandedRunId === r.id ? 'Collapse run details' : 'Expand run details'"
-                  [ariaExpanded]="expandedRunId === r.id">
-                  <app-icon [name]="expandedRunId === r.id ? 'chevron-up' : 'chevron-down'" size="sm" />
+                  [ariaLabel]="expandedRunId() === r.id ? 'Collapse run details' : 'Expand run details'"
+                  [ariaExpanded]="expandedRunId() === r.id">
+                  <app-icon [name]="expandedRunId() === r.id ? 'chevron-up' : 'chevron-down'" size="sm" />
                 </app-bronco-button>
               </div>
             </ng-template>
           </app-data-column>
+
+          <ng-template #expandedRow let-r>
+            @if (expandedRun()) {
+              <div class="expanded-detail" (click)="$event.stopPropagation()">
+                @for (step of expandedRun()!.steps ?? []; track step.id) {
+                  <div class="detail-step" [class]="'detail-step-' + step.status">
+                    <div class="detail-step-header">
+                      <span class="detail-step-order">{{ step.stepOrder }}.</span>
+                      <span class="detail-step-name">{{ step.stepName }}</span>
+                      <span class="badge small" [class]="'badge-status-' + step.status">{{ step.status }}</span>
+                      @if (step.startedAt && step.completedAt) {
+                        <span class="detail-step-duration">{{ formatStepDuration(step) }}</span>
+                      }
+                    </div>
+                    @if (step.error) {
+                      <div class="detail-step-error">{{ step.error }}</div>
+                    }
+                    @if (step.detail) {
+                      @if (isIntegrationStep(step)) {
+                        <div class="step-output-section">
+                          <div class="step-meta-row">
+                            <span class="meta-label">MCP Server URL</span>
+                            <code class="meta-value">{{ step.detail }}</code>
+                          </div>
+                        </div>
+                      } @else if (isToolResultStep(step)) {
+                        <div class="step-output-section">
+                          <div class="step-meta-row">
+                            <span class="meta-label">Tool (current config)</span>
+                            <span class="badge badge-tool">{{ probe()?.toolName }}</span>
+                          </div>
+                          @if (getSystemParam()) {
+                            <div class="step-meta-row">
+                              <span class="meta-label">System (current config)</span>
+                              <span class="badge badge-system">{{ getSystemParam() }}</span>
+                            </div>
+                          }
+                          <div class="step-result-block">
+                            <div class="result-toolbar">
+                              <span class="result-label">Result</span>
+                              <app-bronco-button
+                                variant="icon"
+                                size="sm"
+                                [ariaLabel]="'Copy result to clipboard'"
+                                (click)="copyToClipboard(step.detail!); $event.stopPropagation()">
+                                <app-icon name="copy" size="sm" />
+                              </app-bronco-button>
+                            </div>
+                            @if (step.detail.length > 500 && !isStepExpanded(step.id)) {
+                              <pre class="detail-pre">{{ step.detail.slice(0, 500) }}…</pre>
+                              <app-bronco-button variant="ghost" size="sm" (click)="toggleStepExpand(step.id); $event.stopPropagation()">
+                                Show full result ({{ step.detail.length | number }} chars)
+                              </app-bronco-button>
+                            } @else {
+                              @if (getFormattedJson(step.id) !== null) {
+                                <pre class="detail-pre detail-pre-json">{{ getFormattedJson(step.id) }}</pre>
+                              } @else {
+                                <pre class="detail-pre">{{ step.detail }}</pre>
+                              }
+                              @if (step.detail.length > 500) {
+                                <app-bronco-button variant="ghost" size="sm" (click)="toggleStepExpand(step.id); $event.stopPropagation()">
+                                  Collapse
+                                </app-bronco-button>
+                              }
+                            }
+                          </div>
+                        </div>
+                      } @else if (isEvaluateStep(step)) {
+                        <div class="step-output-section">
+                          <div class="step-meta-row">
+                            <span class="meta-label">Evaluation</span>
+                            <span class="eval-result"
+                              [class.eval-nonempty]="step.detail.includes('non-empty')"
+                              [class.eval-empty]="step.status === 'skipped'">
+                              {{ step.detail }}
+                            </span>
+                          </div>
+                        </div>
+                      } @else if (isIngestStep(step)) {
+                        <div class="step-output-section">
+                          <div class="step-meta-row">
+                            <span class="meta-label">Status</span>
+                            <span class="badge badge-status-success">{{ step.detail }}</span>
+                          </div>
+                          @if (probe()?.toolName) {
+                            <div class="step-meta-row">
+                              <span class="meta-label">Tool</span>
+                              <span class="badge badge-tool">{{ probe()?.toolName }}</span>
+                            </div>
+                          }
+                          @if (probe()?.category) {
+                            <div class="step-meta-row">
+                              <span class="meta-label">Category</span>
+                              <span class="badge badge-category">{{ probe()?.category }}</span>
+                            </div>
+                          }
+                          <div class="step-meta-row">
+                            <span class="meta-label">Source</span>
+                            <span class="badge badge-trigger-schedule">SCHEDULED</span>
+                          </div>
+                        </div>
+                      } @else {
+                        <details class="detail-step-output">
+                          <summary>Output</summary>
+                          <div class="result-toolbar">
+                            <span></span>
+                            <app-bronco-button
+                              variant="icon"
+                              size="sm"
+                              [ariaLabel]="'Copy step output to clipboard'"
+                              (click)="copyToClipboard(step.detail!); $event.stopPropagation()">
+                              <app-icon name="copy" size="sm" />
+                            </app-bronco-button>
+                          </div>
+                          @if (step.detail.length > 500 && !isStepExpanded(step.id)) {
+                            <pre class="detail-pre">{{ step.detail.slice(0, 500) }}…</pre>
+                            <app-bronco-button variant="ghost" size="sm" (click)="toggleStepExpand(step.id); $event.stopPropagation()">
+                              Show full output ({{ step.detail.length | number }} chars)
+                            </app-bronco-button>
+                          } @else {
+                            <pre class="detail-pre">{{ step.detail }}</pre>
+                            @if (step.detail.length > 500) {
+                              <app-bronco-button variant="ghost" size="sm" (click)="toggleStepExpand(step.id); $event.stopPropagation()">
+                                Collapse
+                              </app-bronco-button>
+                            }
+                          }
+                        </details>
+                      }
+                    }
+                  </div>
+                }
+              </div>
+            } @else {
+              <div class="expanded-loading">Loading steps…</div>
+            }
+          </ng-template>
         </app-data-table>
 
         <!-- Pagination -->
@@ -202,146 +340,6 @@ import { ToastService } from '../../core/services/toast.service';
             [pageIndex]="page"
             [pageSizeOptions]="[20, 50, 100]"
             (page)="onPageChange($event)" />
-        }
-
-        <!-- Expanded run detail (rendered below table since data-table doesn't support expandable rows) -->
-        @if (expandedRunId && expandedRun()) {
-          <app-card padding="md" class="expanded-detail-panel">
-            <div class="expanded-detail-header">
-              <h3 class="expanded-detail-title">Run Detail</h3>
-              <app-bronco-button variant="ghost" size="sm" (click)="closeExpand()">Close</app-bronco-button>
-            </div>
-            <div class="expanded-detail">
-              @for (step of expandedRun()!.steps ?? []; track step.id) {
-                <div class="detail-step" [class]="'detail-step-' + step.status">
-                  <div class="detail-step-header">
-                    <span class="detail-step-order">{{ step.stepOrder }}.</span>
-                    <span class="detail-step-name">{{ step.stepName }}</span>
-                    <span class="badge small" [class]="'badge-status-' + step.status">{{ step.status }}</span>
-                    @if (step.startedAt && step.completedAt) {
-                      <span class="detail-step-duration">{{ formatStepDuration(step) }}</span>
-                    }
-                  </div>
-                  @if (step.error) {
-                    <div class="detail-step-error">{{ step.error }}</div>
-                  }
-                  @if (step.detail) {
-                    @if (isIntegrationStep(step)) {
-                      <div class="step-output-section">
-                        <div class="step-meta-row">
-                          <span class="meta-label">MCP Server URL</span>
-                          <code class="meta-value">{{ step.detail }}</code>
-                        </div>
-                      </div>
-                    } @else if (isToolResultStep(step)) {
-                      <div class="step-output-section">
-                        <div class="step-meta-row">
-                          <span class="meta-label">Tool (current config)</span>
-                          <span class="badge badge-tool">{{ probe()?.toolName }}</span>
-                        </div>
-                        @if (getSystemParam()) {
-                          <div class="step-meta-row">
-                            <span class="meta-label">System (current config)</span>
-                            <span class="badge badge-system">{{ getSystemParam() }}</span>
-                          </div>
-                        }
-                        <div class="step-result-block">
-                          <div class="result-toolbar">
-                            <span class="result-label">Result</span>
-                            <app-bronco-button
-                              variant="icon"
-                              size="sm"
-                              [ariaLabel]="'Copy result to clipboard'"
-                              (click)="copyToClipboard(step.detail!); $event.stopPropagation()">
-                              <app-icon name="copy" size="sm" />
-                            </app-bronco-button>
-                          </div>
-                          @if (step.detail.length > 500 && !isStepExpanded(step.id)) {
-                            <pre class="detail-pre">{{ step.detail.slice(0, 500) }}…</pre>
-                            <app-bronco-button variant="ghost" size="sm" (click)="toggleStepExpand(step.id); $event.stopPropagation()">
-                              Show full result ({{ step.detail.length | number }} chars)
-                            </app-bronco-button>
-                          } @else {
-                            @if (getFormattedJson(step.id) !== null) {
-                              <pre class="detail-pre detail-pre-json">{{ getFormattedJson(step.id) }}</pre>
-                            } @else {
-                              <pre class="detail-pre">{{ step.detail }}</pre>
-                            }
-                            @if (step.detail.length > 500) {
-                              <app-bronco-button variant="ghost" size="sm" (click)="toggleStepExpand(step.id); $event.stopPropagation()">
-                                Collapse
-                              </app-bronco-button>
-                            }
-                          }
-                        </div>
-                      </div>
-                    } @else if (isEvaluateStep(step)) {
-                      <div class="step-output-section">
-                        <div class="step-meta-row">
-                          <span class="meta-label">Evaluation</span>
-                          <span class="eval-result"
-                            [class.eval-nonempty]="step.detail.includes('non-empty')"
-                            [class.eval-empty]="step.status === 'skipped'">
-                            {{ step.detail }}
-                          </span>
-                        </div>
-                      </div>
-                    } @else if (isIngestStep(step)) {
-                      <div class="step-output-section">
-                        <div class="step-meta-row">
-                          <span class="meta-label">Status</span>
-                          <span class="badge badge-status-success">{{ step.detail }}</span>
-                        </div>
-                        @if (probe()?.toolName) {
-                          <div class="step-meta-row">
-                            <span class="meta-label">Tool</span>
-                            <span class="badge badge-tool">{{ probe()?.toolName }}</span>
-                          </div>
-                        }
-                        @if (probe()?.category) {
-                          <div class="step-meta-row">
-                            <span class="meta-label">Category</span>
-                            <span class="badge badge-category">{{ probe()?.category }}</span>
-                          </div>
-                        }
-                        <div class="step-meta-row">
-                          <span class="meta-label">Source</span>
-                          <span class="badge badge-trigger-schedule">SCHEDULED</span>
-                        </div>
-                      </div>
-                    } @else {
-                      <details class="detail-step-output">
-                        <summary>Output</summary>
-                        <div class="result-toolbar">
-                          <span></span>
-                          <app-bronco-button
-                            variant="icon"
-                            size="sm"
-                            [ariaLabel]="'Copy step output to clipboard'"
-                            (click)="copyToClipboard(step.detail!); $event.stopPropagation()">
-                            <app-icon name="copy" size="sm" />
-                          </app-bronco-button>
-                        </div>
-                        @if (step.detail.length > 500 && !isStepExpanded(step.id)) {
-                          <pre class="detail-pre">{{ step.detail.slice(0, 500) }}…</pre>
-                          <app-bronco-button variant="ghost" size="sm" (click)="toggleStepExpand(step.id); $event.stopPropagation()">
-                            Show full output ({{ step.detail.length | number }} chars)
-                          </app-bronco-button>
-                        } @else {
-                          <pre class="detail-pre">{{ step.detail }}</pre>
-                          @if (step.detail.length > 500) {
-                            <app-bronco-button variant="ghost" size="sm" (click)="toggleStepExpand(step.id); $event.stopPropagation()">
-                              Collapse
-                            </app-bronco-button>
-                          }
-                        }
-                      </details>
-                    }
-                  }
-                </div>
-              }
-            </div>
-          </app-card>
         }
       }
     </div>
@@ -542,23 +540,13 @@ import { ToastService } from '../../core/services/toast.service';
       font-size: 14px;
     }
 
-    .expanded-detail-panel { margin-top: 16px; }
-    .expanded-detail-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 12px;
-      padding-bottom: 8px;
-      border-bottom: 1px solid var(--border-light);
-    }
-    .expanded-detail-title {
-      margin: 0;
-      font-family: var(--font-primary);
-      font-size: 15px;
-      font-weight: 600;
-      color: var(--text-primary);
-    }
     .expanded-detail { padding: 4px 0; }
+    .expanded-loading {
+      padding: 16px 0;
+      color: var(--text-tertiary);
+      font-size: 13px;
+      font-family: var(--font-primary);
+    }
 
     .detail-step {
       padding: 8px 0;
@@ -680,7 +668,7 @@ export class ProbeRunsComponent implements OnInit, OnDestroy {
   runs = signal<ProbeRun[]>([]);
   total = signal(0);
   currentRun = signal<ProbeRun | null>(null);
-  expandedRunId: string | null = null;
+  expandedRunId = signal<string | null>(null);
   expandedRun = signal<ProbeRun | null>(null);
   expandedStepIds = new Set<string>();
   /** Precomputed formatted JSON per step id; null means content is not JSON. */
@@ -758,33 +746,43 @@ export class ProbeRunsComponent implements OnInit, OnDestroy {
   }
 
   closeExpand(): void {
-    this.expandedRunId = null;
+    this.expandedRunId.set(null);
     this.expandedRun.set(null);
     this.expandedStepIds.clear();
     this.formattedJsonCache.clear();
   }
 
   toggleExpand(run: ProbeRun): void {
-    if (this.expandedRunId === run.id) {
+    if (this.expandedRunId() === run.id) {
       this.closeExpand();
       return;
     }
-    this.expandedRunId = run.id;
+    this.expandedRunId.set(run.id);
     this.expandedRun.set(null);
     this.expandedStepIds.clear();
     this.formattedJsonCache.clear();
-    this.probeService.getRun(this.probeId, run.id).subscribe((r) => {
-      this.formattedJsonCache.clear();
-      for (const step of r.steps ?? []) {
-        if (step.detail) {
-          const parsed = this.tryParseJson(step.detail.trim());
-          this.formattedJsonCache.set(step.id, parsed !== null ? JSON.stringify(parsed, null, 2) : null);
-        } else {
-          this.formattedJsonCache.set(step.id, null);
+    this.probeService.getRun(this.probeId, run.id).subscribe({
+      next: (r) => {
+        this.formattedJsonCache.clear();
+        for (const step of r.steps ?? []) {
+          if (step.detail) {
+            const parsed = this.tryParseJson(step.detail.trim());
+            this.formattedJsonCache.set(step.id, parsed !== null ? JSON.stringify(parsed, null, 2) : null);
+          } else {
+            this.formattedJsonCache.set(step.id, null);
+          }
         }
-      }
-      this.expandedRun.set(r);
+        this.expandedRun.set(r);
+      },
+      error: () => {
+        this.expandedRunId.set(null);
+        this.toast.error('Failed to load run details');
+      },
     });
+  }
+
+  getRunById(id: string): ProbeRun | null {
+    return this.runs().find((r) => r.id === id) ?? null;
   }
 
   formatDuration(ms: number | null): string {
