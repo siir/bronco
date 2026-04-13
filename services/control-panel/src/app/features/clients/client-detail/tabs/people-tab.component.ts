@@ -68,7 +68,7 @@ import { PersonDialogComponent } from '../../../people/person-dialog.component';
           <ng-template #cell let-p>
             <div class="row-actions">
               <app-bronco-button variant="icon" size="sm" ariaLabel="Edit person" (click)="openEditDialog(p)">&#x270E;</app-bronco-button>
-              <app-bronco-button variant="icon" size="sm" ariaLabel="Delete person" (click)="deletePerson(p.id)">&#x1F5D1;</app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" ariaLabel="Delete person" (click)="deletePerson(p)">&#x1F5D1;</app-bronco-button>
             </div>
           </ng-template>
         </app-data-column>
@@ -208,8 +208,12 @@ export class ClientPeopleTabComponent implements OnInit {
     this.load();
   }
 
-  deletePerson(id: string): void {
-    this.personService.deletePerson(id)
+  deletePerson(person: Person): void {
+    const message = person.hasPortalAccess
+      ? `Deactivate ${person.name}? They will lose portal access.`
+      : `Delete ${person.name}? This cannot be undone. If they are a follower on tickets, deletion will fail.`;
+    if (!confirm(message)) return;
+    this.personService.deletePerson(person.id)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: () => {
