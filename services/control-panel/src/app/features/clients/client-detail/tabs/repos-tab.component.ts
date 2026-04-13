@@ -54,7 +54,7 @@ import { RepoDialogComponent } from '../../../repos/repo-dialog.component';
           <ng-template #cell let-r>
             <div class="row-actions">
               <app-bronco-button variant="icon" size="sm" ariaLabel="Edit repository" (click)="openEditDialog(r)"><app-icon name="edit" size="sm" /></app-bronco-button>
-              <app-bronco-button variant="icon" size="sm" ariaLabel="Delete repository" (click)="deleteRepo(r)">&#x1F5D1;</app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" ariaLabel="Delete repository" (click)="deleteRepo(r)"><app-icon name="delete" size="sm" /></app-bronco-button>
             </div>
           </ng-template>
         </app-data-column>

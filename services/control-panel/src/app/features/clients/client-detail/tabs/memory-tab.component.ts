@@ -63,7 +63,7 @@ const SOURCE_OPTIONS = [
               (checkedChange)="toggleMemory(mem, $event)" />
             <span class="spacer"></span>
             <app-bronco-button variant="icon" size="sm" ariaLabel="Edit memory" (click)="openEditDialog(mem)"><app-icon name="edit" size="sm" /></app-bronco-button>
-            <app-bronco-button variant="icon" size="sm" ariaLabel="Delete memory" (click)="deleteMemory(mem.id)">&#x1F5D1;</app-bronco-button>
+            <app-bronco-button variant="icon" size="sm" ariaLabel="Delete memory" (click)="deleteMemory(mem.id)"><app-icon name="delete" size="sm" /></app-bronco-button>
           </div>
           @if (mem.tags.length) {
             <div class="tags">

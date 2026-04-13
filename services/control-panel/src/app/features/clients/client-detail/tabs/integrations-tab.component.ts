@@ -49,7 +49,7 @@ const SENSITIVE_KEYS = ['encryptedPassword', 'encryptedPat', 'encryptedBotToken'
               (checkedChange)="toggleIntegration(integ, $event)" />
             <span class="spacer"></span>
             <app-bronco-button variant="icon" size="sm" ariaLabel="Edit integration" (click)="openEditDialog(integ)"><app-icon name="edit" size="sm" /></app-bronco-button>
-            <app-bronco-button variant="icon" size="sm" ariaLabel="Delete integration" (click)="deleteIntegration(integ.id)">&#x1F5D1;</app-bronco-button>
+            <app-bronco-button variant="icon" size="sm" ariaLabel="Delete integration" (click)="deleteIntegration(integ.id)"><app-icon name="delete" size="sm" /></app-bronco-button>
           </div>
           @if (integ.notes) { <p class="integ-notes">{{ integ.notes }}</p> }
           @if (integ.type === 'MCP_DATABASE' && integ.metadata) {

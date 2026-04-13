@@ -38,7 +38,7 @@ import { PersonDialogComponent } from '../../../people/person-dialog.component';
           <ng-template #cell let-p>
             {{ p.name }}
             @if (p.isPrimary) {
-              <span class="primary-star" title="Primary contact">&#x2605;</span>
+              <span class="primary-star" title="Primary contact"><app-icon name="star" size="xs" /></span>
             }
           </ng-template>
         </app-data-column>
@@ -70,7 +70,7 @@ import { PersonDialogComponent } from '../../../people/person-dialog.component';
           <ng-template #cell let-p>
             <div class="row-actions">
               <app-bronco-button variant="icon" size="sm" ariaLabel="Edit person" (click)="openEditDialog(p)"><app-icon name="edit" size="sm" /></app-bronco-button>
-              <app-bronco-button variant="icon" size="sm" ariaLabel="Delete person" (click)="deletePerson(p.id)">&#x1F5D1;</app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" ariaLabel="Delete person" (click)="deletePerson(p.id)"><app-icon name="delete" size="sm" /></app-bronco-button>
             </div>
           </ng-template>
         </app-data-column>

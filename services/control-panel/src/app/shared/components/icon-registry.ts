@@ -46,6 +46,8 @@ import {
   faPlay,
   faPause,
   faStop,
+  faDownload,
+  faPaperPlaneTop,
   // Communication
   faEnvelope,
   faComment,
@@ -152,6 +154,8 @@ export const ICON_REGISTRY = {
   play: faPlay,
   pause: faPause,
   stop: faStop,
+  download: faDownload,
+  send: faPaperPlaneTop,
   // Communication
   email: faEnvelope,
   comment: faComment,

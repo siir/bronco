@@ -273,7 +273,7 @@ interface ConvTreeNode {
                       @if (entry.service) { <span class="log-service">{{ entry.service }}</span> }
                       <span class="log-message">{{ entry.message }}</span>
                       @if (entry.context?.['artifactId']) {
-                        <a class="artifact-link" [href]="ticketService.getArtifactDownloadUrl('' + entry.context!['artifactId'])" download>&#x2B73; Full output</a>
+                        <a class="artifact-link" [href]="ticketService.getArtifactDownloadUrl('' + entry.context!['artifactId'])" download><app-icon name="download" size="xs" /> Full output</a>
                       }
                     </div>
                     @if (entry.context && hasKeys(entry.context)) {
@@ -338,7 +338,7 @@ interface ConvTreeNode {
                                 @if (entry.service) { <span class="log-service">{{ entry.service }}</span> }
                                 <span class="log-message">{{ entry.message }}</span>
                                 @if (entry.context?.['artifactId']) {
-                                  <a class="artifact-link" [href]="ticketService.getArtifactDownloadUrl('' + entry.context!['artifactId'])" download>&#x2B73; Full output</a>
+                                  <a class="artifact-link" [href]="ticketService.getArtifactDownloadUrl('' + entry.context!['artifactId'])" download><app-icon name="download" size="xs" /> Full output</a>
                                 }
                               }
                             </div>
@@ -646,7 +646,7 @@ interface ConvTreeNode {
                       }
                     </div>
                     <a class="artifact-dl" [href]="ticketService.getArtifactDownloadUrl(a.id)" download>
-                      <span aria-hidden="true">&#x2B73;</span> Download
+                      <app-icon name="download" size="sm" /> Download
                     </a>
                   </div>
                 }
@@ -668,7 +668,7 @@ interface ConvTreeNode {
               </app-form-field>
               <div class="comment-actions">
                 <app-bronco-button variant="primary" (click)="addComment()" [disabled]="!newComment">
-                  <span aria-hidden="true">&#x27A4;</span> Add Comment
+                  <app-icon name="send" size="sm" /> Add Comment
                 </app-bronco-button>
               </div>
             </app-card>

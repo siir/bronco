@@ -32,7 +32,7 @@ import { ClientEnvironmentDialogComponent } from '../../client-environment-dialo
       @for (env of environments(); track env.id) {
         <app-card padding="md" class="env-card" [class.inactive-card]="!env.isActive">
           <div class="env-header">
-            <span class="env-icon" aria-hidden="true">&#x2601;</span>
+            <span class="env-icon" aria-hidden="true"><app-icon name="cloud" size="sm" /></span>
             <strong class="env-name">{{ env.name }}</strong>
             <span class="chip chip-tag">{{ env.tag }}</span>
             @if (env.isDefault) {
@@ -44,7 +44,7 @@ import { ClientEnvironmentDialogComponent } from '../../client-environment-dialo
               (checkedChange)="toggleEnvironment(env, $event)" />
             <span class="spacer"></span>
             <app-bronco-button variant="icon" size="sm" ariaLabel="Edit environment" (click)="openEditDialog(env)"><app-icon name="edit" size="sm" /></app-bronco-button>
-            <app-bronco-button variant="icon" size="sm" ariaLabel="Delete environment" (click)="deleteEnvironment(env)">&#x1F5D1;</app-bronco-button>
+            <app-bronco-button variant="icon" size="sm" ariaLabel="Delete environment" (click)="deleteEnvironment(env)"><app-icon name="delete" size="sm" /></app-bronco-button>
           </div>
           @if (env.description) { <p class="env-desc">{{ env.description }}</p> }
           @if (env.operationalInstructions) {
