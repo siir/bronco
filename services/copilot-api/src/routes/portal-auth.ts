@@ -11,12 +11,13 @@ const REFRESH_TOKEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 
 function signPortalAccessToken(
   secret: string,
-  user: { id: string; email: string; clientId: string; userType: ClientUserType; hasOpsAccess: boolean },
+  user: { id: string; email: string; name: string; clientId: string; userType: ClientUserType; hasOpsAccess: boolean },
 ): string {
   return jwt.sign(
     {
       sub: user.id,
       email: user.email,
+      name: user.name,
       clientId: user.clientId,
       userType: user.userType,
       hasOpsAccess: user.hasOpsAccess,
@@ -86,6 +87,7 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
       const accessToken = signPortalAccessToken(fastify.portalJwtSecret, {
         id: user.id,
         email: user.email,
+        name: user.name ?? '',
         clientId: user.clientId,
         userType,
         hasOpsAccess: user.hasOpsAccess,
@@ -152,6 +154,7 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
       const newAccessToken = signPortalAccessToken(fastify.portalJwtSecret, {
         id: user.id,
         email: user.email,
+        name: user.name ?? '',
         clientId: user.clientId,
         userType,
         hasOpsAccess: user.hasOpsAccess,
@@ -222,10 +225,10 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
         if (existing.hasPortalAccess) {
           return reply.code(409).send({ error: 'An account with this email already exists' });
         }
-        // Upgrade existing contact to portal user
+        // Upgrade existing contact to portal user (preserve operator-set name)
         user = await fastify.db.person.update({
           where: { id: existing.id },
-          data: { passwordHash, hasPortalAccess: true, userType: 'USER', name: name.trim() },
+          data: { passwordHash, hasPortalAccess: true, userType: 'USER', ...(existing.name ? {} : { name: name.trim() }) },
         });
       } else {
         user = await fastify.db.person.create({
@@ -244,6 +247,7 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
       const accessToken = signPortalAccessToken(fastify.portalJwtSecret, {
         id: user.id,
         email: user.email,
+        name: user.name ?? '',
         clientId: user.clientId,
         userType,
         hasOpsAccess: user.hasOpsAccess,
