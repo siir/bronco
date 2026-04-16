@@ -1,6 +1,5 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { Router } from '@angular/router';
-import { Location } from '@angular/common';
 import { ViewportService } from './viewport.service.js';
 
 export type DetailEntityType = 'ticket' | 'client' | 'probe' | 'system' | 'analysis' | 'job';
@@ -14,8 +13,22 @@ const VALID_MODES: ReadonlySet<string> = new Set<DetailPanelMode>(['full', 'comp
 @Injectable({ providedIn: 'root' })
 export class DetailPanelService {
   private readonly router = inject(Router);
-  private readonly location = inject(Location);
   private readonly viewport = inject(ViewportService);
+
+  /**
+   * Parent list path per entity type. Used when closing the mobile routed
+   * detail view (so deep-link arrivals don't exit the app), and when flipping
+   * back to desktop from a routed view (to navigate to the parent list and
+   * restore the inline side pane via query params).
+   */
+  static readonly PARENT_LIST: Record<DetailEntityType, string> = {
+    ticket: '/dashboard',
+    client: '/clients',
+    probe: '/scheduled-probes',
+    system: '/system-status',
+    analysis: '/system-analysis',
+    job: '/failed-jobs',
+  };
 
   readonly entityType = signal<DetailEntityType | null>(null);
   readonly entityId = signal<string | null>(null);
@@ -50,13 +63,18 @@ export class DetailPanelService {
   }
 
   close(): void {
+    // Capture entity type BEFORE dismiss() clears it — we need it to pick
+    // the right parent list for the routed-view case.
+    const type = this.entityType();
+    const wasRouted = this.router.url.startsWith('/detail/');
     this.dismiss();
-    // On the routed detail view (`/detail/:type/:id`) the route itself is the
-    // state — use history to return to wherever the user came from. This
-    // covers both the mobile primary flow and the mobile→desktop resize
-    // edge case. On desktop list pages we just clear the query params.
-    if (this.router.url.startsWith('/detail/')) {
-      this.location.back();
+    if (wasRouted) {
+      // Mobile routed detail view. Navigate to the entity's parent list
+      // rather than `location.back()` — back is unreliable: deep-link
+      // arrivals (shared URL, bookmark) have no intra-app history and
+      // would exit the app entirely.
+      const parent = (type && DetailPanelService.PARENT_LIST[type]) || '/dashboard';
+      this.router.navigate([parent]);
       return;
     }
     this.router.navigate([], {
@@ -68,10 +86,26 @@ export class DetailPanelService {
 
   /** Reset panel state without navigating — use when another navigation is already in progress. */
   dismiss(): void {
+    if (this._suppressNextDismiss) {
+      this._suppressNextDismiss = false;
+      return;
+    }
     this.entityType.set(null);
     this.entityId.set(null);
     this.mode.set('full');
   }
+
+  /**
+   * Tell the NEXT dismiss() call to skip clearing signals. Used by the shell
+   * when a viewport-flip from mobile → desktop causes navigation away from
+   * `/detail/:type/:id` — DetailViewComponent's onDestroy would otherwise
+   * wipe the signals before the inline side pane could pick up the state.
+   */
+  suppressNextDismiss(): void {
+    this._suppressNextDismiss = true;
+  }
+
+  private _suppressNextDismiss = false;
 
   /**
    * Hydrate panel state from route params (used by the mobile routed

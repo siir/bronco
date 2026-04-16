@@ -1,9 +1,8 @@
-import { Component, DestroyRef, effect, inject, OnInit, signal, untracked } from '@angular/core';
+import { Component, DestroyRef, effect, HostListener, inject, OnInit, signal, untracked } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { RouterOutlet, ActivatedRoute, Router, NavigationEnd } from '@angular/router';
+import { RouterOutlet, Router, NavigationEnd } from '@angular/router';
 import { Overlay, OverlayRef } from '@angular/cdk/overlay';
 import { ComponentPortal } from '@angular/cdk/portal';
-import { ESCAPE } from '@angular/cdk/keycodes';
 import { SidebarComponent } from './sidebar.component';
 import { SidebarDrawerComponent } from './sidebar-drawer.component';
 import { HeaderBarComponent } from './header-bar.component';
@@ -101,7 +100,6 @@ export class AppShellComponent implements OnInit {
   private readonly auth = inject(AuthService);
   private readonly ticketService = inject(TicketService);
   private readonly failedJobsService = inject(FailedJobsService);
-  private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly overlay = inject(Overlay);
   private readonly destroyRef = inject(DestroyRef);
@@ -109,6 +107,28 @@ export class AppShellComponent implements OnInit {
   readonly onDetailRoute = signal(false);
 
   private drawerRef: OverlayRef | null = null;
+
+  /**
+   * Global Escape handler for the sidebar drawer.
+   *
+   * We use @HostListener (document-level keydown via Angular's EventManager)
+   * rather than `drawerRef.keydownEvents()` because the overlay stream only
+   * fires when focus is inside the overlay. Document-level is robust across
+   * focus-loss scenarios.
+   */
+  @HostListener('document:keydown.escape', ['$event'])
+  private onDocumentEscape(e: KeyboardEvent): void {
+    // Precedence: drawer → side pane → no-op. Close whatever's "on top".
+    if (this.drawerRef) {
+      e.preventDefault();
+      this.sidebar.close();
+      return;
+    }
+    if (this.detailPanel.isOpen()) {
+      e.preventDefault();
+      this.detailPanel.close();
+    }
+  }
 
   constructor() {
     // Drawer open/close ↔ CDK Overlay attach/detach.
@@ -124,15 +144,43 @@ export class AppShellComponent implements OnInit {
       });
     });
 
-    // Desktop → mobile flip with a side pane open: clear state so the URL
-    // doesn't keep stale ?detail= query params and the hidden pane state
-    // doesn't reappear on resize back to desktop mid-session. Mobile →
-    // desktop is intentionally unhandled (the routed /detail view remains).
+    // Viewport flip: keep the pane visible across the 768px boundary by
+    // swapping presentations, not by destroying state.
+    //   Desktop → mobile: side pane open on /dashboard?detail=… →
+    //     navigate to /detail/:type/:id (routed full-screen view).
+    //   Mobile → desktop: routed view at /detail/:type/:id →
+    //     navigate to parent list with ?detail=…&type=…&mode=… query
+    //     params so the inline side pane renders.
+    // For the mobile→desktop direction, DetailViewComponent.ngOnDestroy
+    // would otherwise dismiss the signals mid-transition and blank the
+    // pane; we suppress that one dismiss so the inline pane picks up
+    // the existing state.
     effect(() => {
       const mobile = this.viewport.isMobile();
       untracked(() => {
-        if (mobile && this.detailPanel.isOpen() && !this.router.url.startsWith('/detail/')) {
-          this.detailPanel.close();
+        const onDetailRoute = this.router.url.startsWith('/detail/');
+        const type = this.detailPanel.entityType();
+        const id = this.detailPanel.entityId();
+        const mode = this.detailPanel.mode();
+
+        if (mobile && this.detailPanel.isOpen() && !onDetailRoute) {
+          // Desktop → mobile with side pane active.
+          if (!type || !id) return;
+          this.router.navigate(['/detail', type, id], {
+            queryParams: mode === 'full' ? undefined : { mode },
+          });
+          return;
+        }
+
+        if (!mobile && onDetailRoute) {
+          // Mobile → desktop on routed view: restore parent list + pane.
+          if (!type || !id) return;
+          const parent = DetailPanelService.PARENT_LIST[type] ?? '/dashboard';
+          this.detailPanel.suppressNextDismiss();
+          this.router.navigate([parent], {
+            queryParams: { detail: id, type, mode },
+            queryParamsHandling: 'merge',
+          });
         }
       });
     });
@@ -140,15 +188,43 @@ export class AppShellComponent implements OnInit {
 
   ngOnInit(): void {
     this.theme.init();
-    const params = this.route.snapshot.queryParams;
+    // Read query params directly from window.location, not the router.
+    // AppShellComponent is mounted via app.component.ts's
+    // `@if (currentUser())` conditional, which flips true as soon as
+    // auth init completes. At that moment Angular's router hasn't yet
+    // finished processing the initial URL, so `router.url` is still '/'
+    // and `ActivatedRoute.snapshot.queryParams` is empty even though the
+    // browser URL (`window.location`) holds the real query string. Parse
+    // window.location directly to restore pane state reliably — this is
+    // the source of truth.
+    const urlParams = new URLSearchParams(window.location.search);
     this.detailPanel.restoreFromUrl({
-      detail: params['detail'],
-      type: params['type'],
-      mode: params['mode'],
+      detail: urlParams.get('detail') ?? undefined,
+      type: urlParams.get('type') ?? undefined,
+      mode: urlParams.get('mode') ?? undefined,
     });
     this.updateTitle();
     this.router.events.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(event => {
-      if (event instanceof NavigationEnd) this.updateTitle();
+      if (!(event instanceof NavigationEnd)) return;
+      this.updateTitle();
+      // Re-sync pane state from the URL on every navigation. Without this,
+      // the signals persist across routerLink navigations (routerLink drops
+      // query params by default), so clicking a sidebar link while a pane
+      // is open would leave the pane stuck on the new page. Anchor the
+      // pane to the URL so it cleanly appears/disappears with nav.
+      //
+      // Skip when landing on a /detail/:type/:id route — DetailViewComponent
+      // owns signal hydration there via hydrateFromParams, and we don't
+      // want to race with it.
+      const url = event.urlAfterRedirects;
+      if (url.startsWith('/detail/')) return;
+      const search = url.split('?')[1] ?? '';
+      const urlParams = new URLSearchParams(search);
+      this.detailPanel.restoreFromUrl({
+        detail: urlParams.get('detail') ?? undefined,
+        type: urlParams.get('type') ?? undefined,
+        mode: urlParams.get('mode') ?? undefined,
+      });
     });
 
     // Seed sidebar badges here (not in SidebarComponent). The shell always
@@ -188,12 +264,6 @@ export class AppShellComponent implements OnInit {
       scrollStrategy: this.overlay.scrollStrategies.block(),
     });
     this.drawerRef.backdropClick().subscribe(() => this.sidebar.close());
-    this.drawerRef.keydownEvents().subscribe(e => {
-      if (e.keyCode === ESCAPE) {
-        e.preventDefault();
-        this.sidebar.close();
-      }
-    });
     this.drawerRef.attach(new ComponentPortal(SidebarDrawerComponent));
   }
 
