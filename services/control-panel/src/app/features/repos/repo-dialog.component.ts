@@ -52,6 +52,10 @@ import { FormFieldComponent, TextInputComponent, TextareaComponent, BroncoButton
     .row { display: flex; gap: 12px; }
     .row app-form-field { flex: 1; }
     .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+    @media (max-width: 767.98px) {
+      .row { flex-direction: column; gap: 12px; }
+    }
   `],
 })
 export class RepoDialogComponent implements OnInit {

@@ -207,6 +207,12 @@ const COMMON_TIMEZONES = [
     .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
     .checkbox-item { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
     .form-checkbox { width: 15px; height: 15px; cursor: pointer; accent-color: var(--accent); }
+
+    @media (max-width: 767.98px) {
+      .dialog-content { min-width: 0; }
+      .time-row, .retention-row { flex-direction: column; gap: 12px; }
+      .checkbox-item, .form-checkbox { min-height: 32px; }
+    }
   `],
 })
 export class ProbeDialogComponent implements OnInit {

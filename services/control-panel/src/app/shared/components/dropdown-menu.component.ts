@@ -134,6 +134,8 @@ export class DropdownItemComponent {
       position: fixed;
       z-index: 1000;
       min-width: 160px;
+      max-height: calc(100vh - 16px);
+      overflow-y: auto;
       padding: 4px 0;
       background: var(--bg-card);
       border: 1px solid var(--border-light);
@@ -192,11 +194,13 @@ export class DropdownMenuComponent implements OnDestroy {
 
     const rect: DOMRect = triggerEl.getBoundingClientRect();
     const menuWidth = 180; // approximate, will adjust after render
+    const menuHeightEstimate = 240; // upper bound; menu max-height clamps to viewport
     const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
 
     // Position below trigger, right-aligned by default
     let x = rect.right - menuWidth;
-    const y = rect.bottom + 4;
+    let y = rect.bottom + 4;
 
     // If would overflow left, flip to left-aligned
     if (x < 8) {
@@ -206,6 +210,19 @@ export class DropdownMenuComponent implements OnDestroy {
     // If would overflow right, clamp
     if (x + menuWidth > viewportWidth - 8) {
       x = viewportWidth - menuWidth - 8;
+    }
+
+    // If would overflow bottom, flip above the trigger when there is more
+    // room there; otherwise clamp into the visible area. Important on mobile
+    // where row-action menus near the bottom would otherwise be cut off.
+    if (y + menuHeightEstimate > viewportHeight - 8) {
+      const spaceAbove = rect.top - 8;
+      const spaceBelow = viewportHeight - rect.bottom - 8;
+      if (spaceAbove > spaceBelow) {
+        y = Math.max(8, rect.top - menuHeightEstimate - 4);
+      } else {
+        y = Math.max(8, viewportHeight - menuHeightEstimate - 8);
+      }
     }
 
     this.posX.set(x);

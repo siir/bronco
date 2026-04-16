@@ -33,6 +33,43 @@ app-dialog .dialog-body [dialogFooter] {
   border-top: 1px solid var(--border-light);
 }
 
+/*
+ * Mobile dialog action-bar pinning.
+ *
+ * The dialog goes full-screen below 768px (see DialogComponent). When a
+ * dialog has more form content than the viewport can show, the user has
+ * to scroll, and the action bar would scroll out of reach. position: sticky
+ * with bottom: -20px keeps the [dialogFooter] pinned to the visible bottom
+ * edge of .dialog-body — the negative offset compensates for the existing
+ * margin-bottom: -20px (which makes the footer extend through the body's
+ * bottom padding to align with the panel edge). A solid background and
+ * top shadow keep it readable over scrolling content.
+ */
+@media (max-width: 767.98px) {
+  app-dialog .dialog-body [dialogFooter] {
+    position: sticky;
+    bottom: -20px;
+    background: var(--bg-card);
+    z-index: 1;
+    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.04);
+  }
+}
+
+/*
+ * iOS Safari auto-zooms on focus when an input has font-size < 16px. This
+ * single rule blocks that behavior across the whole app on mobile widths.
+ * It overrides the 14px default in TextInput/Textarea/Select primitives
+ * (kept at 14px on desktop for visual density). Form-field tap targets
+ * also get bumped to a 44px minimum height for thumb usability.
+ */
+@media (max-width: 767.98px) {
+  input, textarea, select { font-size: 16px; }
+  app-text-input .text-input,
+  app-textarea .textarea-input,
+  app-select .select-input {
+    min-height: 44px;
+  }
+}
 
 @media (max-width: 767px) {
   h1 { font-size: 1.5rem; }

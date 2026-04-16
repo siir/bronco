@@ -30,7 +30,7 @@ import { FormFieldComponent, TextInputComponent, TextareaComponent, SelectCompon
             [value]="form.host"
             (valueChange)="form.host = $event" />
         </app-form-field>
-        <div style="width: 120px; flex-shrink: 0">
+        <div class="port-field">
           <app-form-field label="Port">
             <app-text-input
               [value]="form.port.toString()"
@@ -84,7 +84,13 @@ import { FormFieldComponent, TextInputComponent, TextareaComponent, SelectCompon
     .form-grid { display: flex; flex-direction: column; gap: 12px; }
     .row { display: flex; gap: 12px; }
     .row app-form-field { flex: 1; }
+    .port-field { width: 120px; flex-shrink: 0; }
     .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+    @media (max-width: 767.98px) {
+      .row { flex-direction: column; gap: 12px; }
+      .port-field { width: 100%; }
+    }
   `],
 })
 export class SystemDialogComponent implements OnInit {
