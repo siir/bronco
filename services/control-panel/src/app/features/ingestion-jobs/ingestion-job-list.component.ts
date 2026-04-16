@@ -8,7 +8,14 @@ import {
   IngestionRunDetail,
 } from '../../core/services/ingestion.service';
 import { ClientService, Client } from '../../core/services/client.service';
-import { BroncoButtonComponent, SelectComponent, IconComponent } from '../../shared/components/index.js';
+import {
+  SelectComponent,
+  IconComponent,
+  DataTableComponent,
+  DataTableColumnComponent,
+  PaginatorComponent,
+  type PaginatorPageEvent,
+} from '../../shared/components/index.js';
 
 @Component({
   standalone: true,
@@ -16,9 +23,11 @@ import { BroncoButtonComponent, SelectComponent, IconComponent } from '../../sha
     FormsModule,
     RouterLink,
     DatePipe,
-    BroncoButtonComponent,
     SelectComponent,
     IconComponent,
+    DataTableComponent,
+    DataTableColumnComponent,
+    PaginatorComponent,
   ],
   template: `
     <div class="page-wrapper">
@@ -74,103 +83,122 @@ import { BroncoButtonComponent, SelectComponent, IconComponent } from '../../sha
         <span class="total-count">{{ total() }} runs total</span>
       </div>
 
-      <!-- Runs table -->
-      @if (runs().length === 0) {
-        <div class="card empty-card">
-          <p class="empty">No ingestion runs found.</p>
-        </div>
-      } @else {
-        <div class="table-card">
-          <table class="runs-table">
-            <thead>
-              <tr>
-                <th>Status</th>
-                <th>Source</th>
-                <th>Client</th>
-                <th>Route</th>
-                <th>Ticket</th>
-                <th>Started</th>
-                <th>Duration</th>
-                <th>Steps</th>
-                <th class="col-expand"></th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (r of runs(); track r.id) {
-                <tr class="run-row" [class.expanded-row]="expandedRunId === r.id" (click)="toggleExpand(r)">
-                  <td><span class="badge" [class]="'badge-status-' + r.status">{{ r.status }}</span></td>
-                  <td><span class="badge badge-source">{{ r.source }}</span></td>
-                  <td>{{ r.client.shortCode }}</td>
-                  <td>{{ r.routeName ?? '—' }}</td>
-                  <td>
-                    @if (r.ticketId) {
-                      <a [routerLink]="['/tickets', r.ticketId]" class="ticket-link" (click)="$event.stopPropagation()">View</a>
-                    } @else {
-                      <span class="muted">—</span>
-                    }
-                  </td>
-                  <td>{{ r.startedAt | date:'short' }}</td>
-                  <td>{{ getDuration(r) }}</td>
-                  <td>{{ r.steps.length }}</td>
-                  <td class="col-expand">
-                    <button type="button" class="expand-btn"
-                      (click)="toggleExpand(r); $event.stopPropagation()"
-                      [attr.aria-label]="expandedRunId === r.id ? 'Collapse run details' : 'Expand run details'"
-                      [attr.aria-expanded]="expandedRunId === r.id">
-                      <app-icon [name]="expandedRunId === r.id ? 'chevron-up' : 'chevron-down'" size="sm" />
-                    </button>
-                  </td>
-                </tr>
-                @if (expandedRunId === r.id && expandedRun()) {
-                  <tr class="detail-row-visible">
-                    <td colspan="9">
-                      <div class="expanded-detail">
-                        @if (expandedRun()!.error) {
-                          <div class="run-error">{{ expandedRun()!.error }}</div>
-                        }
-                        @for (step of expandedRun()!.steps; track step.id) {
-                          <div class="detail-step" [class]="'detail-step-' + step.status"
-                            [class.step-highlight]="recentlyChanged().has(step.id)">
-                            <div class="detail-step-header">
-                              <span class="detail-step-order">{{ step.stepOrder }}.</span>
-                              <span class="detail-step-name">{{ step.stepName }}</span>
-                              <span class="badge small" [class]="'badge-status-' + step.status">{{ step.status }}</span>
-                              @if (step.status === 'processing') {
-                                <span class="pulse-dot" aria-hidden="true"></span>
-                              }
-                              <span class="badge small badge-step-type">{{ step.stepType }}</span>
-                              @if (step.durationMs != null) {
-                                <span class="detail-step-duration">{{ formatDuration(step.durationMs) }}</span>
-                              }
-                            </div>
-                            @if (step.error) {
-                              <div class="detail-step-error">{{ step.error }}</div>
-                            }
-                            @if (step.output) {
-                              <details class="detail-step-output">
-                                <summary>Output</summary>
-                                <pre class="detail-pre">{{ step.output }}</pre>
-                              </details>
-                            }
-                          </div>
-                        }
-                      </div>
-                    </td>
-                  </tr>
-                }
-              }
-            </tbody>
-          </table>
-        </div>
+      <app-data-table
+        [data]="runs()"
+        [trackBy]="trackById"
+        [expandedRow]="expandedRowItem()"
+        (rowClick)="toggleExpand($event)"
+        emptyMessage="No ingestion runs found.">
 
-        <!-- Pagination -->
-        @if (total() > pageSize) {
-          <div class="pagination">
-            <app-bronco-button variant="ghost" [disabled]="page === 0" (click)="page = page - 1; loadRuns()">Previous</app-bronco-button>
-            <span class="page-info">Page {{ page + 1 }} of {{ totalPages() }}</span>
-            <app-bronco-button variant="ghost" [disabled]="page >= totalPages() - 1" (click)="page = page + 1; loadRuns()">Next</app-bronco-button>
+        <app-data-column key="status" header="Status" width="110px" [sortable]="false" mobilePriority="secondary">
+          <ng-template #cell let-row>
+            <span class="badge" [class]="'badge-status-' + row.status">{{ row.status }}</span>
+          </ng-template>
+        </app-data-column>
+
+        <app-data-column key="source" header="Source" width="100px" [sortable]="false" mobilePriority="hidden">
+          <ng-template #cell let-row>
+            <span class="badge badge-source">{{ row.source }}</span>
+          </ng-template>
+        </app-data-column>
+
+        <app-data-column key="client" header="Client" width="100px" [sortable]="false" mobilePriority="secondary">
+          <ng-template #cell let-row>
+            {{ row.client.shortCode }}
+          </ng-template>
+        </app-data-column>
+
+        <app-data-column key="route" header="Route" [sortable]="false" mobilePriority="primary">
+          <ng-template #cell let-row>
+            <span class="route-name">{{ row.routeName ?? '—' }}</span>
+          </ng-template>
+        </app-data-column>
+
+        <app-data-column key="ticket" header="Ticket" width="80px" [sortable]="false" mobilePriority="hidden">
+          <ng-template #cell let-row>
+            @if (row.ticketId) {
+              <a [routerLink]="['/tickets', row.ticketId]" class="ticket-link" (click)="$event.stopPropagation()">View</a>
+            } @else {
+              <span class="muted">—</span>
+            }
+          </ng-template>
+        </app-data-column>
+
+        <app-data-column key="started" header="Started" width="160px" [sortable]="false" mobilePriority="secondary">
+          <ng-template #cell let-row>
+            {{ row.startedAt | date:'short' }}
+          </ng-template>
+        </app-data-column>
+
+        <app-data-column key="duration" header="Duration" width="100px" [sortable]="false" mobilePriority="secondary">
+          <ng-template #cell let-row>
+            {{ getDuration(row) }}
+          </ng-template>
+        </app-data-column>
+
+        <app-data-column key="steps" header="Steps" width="80px" [sortable]="false" mobilePriority="hidden">
+          <ng-template #cell let-row>
+            {{ row.steps.length }}
+          </ng-template>
+        </app-data-column>
+
+        <app-data-column key="expand" header="" width="48px" [sortable]="false" mobilePriority="hidden">
+          <ng-template #cell let-row>
+            <button type="button" class="expand-btn"
+              (click)="toggleExpand(row); $event.stopPropagation()"
+              [attr.aria-label]="expandedRunId === row.id ? 'Collapse run details' : 'Expand run details'"
+              [attr.aria-expanded]="expandedRunId === row.id">
+              <app-icon [name]="expandedRunId === row.id ? 'chevron-up' : 'chevron-down'" size="sm" />
+            </button>
+          </ng-template>
+        </app-data-column>
+
+        <ng-template #expandedRow let-row>
+          <div class="expanded-detail" (click)="$event.stopPropagation()">
+            @if (expandedRun()) {
+              @if (expandedRun()!.error) {
+                <div class="run-error">{{ expandedRun()!.error }}</div>
+              }
+              @for (step of expandedRun()!.steps; track step.id) {
+                <div class="detail-step" [class]="'detail-step-' + step.status"
+                  [class.step-highlight]="recentlyChanged().has(step.id)">
+                  <div class="detail-step-header">
+                    <span class="detail-step-order">{{ step.stepOrder }}.</span>
+                    <span class="detail-step-name">{{ step.stepName }}</span>
+                    <span class="badge small" [class]="'badge-status-' + step.status">{{ step.status }}</span>
+                    @if (step.status === 'processing') {
+                      <span class="pulse-dot" aria-hidden="true"></span>
+                    }
+                    <span class="badge small badge-step-type">{{ step.stepType }}</span>
+                    @if (step.durationMs != null) {
+                      <span class="detail-step-duration">{{ formatDuration(step.durationMs) }}</span>
+                    }
+                  </div>
+                  @if (step.error) {
+                    <div class="detail-step-error">{{ step.error }}</div>
+                  }
+                  @if (step.output) {
+                    <details class="detail-step-output">
+                      <summary>Output</summary>
+                      <pre class="detail-pre">{{ step.output }}</pre>
+                    </details>
+                  }
+                </div>
+              }
+            } @else {
+              <div class="detail-loading">Loading run details…</div>
+            }
           </div>
-        }
+        </ng-template>
+      </app-data-table>
+
+      @if (total() > pageSize) {
+        <app-paginator
+          [length]="total()"
+          [pageSize]="pageSize"
+          [pageIndex]="page"
+          [pageSizeOptions]="[20, 50, 100]"
+          (page)="onPage($event)" />
       }
     </div>
   `,
@@ -214,30 +242,11 @@ import { BroncoButtonComponent, SelectComponent, IconComponent } from '../../sha
     .filters app-select { min-width: 160px; }
     .total-count { color: var(--text-tertiary); font-family: var(--font-primary); font-size: 13px; margin-left: auto; }
 
-    .table-card {
-      background: var(--bg-card); border-radius: var(--radius-lg);
-      box-shadow: var(--shadow-card); overflow: hidden; margin-bottom: 16px;
-    }
-    .runs-table { width: 100%; border-collapse: collapse; }
-    .runs-table thead th {
-      text-align: left; padding: 10px 16px; font-family: var(--font-primary);
-      font-size: 12px; font-weight: 500; color: var(--text-tertiary);
-      border-bottom: 1px solid var(--border-light); user-select: none;
-    }
-    .runs-table tbody td {
-      padding: 12px 16px; font-family: var(--font-primary); font-size: 14px;
-      color: var(--text-secondary); border-bottom: 1px solid var(--border-light);
-    }
-    .col-expand { width: 48px; text-align: center; }
     .expand-btn {
       background: none; border: none; cursor: pointer; padding: 4px 8px;
       font-size: 14px; color: var(--text-secondary); border-radius: var(--radius-sm);
     }
     .expand-btn:hover { background: var(--bg-hover); }
-
-    .run-row { cursor: pointer; transition: background 120ms ease; }
-    .run-row:hover { background: var(--bg-hover); }
-    .expanded-row { background: var(--bg-active); }
 
     .badge {
       font-family: var(--font-primary); font-size: 11px; font-weight: 600;
@@ -253,20 +262,23 @@ import { BroncoButtonComponent, SelectComponent, IconComponent } from '../../sha
     .badge-source { background: rgba(0, 113, 227, 0.08); color: var(--accent); }
     .badge-step-type { background: var(--bg-muted); color: var(--text-tertiary); }
 
+    .route-name { color: var(--text-primary); font-weight: 500; }
     .ticket-link { color: var(--accent-link); text-decoration: none; font-family: var(--font-primary); font-weight: 500; }
     .ticket-link:hover { text-decoration: underline; }
     .muted { color: var(--text-tertiary); }
-
-    .detail-row-visible td { padding: 8px 16px !important; border-bottom: 1px solid var(--border-light); background: var(--bg-page); }
 
     .run-error {
       padding: 8px 12px; background: rgba(255, 59, 48, 0.08); color: var(--color-error);
       border-radius: var(--radius-sm); margin-bottom: 8px; font-family: var(--font-primary); font-size: 13px;
     }
     .expanded-detail { padding: 8px 0; }
+    .detail-loading {
+      font-family: var(--font-primary); font-size: 13px; color: var(--text-tertiary);
+      padding: 8px 0;
+    }
     .detail-step { padding: 6px 0; border-bottom: 1px solid var(--border-light); }
     .detail-step:last-child { border-bottom: none; }
-    .detail-step-header { display: flex; align-items: center; gap: 8px; }
+    .detail-step-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .detail-step-order { font-family: var(--font-primary); font-weight: 600; color: var(--text-tertiary); min-width: 20px; }
     .detail-step-name { font-family: var(--font-primary); font-weight: 500; color: var(--text-primary); }
     .detail-step-duration { font-family: var(--font-primary); font-size: 12px; color: var(--text-tertiary); }
@@ -285,15 +297,6 @@ import { BroncoButtonComponent, SelectComponent, IconComponent } from '../../sha
     .detail-pre {
       background: #1d1d1f; color: #f5f5f7; padding: 8px 12px; border-radius: var(--radius-sm);
       font-size: 12px; overflow-x: auto; max-height: 300px; white-space: pre-wrap; word-break: break-word;
-    }
-
-    .pagination { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 16px 0; }
-    .page-info { font-family: var(--font-primary); font-size: 13px; color: var(--text-tertiary); }
-    .empty { color: var(--text-tertiary); text-align: center; padding: 24px 16px; margin: 0; font-family: var(--font-primary); }
-    .empty-card { margin-bottom: 16px; }
-    .card {
-      background: var(--bg-card); border-radius: var(--radius-lg);
-      padding: 16px; box-shadow: var(--shadow-card);
     }
   `],
 })
@@ -325,6 +328,14 @@ export class IngestionJobListComponent implements OnInit, OnDestroy {
     { value: '', label: 'All Clients' },
     ...this.clients().map(c => ({ value: c.id, label: c.shortCode })),
   ]);
+
+  trackById = (item: IngestionRun) => item.id;
+
+  expandedRowItem = computed<IngestionRun | null>(() => {
+    const id = this.expandedRunId;
+    if (!id) return null;
+    return this.runs().find(r => r.id === id) ?? null;
+  });
 
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private detailPollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -376,8 +387,10 @@ export class IngestionJobListComponent implements OnInit, OnDestroy {
     });
   }
 
-  totalPages(): number {
-    return Math.ceil(this.total() / this.pageSize);
+  onPage(event: PaginatorPageEvent): void {
+    this.pageSize = event.pageSize;
+    this.page = event.pageIndex;
+    this.loadRuns();
   }
 
   toggleExpand(run: IngestionRun): void {
