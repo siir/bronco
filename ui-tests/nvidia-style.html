@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bronco — NVIDIA Style Preview</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg-black: #000000;
+    --bg-dark: #1a1a1a;
+    --bg-surface: #222222;
+    --bg-elevated: #2a2a2a;
+    --bg-white: #ffffff;
+    --nvidia-green: #76b900;
+    --nvidia-green-light: #bff230;
+    --text-white: #ffffff;
+    --text-gray-300: #a7a7a7;
+    --text-gray-400: #898989;
+    --text-gray-500: #757575;
+    --border-gray: #5e5e5e;
+    --border-subtle: #333333;
+    --success: #3f8500;
+    --warning: #ef9100;
+    --error: #e52020;
+    --info: #0046a4;
+    --link-hover: #3860be;
+    --shadow-card: rgba(0,0,0,0.3) 0px 0px 5px 0px;
+    --radius: 2px;
+  }
+
+  body {
+    font-family: Arial, Helvetica, sans-serif;
+    background: var(--bg-black);
+    color: var(--text-white);
+    font-size: 15px;
+    line-height: 1.5;
+    font-weight: 400;
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* Sidebar */
+  .sidebar {
+    width: 240px;
+    min-width: 240px;
+    background: var(--bg-black);
+    border-right: 1px solid var(--border-subtle);
+    display: flex;
+    flex-direction: column;
+    padding: 16px 0;
+    overflow-y: auto;
+  }
+
+  .sidebar-brand {
+    padding: 0 16px 24px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-white);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .sidebar-brand .logo {
+    width: 32px;
+    height: 32px;
+    background: var(--nvidia-green);
+    border-radius: var(--radius);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 16px;
+    color: #000;
+  }
+
+  .sidebar-section { padding: 8px 8px 4px; }
+
+  .sidebar-section-label {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-gray-500);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    padding: 8px 8px 6px;
+  }
+
+  .sidebar-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: var(--radius);
+    color: var(--text-gray-300);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.1s;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+
+  .sidebar-item:hover {
+    color: var(--text-white);
+    background: var(--bg-dark);
+  }
+
+  .sidebar-item.active {
+    color: var(--nvidia-green);
+    border-left: 2px solid var(--nvidia-green);
+    padding-left: 8px;
+  }
+
+  .sidebar-item .icon {
+    width: 16px;
+    height: 16px;
+    opacity: 0.4;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+  }
+
+  .sidebar-item.active .icon { opacity: 0.9; }
+
+  .sidebar-item .badge {
+    margin-left: auto;
+    background: transparent;
+    color: var(--nvidia-green);
+    font-size: 11px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border: 1px solid var(--nvidia-green);
+    border-radius: var(--radius);
+    min-width: 18px;
+    text-align: center;
+  }
+
+  /* Main */
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg-black);
+  }
+
+  /* Header */
+  .header {
+    height: 56px;
+    min-height: 56px;
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    padding: 0 24px;
+    gap: 16px;
+    background: var(--bg-black);
+  }
+
+  .header-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text-white);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .header-breadcrumb {
+    font-size: 14px;
+    color: var(--text-gray-500);
+    font-weight: 400;
+  }
+
+  .header-search {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid var(--border-gray);
+    border-radius: var(--radius);
+    padding: 6px 14px;
+    color: var(--text-gray-400);
+    font-size: 14px;
+    font-weight: 400;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+  }
+
+  .header-search kbd {
+    font-size: 11px;
+    color: var(--text-gray-500);
+    font-family: inherit;
+  }
+
+  /* Stats */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    padding: 24px 24px 0;
+  }
+
+  .stat-card {
+    background: var(--bg-dark);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+    padding: 20px;
+    border-top: 2px solid var(--nvidia-green);
+  }
+
+  .stat-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-gray-400);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+  }
+
+  .stat-value {
+    font-size: 32px;
+    font-weight: 700;
+    line-height: 1.25;
+    color: var(--text-white);
+  }
+
+  .stat-change {
+    font-size: 13px;
+    font-weight: 700;
+    margin-top: 6px;
+  }
+
+  .stat-change.positive { color: var(--nvidia-green); }
+  .stat-change.negative { color: var(--error); }
+
+  /* Content */
+  .content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 24px 24px;
+  }
+
+  /* Toolbar */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 16px 0 12px;
+  }
+
+  .toolbar-btn {
+    background: transparent;
+    border: 1px solid var(--border-gray);
+    border-radius: var(--radius);
+    padding: 6px 14px;
+    color: var(--text-gray-300);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.1s;
+    font-family: inherit;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+
+  .toolbar-btn:hover {
+    color: var(--text-white);
+    border-color: var(--text-gray-300);
+  }
+
+  .toolbar-btn.active {
+    color: var(--text-white);
+    border-color: var(--nvidia-green);
+    background: rgba(118,185,0,0.1);
+  }
+
+  .toolbar-spacer { flex: 1; }
+
+  .toolbar-btn.primary {
+    background: transparent;
+    border: 2px solid var(--nvidia-green);
+    color: var(--text-white);
+  }
+
+  .toolbar-btn.primary:hover {
+    background: #1eaedb;
+    border-color: #1eaedb;
+  }
+
+  /* Table */
+  .table-container {
+    background: var(--bg-dark);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+
+  table { width: 100%; border-collapse: collapse; }
+
+  thead th {
+    text-align: left;
+    padding: 12px 16px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-gray-500);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border-subtle);
+    background: rgba(255,255,255,0.02);
+  }
+
+  tbody td {
+    padding: 14px 16px;
+    font-size: 14px;
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--text-gray-300);
+  }
+
+  tbody tr:last-child td { border-bottom: none; }
+
+  tbody tr:hover {
+    background: var(--bg-surface);
+    cursor: pointer;
+  }
+
+  .ticket-subject {
+    color: var(--text-white);
+    font-weight: 700;
+    font-size: 14px;
+  }
+
+  /* Status */
+  .status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .status-dot.open { background: #007aff; }
+  .status-dot.in-progress { background: var(--warning); }
+  .status-dot.resolved { background: var(--nvidia-green); }
+  .status-dot.closed { background: var(--text-gray-500); }
+
+  /* Priority */
+  .priority {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    border-radius: var(--radius);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    border: 1px solid;
+  }
+
+  .priority.critical {
+    color: var(--error);
+    border-color: var(--error);
+    background: rgba(229,32,32,0.1);
+  }
+
+  .priority.high {
+    color: var(--warning);
+    border-color: var(--warning);
+    background: rgba(239,145,0,0.1);
+  }
+
+  .priority.medium {
+    color: #007aff;
+    border-color: #007aff;
+    background: rgba(0,122,255,0.08);
+  }
+
+  .priority.low {
+    color: var(--text-gray-400);
+    border-color: var(--border-gray);
+    background: transparent;
+  }
+
+  /* Category */
+  .category {
+    display: inline-flex;
+    padding: 2px 8px;
+    border-radius: var(--radius);
+    font-size: 11px;
+    font-weight: 700;
+    background: transparent;
+    color: var(--text-gray-400);
+    border: 1px solid var(--border-subtle);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+
+  .client-name { font-size: 13px; color: var(--text-gray-300); }
+  .client-code { color: var(--nvidia-green); font-weight: 700; }
+  .timestamp { font-size: 12px; color: var(--text-gray-500); font-variant-numeric: tabular-nums; }
+
+  /* Detail panel */
+  .detail-panel {
+    width: 380px;
+    min-width: 380px;
+    border-left: 1px solid var(--border-subtle);
+    background: var(--bg-dark);
+    overflow-y: auto;
+  }
+
+  .detail-header {
+    padding: 20px 20px 16px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .detail-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-white);
+    line-height: 1.25;
+    margin-bottom: 10px;
+  }
+
+  .detail-meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+  .detail-section {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .detail-section-title {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--nvidia-green);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 12px;
+  }
+
+  .detail-field {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 0;
+  }
+
+  .detail-field-label { font-size: 13px; color: var(--text-gray-500); font-weight: 700; }
+  .detail-field-value { font-size: 13px; color: var(--text-white); font-weight: 400; }
+
+  .detail-summary {
+    font-size: 14px;
+    color: var(--text-gray-300);
+    line-height: 1.6;
+  }
+
+  /* AI card */
+  .ai-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-left: 2px solid var(--nvidia-green);
+    border-radius: var(--radius);
+    padding: 14px;
+    margin-top: 10px;
+  }
+
+  .ai-card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .ai-badge {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--nvidia-green);
+    border: 1px solid var(--nvidia-green);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .ai-model {
+    font-size: 11px;
+    color: var(--text-gray-500);
+    font-weight: 400;
+  }
+
+  .ai-card-body {
+    font-size: 13px;
+    color: var(--text-gray-300);
+    line-height: 1.6;
+  }
+
+  /* Tabs */
+  .tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border-subtle);
+    padding: 0 20px;
+  }
+
+  .tab {
+    padding: 12px 14px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-gray-500);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    transition: all 0.1s;
+  }
+
+  .tab:hover { color: var(--text-gray-300); }
+
+  .tab.active {
+    color: var(--text-white);
+    border-bottom-color: var(--nvidia-green);
+  }
+
+  /* Services */
+  .service-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .service-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-gray-300);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+
+  .service-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--nvidia-green);
+    flex-shrink: 0;
+  }
+
+  .service-dot.warn { background: var(--warning); }
+  .service-dot.error { background: var(--error); }
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border-subtle); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-gray-500); }
+</style>
+</head>
+<body>
+
+<nav class="sidebar">
+  <div class="sidebar-brand"><div class="logo">B</div> Bronco</div>
+  <div class="sidebar-section">
+    <div class="sidebar-item active"><span class="icon">&#9634;</span> Dashboard</div>
+    <div class="sidebar-item"><span class="icon">&#9993;</span> Tickets <span class="badge">12</span></div>
+    <div class="sidebar-item"><span class="icon">&#9881;</span> Clients</div>
+    <div class="sidebar-item"><span class="icon">&#9783;</span> Contacts</div>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Operations</div>
+    <div class="sidebar-item"><span class="icon">&#8962;</span> Systems</div>
+    <div class="sidebar-item"><span class="icon">&#9881;</span> Probes</div>
+    <div class="sidebar-item"><span class="icon">&#8634;</span> Ingestion</div>
+    <div class="sidebar-item"><span class="icon">&#9888;</span> Failed Jobs</div>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">AI</div>
+    <div class="sidebar-item"><span class="icon">&#10024;</span> Prompts</div>
+    <div class="sidebar-item"><span class="icon">&#9878;</span> AI Usage</div>
+    <div class="sidebar-item"><span class="icon">&#128270;</span> Analysis</div>
+    <div class="sidebar-item"><span class="icon">&#9776;</span> Routes</div>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">System</div>
+    <div class="sidebar-item"><span class="icon">&#9889;</span> Status</div>
+    <div class="sidebar-item"><span class="icon">&#9776;</span> Logs</div>
+    <div class="sidebar-item"><span class="icon">&#9878;</span> Settings</div>
+    <div class="sidebar-item"><span class="icon">&#128196;</span> Release Notes</div>
+  </div>
+</nav>
+
+<main class="main">
+  <div class="header">
+    <span class="header-title">Dashboard</span>
+    <span class="header-breadcrumb">/ Overview</span>
+    <div class="header-search">Search... <kbd>&#8984;K</kbd></div>
+  </div>
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-label">Open Tickets</div>
+      <div class="stat-value">23</div>
+      <div class="stat-change positive">+3 today</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Avg Resolution</div>
+      <div class="stat-value">4.2h</div>
+      <div class="stat-change positive">-18% this week</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">AI Calls (24h)</div>
+      <div class="stat-value">847</div>
+      <div class="stat-change negative">+12% vs avg</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Systems Healthy</div>
+      <div class="stat-value">14/15</div>
+      <div class="stat-change negative">1 degraded</div>
+    </div>
+  </div>
+  <div class="content">
+    <div class="toolbar">
+      <button class="toolbar-btn active">All Tickets</button>
+      <button class="toolbar-btn">Open</button>
+      <button class="toolbar-btn">In Progress</button>
+      <button class="toolbar-btn">Resolved</button>
+      <span class="toolbar-spacer"></span>
+      <button class="toolbar-btn">Filter</button>
+      <button class="toolbar-btn primary">+ New Ticket</button>
+    </div>
+    <div class="table-container">
+      <table>
+        <thead><tr><th>Subject</th><th>Status</th><th>Priority</th><th>Category</th><th>Client</th><th>Updated</th></tr></thead>
+        <tbody>
+          <tr><td class="ticket-subject">SQL deadlock on evo_EDI_Document table during batch processing</td><td><span class="status"><span class="status-dot in-progress"></span>In Progress</span></td><td><span class="priority critical">Critical</span></td><td><span class="category">DATABASE_PERF</span></td><td><span class="client-name"><span class="client-code">ALT</span> Altman Plants</span></td><td class="timestamp">2 min ago</td></tr>
+          <tr><td class="ticket-subject">Feature request: add bulk import for contact records</td><td><span class="status"><span class="status-dot open"></span>Open</span></td><td><span class="priority medium">Medium</span></td><td><span class="category">FEATURE_REQUEST</span></td><td><span class="client-name"><span class="client-code">MRK</span> Meridian K</span></td><td class="timestamp">14 min ago</td></tr>
+          <tr><td class="ticket-subject">Review stored procedure sp_ProcessInventory for index optimization</td><td><span class="status"><span class="status-dot in-progress"></span>In Progress</span></td><td><span class="priority high">High</span></td><td><span class="category">CODE_REVIEW</span></td><td><span class="client-name"><span class="client-code">ALT</span> Altman Plants</span></td><td class="timestamp">1 hr ago</td></tr>
+          <tr><td class="ticket-subject">Nightly backup job failing on PROD-SQL-03 with timeout</td><td><span class="status"><span class="status-dot open"></span>Open</span></td><td><span class="priority high">High</span></td><td><span class="category">DATABASE_PERF</span></td><td><span class="client-name"><span class="client-code">VCT</span> Vectra Corp</span></td><td class="timestamp">3 hr ago</td></tr>
+          <tr><td class="ticket-subject">Add new reporting tables for Q2 analytics dashboard</td><td><span class="status"><span class="status-dot open"></span>Open</span></td><td><span class="priority medium">Medium</span></td><td><span class="category">SCHEMA_CHANGE</span></td><td><span class="client-name"><span class="client-code">MRK</span> Meridian K</span></td><td class="timestamp">5 hr ago</td></tr>
+          <tr><td class="ticket-subject">Architecture review: migrate authentication to OAuth 2.0</td><td><span class="status"><span class="status-dot in-progress"></span>In Progress</span></td><td><span class="priority medium">Medium</span></td><td><span class="category">ARCHITECTURE</span></td><td><span class="client-name"><span class="client-code">VCT</span> Vectra Corp</span></td><td class="timestamp">8 hr ago</td></tr>
+          <tr><td class="ticket-subject">Bug: duplicate email notifications on ticket status change</td><td><span class="status"><span class="status-dot resolved"></span>Resolved</span></td><td><span class="priority low">Low</span></td><td><span class="category">BUG_FIX</span></td><td><span class="client-name"><span class="client-code">ALT</span> Altman Plants</span></td><td class="timestamp">1 day ago</td></tr>
+          <tr><td class="ticket-subject">Slow query alert: sp_GetOrderHistory exceeding 5s threshold</td><td><span class="status"><span class="status-dot resolved"></span>Resolved</span></td><td><span class="priority high">High</span></td><td><span class="category">DATABASE_PERF</span></td><td><span class="client-name"><span class="client-code">ALT</span> Altman Plants</span></td><td class="timestamp">1 day ago</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<aside class="detail-panel">
+  <div class="detail-header">
+    <div class="detail-title">SQL deadlock on evo_EDI_Document table during batch processing</div>
+    <div class="detail-meta">
+      <span class="status"><span class="status-dot in-progress"></span>In Progress</span>
+      <span class="priority critical">Critical</span>
+      <span class="category">DATABASE_PERF</span>
+    </div>
+  </div>
+  <div class="tabs">
+    <div class="tab active">Details</div>
+    <div class="tab">Logs</div>
+    <div class="tab">Events</div>
+    <div class="tab">Conversation</div>
+  </div>
+  <div class="detail-section">
+    <div class="detail-section-title">Properties</div>
+    <div class="detail-field"><span class="detail-field-label">Client</span><span class="detail-field-value"><span class="client-code">ALT</span> Altman Plants</span></div>
+    <div class="detail-field"><span class="detail-field-label">System</span><span class="detail-field-value">PROD-SQL-01</span></div>
+    <div class="detail-field"><span class="detail-field-label">Source</span><span class="detail-field-value">AI_DETECTED</span></div>
+    <div class="detail-field"><span class="detail-field-label">Created</span><span class="detail-field-value timestamp">Apr 5, 2026 8:12 AM</span></div>
+    <div class="detail-field"><span class="detail-field-label">Environment</span><span class="detail-field-value">Production</span></div>
+  </div>
+  <div class="detail-section">
+    <div class="detail-section-title">Summary</div>
+    <div class="detail-summary">Recurring deadlock detected on <code style="font-size:13px; background:var(--bg-surface); padding:2px 6px; border-radius:2px; color:var(--nvidia-green); border:1px solid var(--border-subtle);">evo_EDI_Document</code> table during nightly EDI batch processing. The deadlock involves two concurrent update operations on the same clustered index. Average frequency: 3-4 times per batch run. Impact: batch processing delays of 15-20 minutes.</div>
+  </div>
+  <div class="detail-section">
+    <div class="detail-section-title">AI Analysis</div>
+    <div class="ai-card">
+      <div class="ai-card-header"><span class="ai-badge">DEEP_ANALYSIS</span><span class="ai-model">claude-sonnet-4-5 · 4,218 tokens · 3.2s</span></div>
+      <div class="ai-card-body">Root cause is a missing covering index on the EDI document staging table. The batch processor performs UPDATE...FROM with a self-join that escalates to table-level locks. Recommended: add a non-clustered index on (DocumentId, ProcessingStatus) INCLUDE (BatchId, UpdatedAt).</div>
+    </div>
+    <div class="ai-card" style="margin-top: 8px;">
+      <div class="ai-card-header"><span class="ai-badge">NEXT_STEPS</span><span class="ai-model">ollama/qwen2.5 · 892 tokens · 1.1s</span></div>
+      <div class="ai-card-body">1. Apply the recommended index during next maintenance window<br>2. Add ROWLOCK hint to the batch update stored procedure<br>3. Set up a probe to monitor deadlock frequency post-fix</div>
+    </div>
+  </div>
+  <div class="detail-section">
+    <div class="detail-section-title">Services</div>
+    <div class="service-grid">
+      <div class="service-item"><span class="service-dot"></span>copilot-api</div>
+      <div class="service-item"><span class="service-dot"></span>ticket-analyzer</div>
+      <div class="service-item"><span class="service-dot"></span>imap-worker</div>
+      <div class="service-item"><span class="service-dot"></span>scheduler</div>
+      <div class="service-item"><span class="service-dot warn"></span>mcp-database</div>
+      <div class="service-item"><span class="service-dot"></span>probe-worker</div>
+    </div>
+  </div>
+</aside>
+
+</body>
+</html>
