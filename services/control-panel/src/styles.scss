@@ -85,24 +85,25 @@ app-dialog .dialog-body [dialogFooter] {
 }
 
 /*
- * Mobile-only: routed detail view renders the panel full-screen. The inline
- * desktop pane uses a fixed 380px width; on the routed page we override that
- * so the panel fills the shell content area.
+ * Routed detail view renders the panel full-screen. The inline desktop pane
+ * uses a fixed 380px width; on the routed page (both mobile flow and desktop
+ * deep-link) we override that so the panel fills the shell content area.
+ * Not scoped to the mobile media query because /detail/:type/:id is advertised
+ * as a valid desktop deep-link too — without this override, desktop direct
+ * nav would render a narrow 380px pane inside `shell-content`.
  */
-@media (max-width: 767.98px) {
-  .detail-route-page {
-    height: 100%;
-  }
-  .detail-route-page app-detail-panel {
-    display: flex;
-    flex: 1;
-    min-height: 0;
-  }
-  .detail-route-page .detail-panel {
-    width: 100%;
-    min-width: 0;
-    height: 100%;
-    border-left: none;
-    animation: none;
-  }
+.detail-route-page {
+  height: 100%;
+}
+.detail-route-page app-detail-panel {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.detail-route-page .detail-panel {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  border-left: none;
+  animation: none;
 }

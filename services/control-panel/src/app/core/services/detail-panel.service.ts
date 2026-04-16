@@ -1,5 +1,6 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
-import { Router } from '@angular/router';
+import { NavigationCancel, NavigationEnd, NavigationError, NavigationSkipped, Router } from '@angular/router';
+import { filter, first } from 'rxjs';
 import { ViewportService } from './viewport.service.js';
 
 export type DetailEntityType = 'ticket' | 'client' | 'probe' | 'system' | 'analysis' | 'job';
@@ -49,9 +50,13 @@ export class DetailPanelService {
   open(type: DetailEntityType, id: string, mode: DetailPanelMode = 'full'): void {
     this.setState(type, id, mode);
     if (this.viewport.isMobile()) {
+      // No `queryParamsHandling: 'merge'` — we're changing path into
+      // /detail/:type/:id, so we don't want list-page query params (e.g.
+      // `?clientId=…` on /tickets, `?tab=…` on settings-style pages, or
+      // stale desktop `?detail=…&type=…` from a pre-flip URL) to leak into
+      // the routed URL. Only `mode` when non-default is preserved.
       this.router.navigate(['/detail', type, id], {
-        queryParams: { mode: mode === 'full' ? null : mode },
-        queryParamsHandling: 'merge',
+        queryParams: mode === 'full' ? undefined : { mode },
       });
     } else {
       this.router.navigate([], {
@@ -100,17 +105,35 @@ export class DetailPanelService {
    * when a viewport-flip from mobile → desktop causes navigation away from
    * `/detail/:type/:id` — DetailViewComponent's onDestroy would otherwise
    * wipe the signals before the inline side pane could pick up the state.
+   *
+   * The flag is auto-cleared when the current navigation settles (end, cancel,
+   * error, or skipped) so a cancelled navigation can't leave it armed to
+   * silently swallow a later unrelated dismiss(). Any dismiss() during the
+   * navigation consumes the flag first; this subscription then becomes a
+   * no-op reset.
    */
   suppressNextDismiss(): void {
     this._suppressNextDismiss = true;
+    this.router.events
+      .pipe(
+        filter(e =>
+          e instanceof NavigationEnd ||
+          e instanceof NavigationCancel ||
+          e instanceof NavigationError ||
+          e instanceof NavigationSkipped,
+        ),
+        first(),
+      )
+      .subscribe(() => { this._suppressNextDismiss = false; });
   }
 
   private _suppressNextDismiss = false;
 
   /**
-   * Hydrate panel state from route params (used by the mobile routed
-   * DetailViewComponent). Validates entity type and mode the same way as
-   * `restoreFromUrl` — an unknown type falls back to `ticket`.
+   * Set panel state signals directly, without navigating or validating.
+   * Callers are responsible for validating `type`/`mode` — see
+   * `hydrateFromParams` (route-param entry point) and `restoreFromUrl`
+   * (query-param entry point) for the validating wrappers.
    */
   setState(type: DetailEntityType, id: string, mode: DetailPanelMode = 'full'): void {
     this.mode.set(mode);

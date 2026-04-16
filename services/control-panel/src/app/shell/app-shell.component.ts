@@ -218,12 +218,14 @@ export class AppShellComponent implements OnInit {
       // want to race with it.
       const url = event.urlAfterRedirects;
       if (url.startsWith('/detail/')) return;
-      const search = url.split('?')[1] ?? '';
-      const urlParams = new URLSearchParams(search);
+      // Use the router's own parser so query extraction is fragment-safe
+      // (a naive `url.split('?')[1]` would absorb a trailing `#fragment`
+      // into the last query value).
+      const tree = this.router.parseUrl(url);
       this.detailPanel.restoreFromUrl({
-        detail: urlParams.get('detail') ?? undefined,
-        type: urlParams.get('type') ?? undefined,
-        mode: urlParams.get('mode') ?? undefined,
+        detail: tree.queryParamMap.get('detail') ?? undefined,
+        type: tree.queryParamMap.get('type') ?? undefined,
+        mode: tree.queryParamMap.get('mode') ?? undefined,
       });
     });
 
