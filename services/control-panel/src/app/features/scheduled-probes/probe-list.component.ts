@@ -61,13 +61,13 @@ const ACTION_LABELS: Record<string, string> = {
         (rowClick)="onProbeClick($event)"
         emptyMessage="No scheduled probes found">
 
-        <app-data-column key="name" header="Name" [sortable]="false">
+        <app-data-column key="name" header="Name" [sortable]="false" mobilePriority="primary">
           <ng-template #cell let-row>
             <span style="font-weight: 500; color: var(--text-primary);">{{ row.name }}</span>
           </ng-template>
         </app-data-column>
 
-        <app-data-column key="client" header="Client" width="100px" [sortable]="false">
+        <app-data-column key="client" header="Client" width="100px" [sortable]="false" mobilePriority="secondary">
           <ng-template #cell let-row>
             <span style="font-size: 12px; padding: 2px 8px; background: var(--bg-active); border-radius: var(--radius-sm); color: var(--accent); font-family: ui-monospace, monospace;">
               {{ row.client?.shortCode ?? '—' }}
@@ -75,7 +75,7 @@ const ACTION_LABELS: Record<string, string> = {
           </ng-template>
         </app-data-column>
 
-        <app-data-column key="tool" header="Tool" width="160px" [sortable]="false">
+        <app-data-column key="tool" header="Tool" width="160px" [sortable]="false" mobilePriority="hidden">
           <ng-template #cell let-row>
             @if (isBuiltinTool(row.toolName)) {
               <span style="font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: var(--radius-sm); background: rgba(0,113,227,0.08); color: var(--accent);">Built-in</span>
@@ -86,7 +86,7 @@ const ACTION_LABELS: Record<string, string> = {
           </ng-template>
         </app-data-column>
 
-        <app-data-column key="schedule" header="Schedule" width="180px" [sortable]="false">
+        <app-data-column key="schedule" header="Schedule" width="180px" [sortable]="false" mobilePriority="secondary">
           <ng-template #cell let-row>
             <span style="font-size: 13px; color: var(--text-secondary);" [title]="row.cronExpression">
               {{ humanReadableSchedule(row) }}
@@ -94,13 +94,13 @@ const ACTION_LABELS: Record<string, string> = {
           </ng-template>
         </app-data-column>
 
-        <app-data-column key="action" header="Action" width="110px" [sortable]="false">
+        <app-data-column key="action" header="Action" width="110px" [sortable]="false" mobilePriority="secondary">
           <ng-template #cell let-row>
             <span class="action-badge" [ngClass]="'action-' + row.action">{{ formatAction(row.action) }}</span>
           </ng-template>
         </app-data-column>
 
-        <app-data-column key="lastRun" header="Last Run" width="140px" [sortable]="false">
+        <app-data-column key="lastRun" header="Last Run" width="140px" [sortable]="false" mobilePriority="secondary">
           <ng-template #cell let-row>
             @if (row.lastRunAt) {
               <div style="font-size: 12px; color: var(--text-secondary);">{{ formatDate(row.lastRunAt) }}</div>
@@ -111,7 +111,7 @@ const ACTION_LABELS: Record<string, string> = {
           </ng-template>
         </app-data-column>
 
-        <app-data-column key="active" header="Active" width="70px" [sortable]="false">
+        <app-data-column key="active" header="Active" width="70px" [sortable]="false" mobilePriority="secondary">
           <ng-template #cell let-row>
             <app-toggle-switch
               [checked]="row.isActive"
@@ -120,7 +120,7 @@ const ACTION_LABELS: Record<string, string> = {
           </ng-template>
         </app-data-column>
 
-        <app-data-column key="actions" header="" width="120px" [sortable]="false">
+        <app-data-column key="actions" header="" width="120px" [sortable]="false" mobilePriority="hidden">
           <ng-template #cell let-row>
             <div style="display: flex; gap: 2px;" (click)="$event.stopPropagation()">
               <app-bronco-button variant="icon" size="sm" aria-label="Run history" [routerLink]="['/scheduled-probes', row.id, 'runs']" title="Run history"><app-icon name="clipboard" size="sm" /></app-bronco-button>

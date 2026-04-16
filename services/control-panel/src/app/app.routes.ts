@@ -158,6 +158,15 @@ export const routes: Routes = [
         canActivate: [scopedOpsGuard],
         loadComponent: () => import('./features/users/user-list.component').then(m => m.UserListComponent),
       },
+      {
+        // Mobile-only routed full-screen detail view. Desktop never navigates
+        // here — DetailPanelService.open() routes here only when
+        // viewport.isMobile() is true. The route is valid on desktop too (for
+        // direct deep links); the shell's detail-view wrapper just renders
+        // the same panel full-width.
+        path: 'detail/:type/:id',
+        loadComponent: () => import('./shell/detail-view.component').then(m => m.DetailViewComponent),
+      },
     ],
   },
 ];
