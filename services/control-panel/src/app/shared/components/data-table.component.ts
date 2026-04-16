@@ -19,6 +19,7 @@ import { ViewportService } from '../../core/services/viewport.service';
               class="card"
               [class.clickable]="rowClickable()"
               [class.expanded]="expandedRow() === row"
+              [attr.role]="rowClickable() ? 'button' : null"
               [attr.tabindex]="rowClickable() ? 0 : null"
               (click)="rowClickable() ? rowClick.emit(row) : null"
               (keydown.enter)="rowClickable() ? rowClick.emit(row) : null"

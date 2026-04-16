@@ -1,6 +1,7 @@
 import { Component, DestroyRef, inject, OnInit } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { combineLatest } from 'rxjs';
 import { DetailPanelComponent } from './detail-panel.component.js';
 import { DetailPanelService } from '../core/services/detail-panel.service.js';
 
@@ -37,14 +38,17 @@ export class DetailViewComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
 
   ngOnInit(): void {
-    // Hydrate on every param change (e.g. if user swaps entity via deep link).
-    this.route.paramMap
+    // Hydrate on every param change — including `mode`, which lives in the
+    // query map, not the route params. Using a snapshot read for `mode`
+    // (the prior approach) would miss updates when the user swaps `?mode=`
+    // while staying on the same `/detail/:type/:id` path.
+    combineLatest([this.route.paramMap, this.route.queryParamMap])
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(pm => {
+      .subscribe(([pm, qpm]) => {
         this.detailPanel.hydrateFromParams({
           type: pm.get('type'),
           id: pm.get('id'),
-          mode: this.route.snapshot.queryParamMap.get('mode'),
+          mode: qpm.get('mode'),
         });
       });
 

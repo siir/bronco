@@ -4,7 +4,6 @@ import { ViewportService } from '../core/services/viewport.service';
 import { SidebarService } from '../core/services/sidebar.service';
 
 const isMac = /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent);
-const isMobileUA = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
 @Component({
   selector: 'app-header-bar',
@@ -28,7 +27,7 @@ const isMobileUA = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
       <button class="search-trigger" type="button" aria-label="Search">
         <app-icon class="search-icon" name="search" size="sm" />
         <span class="search-text">Search...</span>
-        @if (!isMobileUA) {
+        @if (!viewport.isMobile()) {
           <kbd class="search-kbd">{{ shortcutHint }}</kbd>
         }
       </button>
@@ -138,6 +137,5 @@ export class HeaderBarComponent {
   readonly viewport = inject(ViewportService);
   readonly sidebar = inject(SidebarService);
   title = input<string>('Dashboard');
-  readonly isMobileUA = isMobileUA;
   readonly shortcutHint = isMac ? '⌘K' : 'Ctrl+K';
 }
