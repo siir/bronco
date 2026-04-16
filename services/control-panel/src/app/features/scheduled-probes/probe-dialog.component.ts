@@ -211,7 +211,7 @@ const COMMON_TIMEZONES = [
     @media (max-width: 767.98px) {
       .dialog-content { min-width: 0; }
       .time-row, .retention-row { flex-direction: column; gap: 12px; }
-      .checkbox-item, .form-checkbox { min-height: 32px; }
+      .checkbox-item, .form-checkbox { min-height: 44px; }
     }
   `],
 })

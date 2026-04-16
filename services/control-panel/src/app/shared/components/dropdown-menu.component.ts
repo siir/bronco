@@ -194,13 +194,14 @@ export class DropdownMenuComponent implements OnDestroy {
 
     const rect: DOMRect = triggerEl.getBoundingClientRect();
     const menuWidth = 180; // approximate, will adjust after render
-    const menuHeightEstimate = 240; // upper bound; menu max-height clamps to viewport
+    // Initial height estimate — refined after render via queueMicrotask once
+    // the panel is in the DOM and we can measure it.
+    const menuHeightEstimate = 240;
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
 
     // Position below trigger, right-aligned by default
     let x = rect.right - menuWidth;
-    let y = rect.bottom + 4;
 
     // If would overflow left, flip to left-aligned
     if (x < 8) {
@@ -212,22 +213,52 @@ export class DropdownMenuComponent implements OnDestroy {
       x = viewportWidth - menuWidth - 8;
     }
 
-    // If would overflow bottom, flip above the trigger when there is more
-    // room there; otherwise clamp into the visible area. Important on mobile
-    // where row-action menus near the bottom would otherwise be cut off.
-    if (y + menuHeightEstimate > viewportHeight - 8) {
+    this.posX.set(x);
+    this.posY.set(this.computeY(rect, menuHeightEstimate, viewportHeight));
+    this.isOpen.set(true);
+
+    // Re-measure after the panel renders. The hardcoded 240px estimate can
+    // diverge from the real rendered height (tall menus, dense content), and
+    // the CSS max-height only caps overflow — it doesn't correct the top
+    // position we computed against the estimate. Queue a microtask so the
+    // template runs and the DOM node exists, then recompute with the actual
+    // height and re-measure the trigger (in case layout shifted).
+    queueMicrotask(() => {
+      if (!this.isOpen()) return;
+      const host = this.el.nativeElement as HTMLElement;
+      const panel = host.querySelector<HTMLElement>('.dropdown-panel');
+      if (!panel) return;
+      const triggerNow = this.resolveTriggerElement();
+      if (!triggerNow) return;
+      const triggerRect = triggerNow.getBoundingClientRect();
+      const actualHeight = panel.getBoundingClientRect().height;
+      const adjusted = this.computeY(triggerRect, actualHeight, window.innerHeight);
+      if (adjusted !== this.posY()) {
+        this.posY.set(adjusted);
+      }
+    });
+  }
+
+  /**
+   * Compute the menu's top coordinate given the trigger rect, the menu's
+   * height, and the current viewport height. Places the menu below the
+   * trigger by default. If that overflows the viewport bottom, flips above
+   * the trigger when there is more room there; otherwise clamps into the
+   * visible area. Important on mobile where row-action menus near the
+   * bottom would otherwise be cut off.
+   */
+  private computeY(rect: DOMRect, menuHeight: number, viewportHeight: number): number {
+    let y = rect.bottom + 4;
+    if (y + menuHeight > viewportHeight - 8) {
       const spaceAbove = rect.top - 8;
       const spaceBelow = viewportHeight - rect.bottom - 8;
       if (spaceAbove > spaceBelow) {
-        y = Math.max(8, rect.top - menuHeightEstimate - 4);
+        y = Math.max(8, rect.top - menuHeight - 4);
       } else {
-        y = Math.max(8, viewportHeight - menuHeightEstimate - 8);
+        y = Math.max(8, viewportHeight - menuHeight - 8);
       }
     }
-
-    this.posX.set(x);
-    this.posY.set(y);
-    this.isOpen.set(true);
+    return y;
   }
 
   close(): void {

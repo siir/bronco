@@ -45,14 +45,26 @@ app-dialog .dialog-body [dialogFooter] {
 }
 
 /*
- * iOS Safari auto-zooms on focus when an input has font-size < 16px. This
- * single rule blocks that behavior across the whole app on mobile widths.
- * It overrides the 14px default in TextInput/Textarea/Select primitives
- * (kept at 14px on desktop for visual density). Form-field tap targets
- * also get bumped to a 44px minimum height for thumb usability.
+ * iOS Safari auto-zooms on focus when an input has font-size < 16px. The
+ * native-element selectors alone aren't enough: the primitives set their
+ * own 14px via view-encapsulated attribute selectors (e.g.
+ * `.text-input[_ngcontent-xxx]`), which have higher specificity than the
+ * global `input { ... }` rule. So the mobile override targets both the
+ * native elements AND the primitive classes by name, guaranteeing the 16px
+ * wins on small screens. Desktop keeps the 14px default for density.
+ * Form-field tap targets also get bumped to a 44px minimum height.
  */
 @media (max-width: 767.98px) {
-  input, textarea, select { font-size: 16px; }
+  input,
+  textarea,
+  select,
+  app-text-input .text-input,
+  app-textarea .textarea-input,
+  app-select .select-input,
+  .date-input {
+    font-size: 16px;
+  }
+
   app-text-input .text-input,
   app-textarea .textarea-input,
   app-select .select-input {
