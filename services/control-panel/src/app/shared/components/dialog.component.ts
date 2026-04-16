@@ -104,6 +104,42 @@ import { Component, ElementRef, effect, input, output, viewChild } from '@angula
       from { opacity: 0; transform: scale(0.95); }
       to { opacity: 1; transform: scale(1); }
     }
+
+    /*
+     * Mobile full-screen variant. Below 768px the dialog fills the viewport:
+     * no centering, no rounded corners, no max-width cap (the consumer's
+     * inline max-width is overridden via !important). The header is the
+     * first flex child of .dialog-panel and naturally pins to the top
+     * because only .dialog-body scrolls. The action bar (marked
+     * [dialogFooter] inside the projected content) is pinned via a global
+     * position: sticky rule in styles.scss — view encapsulation would
+     * otherwise block reaching into projected content.
+     */
+    @media (max-width: 767.98px) {
+      .dialog-backdrop {
+        align-items: stretch;
+        justify-content: stretch;
+        animation: none;
+      }
+      .dialog-panel {
+        width: 100% !important;
+        max-width: none !important;
+        height: 100%;
+        max-height: 100%;
+        border-radius: 0;
+        animation: slideUp 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+      }
+      .dialog-close {
+        width: 44px;
+        height: 44px;
+        font-size: 24px;
+      }
+    }
+
+    @keyframes slideUp {
+      from { transform: translateY(16px); opacity: 0; }
+      to   { transform: translateY(0); opacity: 1; }
+    }
   `],
 })
 export class DialogComponent {

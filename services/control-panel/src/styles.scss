@@ -23,16 +23,54 @@ html, body {
  * to mimic a real footer (top border, padding extending to the body edges).
  * Global styles work here because they bypass component view encapsulation
  * and reach into projected content.
+ *
+ * The footer is sticky by default — so in tall dialogs on any viewport,
+ * Save/Cancel stay reachable as the body scrolls. bottom: -20px pins to the
+ * visible bottom edge of .dialog-body, compensating for the existing
+ * margin-bottom: -20px (which makes the footer extend through the body's
+ * bottom padding to align with the panel edge).
  */
 app-dialog .dialog-body [dialogFooter] {
+  position: sticky;
+  bottom: -20px;
   display: flex;
   justify-content: flex-end;
   gap: 8px;
   margin: 16px -20px -20px;
   padding: 12px 20px;
+  background: var(--bg-card);
   border-top: 1px solid var(--border-light);
+  z-index: 1;
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.04);
 }
 
+/*
+ * iOS Safari auto-zooms on focus when an input has font-size < 16px. The
+ * native-element selectors alone aren't enough: the primitives set their
+ * own 14px via view-encapsulated attribute selectors (e.g.
+ * `.text-input[_ngcontent-xxx]`), which have higher specificity than the
+ * global `input { ... }` rule. So the mobile override targets both the
+ * native elements AND the primitive classes by name, guaranteeing the 16px
+ * wins on small screens. Desktop keeps the 14px default for density.
+ * Form-field tap targets also get bumped to a 44px minimum height.
+ */
+@media (max-width: 767.98px) {
+  input,
+  textarea,
+  select,
+  app-text-input .text-input,
+  app-textarea .textarea-input,
+  app-select .select-input,
+  .date-input {
+    font-size: 16px;
+  }
+
+  app-text-input .text-input,
+  app-textarea .textarea-input,
+  app-select .select-input {
+    min-height: 44px;
+  }
+}
 
 @media (max-width: 767px) {
   h1 { font-size: 1.5rem; }
@@ -106,4 +144,33 @@ app-dialog .dialog-body [dialogFooter] {
   height: 100%;
   border-left: none;
   animation: none;
+}
+
+/*
+ * On mobile the routed detail view should feel like a full-screen page, not
+ * a panel-inside-a-panel. The shell-content has 12px padding at < 768px
+ * (Phase 1) which would frame the panel, and the panel itself has its own
+ * padding + a rounded card background. We:
+ *   1. Break out of shell-content's padding via negative margins so the
+ *      panel fills the viewport edge-to-edge.
+ *   2. Pin the panel header so the title/actions stay visible while the
+ *      body scrolls — matches the sticky-header pattern of our mobile
+ *      dialogs.
+ * The inline desktop side pane is unaffected because it's not wrapped in
+ * .detail-route-page.
+ */
+@media (max-width: 767.98px) {
+  .detail-route-page {
+    margin: -12px;
+    height: calc(100% + 24px);
+  }
+  .detail-route-page .detail-panel {
+    background: var(--bg-page);
+  }
+  .detail-route-page .panel-header {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--bg-page);
+  }
 }

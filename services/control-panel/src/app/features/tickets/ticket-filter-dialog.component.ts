@@ -207,6 +207,10 @@ export const EMPTY_ADVANCED_FILTERS: AdvancedFilters = {
       gap: 12px;
     }
 
+    @media (max-width: 767.98px) {
+      .date-range { grid-template-columns: 1fr; }
+    }
+
     .date-input {
       width: 100%;
       box-sizing: border-box;

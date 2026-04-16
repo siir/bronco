@@ -83,7 +83,7 @@ const COMMON_TIMEZONES = [
         @if (toolParamFields.length > 0) {
           <div class="params-section">
             <h4>Tool Parameters</h4>
-            @for (field of toolParamFields; track field.name) {
+            @for (field of toolParamFields; track $index) {
               <app-form-field [label]="field.name" [hint]="field.description">
                 <app-text-input [value]="getToolParam(field.name)" [type]="field.type === 'number' ? 'number' : 'text'" [placeholder]="field.description" (valueChange)="setToolParam(field.name, $event, field.type)"></app-text-input>
               </app-form-field>
@@ -207,6 +207,12 @@ const COMMON_TIMEZONES = [
     .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
     .checkbox-item { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
     .form-checkbox { width: 15px; height: 15px; cursor: pointer; accent-color: var(--accent); }
+
+    @media (max-width: 767.98px) {
+      .dialog-content { min-width: 0; }
+      .time-row, .retention-row { flex-direction: column; gap: 12px; }
+      .checkbox-item, .form-checkbox { min-height: 44px; }
+    }
   `],
 })
 export class ProbeDialogComponent implements OnInit {
