@@ -52,6 +52,36 @@
   display: inline-block;
   min-width: 140px;
 }
+
+/*
+ * Mobile (< 768px): the ticket meta row has 3 form-field selects plus
+ * source/date/analysis chips. The 140px select min-width overflows
+ * 375px screens. Stretch each app-form-field to fill the row so Priority,
+ * Status, Category stack vertically. The metadata chips keep flex-wrap
+ * so they pile below.
+ */
+@media (max-width: 767.98px) {
+  .page-header {
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .page-title {
+    font-size: 18px;
+    line-height: 1.3;
+    word-break: break-word;
+  }
+  .ticket-meta {
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .ticket-meta app-form-field {
+    flex: 1 1 100%;
+  }
+  .ticket-meta app-select {
+    width: 100%;
+    min-width: 0;
+  }
+}
 .source {
   color: var(--text-tertiary);
   font-size: 13px;

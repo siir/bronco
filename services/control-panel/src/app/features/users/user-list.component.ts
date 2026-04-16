@@ -1,4 +1,4 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, inject, signal, OnInit, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
 import { UserService, type ControlPanelUser } from '../../core/services/user.service';
@@ -14,6 +14,7 @@ import {
   DataTableComponent,
   DataTableColumnComponent,
 } from '../../shared/components/index.js';
+import { ViewportService } from '../../core/services/viewport.service';
 import { ToastService } from '../../core/services/toast.service';
 
 @Component({
@@ -46,7 +47,8 @@ import { ToastService } from '../../core/services/toast.service';
         <app-data-table
           [data]="users()"
           [trackBy]="trackById"
-          [rowClickable]="false"
+          [rowClickable]="viewport.isMobile()"
+          (rowClick)="onRowClick($event)"
           emptyMessage="No users found.">
 
           <app-data-column key="user" header="User" [sortable]="false" mobilePriority="primary">
@@ -93,23 +95,26 @@ import { ToastService } from '../../core/services/toast.service';
 
           <app-data-column key="actions" header="" width="60px" [sortable]="false" mobilePriority="hidden">
             <ng-template #cell let-row>
-              <app-bronco-button variant="icon" size="sm" [attr.aria-label]="'Actions for ' + row.name" #menuTrigger (click)="menu.toggle(); $event.stopPropagation()">
+              <app-bronco-button variant="icon" size="sm" [attr.aria-label]="'Actions for ' + row.name" (click)="onActionsClick(row, $event)">
                 ...
               </app-bronco-button>
-              <app-dropdown-menu #menu [trigger]="menuTrigger">
-                <app-dropdown-item (action)="openEdit(row)">Edit</app-dropdown-item>
-                <app-dropdown-item (action)="openResetPassword(row)">Reset Password</app-dropdown-item>
-                @if (row.id !== currentUserId()) {
-                  @if (row.isActive) {
-                    <app-dropdown-item (action)="deactivate(row)">Deactivate</app-dropdown-item>
-                  } @else {
-                    <app-dropdown-item (action)="activate(row)">Activate</app-dropdown-item>
-                  }
-                }
-              </app-dropdown-menu>
             </ng-template>
           </app-data-column>
         </app-data-table>
+
+        @if (openMenuRow(); as activeRow) {
+          <app-dropdown-menu #menu [trigger]="menuTriggerEl" (closed)="openMenuRow.set(null)">
+            <app-dropdown-item (action)="openEdit(activeRow)">Edit</app-dropdown-item>
+            <app-dropdown-item (action)="openResetPassword(activeRow)">Reset Password</app-dropdown-item>
+            @if (activeRow.id !== currentUserId()) {
+              @if (activeRow.isActive) {
+                <app-dropdown-item (action)="deactivate(activeRow)">Deactivate</app-dropdown-item>
+              } @else {
+                <app-dropdown-item (action)="activate(activeRow)">Activate</app-dropdown-item>
+              }
+            }
+          </app-dropdown-menu>
+        }
       }
 
       @if (showUserDialog()) {
@@ -285,6 +290,9 @@ export class UserListComponent implements OnInit {
   private userService = inject(UserService);
   private authService = inject(AuthService);
   private toast = inject(ToastService);
+  readonly viewport = inject(ViewportService);
+
+  @ViewChild('menu') private menu?: DropdownMenuComponent;
 
   users = signal<ControlPanelUser[]>([]);
   loading = signal(false);
@@ -292,6 +300,8 @@ export class UserListComponent implements OnInit {
   resetPassword = '';
   showUserDialog = signal(false);
   editingUser = signal<ControlPanelUser | null>(null);
+  openMenuRow = signal<ControlPanelUser | null>(null);
+  menuTriggerEl: HTMLElement | null = null;
 
   currentUserId = () => this.authService.currentUser()?.id;
 
@@ -323,6 +333,22 @@ export class UserListComponent implements OnInit {
   openEdit(user: ControlPanelUser): void {
     this.editingUser.set(user);
     this.showUserDialog.set(true);
+  }
+
+  onActionsClick(user: ControlPanelUser, event: Event): void {
+    event.stopPropagation();
+    const currentTarget = event.currentTarget;
+    this.menuTriggerEl = currentTarget instanceof HTMLElement ? currentTarget : null;
+    this.openMenuRow.set(user);
+    // Wait for @if to render the dropdown before calling open().
+    queueMicrotask(() => this.menu?.open());
+  }
+
+  // On mobile, tapping the card is the primary edit affordance since the
+  // overflow menu column is hidden. Desktop has rowClickable=false, so
+  // this is a no-op there.
+  onRowClick(user: ControlPanelUser): void {
+    this.openEdit(user);
   }
 
   onUserSaved(): void {

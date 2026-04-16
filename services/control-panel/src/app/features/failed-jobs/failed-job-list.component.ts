@@ -12,6 +12,7 @@ import {
   DataTableColumnComponent,
 } from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service';
+import { ViewportService } from '../../core/services/viewport.service';
 
 const ALL_QUEUES = [
   'issue-resolve', 'log-summarize', 'email-ingestion', 'ticket-analysis',
@@ -159,6 +160,22 @@ const ALL_QUEUES = [
               <h4>Stack Trace</h4>
               <pre class="error-block">{{ row.stacktrace.join('\n') }}</pre>
             }
+
+            <!--
+              Mobile: the actions column is hidden (mobilePriority="hidden"),
+              so expose Retry / Discard inline in the expanded detail. Desktop
+              already shows the icon buttons in the actions column.
+            -->
+            @if (viewport.isMobile()) {
+              <div class="job-detail-actions">
+                <app-bronco-button variant="secondary" size="sm" [fullWidth]="true" (click)="retry(row)" [disabled]="acting()">
+                  Retry
+                </app-bronco-button>
+                <app-bronco-button variant="destructive" size="sm" [fullWidth]="true" (click)="discard(row)" [disabled]="acting()">
+                  Discard
+                </app-bronco-button>
+              </div>
+            }
           </div>
         </ng-template>
       </app-data-table>
@@ -259,6 +276,13 @@ const ALL_QUEUES = [
 
     .job-detail { padding: 4px 0; }
     .job-detail h4 { margin: 12px 0 4px; font-size: 13px; color: var(--text-secondary); }
+    .job-detail-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border-light);
+    }
 
     .json-block, .error-block {
       font-family: ui-monospace, monospace;
@@ -288,6 +312,7 @@ export class FailedJobListComponent implements OnInit, OnDestroy {
   private statusService = inject(SystemStatusService);
   private toast = inject(ToastService);
   private route = inject(ActivatedRoute);
+  readonly viewport = inject(ViewportService);
   private refreshInterval: ReturnType<typeof setInterval> | null = null;
   private sub: Subscription | undefined;
   private statusSub: Subscription | undefined;

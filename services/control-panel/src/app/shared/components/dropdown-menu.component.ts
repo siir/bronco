@@ -164,6 +164,8 @@ export class DropdownMenuComponent implements OnDestroy {
   // Accepts HTMLElement, ElementRef, or a component instance (resolves nativeElement from host)
   @Input() trigger!: unknown;
 
+  @Output() closed = new EventEmitter<void>();
+
   isOpen = signal(false);
   posX = signal(0);
   posY = signal(0);
@@ -180,9 +182,20 @@ export class DropdownMenuComponent implements OnDestroy {
     const t = this.trigger;
     if (t instanceof HTMLElement) return t;
     if (t instanceof ElementRef) return t.nativeElement;
-    // Angular component ref — walk up to find the host element
+    // ElementRef-shaped object
     if (t && typeof t === 'object' && 'nativeElement' in (t as object)) {
       return (t as ElementRef).nativeElement;
+    }
+    // Component instance that exposes its host via an `elementRef` field
+    // (Angular template refs on a `<app-foo>` tag without `exportAs` resolve
+    // to the component instance, not its host element, so we have to look
+    // inside.)
+    if (t && typeof t === 'object' && 'elementRef' in (t as object)) {
+      const ref = (t as { elementRef: unknown }).elementRef;
+      if (ref instanceof ElementRef) return ref.nativeElement;
+      if (ref && typeof ref === 'object' && 'nativeElement' in (ref as object)) {
+        return (ref as ElementRef).nativeElement;
+      }
     }
     return null;
   }
@@ -262,7 +275,9 @@ export class DropdownMenuComponent implements OnDestroy {
   }
 
   close(): void {
+    const wasOpen = this.isOpen();
     this.isOpen.set(false);
+    if (wasOpen) this.closed.emit();
   }
 
   @HostListener('document:keydown.escape')

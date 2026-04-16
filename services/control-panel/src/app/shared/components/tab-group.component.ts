@@ -48,6 +48,7 @@ import { TabComponent } from './tab.component';
       margin-bottom: -1px;
       cursor: pointer;
       transition: all 120ms ease;
+      white-space: nowrap;
     }
 
     .tab-btn:hover {
@@ -61,6 +62,29 @@ import { TabComponent } from './tab.component';
 
     .tab-content {
       padding: 16px 0 0;
+    }
+
+    /*
+     * Mobile (< 768px): tab rows with many items (ticket detail ~10, client
+     * detail ~10) overflow the viewport. Switch the bar to horizontal
+     * scrolling so every tab stays reachable. Momentum scrolling keeps it
+     * feeling native. Scrollbar hidden — the active underline is the
+     * position cue. Desktop behavior above is untouched.
+     */
+    @media (max-width: 767.98px) {
+      .tab-bar {
+        overflow-x: auto;
+        overflow-y: hidden;
+        flex-wrap: nowrap;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+      }
+      .tab-bar::-webkit-scrollbar {
+        display: none;
+      }
+      .tab-btn {
+        flex-shrink: 0;
+      }
     }
   `],
 })

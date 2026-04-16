@@ -1,4 +1,4 @@
-import { Component, input } from '@angular/core';
+import { Component, ElementRef, inject, input } from '@angular/core';
 
 @Component({
   selector: 'app-bronco-button',
@@ -90,6 +90,8 @@ import { Component, input } from '@angular/core';
   `],
 })
 export class BroncoButtonComponent {
+  readonly elementRef = inject(ElementRef<HTMLElement>);
+
   variant = input<'primary' | 'secondary' | 'ghost' | 'destructive' | 'icon'>('secondary');
   size = input<'sm' | 'md' | 'lg'>('md');
   disabled = input<boolean>(false);

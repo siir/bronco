@@ -5,9 +5,9 @@ import { DatePipe } from '@angular/common';
 import {
   IngestionService,
   IngestionRun,
-  IngestionRunDetail,
 } from '../../core/services/ingestion.service';
 import { ClientService, Client } from '../../core/services/client.service';
+import { DetailPanelService } from '../../core/services/detail-panel.service';
 import {
   SelectComponent,
   IconComponent,
@@ -86,8 +86,7 @@ import {
       <app-data-table
         [data]="runs()"
         [trackBy]="trackById"
-        [expandedRow]="expandedRowItem()"
-        (rowClick)="toggleExpand($event)"
+        (rowClick)="openDetail($event)"
         emptyMessage="No ingestion runs found.">
 
         <app-data-column key="status" header="Status" width="110px" [sortable]="false" mobilePriority="secondary">
@@ -141,55 +140,6 @@ import {
             {{ row.steps.length }}
           </ng-template>
         </app-data-column>
-
-        <app-data-column key="expand" header="" width="48px" [sortable]="false" mobilePriority="hidden">
-          <ng-template #cell let-row>
-            <button type="button" class="expand-btn"
-              (click)="toggleExpand(row); $event.stopPropagation()"
-              [attr.aria-label]="expandedRunId === row.id ? 'Collapse run details' : 'Expand run details'"
-              [attr.aria-expanded]="expandedRunId === row.id">
-              <app-icon [name]="expandedRunId === row.id ? 'chevron-up' : 'chevron-down'" size="sm" />
-            </button>
-          </ng-template>
-        </app-data-column>
-
-        <ng-template #expandedRow let-row>
-          <div class="expanded-detail" (click)="$event.stopPropagation()">
-            @if (expandedRun()) {
-              @if (expandedRun()!.error) {
-                <div class="run-error">{{ expandedRun()!.error }}</div>
-              }
-              @for (step of expandedRun()!.steps; track step.id) {
-                <div class="detail-step" [class]="'detail-step-' + step.status"
-                  [class.step-highlight]="recentlyChanged().has(step.id)">
-                  <div class="detail-step-header">
-                    <span class="detail-step-order">{{ step.stepOrder }}.</span>
-                    <span class="detail-step-name">{{ step.stepName }}</span>
-                    <span class="badge small" [class]="'badge-status-' + step.status">{{ step.status }}</span>
-                    @if (step.status === 'processing') {
-                      <span class="pulse-dot" aria-hidden="true"></span>
-                    }
-                    <span class="badge small badge-step-type">{{ step.stepType }}</span>
-                    @if (step.durationMs != null) {
-                      <span class="detail-step-duration">{{ formatDuration(step.durationMs) }}</span>
-                    }
-                  </div>
-                  @if (step.error) {
-                    <div class="detail-step-error">{{ step.error }}</div>
-                  }
-                  @if (step.output) {
-                    <details class="detail-step-output">
-                      <summary>Output</summary>
-                      <pre class="detail-pre">{{ step.output }}</pre>
-                    </details>
-                  }
-                </div>
-              }
-            } @else {
-              <div class="detail-loading">Loading run details…</div>
-            }
-          </div>
-        </ng-template>
       </app-data-table>
 
       @if (total() > pageSize) {
@@ -242,17 +192,10 @@ import {
     .filters app-select { min-width: 160px; }
     .total-count { color: var(--text-tertiary); font-family: var(--font-primary); font-size: 13px; margin-left: auto; }
 
-    .expand-btn {
-      background: none; border: none; cursor: pointer; padding: 4px 8px;
-      font-size: 14px; color: var(--text-secondary); border-radius: var(--radius-sm);
-    }
-    .expand-btn:hover { background: var(--bg-hover); }
-
     .badge {
       font-family: var(--font-primary); font-size: 11px; font-weight: 600;
       padding: 2px 8px; border-radius: var(--radius-sm); white-space: nowrap;
     }
-    .badge.small { font-size: 10px; padding: 1px 6px; }
     .badge-status-success { background: rgba(52, 199, 89, 0.12); color: var(--color-success); }
     .badge-status-error { background: rgba(255, 59, 48, 0.1); color: var(--color-error); }
     .badge-status-no_route { background: var(--bg-muted); color: var(--text-tertiary); }
@@ -260,55 +203,21 @@ import {
     .badge-status-pending { background: var(--bg-muted); color: var(--text-tertiary); }
     .badge-status-skipped { background: rgba(255, 149, 0, 0.1); color: var(--color-warning); }
     .badge-source { background: rgba(0, 113, 227, 0.08); color: var(--accent); }
-    .badge-step-type { background: var(--bg-muted); color: var(--text-tertiary); }
 
     .route-name { color: var(--text-primary); font-weight: 500; }
     .ticket-link { color: var(--accent-link); text-decoration: none; font-family: var(--font-primary); font-weight: 500; }
     .ticket-link:hover { text-decoration: underline; }
     .muted { color: var(--text-tertiary); }
-
-    .run-error {
-      padding: 8px 12px; background: rgba(255, 59, 48, 0.08); color: var(--color-error);
-      border-radius: var(--radius-sm); margin-bottom: 8px; font-family: var(--font-primary); font-size: 13px;
-    }
-    .expanded-detail { padding: 8px 0; }
-    .detail-loading {
-      font-family: var(--font-primary); font-size: 13px; color: var(--text-tertiary);
-      padding: 8px 0;
-    }
-    .detail-step { padding: 6px 0; border-bottom: 1px solid var(--border-light); }
-    .detail-step:last-child { border-bottom: none; }
-    .detail-step-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-    .detail-step-order { font-family: var(--font-primary); font-weight: 600; color: var(--text-tertiary); min-width: 20px; }
-    .detail-step-name { font-family: var(--font-primary); font-weight: 500; color: var(--text-primary); }
-    .detail-step-duration { font-family: var(--font-primary); font-size: 12px; color: var(--text-tertiary); }
-    .detail-step-error {
-      margin-top: 4px; padding: 6px 8px; background: rgba(255, 59, 48, 0.08);
-      color: var(--color-error); border-radius: var(--radius-sm); font-family: var(--font-primary); font-size: 13px;
-    }
-    .detail-step-output { margin-top: 4px; }
-    .pulse-dot {
-      width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
-      animation: pulse 1.5s ease-in-out infinite;
-    }
-    .step-highlight { animation: highlight-fade 1.5s ease-out; }
-    @keyframes highlight-fade { from { background: rgba(52, 199, 89, 0.15); } to { background: transparent; } }
-    .detail-step-output summary { cursor: pointer; color: var(--accent-link); font-family: var(--font-primary); font-size: 12px; }
-    .detail-pre {
-      background: #1d1d1f; color: #f5f5f7; padding: 8px 12px; border-radius: var(--radius-sm);
-      font-size: 12px; overflow-x: auto; max-height: 300px; white-space: pre-wrap; word-break: break-word;
-    }
   `],
 })
 export class IngestionJobListComponent implements OnInit, OnDestroy {
   private ingestionService = inject(IngestionService);
   private clientService = inject(ClientService);
+  private detailPanel = inject(DetailPanelService);
 
   runs = signal<IngestionRun[]>([]);
   total = signal(0);
   clients = signal<Client[]>([]);
-  expandedRunId: string | null = null;
-  expandedRun = signal<IngestionRunDetail | null>(null);
   processingRun = signal<IngestionRun | null>(null);
 
   filterStatus = '';
@@ -331,18 +240,7 @@ export class IngestionJobListComponent implements OnInit, OnDestroy {
 
   trackById = (item: IngestionRun) => item.id;
 
-  expandedRowItem = computed<IngestionRun | null>(() => {
-    const id = this.expandedRunId;
-    if (!id) return null;
-    return this.runs().find(r => r.id === id) ?? null;
-  });
-
   private pollTimer: ReturnType<typeof setInterval> | null = null;
-  private detailPollTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Pending recentlyChanged clear timeouts — cleared in stopDetailPolling/ngOnDestroy. */
-  private recentlyChangedTimers = new Set<ReturnType<typeof setTimeout>>();
-  /** Track step statuses to detect transitions for highlight animation. */
-  recentlyChanged = signal<Set<string>>(new Set());
 
   ngOnInit(): void {
     this.clientService.getClients().subscribe((c) => this.clients.set(c));
@@ -351,9 +249,6 @@ export class IngestionJobListComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.stopPolling();
-    this.stopDetailPolling();
-    for (const t of this.recentlyChangedTimers) clearTimeout(t);
-    this.recentlyChangedTimers.clear();
   }
 
   loadRuns(): void {
@@ -393,28 +288,8 @@ export class IngestionJobListComponent implements OnInit, OnDestroy {
     this.loadRuns();
   }
 
-  toggleExpand(run: IngestionRun): void {
-    if (this.expandedRunId === run.id) {
-      this.expandedRunId = null;
-      this.expandedRun.set(null);
-      this.stopDetailPolling();
-      return;
-    }
-    const runId = run.id;
-    this.expandedRunId = runId;
-    this.expandedRun.set(null);
-    this.stopDetailPolling();
-    this.ingestionService.getRun(runId).subscribe({
-      next: (fullRun) => {
-        // Guard against stale responses — user may have collapsed while the request was in flight
-        if (this.expandedRunId !== runId) return;
-        this.expandedRun.set(fullRun);
-        if (fullRun.status === 'processing') {
-          this.startDetailPolling(runId);
-        }
-      },
-      error: (err) => console.error('Failed to load run detail', err),
-    });
+  openDetail(run: IngestionRun): void {
+    this.detailPanel.open('job', run.id);
   }
 
   getDuration(run: IngestionRun): string {
@@ -434,67 +309,6 @@ export class IngestionJobListComponent implements OnInit, OnDestroy {
   getElapsed(run: IngestionRun): string {
     const elapsed = Date.now() - new Date(run.startedAt).getTime();
     return this.formatDuration(elapsed) + ' elapsed';
-  }
-
-  private startDetailPolling(runId: string): void {
-    // Clear any existing timer before scheduling a new one
-    this.stopDetailPolling();
-
-    const scheduleNext = (): void => {
-      this.detailPollTimer = setTimeout(() => {
-        this.ingestionService.getRun(runId).subscribe({
-          next: (fullRun) => {
-            // Detect step status transitions for highlight animation using O(1) Map lookup
-            const prev = this.expandedRun();
-            if (prev) {
-              const prevMap = new Map(prev.steps.map((s) => [s.id, s]));
-              const changed = new Set<string>();
-              for (const step of fullRun.steps) {
-                const prevStep = prevMap.get(step.id);
-                if (prevStep && prevStep.status !== step.status && step.status !== 'processing') {
-                  changed.add(step.id);
-                }
-              }
-              if (changed.size > 0) {
-                this.recentlyChanged.set(changed);
-                const t = setTimeout(() => {
-                  this.recentlyChanged.set(new Set());
-                  this.recentlyChangedTimers.delete(t);
-                }, 1500);
-                this.recentlyChangedTimers.add(t);
-              }
-            }
-
-            this.expandedRun.set(fullRun);
-
-            // Stop polling when complete; otherwise schedule the next tick
-            if (fullRun.status !== 'processing') {
-              this.stopDetailPolling();
-              // Refresh the list to update the row status
-              this.loadRuns();
-            } else {
-              scheduleNext();
-            }
-          },
-          error: (err) => {
-            // Transient error — log but keep polling
-            console.warn('Failed to poll run detail (will retry)', err);
-            scheduleNext();
-          },
-        });
-      }, 4000);
-    };
-
-    scheduleNext();
-  }
-
-  private stopDetailPolling(): void {
-    if (this.detailPollTimer) {
-      clearTimeout(this.detailPollTimer);
-      this.detailPollTimer = null;
-    }
-    for (const t of this.recentlyChangedTimers) clearTimeout(t);
-    this.recentlyChangedTimers.clear();
   }
 
   private stopPolling(): void {

@@ -156,6 +156,22 @@ import { type TicketCostResponse } from '../../core/services/ai-usage.service';
     .call-duration { color: var(--text-tertiary); }
     .call-time { color: var(--text-tertiary); margin-left: auto; }
 
+    /* Mobile: call rows overflow under 375px. Stack vertically and let
+       each chip wrap naturally instead of fighting for horizontal space. */
+    @media (max-width: 767.98px) {
+      .call-row {
+        flex-wrap: wrap;
+        gap: 4px 8px;
+      }
+      .call-task {
+        min-width: 0;
+        width: 100%;
+      }
+      .call-time {
+        margin-left: 0;
+      }
+    }
+
     .provider-chip {
       font-weight: 600;
       font-size: 10px;
