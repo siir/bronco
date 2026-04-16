@@ -20,13 +20,13 @@ import { DataTableComponent, DataTableColumnComponent, BroncoButtonComponent, Di
         (rowClick)="onClientClick($event)"
         emptyMessage="No clients yet">
 
-        <app-data-column key="name" header="Name" [sortable]="false">
+        <app-data-column key="name" header="Name" [sortable]="false" mobilePriority="primary">
           <ng-template #cell let-row>
             <span style="font-weight: 500; color: var(--text-primary);">{{ row.name }}</span>
           </ng-template>
         </app-data-column>
 
-        <app-data-column key="shortCode" header="Code" width="100px" [sortable]="false">
+        <app-data-column key="shortCode" header="Code" width="100px" [sortable]="false" mobilePriority="secondary">
           <ng-template #cell let-row>
             <span style="font-size: 12px; padding: 2px 8px; background: var(--bg-active); border-radius: var(--radius-sm); color: var(--accent); font-family: ui-monospace, monospace;">
               {{ row.shortCode }}
@@ -34,19 +34,19 @@ import { DataTableComponent, DataTableColumnComponent, BroncoButtonComponent, Di
           </ng-template>
         </app-data-column>
 
-        <app-data-column key="systems" header="Systems" width="90px" [sortable]="false">
+        <app-data-column key="systems" header="Systems" width="90px" [sortable]="false" mobilePriority="hidden">
           <ng-template #cell let-row>
             {{ row._count?.systems ?? 0 }}
           </ng-template>
         </app-data-column>
 
-        <app-data-column key="tickets" header="Tickets" width="90px" [sortable]="false">
+        <app-data-column key="tickets" header="Tickets" width="90px" [sortable]="false" mobilePriority="secondary">
           <ng-template #cell let-row>
             {{ row._count?.tickets ?? 0 }}
           </ng-template>
         </app-data-column>
 
-        <app-data-column key="status" header="Status" width="100px" [sortable]="false">
+        <app-data-column key="status" header="Status" width="100px" [sortable]="false" mobilePriority="secondary">
           <ng-template #cell let-row>
             @if (row.isActive) {
               <span style="font-size: 12px; font-weight: 500; color: var(--color-success);">Active</span>
