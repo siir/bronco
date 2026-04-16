@@ -83,7 +83,7 @@ const COMMON_TIMEZONES = [
         @if (toolParamFields.length > 0) {
           <div class="params-section">
             <h4>Tool Parameters</h4>
-            @for (field of toolParamFields; track field.name) {
+            @for (field of toolParamFields; track $index) {
               <app-form-field [label]="field.name" [hint]="field.description">
                 <app-text-input [value]="getToolParam(field.name)" [type]="field.type === 'number' ? 'number' : 'text'" [placeholder]="field.description" (valueChange)="setToolParam(field.name, $event, field.type)"></app-text-input>
               </app-form-field>
