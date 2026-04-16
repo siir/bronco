@@ -3,7 +3,14 @@ import { ActivatedRoute } from '@angular/router';
 import type { Subscription } from 'rxjs';
 import { FailedJobsService, FailedJob } from '../../core/services/failed-jobs.service';
 import { SystemStatusService, QueueStats } from '../../core/services/system-status.service';
-import { BroncoButtonComponent, ToolbarComponent, SelectComponent, CardComponent } from '../../shared/components/index.js';
+import {
+  BroncoButtonComponent,
+  ToolbarComponent,
+  SelectComponent,
+  CardComponent,
+  DataTableComponent,
+  DataTableColumnComponent,
+} from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service';
 
 const ALL_QUEUES = [
@@ -19,6 +26,8 @@ const ALL_QUEUES = [
     ToolbarComponent,
     SelectComponent,
     CardComponent,
+    DataTableComponent,
+    DataTableColumnComponent,
   ],
   template: `
     <div class="page-header">
@@ -81,50 +90,78 @@ const ALL_QUEUES = [
     }
 
     @if (jobs().length > 0) {
-      <div class="job-list">
-        @for (job of jobs(); track job.id + job.queue) {
-          <div class="job-card" [class.expanded]="expandedJob() === job.id + ':' + job.queue">
-            <div class="job-header" (click)="toggleExpand(job)">
-              <div class="job-main">
-                <span class="job-queue-badge">{{ job.queue }}</span>
-                <span class="job-name">{{ job.name }}</span>
-                <span class="job-id">{{ job.id }}</span>
-              </div>
-              <div class="job-meta">
-                <span class="job-attempts">{{ job.attemptsMade }}/{{ job.maxAttempts || '?' }} attempts</span>
-                <span class="job-time">{{ formatTime(job.finishedOn || job.timestamp) }}</span>
-              </div>
-              <div class="job-actions" (click)="$event.stopPropagation()">
-                <app-bronco-button variant="icon" aria-label="Retry" (click)="retry(job)" [disabled]="acting()">
-                  ↻
-                </app-bronco-button>
-                <app-bronco-button variant="icon" aria-label="Discard" (click)="discard(job)" [disabled]="acting()">
-                  ✕
-                </app-bronco-button>
-              </div>
+      <app-data-table
+        [data]="jobs()"
+        [trackBy]="trackByJob"
+        [expandedRow]="expandedRowItem()"
+        (rowClick)="toggleExpand($event)">
+
+        <app-data-column key="queue" header="Queue" width="160px" [sortable]="false" mobilePriority="secondary">
+          <ng-template #cell let-row>
+            <span class="job-queue-badge">{{ row.queue }}</span>
+          </ng-template>
+        </app-data-column>
+
+        <app-data-column key="name" header="Name" [sortable]="false" mobilePriority="primary">
+          <ng-template #cell let-row>
+            <span class="job-name">{{ row.name }}</span>
+          </ng-template>
+        </app-data-column>
+
+        <app-data-column key="id" header="Job ID" width="120px" [sortable]="false" mobilePriority="hidden">
+          <ng-template #cell let-row>
+            <span class="job-id">{{ row.id }}</span>
+          </ng-template>
+        </app-data-column>
+
+        <app-data-column key="attempts" header="Attempts" width="110px" [sortable]="false" mobilePriority="secondary">
+          <ng-template #cell let-row>
+            <span class="job-attempts">{{ row.attemptsMade }}/{{ row.maxAttempts || '?' }}</span>
+          </ng-template>
+        </app-data-column>
+
+        <app-data-column key="time" header="Time" width="180px" [sortable]="false" mobilePriority="secondary">
+          <ng-template #cell let-row>
+            <span class="job-time">{{ formatTime(row.finishedOn || row.timestamp) }}</span>
+          </ng-template>
+        </app-data-column>
+
+        <app-data-column key="actions" header="" width="80px" [sortable]="false" mobilePriority="hidden">
+          <ng-template #cell let-row>
+            <div class="job-actions" (click)="$event.stopPropagation()">
+              <app-bronco-button variant="icon" aria-label="Retry" (click)="retry(row)" [disabled]="acting()">
+                ↻
+              </app-bronco-button>
+              <app-bronco-button variant="icon" aria-label="Discard" (click)="discard(row)" [disabled]="acting()">
+                ✕
+              </app-bronco-button>
             </div>
+          </ng-template>
+        </app-data-column>
 
-            <div class="job-reason">{{ truncate(job.failedReason, 200) }}</div>
+        <ng-template #subtitle let-row>
+          @if (row.failedReason) {
+            <span class="job-reason">{{ truncate(row.failedReason, 200) }}</span>
+          }
+        </ng-template>
 
-            @if (expandedJob() === job.id + ':' + job.queue) {
-              <div class="job-detail">
-                <h4>Job Data</h4>
-                <pre class="json-block">{{ formatJson(job.data) }}</pre>
+        <ng-template #expandedRow let-row>
+          <div class="job-detail">
+            <h4>Job Data</h4>
+            <pre class="json-block">{{ formatJson(row.data) }}</pre>
 
-                @if (job.failedReason) {
-                  <h4>Error</h4>
-                  <pre class="error-block">{{ job.failedReason }}</pre>
-                }
+            @if (row.failedReason) {
+              <h4>Error</h4>
+              <pre class="error-block">{{ row.failedReason }}</pre>
+            }
 
-                @if (job.stacktrace && job.stacktrace.length > 0) {
-                  <h4>Stack Trace</h4>
-                  <pre class="error-block">{{ job.stacktrace.join('\\n') }}</pre>
-                }
-              </div>
+            @if (row.stacktrace && row.stacktrace.length > 0) {
+              <h4>Stack Trace</h4>
+              <pre class="error-block">{{ row.stacktrace.join('\n') }}</pre>
             }
           </div>
-        }
-      </div>
+        </ng-template>
+      </app-data-table>
 
       @if (total() > jobs().length) {
         <div class="load-more">
@@ -195,29 +232,6 @@ const ALL_QUEUES = [
     }
     .empty-icon { font-size: 40px; color: var(--color-success); }
 
-    .job-list { display: flex; flex-direction: column; gap: 8px; }
-
-    .job-card {
-      background: var(--bg-card);
-      border-radius: var(--radius-lg);
-      box-shadow: var(--shadow-card);
-      margin-bottom: 8px;
-      overflow: hidden;
-    }
-
-    .job-header {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 12px 16px;
-      cursor: pointer;
-      transition: background 120ms ease;
-      flex-wrap: wrap;
-    }
-    .job-header:hover { background: var(--bg-hover); }
-
-    .job-main { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
-
     .job-queue-badge {
       font-size: 11px;
       font-weight: 500;
@@ -230,12 +244,11 @@ const ALL_QUEUES = [
     }
     .job-name { font-weight: 500; color: var(--text-primary); font-size: 14px; }
     .job-id { font-size: 12px; color: var(--text-tertiary); font-family: ui-monospace, monospace; }
-    .job-meta { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--text-tertiary); white-space: nowrap; }
-    .job-attempts { font-family: ui-monospace, monospace; }
+    .job-attempts { font-family: ui-monospace, monospace; font-size: 12px; color: var(--text-tertiary); }
+    .job-time { font-size: 12px; color: var(--text-tertiary); white-space: nowrap; }
     .job-actions { display: flex; gap: 4px; }
 
     .job-reason {
-      padding: 0 16px 12px;
       font-size: 12px;
       color: var(--color-error);
       font-family: ui-monospace, monospace;
@@ -244,10 +257,7 @@ const ALL_QUEUES = [
       white-space: pre-wrap;
     }
 
-    .job-detail {
-      padding: 12px 16px;
-      border-top: 1px solid var(--border-light);
-    }
+    .job-detail { padding: 4px 0; }
     .job-detail h4 { margin: 12px 0 4px; font-size: 13px; color: var(--text-secondary); }
 
     .json-block, .error-block {
@@ -308,6 +318,14 @@ export class FailedJobListComponent implements OnInit, OnDestroy {
       .filter(([, s]) => s.failed > 0)
       .map(([name, s]) => [name, s.failed] as [string, number])
       .sort((a, b) => b[1] - a[1]);
+  });
+
+  trackByJob = (job: FailedJob) => job.id + ':' + job.queue;
+
+  expandedRowItem = computed<FailedJob | null>(() => {
+    const key = this.expandedJob();
+    if (!key) return null;
+    return this.jobs().find(j => j.id + ':' + j.queue === key) ?? null;
   });
 
   ngOnInit(): void {

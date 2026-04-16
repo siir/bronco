@@ -9,7 +9,14 @@ import {
   SlackConversationDetail,
 } from '../../core/services/slack-conversation.service';
 import { ClientService, Client } from '../../core/services/client.service';
-import { BroncoButtonComponent, SelectComponent, PaginatorComponent, type PaginatorPageEvent } from '../../shared/components/index.js';
+import {
+  BroncoButtonComponent,
+  SelectComponent,
+  PaginatorComponent,
+  type PaginatorPageEvent,
+  DataTableComponent,
+  DataTableColumnComponent,
+} from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service';
 
 @Component({
@@ -20,6 +27,8 @@ import { ToastService } from '../../core/services/toast.service';
     BroncoButtonComponent,
     SelectComponent,
     PaginatorComponent,
+    DataTableComponent,
+    DataTableColumnComponent,
   ],
   template: `
     <div class="page-wrapper">
@@ -49,105 +58,110 @@ import { ToastService } from '../../core/services/toast.service';
         </div>
       </div>
 
-      <!-- Table -->
-      <div class="table-card">
-        @if (conversations().length === 0) {
-          <div class="table-empty">No conversations found.</div>
-        } @else {
-          <table class="conv-table">
-            <thead>
-              <tr>
-                <th>Operator</th>
-                <th>Client</th>
-                <th>Channel</th>
-                <th>Messages</th>
-                <th>Tokens</th>
-                <th>Started</th>
-                <th>Last Activity</th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (row of conversations(); track row.id) {
-                <tr class="conv-row"
-                    tabindex="0"
-                    role="button"
-                    [attr.aria-expanded]="expandedId() === row.id"
-                    (click)="toggleExpand(row.id)"
-                    (keydown.enter)="toggleExpand(row.id)"
-                    (keydown.space)="$event.preventDefault(); toggleExpand(row.id)">
-                  <td>{{ row.operator.name }}</td>
-                  <td>{{ row.client?.name ?? '—' }}</td>
-                  <td><code>{{ row.channelId }}</code></td>
-                  <td>{{ row.messageCount }}</td>
-                  <td>
-                    @if (row.totalInputTokens || row.totalOutputTokens) {
-                      {{ (row.totalInputTokens ?? 0) + (row.totalOutputTokens ?? 0) | number }}
-                    } @else {
-                      —
-                    }
-                  </td>
-                  <td>{{ formatTime(row.createdAt) }}</td>
-                  <td>{{ formatTime(row.updatedAt) }}</td>
-                </tr>
-                @if (expandedId() === row.id) {
-                  <tr class="detail-row-visible">
-                    <td colspan="7">
-                      <div class="detail-panel">
-                        @if (loadingDetail()) {
-                          <div class="loading-state">Loading conversation details...</div>
-                        } @else if (detail()) {
-                          <!-- Cost summary -->
-                          <div class="cost-summary">
-                            <span class="cost-chip">Input: {{ detail()!.totalInputTokens ?? 0 | number }} tokens</span>
-                            <span class="cost-chip">Output: {{ detail()!.totalOutputTokens ?? 0 | number }} tokens</span>
-                          </div>
+      <app-data-table
+        [data]="conversations()"
+        [trackBy]="trackById"
+        [expandedRow]="expandedRowItem()"
+        emptyMessage="No conversations found."
+        (rowClick)="toggleExpand($event.id)">
 
-                          <!-- Messages -->
-                          <div class="chat-container">
-                            @for (msg of detail()!.messages; track $index) {
-                              <div class="chat-msg" [class.user-msg]="msg.role === 'user'" [class.assistant-msg]="msg.role === 'assistant'">
-                                <div class="msg-role">{{ msg.role === 'user' ? detail()!.operator.name : 'Hugo' }}</div>
-                                <div class="msg-content">{{ msg.content }}</div>
-                                <div class="msg-time">{{ formatTime(msg.timestamp) }}</div>
-                              </div>
-                            }
-                          </div>
+        <app-data-column key="operator" header="Operator" [sortable]="false" mobilePriority="primary">
+          <ng-template #cell let-row>
+            {{ row.operator.name }}
+          </ng-template>
+        </app-data-column>
 
-                          <!-- Tool calls -->
-                          @if (detail()!.toolCalls?.length) {
-                            <h4>Tool Calls</h4>
-                            <div class="tool-calls">
-                              @for (tc of detail()!.toolCalls; track $index) {
-                                <div class="tool-card" [class.tool-error]="tc.isError">
-                                  <div class="tool-header">
-                                    <code>{{ tc.tool }}</code>
-                                    <span class="tool-duration">{{ tc.durationMs }}ms</span>
-                                    @if (tc.isError) {
-                                      <span class="tool-error-icon">✕</span>
-                                    }
-                                  </div>
-                                  <div class="tool-result">{{ tc.resultPreview }}</div>
-                                </div>
-                              }
-                            </div>
-                          }
+        <app-data-column key="client" header="Client" [sortable]="false" mobilePriority="secondary">
+          <ng-template #cell let-row>
+            {{ row.client?.name ?? '—' }}
+          </ng-template>
+        </app-data-column>
+
+        <app-data-column key="channel" header="Channel" [sortable]="false" mobilePriority="hidden">
+          <ng-template #cell let-row>
+            <code>{{ row.channelId }}</code>
+          </ng-template>
+        </app-data-column>
+
+        <app-data-column key="messages" header="Messages" width="100px" [sortable]="false" mobilePriority="secondary">
+          <ng-template #cell let-row>
+            {{ row.messageCount }}
+          </ng-template>
+        </app-data-column>
+
+        <app-data-column key="tokens" header="Tokens" width="120px" [sortable]="false" mobilePriority="hidden">
+          <ng-template #cell let-row>
+            @if (row.totalInputTokens || row.totalOutputTokens) {
+              {{ (row.totalInputTokens ?? 0) + (row.totalOutputTokens ?? 0) | number }}
+            } @else {
+              —
+            }
+          </ng-template>
+        </app-data-column>
+
+        <app-data-column key="started" header="Started" width="160px" [sortable]="false" mobilePriority="hidden">
+          <ng-template #cell let-row>
+            {{ formatTime(row.createdAt) }}
+          </ng-template>
+        </app-data-column>
+
+        <app-data-column key="lastActivity" header="Last Activity" width="160px" [sortable]="false" mobilePriority="secondary">
+          <ng-template #cell let-row>
+            {{ formatTime(row.updatedAt) }}
+          </ng-template>
+        </app-data-column>
+
+        <ng-template #expandedRow let-row>
+          <div class="detail-panel">
+            @if (loadingDetail()) {
+              <div class="loading-state">Loading conversation details...</div>
+            } @else if (detail()) {
+              <!-- Cost summary -->
+              <div class="cost-summary">
+                <span class="cost-chip">Input: {{ detail()!.totalInputTokens ?? 0 | number }} tokens</span>
+                <span class="cost-chip">Output: {{ detail()!.totalOutputTokens ?? 0 | number }} tokens</span>
+              </div>
+
+              <!-- Messages -->
+              <div class="chat-container">
+                @for (msg of detail()!.messages; track $index) {
+                  <div class="chat-msg" [class.user-msg]="msg.role === 'user'" [class.assistant-msg]="msg.role === 'assistant'">
+                    <div class="msg-role">{{ msg.role === 'user' ? detail()!.operator.name : 'Hugo' }}</div>
+                    <div class="msg-content">{{ msg.content }}</div>
+                    <div class="msg-time">{{ formatTime(msg.timestamp) }}</div>
+                  </div>
+                }
+              </div>
+
+              <!-- Tool calls -->
+              @if (detail()!.toolCalls?.length) {
+                <h4>Tool Calls</h4>
+                <div class="tool-calls">
+                  @for (tc of detail()!.toolCalls; track $index) {
+                    <div class="tool-card" [class.tool-error]="tc.isError">
+                      <div class="tool-header">
+                        <code>{{ tc.tool }}</code>
+                        <span class="tool-duration">{{ tc.durationMs }}ms</span>
+                        @if (tc.isError) {
+                          <span class="tool-error-icon">✕</span>
                         }
                       </div>
-                    </td>
-                  </tr>
-                }
+                      <div class="tool-result">{{ tc.resultPreview }}</div>
+                    </div>
+                  }
+                </div>
               }
-            </tbody>
-          </table>
-        }
+            }
+          </div>
+        </ng-template>
+      </app-data-table>
 
-        <app-paginator
-          [length]="total()"
-          [pageSize]="pageSize"
-          [pageIndex]="pageIndex"
-          [pageSizeOptions]="[25, 50, 100]"
-          (page)="onPage($event)" />
-      </div>
+      <app-paginator
+        [length]="total()"
+        [pageSize]="pageSize"
+        [pageIndex]="pageIndex"
+        [pageSizeOptions]="[25, 50, 100]"
+        (page)="onPage($event)" />
     </div>
   `,
   styles: [`
@@ -170,37 +184,13 @@ import { ToastService } from '../../core/services/toast.service';
     }
     .text-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--focus-ring); }
 
-    .table-card {
-      background: var(--bg-card); border-radius: var(--radius-lg);
-      box-shadow: var(--shadow-card); overflow: hidden;
-    }
-    .table-empty {
-      padding: 48px 24px; text-align: center;
-      font-family: var(--font-primary); font-size: 14px; color: var(--text-tertiary);
-    }
-    .conv-table { width: 100%; border-collapse: collapse; }
-    .conv-table thead th {
-      text-align: left; padding: 10px 16px; font-family: var(--font-primary);
-      font-size: 12px; font-weight: 500; color: var(--text-tertiary);
-      border-bottom: 1px solid var(--border-light); user-select: none;
-    }
-    .conv-table tbody td {
-      padding: 12px 16px; font-family: var(--font-primary); font-size: 14px;
-      color: var(--text-secondary); border-bottom: 1px solid var(--border-light);
-    }
     code {
       font-size: 12px; background: var(--bg-muted); padding: 2px 6px;
       border-radius: var(--radius-sm);
     }
-    .conv-row { cursor: pointer; transition: background 120ms ease; }
-    .conv-row:hover { background: var(--bg-hover); }
 
-    .detail-row-visible td {
-      padding: 0 !important; border-bottom: 1px solid var(--border-light);
-    }
     .detail-panel {
       padding: 16px 24px; background: var(--bg-page);
-      border-bottom: 1px solid var(--border-light);
     }
     .loading-state {
       font-family: var(--font-primary); font-size: 13px; color: var(--accent); padding: 8px 0;
@@ -278,6 +268,14 @@ export class SlackConversationsComponent implements OnInit, OnDestroy {
     { value: '', label: 'All Clients' },
     ...this.clients().map(c => ({ value: c.id, label: c.name })),
   ]);
+
+  expandedRowItem = computed<SlackConversationSummary | null>(() => {
+    const id = this.expandedId();
+    if (!id) return null;
+    return this.conversations().find(c => c.id === id) ?? null;
+  });
+
+  trackById = (item: SlackConversationSummary) => item.id;
 
   ngOnInit(): void {
     this.load();
