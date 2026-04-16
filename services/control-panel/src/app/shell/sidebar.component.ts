@@ -224,6 +224,36 @@ import { FailedJobsService } from '../core/services/failed-jobs.service';
       min-width: 18px;
       text-align: center;
     }
+
+    /*
+     * Mobile shell chrome tap targets.
+     *
+     * Under 768px the sidebar is rendered inside a CDK Overlay drawer. Nav
+     * items, the logout button, the theme-indicator link, and the version
+     * label all get >= 44px hit areas so they're reliably tappable. This is
+     * scoped to the media query so desktop layout is byte-identical to the
+     * current mobile-design/staging.
+     */
+    @media (max-width: 767.98px) {
+      .nav-item {
+        padding: 12px 16px;
+        font-size: 14px;
+        min-height: 44px;
+      }
+      .logout-btn {
+        padding: 12px 16px;
+        font-size: 14px;
+        min-height: 44px;
+      }
+      .theme-indicator {
+        padding: 12px 16px;
+        font-size: 13px;
+        min-height: 44px;
+      }
+      .version-label {
+        padding: 8px 16px 12px;
+      }
+    }
   `],
 })
 export class SidebarComponent implements OnInit {
