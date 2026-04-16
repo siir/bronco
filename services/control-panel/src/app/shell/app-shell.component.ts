@@ -12,6 +12,9 @@ import { DetailPanelService } from '../core/services/detail-panel.service';
 import { ThemeService } from '../core/services/theme.service';
 import { ViewportService } from '../core/services/viewport.service';
 import { SidebarService } from '../core/services/sidebar.service';
+import { AuthService } from '../core/services/auth.service';
+import { TicketService } from '../core/services/ticket.service';
+import { FailedJobsService } from '../core/services/failed-jobs.service';
 import { ToastContainerComponent } from '../shared/components/toast-container.component';
 
 const ROUTE_TITLE_MAP: Record<string, string> = {
@@ -95,6 +98,9 @@ export class AppShellComponent implements OnInit {
   readonly viewport = inject(ViewportService);
   private readonly sidebar = inject(SidebarService);
   private readonly theme = inject(ThemeService);
+  private readonly auth = inject(AuthService);
+  private readonly ticketService = inject(TicketService);
+  private readonly failedJobsService = inject(FailedJobsService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly overlay = inject(Overlay);
@@ -144,6 +150,21 @@ export class AppShellComponent implements OnInit {
     this.router.events.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(event => {
       if (event instanceof NavigationEnd) this.updateTitle();
     });
+
+    // Seed sidebar badges here (not in SidebarComponent). The shell always
+    // mounts at app boot; the sidebar only mounts inline on desktop and
+    // lazily-inside-the-drawer on mobile, so scoping the fetch to the
+    // sidebar would miss the mobile boot case and leave badges at 0 until
+    // the user opens the drawer. Scoped ops users lack permission for both
+    // global stats and the failed-jobs queue — they would 403.
+    if (!this.auth.isScopedOpsUser()) {
+      this.ticketService.getStats()
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe();
+      this.failedJobsService.list({ limit: 1 })
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe();
+    }
   }
 
   private updateTitle(): void {

@@ -1,6 +1,6 @@
-import { Component, DestroyRef, computed, inject, OnInit } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
-import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { AuthService } from '../core/services/auth.service';
 import { ThemeService } from '../core/services/theme.service';
 import { VersionService } from '../core/services/version.service';
@@ -256,13 +256,12 @@ import { FailedJobsService } from '../core/services/failed-jobs.service';
     }
   `],
 })
-export class SidebarComponent implements OnInit {
+export class SidebarComponent {
   readonly authService = inject(AuthService);
   readonly themeService = inject(ThemeService);
   private readonly versionService = inject(VersionService);
   private readonly ticketService = inject(TicketService);
   private readonly failedJobsService = inject(FailedJobsService);
-  private readonly destroyRef = inject(DestroyRef);
 
   readonly version = toSignal(this.versionService.getVersion(), { initialValue: '' });
   readonly ticketBadge = this.ticketService.activeCount;
@@ -282,22 +281,4 @@ export class SidebarComponent implements OnInit {
     return ['/clients', user.clientId];
   });
 
-  ngOnInit(): void {
-    // Scoped ops users don't have permission to fetch global ticket stats or
-    // the failed-jobs queue, so skip those calls entirely — they would just
-    // 403 and noise up the console.
-    if (this.isScoped()) {
-      return;
-    }
-
-    // Seed both badges — subsequent getStats()/list() calls from their
-    // respective pages automatically update the shared signals.
-    this.ticketService.getStats()
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe();
-
-    this.failedJobsService.list({ limit: 1 })
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe();
-  }
 }
