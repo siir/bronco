@@ -146,7 +146,7 @@ const ALL_QUEUES = [
         </ng-template>
 
         <ng-template #expandedRow let-row>
-          <div class="job-detail">
+          <div class="job-detail" (click)="$event.stopPropagation()">
             <h4>Job Data</h4>
             <pre class="json-block">{{ formatJson(row.data) }}</pre>
 

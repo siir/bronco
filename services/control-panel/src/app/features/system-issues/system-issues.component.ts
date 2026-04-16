@@ -114,7 +114,7 @@ import {
                 <app-data-column key="error" header="Error" [sortable]="false" mobilePriority="secondary">
                   <ng-template #cell let-row>
                     @if (row.error) {
-                      <div class="error-text">{{ row.error }}</div>
+                      <span class="error-text">{{ row.error }}</span>
                     } @else {
                       —
                     }
@@ -162,7 +162,7 @@ import {
 
                 <app-data-column key="description" header="Description" [sortable]="false" mobilePriority="secondary">
                   <ng-template #cell let-row>
-                    <div class="finding-description">{{ row.description }}</div>
+                    <span class="finding-description">{{ row.description }}</span>
                   </ng-template>
                 </app-data-column>
 
@@ -330,6 +330,7 @@ import {
     .link:hover { text-decoration: underline; }
 
     .error-text {
+      display: block;
       background: var(--bg-muted); padding: 6px 10px; border-radius: var(--radius-sm);
       font-family: monospace; font-size: 12px; color: var(--color-error);
       word-break: break-word; max-height: 80px; overflow-y: auto;

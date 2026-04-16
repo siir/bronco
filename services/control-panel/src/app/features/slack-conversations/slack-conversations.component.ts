@@ -112,7 +112,7 @@ import { ToastService } from '../../core/services/toast.service';
         </app-data-column>
 
         <ng-template #expandedRow let-row>
-          <div class="detail-panel">
+          <div class="detail-panel" (click)="$event.stopPropagation()">
             @if (loadingDetail()) {
               <div class="loading-state">Loading conversation details...</div>
             } @else if (detail()) {

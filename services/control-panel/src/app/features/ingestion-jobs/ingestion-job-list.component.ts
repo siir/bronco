@@ -154,8 +154,8 @@ import {
         </app-data-column>
 
         <ng-template #expandedRow let-row>
-          @if (expandedRun()) {
-            <div class="expanded-detail">
+          <div class="expanded-detail" (click)="$event.stopPropagation()">
+            @if (expandedRun()) {
               @if (expandedRun()!.error) {
                 <div class="run-error">{{ expandedRun()!.error }}</div>
               }
@@ -185,8 +185,10 @@ import {
                   }
                 </div>
               }
-            </div>
-          }
+            } @else {
+              <div class="detail-loading">Loading run details…</div>
+            }
+          </div>
         </ng-template>
       </app-data-table>
 
@@ -270,6 +272,10 @@ import {
       border-radius: var(--radius-sm); margin-bottom: 8px; font-family: var(--font-primary); font-size: 13px;
     }
     .expanded-detail { padding: 8px 0; }
+    .detail-loading {
+      font-family: var(--font-primary); font-size: 13px; color: var(--text-tertiary);
+      padding: 8px 0;
+    }
     .detail-step { padding: 6px 0; border-bottom: 1px solid var(--border-light); }
     .detail-step:last-child { border-bottom: none; }
     .detail-step-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
