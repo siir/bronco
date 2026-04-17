@@ -21,6 +21,7 @@
     "@angular/platform-browser": "^20.0.0",
     "@angular/platform-browser-dynamic": "^20.0.0",
     "@angular/router": "^20.0.0",
+    "@angular/service-worker": "^21.2.9",
     "@awesome.me/kit-9a8becfc3a": "^1.0.2",
     "@bronco/shared-ui": "workspace:*",
     "@fortawesome/angular-fontawesome": "^3.0.0",

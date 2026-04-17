@@ -38,6 +38,7 @@ app-dialog .dialog-body [dialogFooter] {
   gap: 8px;
   margin: 16px -20px -20px;
   padding: 12px 20px;
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
   background: var(--bg-card);
   border-top: 1px solid var(--border-light);
   z-index: 1;
@@ -169,6 +170,9 @@ app-dialog .dialog-body [dialogFooter] {
   .detail-route-page {
     margin: -12px;
     height: calc(100% + 24px);
+  }
+  .detail-route-page .panel-header {
+    padding-top: max(12px, env(safe-area-inset-top));
   }
 }
 

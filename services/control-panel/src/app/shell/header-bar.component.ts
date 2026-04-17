@@ -45,6 +45,7 @@ const isMac = /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent);
       align-items: center;
       justify-content: space-between;
       padding: 0 24px;
+      padding-top: env(safe-area-inset-top);
       gap: 12px;
       font-family: var(--font-primary);
     }
