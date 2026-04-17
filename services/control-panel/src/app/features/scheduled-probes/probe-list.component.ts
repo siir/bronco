@@ -12,6 +12,7 @@ import {
 } from '../../shared/components/index.js';
 import { DialogComponent } from '../../shared/components/dialog.component';
 import { DetailPanelService } from '../../core/services/detail-panel.service.js';
+import { ViewportService } from '../../core/services/viewport.service';
 import { ScheduledProbeService, ScheduledProbe } from '../../core/services/scheduled-probe.service';
 import { ClientService, Client } from '../../core/services/client.service';
 import { CATEGORY_OPTIONS } from '../../core/services/client-memory.service';
@@ -133,7 +134,21 @@ const ACTION_LABELS: Record<string, string> = {
 
         <ng-template #subtitle let-row>
           @if (row.description) {
-            {{ row.description }}
+            <div>{{ row.description }}</div>
+          }
+          <!--
+            Mobile: the actions column is hidden (mobilePriority="hidden")
+            so card taps open the detail pane. Surface run / edit / delete
+            here so operators can act on a probe without leaving the list.
+            Desktop renders actions in the trailing column, so skip here.
+          -->
+          @if (viewport.isMobile()) {
+            <div class="probe-mobile-actions" (click)="$event.stopPropagation()">
+              <app-bronco-button variant="icon" size="sm" ariaLabel="Run history" [routerLink]="['/scheduled-probes', row.id, 'runs']"><app-icon name="clipboard" size="sm" /></app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" ariaLabel="Run now" (click)="runNow(row)"><app-icon name="play" size="sm" /></app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" ariaLabel="Edit" (click)="editProbe(row)"><app-icon name="edit" size="sm" /></app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" ariaLabel="Delete" (click)="deleteProbe(row)"><app-icon name="close" size="sm" /></app-bronco-button>
+            </div>
           }
         </ng-template>
       </app-data-table>
@@ -162,6 +177,11 @@ const ACTION_LABELS: Record<string, string> = {
     .run-success { background: rgba(52,199,89,0.08); color: var(--color-success); }
     .run-error { background: rgba(255,59,48,0.08); color: var(--color-error); }
     .run-skipped { background: var(--bg-muted); color: var(--text-tertiary); }
+    .probe-mobile-actions {
+      display: flex;
+      gap: 4px;
+      margin-top: 6px;
+    }
   `],
 })
 export class ProbeListComponent implements OnInit {
@@ -169,6 +189,7 @@ export class ProbeListComponent implements OnInit {
   private clientService = inject(ClientService);
   private toast = inject(ToastService);
   private detailPanel = inject(DetailPanelService);
+  readonly viewport = inject(ViewportService);
 
   showProbeDialog = signal(false);
   editingProbe = signal<ScheduledProbe | null>(null);

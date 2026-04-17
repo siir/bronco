@@ -28,7 +28,7 @@ export class DetailPanelService {
     probe: '/scheduled-probes',
     system: '/system-status',
     analysis: '/system-analysis',
-    job: '/failed-jobs',
+    job: '/ingestion-jobs',
   };
 
   readonly entityType = signal<DetailEntityType | null>(null);

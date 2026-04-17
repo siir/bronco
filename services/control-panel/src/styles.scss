@@ -139,8 +139,8 @@ app-dialog .dialog-body [dialogFooter] {
   min-height: 0;
 }
 .detail-route-page .detail-panel {
-  width: 100%;
-  min-width: 0;
+  width: 100% !important;
+  min-width: 0 !important;
   height: 100%;
   border-left: none;
   animation: none;
