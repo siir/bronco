@@ -6,18 +6,34 @@ import { map } from 'rxjs';
 /**
  * Responsive viewport service.
  *
- * Exposes `isMobile` as a signal backed by CDK BreakpointObserver. The single
- * shell breakpoint — `(max-width: 767.98px)` — must be kept in sync with the
- * media queries used in component CSS (sidebar, header, shell content, etc.)
- * so the CSS branches and the template branches agree.
+ * Two breakpoints:
+ *   - `isMobile` (< 768px) governs phone-only behavior: form-input sizing
+ *     (iOS zoom prevention), DataTable card mode, full-screen dialogs, mobile
+ *     action affordances, etc.
+ *   - `isCompactLayout` (< 1200px) governs the shell: at narrower widths the
+ *     sidebar + main + 380px detail pane can't comfortably coexist inline, so
+ *     the sidebar collapses to a drawer and the detail view becomes a routed
+ *     full-width takeover.
+ *
+ * Each signal must stay in sync with the matching media queries used in
+ * component CSS so the template branches and CSS branches agree.
  */
 @Injectable({ providedIn: 'root' })
 export class ViewportService {
   private readonly bp = inject(BreakpointObserver);
 
-  /** True when viewport is below the shell mobile breakpoint. */
+  /** True when viewport is below the shell mobile breakpoint (< 768px). */
   readonly isMobile = toSignal(
     this.bp.observe('(max-width: 767.98px)').pipe(map(r => r.matches)),
+    { initialValue: false },
+  );
+
+  /**
+   * True when viewport is narrow enough that sidebar + detail pane can't
+   * comfortably coexist inline with main content (< 1200px).
+   */
+  readonly isCompactLayout = toSignal(
+    this.bp.observe('(max-width: 1199.98px)').pipe(map(r => r.matches)),
     { initialValue: false },
   );
 }

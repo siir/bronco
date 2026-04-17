@@ -226,15 +226,13 @@ import { FailedJobsService } from '../core/services/failed-jobs.service.js';
     }
 
     /*
-     * Mobile shell chrome tap targets.
+     * Compact-layout shell chrome tap targets.
      *
-     * Under 768px the sidebar is rendered inside a CDK Overlay drawer. Nav
-     * items, the logout button, the theme-indicator link, and the version
-     * label all get >= 44px hit areas so they're reliably tappable. This is
-     * scoped to the media query so desktop layout is byte-identical to the
-     * current mobile-design/staging.
+     * Under 1200px the sidebar is rendered inside a CDK Overlay drawer.
+     * Nav items, the logout button, the theme-indicator link, and the
+     * version label all get >= 44px hit areas so they're reliably tappable.
      */
-    @media (max-width: 767.98px) {
+    @media (max-width: 1199.98px) {
       .nav-item {
         padding: 12px 16px;
         font-size: 14px;
