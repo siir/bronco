@@ -14,7 +14,6 @@ import { SidebarService } from '../core/services/sidebar.service.js';
 import { AuthService } from '../core/services/auth.service.js';
 import { TicketService } from '../core/services/ticket.service.js';
 import { FailedJobsService } from '../core/services/failed-jobs.service.js';
-import { ToastContainerComponent } from '../shared/components/toast-container.component.js';
 import { CommandPaletteComponent } from '../shared/components/command-palette.component.js';
 import { CommandPaletteService } from '../core/services/command-palette.service.js';
 
@@ -48,7 +47,7 @@ const ROUTE_TITLE_MAP: Record<string, string> = {
 @Component({
   selector: 'app-shell',
   standalone: true,
-  imports: [RouterOutlet, SidebarComponent, HeaderBarComponent, DetailPanelComponent, ToastContainerComponent, CommandPaletteComponent],
+  imports: [RouterOutlet, SidebarComponent, HeaderBarComponent, DetailPanelComponent, CommandPaletteComponent],
   template: `
     <div class="shell">
       @if (!viewport.isCompactLayout()) {
@@ -64,7 +63,6 @@ const ROUTE_TITLE_MAP: Record<string, string> = {
         <app-detail-panel />
       }
     </div>
-    <app-toast-container />
     <app-command-palette />
   `,
   styles: [`

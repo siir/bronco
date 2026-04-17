@@ -1,4 +1,5 @@
 import { Component, inject, signal } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
 import { AuthService } from '../../core/services/auth.service.js';
 import { ToastService } from '../../core/services/toast.service.js';
 import {
@@ -108,11 +109,34 @@ export class LoginComponent {
 
     this.loading.set(true);
     this.authService.login(this.email, this.password).subscribe({
-      error: (err) => {
+      error: (err: HttpErrorResponse) => {
         this.loading.set(false);
-        const message = err.error?.error ?? 'Login failed';
-        this.toast.error(message);
+        this.toast.error(describeLoginError(err));
       },
     });
   }
+}
+
+/**
+ * Produce a user-facing message from an auth-login HTTP error. Covers four
+ * common shapes so the operator isn't left squinting at a generic "Login
+ * failed" toast while the real cause hides in DevTools.
+ */
+function describeLoginError(err: HttpErrorResponse): string {
+  // status 0 = browser couldn't reach the server (CORS, DNS, offline, proxy
+  // refused the upstream). Message the network layer, not the app.
+  if (err.status === 0) {
+    return 'Cannot reach the server. Check your connection or that the API is running.';
+  }
+  // Body-provided error from copilot-api (e.g., { error: 'Invalid credentials' }).
+  const bodyMessage = typeof err.error === 'object' && err.error !== null
+    ? (err.error as { error?: string; message?: string }).error
+      ?? (err.error as { error?: string; message?: string }).message
+    : typeof err.error === 'string' ? err.error : undefined;
+  if (bodyMessage) return bodyMessage;
+  // Generic status-based fallbacks.
+  if (err.status === 401) return 'Invalid email or password.';
+  if (err.status === 403) return 'Account is inactive or does not have control panel access.';
+  if (err.status >= 500) return `Server error (${err.status}). Try again in a moment.`;
+  return err.message ?? 'Login failed.';
 }
