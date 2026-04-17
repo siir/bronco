@@ -1,8 +1,8 @@
 import { Component, computed, contentChild, contentChildren, inject, input, output, TemplateRef } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
-import { DataTableColumnComponent } from './data-table-column.component';
-import { IconComponent } from './icon.component';
-import { ViewportService } from '../../core/services/viewport.service';
+import { DataTableColumnComponent } from './data-table-column.component.js';
+import { IconComponent } from './icon.component.js';
+import { ViewportService } from '../../core/services/viewport.service.js';
 
 @Component({
   selector: 'app-data-table',

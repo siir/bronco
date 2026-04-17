@@ -1,7 +1,7 @@
 import { Component, inject, input } from '@angular/core';
-import { IconComponent } from '../shared/components/icon.component';
-import { ViewportService } from '../core/services/viewport.service';
-import { SidebarService } from '../core/services/sidebar.service';
+import { IconComponent } from '../shared/components/icon.component.js';
+import { ViewportService } from '../core/services/viewport.service.js';
+import { SidebarService } from '../core/services/sidebar.service.js';
 
 const isMac = /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent);
 

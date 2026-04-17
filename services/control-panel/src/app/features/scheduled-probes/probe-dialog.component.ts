@@ -1,10 +1,10 @@
 import { Component, inject, OnInit, input, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { FormFieldComponent, TextInputComponent, TextareaComponent, SelectComponent, BroncoButtonComponent } from '../../shared/components/index.js';
-import { ScheduledProbeService, ScheduledProbe, CreateProbeRequest, UpdateProbeRequest } from '../../core/services/scheduled-probe.service';
-import { IntegrationService, ClientIntegration } from '../../core/services/integration.service';
-import { Client } from '../../core/services/client.service';
-import { ToastService } from '../../core/services/toast.service';
+import { ScheduledProbeService, ScheduledProbe, CreateProbeRequest, UpdateProbeRequest } from '../../core/services/scheduled-probe.service.js';
+import { IntegrationService, ClientIntegration } from '../../core/services/integration.service.js';
+import { Client } from '../../core/services/client.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 
 interface ToolInfo {
   name: string;

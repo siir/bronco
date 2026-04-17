@@ -1,8 +1,8 @@
 import { Component, DestroyRef, inject, input, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { JsonPipe } from '@angular/common';
-import { ClientIntegration, IntegrationService } from '../../../../core/services/integration.service';
-import { ToastService } from '../../../../core/services/toast.service';
+import { ClientIntegration, IntegrationService } from '../../../../core/services/integration.service.js';
+import { ToastService } from '../../../../core/services/toast.service.js';
 import {
   BroncoButtonComponent,
   CardComponent,
@@ -10,8 +10,8 @@ import {
   DialogComponent,
   IconComponent,
 } from '../../../../shared/components/index.js';
-import { McpServerInfoComponent } from '../../../../shared/components/mcp-server-info.component';
-import { IntegrationDialogComponent } from '../../../integrations/integration-dialog.component';
+import { McpServerInfoComponent } from '../../../../shared/components/mcp-server-info.component.js';
+import { IntegrationDialogComponent } from '../../../integrations/integration-dialog.component.js';
 
 const SENSITIVE_KEYS = ['encryptedPassword', 'encryptedPat', 'encryptedBotToken', 'encryptedAppToken', 'password', 'pat', 'token', 'secret', 'apiKey'];
 

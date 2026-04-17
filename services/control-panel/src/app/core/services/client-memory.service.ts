@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import { ApiService } from './api.service';
+import { ApiService } from './api.service.js';
 
 /** Canonical memory type option list — single source of truth for the UI. */
 export const MEMORY_TYPE_OPTIONS = [

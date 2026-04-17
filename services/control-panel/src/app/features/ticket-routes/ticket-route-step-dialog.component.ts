@@ -1,8 +1,8 @@
 import { Component, inject, OnInit, signal, input, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { FormFieldComponent, TextInputComponent, TextareaComponent, SelectComponent, BroncoButtonComponent } from '../../shared/components/index.js';
-import { TicketRouteService, TicketRouteStep, RouteStepTypeInfo, DispatchPreviewEntry, WithWarnings } from '../../core/services/ticket-route.service';
-import { ToastService } from '../../core/services/toast.service';
+import { TicketRouteService, TicketRouteStep, RouteStepTypeInfo, DispatchPreviewEntry, WithWarnings } from '../../core/services/ticket-route.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 
 @Component({
   selector: 'app-ticket-route-step-dialog-content',

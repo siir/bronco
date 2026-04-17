@@ -5,9 +5,9 @@ import { DatePipe } from '@angular/common';
 import {
   IngestionService,
   IngestionRun,
-} from '../../core/services/ingestion.service';
-import { ClientService, Client } from '../../core/services/client.service';
-import { DetailPanelService } from '../../core/services/detail-panel.service';
+} from '../../core/services/ingestion.service.js';
+import { ClientService, Client } from '../../core/services/client.service.js';
+import { DetailPanelService } from '../../core/services/detail-panel.service.js';
 import {
   SelectComponent,
   IconComponent,

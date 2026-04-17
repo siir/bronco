@@ -3,18 +3,18 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterOutlet, Router, NavigationEnd } from '@angular/router';
 import { Overlay, OverlayRef } from '@angular/cdk/overlay';
 import { ComponentPortal } from '@angular/cdk/portal';
-import { SidebarComponent } from './sidebar.component';
-import { SidebarDrawerComponent } from './sidebar-drawer.component';
-import { HeaderBarComponent } from './header-bar.component';
-import { DetailPanelComponent } from './detail-panel.component';
-import { DetailPanelService } from '../core/services/detail-panel.service';
-import { ThemeService } from '../core/services/theme.service';
-import { ViewportService } from '../core/services/viewport.service';
-import { SidebarService } from '../core/services/sidebar.service';
-import { AuthService } from '../core/services/auth.service';
-import { TicketService } from '../core/services/ticket.service';
-import { FailedJobsService } from '../core/services/failed-jobs.service';
-import { ToastContainerComponent } from '../shared/components/toast-container.component';
+import { SidebarComponent } from './sidebar.component.js';
+import { SidebarDrawerComponent } from './sidebar-drawer.component.js';
+import { HeaderBarComponent } from './header-bar.component.js';
+import { DetailPanelComponent } from './detail-panel.component.js';
+import { DetailPanelService } from '../core/services/detail-panel.service.js';
+import { ThemeService } from '../core/services/theme.service.js';
+import { ViewportService } from '../core/services/viewport.service.js';
+import { SidebarService } from '../core/services/sidebar.service.js';
+import { AuthService } from '../core/services/auth.service.js';
+import { TicketService } from '../core/services/ticket.service.js';
+import { FailedJobsService } from '../core/services/failed-jobs.service.js';
+import { ToastContainerComponent } from '../shared/components/toast-container.component.js';
 
 const ROUTE_TITLE_MAP: Record<string, string> = {
   dashboard: 'Dashboard',

@@ -1,9 +1,9 @@
 import { Component, computed, DestroyRef, inject, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ClientService, Client } from '../../core/services/client.service';
-import { TicketService, Ticket, ACTIVE_STATUS_FILTER } from '../../core/services/ticket.service';
-import { SystemStatusService, SystemStatusResponse } from '../../core/services/system-status.service';
-import { DetailPanelService } from '../../core/services/detail-panel.service';
+import { ClientService, Client } from '../../core/services/client.service.js';
+import { TicketService, Ticket, ACTIVE_STATUS_FILTER } from '../../core/services/ticket.service.js';
+import { SystemStatusService, SystemStatusResponse } from '../../core/services/system-status.service.js';
+import { DetailPanelService } from '../../core/services/detail-panel.service.js';
 import {
   StatCardComponent,
   DataTableComponent,

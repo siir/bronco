@@ -1,8 +1,8 @@
 import { Component, inject, OnInit, input, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { AiProviderService, AiProvider, AiProviderModel, AppScopeItem } from '../../core/services/ai-provider.service';
-import { AiUsageService, CatalogModel } from '../../core/services/ai-usage.service';
-import { ToastService } from '../../core/services/toast.service';
+import { AiProviderService, AiProvider, AiProviderModel, AppScopeItem } from '../../core/services/ai-provider.service.js';
+import { AiUsageService, CatalogModel } from '../../core/services/ai-usage.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 import { FormFieldComponent, TextInputComponent, SelectComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 const CAPABILITY_LEVELS = [

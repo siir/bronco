@@ -1,6 +1,6 @@
 import { Component, computed, contentChildren, input, output } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
-import { TabComponent } from './tab.component';
+import { TabComponent } from './tab.component.js';
 
 @Component({
   selector: 'app-tab-group',

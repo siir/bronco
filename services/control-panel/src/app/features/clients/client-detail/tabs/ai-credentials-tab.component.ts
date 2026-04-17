@@ -1,7 +1,7 @@
 import { Component, DestroyRef, inject, input, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ClientAiCredential, ClientAiCredentialService } from '../../../../core/services/client-ai-credential.service';
-import { ToastService } from '../../../../core/services/toast.service';
+import { ClientAiCredential, ClientAiCredentialService } from '../../../../core/services/client-ai-credential.service.js';
+import { ToastService } from '../../../../core/services/toast.service.js';
 import {
   BroncoButtonComponent,
   CardComponent,

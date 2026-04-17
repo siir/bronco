@@ -1,7 +1,7 @@
 import { Component, inject, input, output, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ClientMemoryService, type ClientMemory, MEMORY_TYPE_OPTIONS, CATEGORY_OPTIONS } from '../../core/services/client-memory.service';
-import { ToastService } from '../../core/services/toast.service';
+import { ClientMemoryService, type ClientMemory, MEMORY_TYPE_OPTIONS, CATEGORY_OPTIONS } from '../../core/services/client-memory.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 import { FormFieldComponent, TextInputComponent, TextareaComponent, SelectComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({

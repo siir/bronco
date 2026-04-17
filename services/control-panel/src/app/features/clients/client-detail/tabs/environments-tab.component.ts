@@ -1,7 +1,7 @@
 import { Component, DestroyRef, inject, input, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ClientEnvironment, ClientEnvironmentService } from '../../../../core/services/client-environment.service';
-import { ToastService } from '../../../../core/services/toast.service';
+import { ClientEnvironment, ClientEnvironmentService } from '../../../../core/services/client-environment.service.js';
+import { ToastService } from '../../../../core/services/toast.service.js';
 import {
   BroncoButtonComponent,
   CardComponent,
@@ -9,7 +9,7 @@ import {
   ToggleSwitchComponent,
   IconComponent,
 } from '../../../../shared/components/index.js';
-import { ClientEnvironmentDialogComponent } from '../../client-environment-dialog.component';
+import { ClientEnvironmentDialogComponent } from '../../client-environment-dialog.component.js';
 
 @Component({
   selector: 'app-client-environments-tab',

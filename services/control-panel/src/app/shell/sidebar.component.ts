@@ -1,11 +1,11 @@
 import { Component, computed, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { AuthService } from '../core/services/auth.service';
-import { ThemeService } from '../core/services/theme.service';
-import { VersionService } from '../core/services/version.service';
-import { TicketService } from '../core/services/ticket.service';
-import { FailedJobsService } from '../core/services/failed-jobs.service';
+import { AuthService } from '../core/services/auth.service.js';
+import { ThemeService } from '../core/services/theme.service.js';
+import { VersionService } from '../core/services/version.service.js';
+import { TicketService } from '../core/services/ticket.service.js';
+import { FailedJobsService } from '../core/services/failed-jobs.service.js';
 
 @Component({
   selector: 'app-sidebar',

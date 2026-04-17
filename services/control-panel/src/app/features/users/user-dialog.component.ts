@@ -1,6 +1,6 @@
 import { Component, inject, input, output, OnInit } from '@angular/core';
-import { UserService, type ControlPanelUser } from '../../core/services/user.service';
-import { ToastService } from '../../core/services/toast.service';
+import { UserService, type ControlPanelUser } from '../../core/services/user.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 import { FormFieldComponent, TextInputComponent, SelectComponent, ToggleSwitchComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({

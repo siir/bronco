@@ -1,7 +1,7 @@
 import { Component, input, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { CardComponent, BroncoButtonComponent, IconComponent } from '../../shared/components/index.js';
-import { type TicketCostResponse } from '../../core/services/ai-usage.service';
+import { type TicketCostResponse } from '../../core/services/ai-usage.service.js';
 
 @Component({
   selector: 'app-ticket-detail-cost',

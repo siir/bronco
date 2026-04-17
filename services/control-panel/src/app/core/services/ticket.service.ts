@@ -1,6 +1,6 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { Observable, tap } from 'rxjs';
-import { ApiService } from './api.service';
+import { ApiService } from './api.service.js';
 
 /** Comma-separated active status values for API queries. Single source of truth for the UI. */
 export const ACTIVE_STATUS_FILTER = 'OPEN,IN_PROGRESS,WAITING';

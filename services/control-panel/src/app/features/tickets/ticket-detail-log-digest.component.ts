@@ -1,7 +1,7 @@
 import { Component, input, output } from '@angular/core';
 import { BroncoButtonComponent, IconComponent } from '../../shared/components/index.js';
 import { MarkdownPipe } from '../../shared/pipes/markdown.pipe.js';
-import { type LogSummary } from '../../core/services/log-summary.service';
+import { type LogSummary } from '../../core/services/log-summary.service.js';
 
 @Component({
   selector: 'app-ticket-detail-log-digest',
