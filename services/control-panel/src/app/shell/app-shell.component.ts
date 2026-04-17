@@ -49,7 +49,7 @@ const ROUTE_TITLE_MAP: Record<string, string> = {
   imports: [RouterOutlet, SidebarComponent, HeaderBarComponent, DetailPanelComponent, ToastContainerComponent],
   template: `
     <div class="shell">
-      @if (!viewport.isMobile()) {
+      @if (!viewport.isCompactLayout()) {
         <app-sidebar />
       }
       <div class="shell-main">
@@ -58,7 +58,7 @@ const ROUTE_TITLE_MAP: Record<string, string> = {
           <router-outlet />
         </main>
       </div>
-      @if (!viewport.isMobile() && detailPanel.isOpen() && !onDetailRoute()) {
+      @if (!viewport.isCompactLayout() && detailPanel.isOpen() && !onDetailRoute()) {
         <app-detail-panel />
       }
     </div>
@@ -134,9 +134,9 @@ export class AppShellComponent implements OnInit {
     // Drawer open/close ↔ CDK Overlay attach/detach.
     effect(() => {
       const open = this.sidebar.isOpen();
-      const mobile = this.viewport.isMobile();
+      const compact = this.viewport.isCompactLayout();
       untracked(() => {
-        if (open && mobile) {
+        if (open && compact) {
           this.openDrawer();
         } else {
           this.closeDrawer();
@@ -144,27 +144,27 @@ export class AppShellComponent implements OnInit {
       });
     });
 
-    // Viewport flip: keep the pane visible across the 768px boundary by
-    // swapping presentations, not by destroying state.
-    //   Desktop → mobile: side pane open on /dashboard?detail=… →
-    //     navigate to /detail/:type/:id (routed full-screen view).
-    //   Mobile → desktop: routed view at /detail/:type/:id →
+    // Viewport flip: keep the pane visible across the compact-layout boundary
+    // (1200px) by swapping presentations, not by destroying state.
+    //   Desktop → compact: side pane open on /dashboard?detail=… →
+    //     navigate to /detail/:type/:id (routed takeover view).
+    //   Compact → desktop: routed view at /detail/:type/:id →
     //     navigate to parent list with ?detail=…&type=…&mode=… query
     //     params so the inline side pane renders.
-    // For the mobile→desktop direction, DetailViewComponent.ngOnDestroy
+    // For the compact→desktop direction, DetailViewComponent.ngOnDestroy
     // would otherwise dismiss the signals mid-transition and blank the
     // pane; we suppress that one dismiss so the inline pane picks up
     // the existing state.
     effect(() => {
-      const mobile = this.viewport.isMobile();
+      const compact = this.viewport.isCompactLayout();
       untracked(() => {
         const onDetailRoute = this.router.url.startsWith('/detail/');
         const type = this.detailPanel.entityType();
         const id = this.detailPanel.entityId();
         const mode = this.detailPanel.mode();
 
-        if (mobile && this.detailPanel.isOpen() && !onDetailRoute) {
-          // Desktop → mobile with side pane active.
+        if (compact && this.detailPanel.isOpen() && !onDetailRoute) {
+          // Desktop → compact with side pane active.
           if (!type || !id) return;
           this.router.navigate(['/detail', type, id], {
             queryParams: mode === 'full' ? undefined : { mode },
@@ -172,8 +172,8 @@ export class AppShellComponent implements OnInit {
           return;
         }
 
-        if (!mobile && onDetailRoute) {
-          // Mobile → desktop on routed view: restore parent list + pane.
+        if (!compact && onDetailRoute) {
+          // Compact → desktop on routed view: restore parent list + pane.
           if (!type || !id) return;
           const parent = DetailPanelService.PARENT_LIST[type] ?? '/dashboard';
           this.detailPanel.suppressNextDismiss();

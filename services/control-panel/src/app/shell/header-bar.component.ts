@@ -12,7 +12,7 @@ const isMac = /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent);
   template: `
     <header class="header-bar">
       <div class="header-left">
-        @if (viewport.isMobile()) {
+        @if (viewport.isCompactLayout()) {
           <button
             class="hamburger-btn"
             type="button"

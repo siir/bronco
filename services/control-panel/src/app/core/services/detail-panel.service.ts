@@ -39,17 +39,18 @@ export class DetailPanelService {
   /**
    * Open a detail view for the given entity. Behavior depends on viewport:
    *
-   * - Desktop (`>= 768px`): set signals and merge `detail`/`type`/`mode` into
-   *   the current URL's query params. The inline side pane renders.
-   * - Mobile (`< 768px`): set signals AND navigate to `/detail/:type/:id`.
-   *   The routed `DetailViewComponent` renders the same panel full-screen.
+   * - Desktop (`>= 1200px`): set signals and merge `detail`/`type`/`mode`
+   *   into the current URL's query params. The inline side pane renders.
+   * - Compact layout (`< 1200px`, phone + tablet + narrow desktop): set
+   *   signals AND navigate to `/detail/:type/:id`. The routed
+   *   `DetailViewComponent` renders the same panel as a full-width takeover.
    *
    * Signals are always set so components observing the panel state work
    * identically across both code paths.
    */
   open(type: DetailEntityType, id: string, mode: DetailPanelMode = 'full'): void {
     this.setState(type, id, mode);
-    if (this.viewport.isMobile()) {
+    if (this.viewport.isCompactLayout()) {
       // No `queryParamsHandling: 'merge'` — we're changing path into
       // /detail/:type/:id, so we don't want list-page query params (e.g.
       // `?clientId=…` on /tickets, `?tab=…` on settings-style pages, or

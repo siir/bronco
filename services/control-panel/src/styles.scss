@@ -123,15 +123,26 @@ app-dialog .dialog-body [dialogFooter] {
 }
 
 /*
- * Routed detail view renders the panel full-screen. The inline desktop pane
- * uses a fixed 380px width; on the routed page (both mobile flow and desktop
- * deep-link) we override that so the panel fills the shell content area.
- * Not scoped to the mobile media query because /detail/:type/:id is advertised
- * as a valid desktop deep-link too — without this override, desktop direct
- * nav would render a narrow 380px pane inside `shell-content`.
+ * Routed detail view (`/detail/:type/:id`) renders the same panel as the
+ * inline side pane, but full-width inside `shell-content`. The inline pane is
+ * a fixed 380px; here we widen it to fill the available area and present it
+ * differently per viewport:
+ *
+ *   - Phone (< 480px): edge-to-edge dialog look — break out of shell-content
+ *     padding, pin a sticky header, no slide animation.
+ *   - Tablet / narrow-desktop (480–1199px): right-slide takeover that covers
+ *     the main content area, keeping the shell header visible above it.
+ *   - Desktop (>= 1200px): the routed view is a deep-link entry point; the
+ *     panel simply fills shell-content with no animation (matches the
+ *     unanimated inline pane on first paint).
+ *
+ * Not scoped to a single media query because `/detail/:type/:id` is a valid
+ * desktop deep-link — without the base width override, desktop direct nav
+ * would render a narrow 380px pane inside `shell-content`.
  */
 .detail-route-page {
   height: 100%;
+  background: var(--bg-page);
 }
 .detail-route-page app-detail-panel {
   display: flex;
@@ -144,33 +155,39 @@ app-dialog .dialog-body [dialogFooter] {
   height: 100%;
   border-left: none;
   animation: none;
+  background: var(--bg-page);
+}
+.detail-route-page .panel-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-page);
 }
 
-/*
- * On mobile the routed detail view should feel like a full-screen page, not
- * a panel-inside-a-panel. The shell-content has 12px padding at < 768px
- * (Phase 1) which would frame the panel, and the panel itself has its own
- * padding + a rounded card background. We:
- *   1. Break out of shell-content's padding via negative margins so the
- *      panel fills the viewport edge-to-edge.
- *   2. Pin the panel header so the title/actions stay visible while the
- *      body scrolls — matches the sticky-header pattern of our mobile
- *      dialogs.
- * The inline desktop side pane is unaffected because it's not wrapped in
- * .detail-route-page.
- */
-@media (max-width: 767.98px) {
+/* Phone (< 480): dialog look. Break out of shell-content's 12px padding. */
+@media (max-width: 479.98px) {
   .detail-route-page {
     margin: -12px;
     height: calc(100% + 24px);
   }
-  .detail-route-page .detail-panel {
-    background: var(--bg-page);
+}
+
+/* Tablet / narrow-desktop (480-1199): takeover with slide-in from right.
+   Negative margin matches shell-content padding at this range: 12px under
+   768 and 24px at 768+. */
+@media (min-width: 480px) and (max-width: 1199.98px) {
+  .detail-route-page {
+    animation: detail-route-slide-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
   }
-  .detail-route-page .panel-header {
-    position: sticky;
-    top: 0;
-    z-index: 1;
-    background: var(--bg-page);
-  }
+}
+@media (min-width: 480px) and (max-width: 767.98px) {
+  .detail-route-page { margin: -12px; height: calc(100% + 24px); }
+}
+@media (min-width: 768px) and (max-width: 1199.98px) {
+  .detail-route-page { margin: -24px; height: calc(100% + 48px); }
+}
+
+@keyframes detail-route-slide-in {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0); opacity: 1; }
 }
