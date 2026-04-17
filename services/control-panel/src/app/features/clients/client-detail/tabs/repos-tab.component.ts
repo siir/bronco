@@ -1,7 +1,7 @@
 import { Component, DestroyRef, inject, input, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { CodeRepo, RepoService } from '../../../../core/services/repo.service';
-import { ToastService } from '../../../../core/services/toast.service';
+import { CodeRepo, RepoService } from '../../../../core/services/repo.service.js';
+import { ToastService } from '../../../../core/services/toast.service.js';
 import {
   BroncoButtonComponent,
   DataTableComponent,
@@ -9,7 +9,7 @@ import {
   DialogComponent,
   IconComponent,
 } from '../../../../shared/components/index.js';
-import { RepoDialogComponent } from '../../../repos/repo-dialog.component';
+import { RepoDialogComponent } from '../../../repos/repo-dialog.component.js';
 
 @Component({
   selector: 'app-client-repos-tab',

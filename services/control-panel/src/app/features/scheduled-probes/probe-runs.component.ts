@@ -19,8 +19,8 @@ import {
   ScheduledProbe,
   ProbeRun,
   ProbeRunStep,
-} from '../../core/services/scheduled-probe.service';
-import { ToastService } from '../../core/services/toast.service';
+} from '../../core/services/scheduled-probe.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 
 @Component({
   standalone: true,

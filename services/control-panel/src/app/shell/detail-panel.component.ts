@@ -2,14 +2,14 @@ import { Component, effect, inject, signal } from '@angular/core';
 import { Subscription } from 'rxjs';
 import { Router, RouterLink } from '@angular/router';
 import { DatePipe, DecimalPipe, SlicePipe } from '@angular/common';
-import { DetailPanelService, DetailEntityType } from '../core/services/detail-panel.service';
-import { TicketService, Ticket, TicketEvent, TicketAiUsageLog, UnifiedLogEntry } from '../core/services/ticket.service';
-import { ClientService, Client } from '../core/services/client.service';
-import { AiUsageService, type AiUsageClientSummary } from '../core/services/ai-usage.service';
-import { ScheduledProbeService, ScheduledProbe } from '../core/services/scheduled-probe.service';
-import { SystemStatusService, ComponentStatus, QueueStats, SystemStatusResponse } from '../core/services/system-status.service';
-import { SystemAnalysisService, SystemAnalysis } from '../core/services/system-analysis.service';
-import { IngestionService, IngestionRunDetail } from '../core/services/ingestion.service';
+import { DetailPanelService, DetailEntityType } from '../core/services/detail-panel.service.js';
+import { TicketService, Ticket, TicketEvent, TicketAiUsageLog, UnifiedLogEntry } from '../core/services/ticket.service.js';
+import { ClientService, Client } from '../core/services/client.service.js';
+import { AiUsageService, type AiUsageClientSummary } from '../core/services/ai-usage.service.js';
+import { ScheduledProbeService, ScheduledProbe } from '../core/services/scheduled-probe.service.js';
+import { SystemStatusService, ComponentStatus, QueueStats, SystemStatusResponse } from '../core/services/system-status.service.js';
+import { SystemAnalysisService, SystemAnalysis } from '../core/services/system-analysis.service.js';
+import { IngestionService, IngestionRunDetail } from '../core/services/ingestion.service.js';
 import {
   StatusBadgeComponent,
   PriorityPillComponent,
@@ -1329,12 +1329,39 @@ export class DetailPanelComponent {
             error: () => { this.error.set(true); this.loading.set(false); },
           });
           break;
-        case 'job':
-          sub = this.ingestionService.getRun(id).subscribe({
-            next: (j) => { this.job.set(j); this.loading.set(false); },
+        case 'job': {
+          // Keep the detail view live while the run is processing. The list
+          // page polls its own rows every 3s but doesn't push updates into
+          // this panel, so without our own poll an operator watching a live
+          // ingestion would see a frozen snapshot until they reopen the panel.
+          let pollTimer: ReturnType<typeof setInterval> | null = null;
+          const stopPoll = () => {
+            if (pollTimer) {
+              clearInterval(pollTimer);
+              pollTimer = null;
+            }
+          };
+          const jobSub = this.ingestionService.getRun(id).subscribe({
+            next: (j) => {
+              this.job.set(j);
+              this.loading.set(false);
+              if (j.status === 'processing' && !pollTimer) {
+                pollTimer = setInterval(() => {
+                  this.ingestionService.getRun(id).subscribe({
+                    next: (updated) => {
+                      this.job.set(updated);
+                      if (updated.status !== 'processing') stopPoll();
+                    },
+                    error: () => stopPoll(),
+                  });
+                }, 4000);
+              }
+            },
             error: () => { this.error.set(true); this.loading.set(false); },
           });
+          sub = { unsubscribe: () => { jobSub.unsubscribe(); stopPoll(); } } as Subscription;
           break;
+        }
         default:
           this.loading.set(false);
       }

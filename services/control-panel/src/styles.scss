@@ -23,18 +23,175 @@ html, body {
  * to mimic a real footer (top border, padding extending to the body edges).
  * Global styles work here because they bypass component view encapsulation
  * and reach into projected content.
+ *
+ * The footer is sticky by default — so in tall dialogs on any viewport,
+ * Save/Cancel stay reachable as the body scrolls. bottom: -20px pins to the
+ * visible bottom edge of .dialog-body, compensating for the existing
+ * margin-bottom: -20px (which makes the footer extend through the body's
+ * bottom padding to align with the panel edge).
  */
 app-dialog .dialog-body [dialogFooter] {
+  position: sticky;
+  bottom: -20px;
   display: flex;
   justify-content: flex-end;
   gap: 8px;
   margin: 16px -20px -20px;
   padding: 12px 20px;
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+  background: var(--bg-card);
   border-top: 1px solid var(--border-light);
+  z-index: 1;
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.04);
 }
 
+/*
+ * iOS Safari auto-zooms on focus when an input has font-size < 16px. The
+ * native-element selectors alone aren't enough: the primitives set their
+ * own 14px via view-encapsulated attribute selectors (e.g.
+ * `.text-input[_ngcontent-xxx]`), which have higher specificity than the
+ * global `input { ... }` rule. So the mobile override targets both the
+ * native elements AND the primitive classes by name, guaranteeing the 16px
+ * wins on small screens. Desktop keeps the 14px default for density.
+ * Form-field tap targets also get bumped to a 44px minimum height.
+ */
+@media (max-width: 767.98px) {
+  input,
+  textarea,
+  select,
+  app-text-input .text-input,
+  app-textarea .textarea-input,
+  app-select .select-input,
+  .date-input {
+    font-size: 16px;
+  }
+
+  app-text-input .text-input,
+  app-textarea .textarea-input,
+  app-select .select-input {
+    min-height: 44px;
+  }
+}
 
 @media (max-width: 767px) {
   h1 { font-size: 1.5rem; }
   h2 { font-size: 1.25rem; }
+}
+
+/*
+ * Mobile sidebar drawer.
+ *
+ * The sidebar renders inline on desktop (>= 768px) and via CDK Overlay on
+ * mobile (< 768px). The overlay panel is appended to the cdk-overlay-container
+ * in document.body, so these styles must be global to reach the overlay
+ * children. View-encapsulated component styles would not apply.
+ *
+ * Width is 280px (per Phase 1 spec — wider than the 240px inline sidebar so
+ * thumbs can comfortably hit nav items). A slide-in transform animation and
+ * backdrop fade match platform-native drawer UX.
+ */
+.cdk-overlay-pane.sidebar-drawer-pane {
+  width: 280px;
+  max-width: 80vw;
+  height: 100%;
+  pointer-events: auto;
+  animation: bronco-sidebar-drawer-slide-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.cdk-overlay-pane.sidebar-drawer-pane app-sidebar-drawer,
+.cdk-overlay-pane.sidebar-drawer-pane .sidebar-drawer-host,
+.cdk-overlay-pane.sidebar-drawer-pane app-sidebar,
+.cdk-overlay-pane.sidebar-drawer-pane .sidebar {
+  width: 280px;
+  min-width: 280px;
+  max-width: 100%;
+  height: 100%;
+}
+
+.cdk-overlay-pane.sidebar-drawer-pane .sidebar {
+  /* The inline sidebar relies on the shell's flex height; in the overlay it
+     needs an explicit box-shadow to read as elevated over the backdrop. */
+  box-shadow: 2px 0 12px rgba(0, 0, 0, 0.18);
+}
+
+.cdk-overlay-backdrop.sidebar-drawer-backdrop {
+  background: rgba(0, 0, 0, 0.45);
+}
+
+@keyframes bronco-sidebar-drawer-slide-in {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(0); }
+}
+
+/*
+ * Routed detail view (`/detail/:type/:id`) renders the same panel as the
+ * inline side pane, but full-width inside `shell-content`. The inline pane is
+ * a fixed 380px; here we widen it to fill the available area and present it
+ * differently per viewport:
+ *
+ *   - Phone (< 480px): edge-to-edge dialog look — break out of shell-content
+ *     padding, pin a sticky header, no slide animation.
+ *   - Tablet / narrow-desktop (480–1199px): right-slide takeover that covers
+ *     the main content area, keeping the shell header visible above it.
+ *   - Desktop (>= 1200px): the routed view is a deep-link entry point; the
+ *     panel simply fills shell-content with no animation (matches the
+ *     unanimated inline pane on first paint).
+ *
+ * Not scoped to a single media query because `/detail/:type/:id` is a valid
+ * desktop deep-link — without the base width override, desktop direct nav
+ * would render a narrow 380px pane inside `shell-content`.
+ */
+.detail-route-page {
+  height: 100%;
+  background: var(--bg-page);
+}
+.detail-route-page app-detail-panel {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.detail-route-page .detail-panel {
+  width: 100% !important;
+  min-width: 0 !important;
+  height: 100%;
+  border-left: none;
+  animation: none;
+  background: var(--bg-page);
+}
+.detail-route-page .panel-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-page);
+}
+
+/* Phone (< 480): dialog look. Break out of shell-content's 12px padding. */
+@media (max-width: 479.98px) {
+  .detail-route-page {
+    margin: -12px;
+    height: calc(100% + 24px);
+  }
+  .detail-route-page .panel-header {
+    padding-top: max(12px, env(safe-area-inset-top));
+  }
+}
+
+/* Tablet / narrow-desktop (480-1199): takeover with slide-in from right.
+   Negative margin matches shell-content padding at this range: 12px under
+   768 and 24px at 768+. */
+@media (min-width: 480px) and (max-width: 1199.98px) {
+  .detail-route-page {
+    animation: detail-route-slide-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+}
+@media (min-width: 480px) and (max-width: 767.98px) {
+  .detail-route-page { margin: -12px; height: calc(100% + 24px); }
+}
+@media (min-width: 768px) and (max-width: 1199.98px) {
+  .detail-route-page { margin: -24px; height: calc(100% + 48px); }
+}
+
+@keyframes detail-route-slide-in {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0); opacity: 1; }
 }

@@ -1,10 +1,10 @@
 import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ReleaseNotesService, type ReleaseNote, type ReleaseNoteType } from '../../core/services/release-notes.service';
-import { BackfillDialogComponent } from './backfill-dialog.component';
-import { DialogComponent } from '../../shared/components/dialog.component';
+import { ReleaseNotesService, type ReleaseNote, type ReleaseNoteType } from '../../core/services/release-notes.service.js';
+import { BackfillDialogComponent } from './backfill-dialog.component.js';
+import { DialogComponent } from '../../shared/components/dialog.component.js';
 import { BroncoButtonComponent, SelectComponent, PaginatorComponent, type PaginatorPageEvent } from '../../shared/components/index.js';
-import { ToastService } from '../../core/services/toast.service';
+import { ToastService } from '../../core/services/toast.service.js';
 
 const CHANGE_TYPE_META: Record<ReleaseNoteType, { label: string; color: string }> = {
   FEATURE: { label: 'Feature', color: 'var(--color-success)' },

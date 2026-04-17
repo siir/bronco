@@ -141,19 +141,19 @@ interface ActiveFilterChip {
         (rowClick)="navigateToTicket($event)"
         emptyMessage="No tickets match the current filters.">
 
-        <app-data-column key="priority" header="Priority" width="90px" [sortable]="false">
+        <app-data-column key="priority" header="Priority" width="90px" [sortable]="false" mobilePriority="secondary">
           <ng-template #cell let-row>
             <app-priority-pill [priority]="row.priority" />
           </ng-template>
         </app-data-column>
 
-        <app-data-column key="ticketNumber" header="#" width="70px" [sortable]="false">
+        <app-data-column key="ticketNumber" header="#" width="70px" [sortable]="false" mobilePriority="hidden">
           <ng-template #cell let-row>
             <span class="ticket-number">{{ row.ticketNumber ? '#' + row.ticketNumber : '' }}</span>
           </ng-template>
         </app-data-column>
 
-        <app-data-column key="subject" header="Subject" [sortable]="false">
+        <app-data-column key="subject" header="Subject" [sortable]="false" mobilePriority="primary">
           <ng-template #cell let-row>
             <a [routerLink]="['/tickets', row.id]" class="subject-link" (click)="$event.stopPropagation()">{{ row.subject }}</a>
             @if (row.summary) {
@@ -162,19 +162,19 @@ interface ActiveFilterChip {
           </ng-template>
         </app-data-column>
 
-        <app-data-column key="client" header="Client" width="90px" [sortable]="false">
+        <app-data-column key="client" header="Client" width="90px" [sortable]="false" mobilePriority="secondary">
           <ng-template #cell let-row>
             <span class="code-chip">{{ row.client?.shortCode }}</span>
           </ng-template>
         </app-data-column>
 
-        <app-data-column key="status" header="Status" width="110px" [sortable]="false">
+        <app-data-column key="status" header="Status" width="110px" [sortable]="false" mobilePriority="secondary">
           <ng-template #cell let-row>
             <app-status-badge [status]="row.status" />
           </ng-template>
         </app-data-column>
 
-        <app-data-column key="analysisStatus" header="Analysis" width="110px" [sortable]="false">
+        <app-data-column key="analysisStatus" header="Analysis" width="110px" [sortable]="false" mobilePriority="hidden">
           <ng-template #cell let-row>
             <span class="analysis-chip" [class]="'analysis-' + (row.analysisStatus?.toLowerCase() ?? 'none')">
               {{ formatAnalysisStatus(row.analysisStatus) }}
@@ -182,25 +182,25 @@ interface ActiveFilterChip {
           </ng-template>
         </app-data-column>
 
-        <app-data-column key="category" header="Category" width="120px" [sortable]="false">
+        <app-data-column key="category" header="Category" width="120px" [sortable]="false" mobilePriority="hidden">
           <ng-template #cell let-row>
             {{ row.category ?? '-' }}
           </ng-template>
         </app-data-column>
 
-        <app-data-column key="source" header="Source" width="100px" [sortable]="false">
+        <app-data-column key="source" header="Source" width="100px" [sortable]="false" mobilePriority="hidden">
           <ng-template #cell let-row>
             {{ row.source }}
           </ng-template>
         </app-data-column>
 
-        <app-data-column key="created" header="Created" width="100px" [sortable]="false">
+        <app-data-column key="created" header="Created" width="100px" [sortable]="false" mobilePriority="hidden">
           <ng-template #cell let-row>
             {{ formatDate(row.createdAt) }}
           </ng-template>
         </app-data-column>
 
-        <app-data-column key="actions" header="" width="48px" [sortable]="false">
+        <app-data-column key="actions" header="" width="48px" [sortable]="false" mobilePriority="hidden">
           <ng-template #cell let-row>
             <app-bronco-button variant="icon" size="sm" (click)="openQuickActions(row); $event.stopPropagation()" title="Quick actions">
               <app-icon name="more-vertical" size="sm" />

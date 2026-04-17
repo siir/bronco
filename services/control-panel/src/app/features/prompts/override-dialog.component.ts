@@ -1,8 +1,8 @@
 import { Component, inject, ViewChild, ElementRef, input, output, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { PromptService, PromptOverride, PromptKeyword } from '../../core/services/prompt.service';
-import { ClientService, Client } from '../../core/services/client.service';
-import { ToastService } from '../../core/services/toast.service';
+import { PromptService, PromptOverride, PromptKeyword } from '../../core/services/prompt.service.js';
+import { ClientService, Client } from '../../core/services/client.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 import { FormFieldComponent, SelectComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({

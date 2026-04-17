@@ -10,13 +10,14 @@ import {
   ToggleSwitchComponent,
   IconComponent,
 } from '../../shared/components/index.js';
-import { DialogComponent } from '../../shared/components/dialog.component';
+import { DialogComponent } from '../../shared/components/dialog.component.js';
 import { DetailPanelService } from '../../core/services/detail-panel.service.js';
-import { ScheduledProbeService, ScheduledProbe } from '../../core/services/scheduled-probe.service';
-import { ClientService, Client } from '../../core/services/client.service';
-import { CATEGORY_OPTIONS } from '../../core/services/client-memory.service';
-import { ProbeDialogComponent } from './probe-dialog.component';
-import { ToastService } from '../../core/services/toast.service';
+import { ViewportService } from '../../core/services/viewport.service.js';
+import { ScheduledProbeService, ScheduledProbe } from '../../core/services/scheduled-probe.service.js';
+import { ClientService, Client } from '../../core/services/client.service.js';
+import { CATEGORY_OPTIONS } from '../../core/services/client-memory.service.js';
+import { ProbeDialogComponent } from './probe-dialog.component.js';
+import { ToastService } from '../../core/services/toast.service.js';
 
 const CATEGORIES = CATEGORY_OPTIONS;
 
@@ -61,13 +62,13 @@ const ACTION_LABELS: Record<string, string> = {
         (rowClick)="onProbeClick($event)"
         emptyMessage="No scheduled probes found">
 
-        <app-data-column key="name" header="Name" [sortable]="false">
+        <app-data-column key="name" header="Name" [sortable]="false" mobilePriority="primary">
           <ng-template #cell let-row>
             <span style="font-weight: 500; color: var(--text-primary);">{{ row.name }}</span>
           </ng-template>
         </app-data-column>
 
-        <app-data-column key="client" header="Client" width="100px" [sortable]="false">
+        <app-data-column key="client" header="Client" width="100px" [sortable]="false" mobilePriority="secondary">
           <ng-template #cell let-row>
             <span style="font-size: 12px; padding: 2px 8px; background: var(--bg-active); border-radius: var(--radius-sm); color: var(--accent); font-family: ui-monospace, monospace;">
               {{ row.client?.shortCode ?? '—' }}
@@ -75,7 +76,7 @@ const ACTION_LABELS: Record<string, string> = {
           </ng-template>
         </app-data-column>
 
-        <app-data-column key="tool" header="Tool" width="160px" [sortable]="false">
+        <app-data-column key="tool" header="Tool" width="160px" [sortable]="false" mobilePriority="hidden">
           <ng-template #cell let-row>
             @if (isBuiltinTool(row.toolName)) {
               <span style="font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: var(--radius-sm); background: rgba(0,113,227,0.08); color: var(--accent);">Built-in</span>
@@ -86,7 +87,7 @@ const ACTION_LABELS: Record<string, string> = {
           </ng-template>
         </app-data-column>
 
-        <app-data-column key="schedule" header="Schedule" width="180px" [sortable]="false">
+        <app-data-column key="schedule" header="Schedule" width="180px" [sortable]="false" mobilePriority="secondary">
           <ng-template #cell let-row>
             <span style="font-size: 13px; color: var(--text-secondary);" [title]="row.cronExpression">
               {{ humanReadableSchedule(row) }}
@@ -94,13 +95,13 @@ const ACTION_LABELS: Record<string, string> = {
           </ng-template>
         </app-data-column>
 
-        <app-data-column key="action" header="Action" width="110px" [sortable]="false">
+        <app-data-column key="action" header="Action" width="110px" [sortable]="false" mobilePriority="secondary">
           <ng-template #cell let-row>
             <span class="action-badge" [ngClass]="'action-' + row.action">{{ formatAction(row.action) }}</span>
           </ng-template>
         </app-data-column>
 
-        <app-data-column key="lastRun" header="Last Run" width="140px" [sortable]="false">
+        <app-data-column key="lastRun" header="Last Run" width="140px" [sortable]="false" mobilePriority="secondary">
           <ng-template #cell let-row>
             @if (row.lastRunAt) {
               <div style="font-size: 12px; color: var(--text-secondary);">{{ formatDate(row.lastRunAt) }}</div>
@@ -111,7 +112,7 @@ const ACTION_LABELS: Record<string, string> = {
           </ng-template>
         </app-data-column>
 
-        <app-data-column key="active" header="Active" width="70px" [sortable]="false">
+        <app-data-column key="active" header="Active" width="70px" [sortable]="false" mobilePriority="secondary">
           <ng-template #cell let-row>
             <app-toggle-switch
               [checked]="row.isActive"
@@ -120,7 +121,7 @@ const ACTION_LABELS: Record<string, string> = {
           </ng-template>
         </app-data-column>
 
-        <app-data-column key="actions" header="" width="120px" [sortable]="false">
+        <app-data-column key="actions" header="" width="120px" [sortable]="false" mobilePriority="hidden">
           <ng-template #cell let-row>
             <div style="display: flex; gap: 2px;" (click)="$event.stopPropagation()">
               <app-bronco-button variant="icon" size="sm" aria-label="Run history" [routerLink]="['/scheduled-probes', row.id, 'runs']" title="Run history"><app-icon name="clipboard" size="sm" /></app-bronco-button>
@@ -133,7 +134,21 @@ const ACTION_LABELS: Record<string, string> = {
 
         <ng-template #subtitle let-row>
           @if (row.description) {
-            {{ row.description }}
+            <div>{{ row.description }}</div>
+          }
+          <!--
+            Mobile: the actions column is hidden (mobilePriority="hidden")
+            so card taps open the detail pane. Surface run / edit / delete
+            here so operators can act on a probe without leaving the list.
+            Desktop renders actions in the trailing column, so skip here.
+          -->
+          @if (viewport.isMobile()) {
+            <div class="probe-mobile-actions" (click)="$event.stopPropagation()">
+              <app-bronco-button variant="icon" size="sm" ariaLabel="Run history" [routerLink]="['/scheduled-probes', row.id, 'runs']"><app-icon name="clipboard" size="sm" /></app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" ariaLabel="Run now" (click)="runNow(row)"><app-icon name="play" size="sm" /></app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" ariaLabel="Edit" (click)="editProbe(row)"><app-icon name="edit" size="sm" /></app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" ariaLabel="Delete" (click)="deleteProbe(row)"><app-icon name="close" size="sm" /></app-bronco-button>
+            </div>
           }
         </ng-template>
       </app-data-table>
@@ -162,6 +177,11 @@ const ACTION_LABELS: Record<string, string> = {
     .run-success { background: rgba(52,199,89,0.08); color: var(--color-success); }
     .run-error { background: rgba(255,59,48,0.08); color: var(--color-error); }
     .run-skipped { background: var(--bg-muted); color: var(--text-tertiary); }
+    .probe-mobile-actions {
+      display: flex;
+      gap: 4px;
+      margin-top: 6px;
+    }
   `],
 })
 export class ProbeListComponent implements OnInit {
@@ -169,6 +189,7 @@ export class ProbeListComponent implements OnInit {
   private clientService = inject(ClientService);
   private toast = inject(ToastService);
   private detailPanel = inject(DetailPanelService);
+  readonly viewport = inject(ViewportService);
 
   showProbeDialog = signal(false);
   editingProbe = signal<ScheduledProbe | null>(null);

@@ -5,7 +5,7 @@ import {
   AiUsageClientSummary,
   AiUsageLogEntry,
   AiUsageService,
-} from '../../../../core/services/ai-usage.service';
+} from '../../../../core/services/ai-usage.service.js';
 import {
   BroncoButtonComponent,
   CardComponent,

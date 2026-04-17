@@ -4,10 +4,10 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CommonModule, DatePipe, DecimalPipe, JsonPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
-import { TicketService, Ticket, TicketEvent, type PendingAction, type UnifiedLogEntry, type TicketCostSummary, type AiHelpResponse, type TicketArtifact } from '../../core/services/ticket.service';
-import { LogSummaryService, type LogSummary } from '../../core/services/log-summary.service';
-import { AiUsageService, type TicketCostResponse } from '../../core/services/ai-usage.service';
-import { AiHelpDialogComponent } from '../../shared/components/ai-help-dialog.component';
+import { TicketService, Ticket, TicketEvent, type PendingAction, type UnifiedLogEntry, type TicketCostSummary, type AiHelpResponse, type TicketArtifact } from '../../core/services/ticket.service.js';
+import { LogSummaryService, type LogSummary } from '../../core/services/log-summary.service.js';
+import { AiUsageService, type TicketCostResponse } from '../../core/services/ai-usage.service.js';
+import { AiHelpDialogComponent } from '../../shared/components/ai-help-dialog.component.js';
 import {
   CardComponent,
   BroncoButtonComponent,
@@ -19,7 +19,7 @@ import {
   DialogComponent,
   IconComponent,
 } from '../../shared/components/index.js';
-import { AiLogEntryComponent } from './ai-log-entry.component';
+import { AiLogEntryComponent } from './ai-log-entry.component.js';
 import { TicketDetailSummaryComponent } from './ticket-detail-summary.component.js';
 import { TicketDetailResolutionComponent } from './ticket-detail-resolution.component.js';
 import { TicketDetailDetailsComponent } from './ticket-detail-details.component.js';
@@ -28,7 +28,7 @@ import { TicketDetailLogDigestComponent } from './ticket-detail-log-digest.compo
 import { TicketDetailFlowComponent, type FlowNode } from './ticket-detail-flow.component.js';
 import { TicketDetailCostComponent } from './ticket-detail-cost.component.js';
 import { TicketDetailTimelineComponent } from './ticket-detail-timeline.component.js';
-import { ToastService } from '../../core/services/toast.service';
+import { ToastService } from '../../core/services/toast.service.js';
 
 interface StepGroup {
   stepName: string;

@@ -1,7 +1,7 @@
 import { Component, input } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { BroncoButtonComponent } from '../../shared/components/index.js';
-import { type UnifiedLogEntry } from '../../core/services/ticket.service';
+import { type UnifiedLogEntry } from '../../core/services/ticket.service.js';
 
 @Component({
   selector: 'app-ai-log-entry',

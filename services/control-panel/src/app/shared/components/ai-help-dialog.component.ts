@@ -1,8 +1,8 @@
 import { Component, DestroyRef, inject, input, output, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { AiProviderService } from '../../core/services/ai-provider.service';
-import type { AiHelpResponse } from '../../core/services/ticket.service';
-import { ToastService } from '../../core/services/toast.service';
+import { AiProviderService } from '../../core/services/ai-provider.service.js';
+import type { AiHelpResponse } from '../../core/services/ticket.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 import { FormFieldComponent, TextareaComponent, SelectComponent, BroncoButtonComponent } from './index.js';
 
 /** @deprecated Use AiHelpResponse from ticket.service instead. */

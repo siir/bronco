@@ -1,8 +1,8 @@
 import { Component, input, output, inject } from '@angular/core';
 import { BroncoButtonComponent } from './bronco-button.component.js';
 import { IconComponent } from './index.js';
-import { IntegrationService, type McpDiscoveryMetadata } from '../../core/services/integration.service';
-import { ToastService } from '../../core/services/toast.service';
+import { IntegrationService, type McpDiscoveryMetadata } from '../../core/services/integration.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 
 @Component({
   selector: 'app-mcp-server-info',

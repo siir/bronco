@@ -1,11 +1,11 @@
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
-import { PromptService, PromptSummary, PromptKeyword } from '../../core/services/prompt.service';
-import { AiConfigService, TaskTypeDefault, AiModelConfig } from '../../core/services/ai-config.service';
+import { PromptService, PromptSummary, PromptKeyword } from '../../core/services/prompt.service.js';
+import { AiConfigService, TaskTypeDefault, AiModelConfig } from '../../core/services/ai-config.service.js';
 import { forkJoin } from 'rxjs';
-import { KeywordDialogComponent } from './keyword-dialog.component';
-import { AiConfigDialogComponent } from './ai-config-dialog.component';
+import { KeywordDialogComponent } from './keyword-dialog.component.js';
+import { AiConfigDialogComponent } from './ai-config-dialog.component.js';
 import {
   BroncoButtonComponent,
   SelectComponent,
@@ -18,7 +18,7 @@ import {
   DialogComponent,
   IconComponent,
 } from '../../shared/components/index.js';
-import { ToastService } from '../../core/services/toast.service';
+import { ToastService } from '../../core/services/toast.service.js';
 
 const TAB_LABELS = ['Prompts', 'Keywords', 'AI Tasks'] as const;
 

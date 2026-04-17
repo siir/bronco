@@ -1,5 +1,5 @@
 import { Component, computed, input, output } from '@angular/core';
-import { IconComponent } from './icon.component';
+import { IconComponent } from './icon.component.js';
 
 export interface PaginatorPageEvent {
   pageSize: number;
@@ -140,6 +140,46 @@ export interface PaginatorPageEvent {
 
     .paginator-summary {
       justify-content: flex-end;
+    }
+
+    /*
+     * Mobile compact mode.
+     *
+     * Stack the three sections vertically (size, nav, summary), bump the
+     * nav buttons up to 44x44 tap targets, and let the page-size <select>
+     * stretch — much easier to thumb than the desktop 24x24 affordances.
+     * Desktop layout is byte-identical above 768px.
+     */
+    @media (max-width: 767.98px) {
+      .paginator {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+        padding: 8px 0;
+      }
+      .paginator-section {
+        justify-content: center;
+      }
+      .paginator-nav {
+        gap: 6px;
+      }
+      .nav-btn {
+        width: 44px;
+        height: 44px;
+        font-size: 16px;
+      }
+      .page-size-select {
+        font-size: 14px;
+        padding: 8px 28px 8px 12px;
+        min-height: 44px;
+      }
+      .page-indicator,
+      .paginator-label {
+        font-size: 13px;
+      }
+      .paginator-summary {
+        justify-content: center;
+      }
     }
   `],
 })
