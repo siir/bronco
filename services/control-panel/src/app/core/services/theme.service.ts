@@ -1,7 +1,7 @@
 import { Injectable, effect, inject, signal } from '@angular/core';
-import { AuthService } from './auth.service';
-import { ApiService } from './api.service';
-import { ToastService } from './toast.service';
+import { AuthService } from './auth.service.js';
+import { ApiService } from './api.service.js';
+import { ToastService } from './toast.service.js';
 
 export interface ThemeOption {
   id: string;

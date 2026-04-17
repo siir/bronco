@@ -1,8 +1,8 @@
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { AiProviderService, AiProvider, AiProviderModel } from '../../core/services/ai-provider.service';
-import { AiProviderDialogComponent } from '../prompts/ai-provider-dialog.component';
-import { AiModelDialogComponent } from '../prompts/ai-model-dialog.component';
+import { AiProviderService, AiProvider, AiProviderModel } from '../../core/services/ai-provider.service.js';
+import { AiProviderDialogComponent } from '../prompts/ai-provider-dialog.component.js';
+import { AiModelDialogComponent } from '../prompts/ai-model-dialog.component.js';
 import {
   BroncoButtonComponent,
   ToggleSwitchComponent,
@@ -11,7 +11,7 @@ import {
   DialogComponent,
   IconComponent,
 } from '../../shared/components/index.js';
-import { ToastService } from '../../core/services/toast.service';
+import { ToastService } from '../../core/services/toast.service.js';
 
 @Component({
   standalone: true,

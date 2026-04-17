@@ -1,6 +1,6 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { Observable, tap } from 'rxjs';
-import { ApiService } from './api.service';
+import { ApiService } from './api.service.js';
 
 /** Comma-separated active status values for API queries. Single source of truth for the UI. */
 export const ACTIVE_STATUS_FILTER = 'OPEN,IN_PROGRESS,WAITING';
@@ -193,8 +193,13 @@ export class TicketService {
   getStats(clientId?: string): Observable<TicketStats> {
     return this.api.get<TicketStats>('/tickets/stats', clientId ? { clientId } : undefined).pipe(
       tap((stats) => {
-        const count = TicketService.ACTIVE_STATUSES.reduce((sum, s) => sum + (stats.byStatus[s] ?? 0), 0);
-        this.activeCount.set(count);
+        // Only update the sidebar badge from GLOBAL stats calls. Client-scoped
+        // calls are used for per-client dashboards and must not overwrite the
+        // sidebar's global count.
+        if (!clientId) {
+          const count = TicketService.ACTIVE_STATUSES.reduce((sum, s) => sum + (stats.byStatus[s] ?? 0), 0);
+          this.activeCount.set(count);
+        }
       }),
     );
   }

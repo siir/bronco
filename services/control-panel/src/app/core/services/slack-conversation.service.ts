@@ -1,6 +1,6 @@
 import { inject, Injectable } from '@angular/core';
 import type { Observable } from 'rxjs';
-import { ApiService } from './api.service';
+import { ApiService } from './api.service.js';
 
 export interface SlackConversationSummary {
   id: string;

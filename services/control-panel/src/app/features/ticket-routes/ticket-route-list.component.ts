@@ -2,12 +2,12 @@ import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { TicketRouteService, TicketRoute, TicketRouteStep, RouteStepTypeInfo } from '../../core/services/ticket-route.service';
-import type { RouteType } from '../../core/services/ticket-route.service';
-import { ClientService, Client } from '../../core/services/client.service';
-import { TicketRouteDialogComponent } from './ticket-route-dialog.component';
-import { TicketRouteStepDialogComponent } from './ticket-route-step-dialog.component';
-import { DialogComponent } from '../../shared/components/dialog.component';
+import { TicketRouteService, TicketRoute, TicketRouteStep, RouteStepTypeInfo } from '../../core/services/ticket-route.service.js';
+import type { RouteType } from '../../core/services/ticket-route.service.js';
+import { ClientService, Client } from '../../core/services/client.service.js';
+import { TicketRouteDialogComponent } from './ticket-route-dialog.component.js';
+import { TicketRouteStepDialogComponent } from './ticket-route-step-dialog.component.js';
+import { DialogComponent } from '../../shared/components/dialog.component.js';
 import {
   BroncoButtonComponent,
   SelectComponent,
@@ -15,7 +15,7 @@ import {
   TabGroupComponent,
   ToggleSwitchComponent,
 } from '../../shared/components/index.js';
-import { ToastService } from '../../core/services/toast.service';
+import { ToastService } from '../../core/services/toast.service.js';
 
 const TAB_LABELS = ['Ingestion Routes', 'Analysis Routes'] as const;
 

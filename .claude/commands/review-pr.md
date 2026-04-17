@@ -37,16 +37,30 @@ Review the committed code changes in PR #$ARGUMENTS. You are the reviewer — an
    - **Completeness**: Are there missing tests, missing error handling, incomplete implementations?
    - **Over-engineering**: Is the solution more complex than necessary?
 
-4. **Post a review on the PR:**
-   Use `gh api repos/{owner}/{repo}/pulls/$ARGUMENTS/reviews` with one of:
-   - `-f event="APPROVE"` — if the code looks good
-   - `-f event="REQUEST_CHANGES"` — if there are issues that must be fixed
-   - `-f event="COMMENT"` — if there are observations but no blocking issues
+4. **Post a review with summary + line comments:**
 
-   Include a structured body with:
-   - Summary of what the PR does
-   - Issues found (numbered, with severity)
-   - Whether you'll implement fixes on the parent branch or leave for the author
+   Build a JSON review payload and write it to `.tmp/review-payload.json`. The payload must include:
+   - `event`: one of `"APPROVE"`, `"REQUEST_CHANGES"`, or `"COMMENT"`
+   - `body`: a structured summary (what the PR does, numbered issues with severity, next-step recommendation)
+   - `comments`: an array of line-level comments, one per finding. Each comment object:
+     ```json
+     { "path": "relative/file/path.ts", "line": 42, "side": "RIGHT", "body": "Issue description" }
+     ```
+     - `path` — file path relative to repo root (matches the diff header)
+     - `line` — the line number in the **new file** (RIGHT side of the diff) where the issue exists
+     - `side` — always `"RIGHT"` (we comment on the new code, not the removed code)
+     - `body` — concise description of the issue, including severity tag like `[bug]`, `[nit]`, `[security]`, `[style]`
+
+   Write the payload with the Write tool to `.tmp/review-payload.json`, then post it:
+   ```
+   gh api repos/{owner}/{repo}/pulls/$ARGUMENTS/reviews --input .tmp/review-payload.json
+   ```
+
+   **Line number rules:**
+   - The `line` value must appear in the PR diff for that file — you cannot comment on unchanged lines.
+   - Use `gh pr diff $ARGUMENTS` output to confirm the exact line numbers.
+   - If a finding spans multiple lines, use the last line of the relevant range.
+   - If you can't map a finding to a specific diff line, include it in the `body` summary instead of the `comments` array.
 
 5. **Decide on next steps** — ask the user:
    - **Implement on parent**: If the change is small and correct (or easily fixable), implement it directly on the parent branch with improvements, then close the draft PR.

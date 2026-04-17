@@ -1,11 +1,11 @@
-import { Component, DestroyRef, computed, inject, OnInit } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
-import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
-import { AuthService } from '../core/services/auth.service';
-import { ThemeService } from '../core/services/theme.service';
-import { VersionService } from '../core/services/version.service';
-import { TicketService } from '../core/services/ticket.service';
-import { FailedJobsService } from '../core/services/failed-jobs.service';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { AuthService } from '../core/services/auth.service.js';
+import { ThemeService } from '../core/services/theme.service.js';
+import { VersionService } from '../core/services/version.service.js';
+import { TicketService } from '../core/services/ticket.service.js';
+import { FailedJobsService } from '../core/services/failed-jobs.service.js';
 
 @Component({
   selector: 'app-sidebar',
@@ -224,15 +224,42 @@ import { FailedJobsService } from '../core/services/failed-jobs.service';
       min-width: 18px;
       text-align: center;
     }
+
+    /*
+     * Compact-layout shell chrome tap targets.
+     *
+     * Under 1200px the sidebar is rendered inside a CDK Overlay drawer.
+     * Nav items, the logout button, the theme-indicator link, and the
+     * version label all get >= 44px hit areas so they're reliably tappable.
+     */
+    @media (max-width: 1199.98px) {
+      .nav-item {
+        padding: 12px 16px;
+        font-size: 14px;
+        min-height: 44px;
+      }
+      .logout-btn {
+        padding: 12px 16px;
+        font-size: 14px;
+        min-height: 44px;
+      }
+      .theme-indicator {
+        padding: 12px 16px;
+        font-size: 13px;
+        min-height: 44px;
+      }
+      .version-label {
+        padding: 8px 16px 12px;
+      }
+    }
   `],
 })
-export class SidebarComponent implements OnInit {
+export class SidebarComponent {
   readonly authService = inject(AuthService);
   readonly themeService = inject(ThemeService);
   private readonly versionService = inject(VersionService);
   private readonly ticketService = inject(TicketService);
   private readonly failedJobsService = inject(FailedJobsService);
-  private readonly destroyRef = inject(DestroyRef);
 
   readonly version = toSignal(this.versionService.getVersion(), { initialValue: '' });
   readonly ticketBadge = this.ticketService.activeCount;
@@ -252,22 +279,4 @@ export class SidebarComponent implements OnInit {
     return ['/clients', user.clientId];
   });
 
-  ngOnInit(): void {
-    // Scoped ops users don't have permission to fetch global ticket stats or
-    // the failed-jobs queue, so skip those calls entirely — they would just
-    // 403 and noise up the console.
-    if (this.isScoped()) {
-      return;
-    }
-
-    // Seed both badges — subsequent getStats()/list() calls from their
-    // respective pages automatically update the shared signals.
-    this.ticketService.getStats()
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe();
-
-    this.failedJobsService.list({ limit: 1 })
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe();
-  }
 }

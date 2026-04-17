@@ -1,8 +1,8 @@
 import { Component, inject, OnInit, signal, input, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { FormFieldComponent, TextInputComponent, TextareaComponent, SelectComponent, BroncoButtonComponent } from '../../shared/components/index.js';
-import { TicketRouteService, TicketRouteStep, RouteStepTypeInfo, DispatchPreviewEntry, WithWarnings } from '../../core/services/ticket-route.service';
-import { ToastService } from '../../core/services/toast.service';
+import { TicketRouteService, TicketRouteStep, RouteStepTypeInfo, DispatchPreviewEntry, WithWarnings } from '../../core/services/ticket-route.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 
 @Component({
   selector: 'app-ticket-route-step-dialog-content',
@@ -296,6 +296,13 @@ import { ToastService } from '../../core/services/toast.service';
     .query-tool-field { flex: 0 0 180px; }
     .query-params-field { flex: 1; min-width: 150px; }
     .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+    @media (max-width: 767.98px) {
+      .mode-group { flex-direction: column; gap: 8px; }
+      .rule-row, .query-row { flex-direction: column; align-items: stretch; gap: 8px; }
+      .query-tool-field { flex: 1 1 auto; }
+      .query-params-field { min-width: 0; }
+    }
     .select-native {
       width: 100%;
       box-sizing: border-box;

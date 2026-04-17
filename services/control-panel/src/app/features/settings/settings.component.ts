@@ -4,8 +4,8 @@ import { FormsModule } from '@angular/forms';
 import {
   ExternalServiceService,
   ExternalService,
-} from '../../core/services/external-service.service';
-import { UserService, ControlPanelUser } from '../../core/services/user.service';
+} from '../../core/services/external-service.service.js';
+import { UserService, ControlPanelUser } from '../../core/services/user.service.js';
 import {
   SettingsService,
   TicketStatusConfig,
@@ -17,10 +17,10 @@ import {
   ImapSystemConfig,
   SlackSystemConfig,
   PromptRetentionConfig,
-} from '../../core/services/settings.service';
-import { ExternalServiceDialogComponent } from './external-service-dialog.component';
-import { StatusConfigDialogComponent } from './status-config-dialog.component';
-import { CategoryConfigDialogComponent } from './category-config-dialog.component';
+} from '../../core/services/settings.service.js';
+import { ExternalServiceDialogComponent } from './external-service-dialog.component.js';
+import { StatusConfigDialogComponent } from './status-config-dialog.component.js';
+import { CategoryConfigDialogComponent } from './category-config-dialog.component.js';
 import {
   BroncoButtonComponent,
   CardComponent,
@@ -36,7 +36,7 @@ import {
   DialogComponent,
   IconComponent,
 } from '../../shared/components/index.js';
-import { ToastService } from '../../core/services/toast.service';
+import { ToastService } from '../../core/services/toast.service.js';
 
 const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External Services', 'Action Safety', 'Analysis Strategy', 'Self Analysis', 'SMTP', 'Azure DevOps', 'GitHub', 'IMAP', 'Slack', 'Prompt Retention'] as const;
 

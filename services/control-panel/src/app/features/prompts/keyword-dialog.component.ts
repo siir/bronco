@@ -1,7 +1,7 @@
 import { Component, inject, input, output, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { PromptService, PromptKeyword } from '../../core/services/prompt.service';
-import { ToastService } from '../../core/services/toast.service';
+import { PromptService, PromptKeyword } from '../../core/services/prompt.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 import { FormFieldComponent, TextInputComponent, TextareaComponent, SelectComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 const CATEGORIES = ['TICKET', 'EMAIL', 'DEVOPS', 'CODE', 'DATABASE', 'GENERAL'];

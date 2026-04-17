@@ -1,9 +1,9 @@
 import { Component, DestroyRef, computed, inject, input, output } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
-import { Client, ClientService } from '../../../core/services/client.service';
-import { AuthService } from '../../../core/services/auth.service';
-import { ToastService } from '../../../core/services/toast.service';
+import { Client, ClientService } from '../../../core/services/client.service.js';
+import { AuthService } from '../../../core/services/auth.service.js';
+import { ToastService } from '../../../core/services/toast.service.js';
 import {
   BroncoButtonComponent,
   ToggleSwitchComponent,
@@ -109,6 +109,38 @@ import {
       color: var(--text-tertiary);
       line-height: 1.4;
       text-align: right;
+    }
+
+    /*
+     * Mobile: the title row + notification toggle share a tight row and
+     * the 320px right-side block pushes the title into overflow. Stack the
+     * two sides and left-align the notification hint so it reads naturally.
+     */
+    @media (max-width: 767.98px) {
+      .page-header {
+        flex-direction: column;
+        gap: 8px;
+      }
+      .title-row {
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .page-title {
+        font-size: 20px;
+        word-break: break-word;
+      }
+      .header-right {
+        justify-content: flex-start;
+        padding-top: 0;
+        width: 100%;
+      }
+      .notif-mode {
+        align-items: flex-start;
+        max-width: none;
+      }
+      .notif-hint {
+        text-align: left;
+      }
     }
   `],
 })

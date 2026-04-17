@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { map, catchError, of } from 'rxjs';
-import { ApiService } from './api.service';
+import { ApiService } from './api.service.js';
 
 @Injectable({ providedIn: 'root' })
 export class VersionService {

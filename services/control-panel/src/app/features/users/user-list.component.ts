@@ -1,9 +1,9 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, inject, signal, OnInit, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
-import { UserService, type ControlPanelUser } from '../../core/services/user.service';
-import { AuthService } from '../../core/services/auth.service';
-import { UserDialogComponent } from './user-dialog.component';
+import { UserService, type ControlPanelUser } from '../../core/services/user.service.js';
+import { AuthService } from '../../core/services/auth.service.js';
+import { UserDialogComponent } from './user-dialog.component.js';
 import {
   BroncoButtonComponent,
   CardComponent,
@@ -11,8 +11,11 @@ import {
   DropdownMenuComponent,
   DropdownItemComponent,
   DialogComponent,
+  DataTableComponent,
+  DataTableColumnComponent,
 } from '../../shared/components/index.js';
-import { ToastService } from '../../core/services/toast.service';
+import { ViewportService } from '../../core/services/viewport.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 
 @Component({
   standalone: true,
@@ -25,6 +28,8 @@ import { ToastService } from '../../core/services/toast.service';
     DropdownMenuComponent,
     DropdownItemComponent,
     DialogComponent,
+    DataTableComponent,
+    DataTableColumnComponent,
     UserDialogComponent,
   ],
   template: `
@@ -39,51 +44,85 @@ import { ToastService } from '../../core/services/toast.service';
       @if (loading()) {
         <div class="loading-wrapper"><span class="loading-text">Loading...</span></div>
       } @else {
-        <div class="user-grid">
-          @for (user of users(); track user.id) {
-            <div class="user-card" [class.inactive]="!user.isActive">
-              <div class="card-header">
-                <div class="avatar" [class.admin-avatar]="user.role === 'ADMIN'">
-                  {{ user.name.charAt(0).toUpperCase() }}
+        <app-data-table
+          [data]="users()"
+          [trackBy]="trackById"
+          [rowClickable]="viewport.isMobile()"
+          (rowClick)="onRowClick($event)"
+          emptyMessage="No users found.">
+
+          <app-data-column key="user" header="User" [sortable]="false" mobilePriority="primary">
+            <ng-template #cell let-row>
+              <div class="user-cell" [class.inactive]="!row.isActive">
+                <div class="avatar" [class.admin-avatar]="row.role === 'ADMIN'">
+                  {{ row.name.charAt(0).toUpperCase() }}
                 </div>
-                <div class="header-text">
-                  <div class="user-name">{{ user.name }}</div>
-                  <div class="user-email">{{ user.email }}</div>
-                </div>
-                <app-bronco-button variant="icon" size="sm" class="card-menu" [attr.aria-label]="'Actions for ' + user.name" #menuTrigger (click)="menu.toggle()">
-                  ...
-                </app-bronco-button>
-                <app-dropdown-menu #menu [trigger]="menuTrigger">
-                  <app-dropdown-item (action)="openEdit(user)">Edit</app-dropdown-item>
-                  <app-dropdown-item (action)="openResetPassword(user)">Reset Password</app-dropdown-item>
-                  @if (user.id !== currentUserId()) {
-                    @if (user.isActive) {
-                      <app-dropdown-item (action)="deactivate(user)">Deactivate</app-dropdown-item>
-                    } @else {
-                      <app-dropdown-item (action)="activate(user)">Activate</app-dropdown-item>
-                    }
-                  }
-                </app-dropdown-menu>
-              </div>
-              <div class="user-details">
-                <div class="detail-row">
-                  <span class="chip" [class]="'role-' + user.role.toLowerCase()">{{ user.role }}</span>
-                  @if (!user.isActive) {
-                    <span class="chip role-inactive">INACTIVE</span>
-                  }
-                </div>
-                <div class="detail-row muted">
-                  Last login: {{ user.lastLoginAt ? (user.lastLoginAt | date:'short') : 'Never' }}
-                </div>
-                <div class="detail-row muted">
-                  Created: {{ user.createdAt | date:'mediumDate' }}
+                <div class="user-text">
+                  <div class="user-name">{{ row.name }}</div>
+                  <div class="user-email">{{ row.email }}</div>
                 </div>
               </div>
-            </div>
-          } @empty {
-            <p class="empty-state">No users found.</p>
+            </ng-template>
+          </app-data-column>
+
+          <app-data-column key="role" header="Role" width="110px" [sortable]="false" mobilePriority="secondary">
+            <ng-template #cell let-row>
+              <span class="chip" [class]="'role-' + row.role.toLowerCase()">{{ row.role }}</span>
+            </ng-template>
+          </app-data-column>
+
+          <app-data-column key="status" header="Status" width="100px" [sortable]="false" mobilePriority="secondary">
+            <ng-template #cell let-row>
+              @if (row.isActive) {
+                <span class="status-active">Active</span>
+              } @else {
+                <span class="chip role-inactive">INACTIVE</span>
+              }
+            </ng-template>
+          </app-data-column>
+
+          <app-data-column key="lastLogin" header="Last Login" width="160px" [sortable]="false" mobilePriority="secondary">
+            <ng-template #cell let-row>
+              <span class="muted">{{ row.lastLoginAt ? (row.lastLoginAt | date:'short') : 'Never' }}</span>
+            </ng-template>
+          </app-data-column>
+
+          <app-data-column key="created" header="Created" width="140px" [sortable]="false" mobilePriority="hidden">
+            <ng-template #cell let-row>
+              <span class="muted">{{ row.createdAt | date:'mediumDate' }}</span>
+            </ng-template>
+          </app-data-column>
+
+          <app-data-column key="actions" header="" width="60px" [sortable]="false" mobilePriority="hidden">
+            <ng-template #cell let-row>
+              <app-bronco-button variant="icon" size="sm" [ariaLabel]="'Actions for ' + row.name" (click)="onActionsClick(row, $event)">
+                ...
+              </app-bronco-button>
+            </ng-template>
+          </app-data-column>
+        </app-data-table>
+
+        <!--
+          Always render the dropdown so ViewChild resolves on first render.
+          Gating the whole dropdown on @if (openMenuRow()) caused the
+          ViewChild to be undefined on the first click, requiring a second
+          click to open. The dropdown's internal state (isOpen) controls
+          visibility; only the content (which needs the active row) is
+          conditionally rendered.
+        -->
+        <app-dropdown-menu #menu [trigger]="menuTriggerEl" (closed)="openMenuRow.set(null)">
+          @if (openMenuRow(); as activeRow) {
+            <app-dropdown-item (action)="openEdit(activeRow)">Edit</app-dropdown-item>
+            <app-dropdown-item (action)="openResetPassword(activeRow)">Reset Password</app-dropdown-item>
+            @if (activeRow.id !== currentUserId()) {
+              @if (activeRow.isActive) {
+                <app-dropdown-item (action)="deactivate(activeRow)">Deactivate</app-dropdown-item>
+              } @else {
+                <app-dropdown-item (action)="activate(activeRow)">Activate</app-dropdown-item>
+              }
+            }
           }
-        </div>
+        </app-dropdown-menu>
       }
 
       @if (showUserDialog()) {
@@ -140,43 +179,29 @@ import { ToastService } from '../../core/services/toast.service';
     }
     .loading-text { color: var(--text-tertiary); font-size: 13px; }
 
-    .user-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      gap: 16px;
-    }
-    .user-card {
-      background: var(--bg-card);
-      border-radius: var(--radius-lg);
-      padding: 20px;
-      box-shadow: var(--shadow-card);
-      position: relative;
-    }
-    .user-card.inactive { opacity: 0.6; }
-
-    .card-header {
+    .user-cell {
       display: flex;
       align-items: center;
       gap: 12px;
-      margin-bottom: 12px;
     }
+    .user-cell.inactive { opacity: 0.6; }
     .avatar {
-      width: 40px;
-      height: 40px;
+      width: 32px;
+      height: 32px;
       border-radius: 50%;
       background: var(--accent);
       color: var(--text-on-accent);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 17px;
+      font-size: 14px;
       font-weight: 600;
       flex-shrink: 0;
     }
     .admin-avatar { background: #5856d6; }
-    .header-text { flex: 1; min-width: 0; }
+    .user-text { min-width: 0; }
     .user-name {
-      font-size: 15px;
+      font-size: 14px;
       font-weight: 600;
       color: var(--text-primary);
       white-space: nowrap;
@@ -184,27 +209,22 @@ import { ToastService } from '../../core/services/toast.service';
       text-overflow: ellipsis;
     }
     .user-email {
-      font-size: 13px;
+      font-size: 12px;
       color: var(--text-tertiary);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
-    .card-menu { flex-shrink: 0; }
 
-    .user-details {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-    .detail-row {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
     .muted {
       color: var(--text-tertiary);
       font-size: 13px;
+    }
+
+    .status-active {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--color-success);
     }
 
     .chip {
@@ -217,12 +237,6 @@ import { ToastService } from '../../core/services/toast.service';
     .role-admin { background: rgba(88, 86, 214, 0.1); color: #5856d6; }
     .role-operator { background: rgba(52, 199, 89, 0.1); color: var(--color-success); }
     .role-inactive { background: rgba(255, 59, 48, 0.1); color: var(--color-error); }
-
-    .empty-state {
-      text-align: center;
-      color: var(--text-tertiary);
-      padding: 48px;
-    }
 
     .overlay {
       position: fixed;
@@ -284,6 +298,9 @@ export class UserListComponent implements OnInit {
   private userService = inject(UserService);
   private authService = inject(AuthService);
   private toast = inject(ToastService);
+  readonly viewport = inject(ViewportService);
+
+  @ViewChild('menu') private menu?: DropdownMenuComponent;
 
   users = signal<ControlPanelUser[]>([]);
   loading = signal(false);
@@ -291,8 +308,12 @@ export class UserListComponent implements OnInit {
   resetPassword = '';
   showUserDialog = signal(false);
   editingUser = signal<ControlPanelUser | null>(null);
+  openMenuRow = signal<ControlPanelUser | null>(null);
+  menuTriggerEl: HTMLElement | null = null;
 
   currentUserId = () => this.authService.currentUser()?.id;
+
+  trackById = (item: ControlPanelUser) => item.id;
 
   ngOnInit(): void {
     this.load();
@@ -320,6 +341,27 @@ export class UserListComponent implements OnInit {
   openEdit(user: ControlPanelUser): void {
     this.editingUser.set(user);
     this.showUserDialog.set(true);
+  }
+
+  onActionsClick(user: ControlPanelUser, event: Event): void {
+    event.stopPropagation();
+    const currentTarget = event.currentTarget;
+    this.menuTriggerEl = currentTarget instanceof HTMLElement ? currentTarget : null;
+    this.openMenuRow.set(user);
+    // Set the trigger on the menu directly — the `[trigger]` template binding
+    // doesn't propagate until the next CD cycle, so calling open() synchronously
+    // after updating menuTriggerEl would see the stale trigger and no-op.
+    if (this.menu) {
+      this.menu.trigger = this.menuTriggerEl;
+      this.menu.open();
+    }
+  }
+
+  // On mobile, tapping the card is the primary edit affordance since the
+  // overflow menu column is hidden. Desktop has rowClickable=false, so
+  // this is a no-op there.
+  onRowClick(user: ControlPanelUser): void {
+    this.openEdit(user);
   }
 
   onUserSaved(): void {

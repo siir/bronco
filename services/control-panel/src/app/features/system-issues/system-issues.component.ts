@@ -9,8 +9,14 @@ import {
   type FailedIssueJob,
   type OpenFinding,
   type RecentError,
-} from '../../core/services/system-issues.service';
-import { BroncoButtonComponent, SelectComponent } from '../../shared/components/index.js';
+  type FailedQueueInfo,
+} from '../../core/services/system-issues.service.js';
+import {
+  BroncoButtonComponent,
+  SelectComponent,
+  DataTableComponent,
+  DataTableColumnComponent,
+} from '../../shared/components/index.js';
 
 @Component({
   standalone: true,
@@ -20,6 +26,8 @@ import { BroncoButtonComponent, SelectComponent } from '../../shared/components/
     FormsModule,
     BroncoButtonComponent,
     SelectComponent,
+    DataTableComponent,
+    DataTableColumnComponent,
   ],
   template: `
     <div class="page-wrapper">
@@ -74,23 +82,51 @@ import { BroncoButtonComponent, SelectComponent } from '../../shared/components/
                 Failed Issue Resolution Jobs
                 <span class="count-badge">{{ d.failedIssueJobs.length }}</span>
               </h2>
-              <div class="card-grid">
-                @for (job of d.failedIssueJobs; track job.id) {
-                  <div class="card issue-card severity-high">
-                    <div class="card-title">
-                      <a [routerLink]="['/tickets', job.ticketId]" class="link">{{ job.ticketSubject }}</a>
-                    </div>
-                    <div class="card-subtitle">{{ job.clientName }} &middot; {{ job.repoName }}</div>
-                    @if (job.error) {
-                      <div class="error-text">{{ job.error }}</div>
+              <app-data-table
+                [data]="d.failedIssueJobs"
+                [trackBy]="trackJobId"
+                [rowClickable]="false">
+
+                <app-data-column key="ticket" header="Ticket" [sortable]="false" mobilePriority="primary">
+                  <ng-template #cell let-row>
+                    <a [routerLink]="['/tickets', row.ticketId]" class="link">{{ row.ticketSubject }}</a>
+                  </ng-template>
+                </app-data-column>
+
+                <app-data-column key="client" header="Client" width="160px" [sortable]="false" mobilePriority="secondary">
+                  <ng-template #cell let-row>
+                    {{ row.clientName }}
+                  </ng-template>
+                </app-data-column>
+
+                <app-data-column key="repo" header="Repo" width="160px" [sortable]="false" mobilePriority="secondary">
+                  <ng-template #cell let-row>
+                    {{ row.repoName }}
+                  </ng-template>
+                </app-data-column>
+
+                <app-data-column key="branch" header="Branch" width="200px" [sortable]="false" mobilePriority="hidden">
+                  <ng-template #cell let-row>
+                    <span class="mono">{{ row.branchName }}</span>
+                  </ng-template>
+                </app-data-column>
+
+                <app-data-column key="error" header="Error" [sortable]="false" mobilePriority="secondary">
+                  <ng-template #cell let-row>
+                    @if (row.error) {
+                      <span class="error-text">{{ row.error }}</span>
+                    } @else {
+                      —
                     }
-                    <div class="meta">
-                      <span class="mono">{{ job.branchName }}</span>
-                      <span class="timestamp">{{ job.failedAt | date:'short' }}</span>
-                    </div>
-                  </div>
-                }
-              </div>
+                  </ng-template>
+                </app-data-column>
+
+                <app-data-column key="failedAt" header="Failed At" width="160px" [sortable]="false" mobilePriority="secondary">
+                  <ng-template #cell let-row>
+                    <span class="timestamp">{{ row.failedAt | date:'short' }}</span>
+                  </ng-template>
+                </app-data-column>
+              </app-data-table>
             </section>
           }
 
@@ -101,25 +137,59 @@ import { BroncoButtonComponent, SelectComponent } from '../../shared/components/
                 Open Database Findings
                 <span class="count-badge">{{ d.openFindings.length }}</span>
               </h2>
-              <div class="card-grid">
-                @for (finding of d.openFindings; track finding.id) {
-                  <div [class]="'card issue-card severity-' + finding.severity.toLowerCase()">
-                    <div class="card-title">{{ finding.title }}</div>
-                    <div class="card-subtitle">
-                      {{ finding.clientName }} &middot; {{ finding.systemName }}
-                    </div>
-                    <div class="finding-description">{{ finding.description }}</div>
-                    <div class="meta">
-                      <div class="chip-set">
-                        <span [class]="'chip severity-chip-' + finding.severity.toLowerCase()">{{ finding.severity }}</span>
-                        <span class="chip">{{ finding.category }}</span>
-                        <span class="chip">{{ finding.status }}</span>
-                      </div>
-                      <span class="timestamp">{{ finding.detectedAt | date:'short' }}</span>
-                    </div>
-                  </div>
-                }
-              </div>
+              <app-data-table
+                [data]="d.openFindings"
+                [trackBy]="trackFindingId"
+                [rowClickable]="false">
+
+                <app-data-column key="title" header="Finding" [sortable]="false" mobilePriority="primary">
+                  <ng-template #cell let-row>
+                    {{ row.title }}
+                  </ng-template>
+                </app-data-column>
+
+                <app-data-column key="client" header="Client" width="160px" [sortable]="false" mobilePriority="secondary">
+                  <ng-template #cell let-row>
+                    {{ row.clientName }}
+                  </ng-template>
+                </app-data-column>
+
+                <app-data-column key="system" header="System" width="160px" [sortable]="false" mobilePriority="secondary">
+                  <ng-template #cell let-row>
+                    {{ row.systemName }}
+                  </ng-template>
+                </app-data-column>
+
+                <app-data-column key="description" header="Description" [sortable]="false" mobilePriority="secondary">
+                  <ng-template #cell let-row>
+                    <span class="finding-description">{{ row.description }}</span>
+                  </ng-template>
+                </app-data-column>
+
+                <app-data-column key="severity" header="Severity" width="100px" [sortable]="false" mobilePriority="secondary">
+                  <ng-template #cell let-row>
+                    <span [class]="'chip severity-chip-' + row.severity.toLowerCase()">{{ row.severity }}</span>
+                  </ng-template>
+                </app-data-column>
+
+                <app-data-column key="category" header="Category" width="120px" [sortable]="false" mobilePriority="hidden">
+                  <ng-template #cell let-row>
+                    <span class="chip">{{ row.category }}</span>
+                  </ng-template>
+                </app-data-column>
+
+                <app-data-column key="status" header="Status" width="100px" [sortable]="false" mobilePriority="hidden">
+                  <ng-template #cell let-row>
+                    <span class="chip">{{ row.status }}</span>
+                  </ng-template>
+                </app-data-column>
+
+                <app-data-column key="detected" header="Detected" width="160px" [sortable]="false" mobilePriority="secondary">
+                  <ng-template #cell let-row>
+                    <span class="timestamp">{{ row.detectedAt | date:'short' }}</span>
+                  </ng-template>
+                </app-data-column>
+              </app-data-table>
             </section>
           }
 
@@ -130,24 +200,29 @@ import { BroncoButtonComponent, SelectComponent } from '../../shared/components/
                 Unresolved Error Logs
                 <span class="count-badge">{{ d.recentErrors.length }}</span>
               </h2>
-              <div class="error-table">
-                <div class="error-table-header">
-                  <span class="col-service">Service</span>
-                  <span class="col-message">Message</span>
-                  <span class="col-time">Time</span>
-                </div>
-                @for (err of d.recentErrors; track err.id) {
-                  <div class="error-row">
-                    <span class="col-service">
-                      <span class="service-badge">{{ err.service }}</span>
-                    </span>
-                    <span class="col-message" [title]="err.error ?? ''">
-                      {{ err.message }}
-                    </span>
-                    <span class="col-time">{{ err.createdAt | date:'short' }}</span>
-                  </div>
-                }
-              </div>
+              <app-data-table
+                [data]="d.recentErrors"
+                [trackBy]="trackErrorId"
+                [rowClickable]="false">
+
+                <app-data-column key="service" header="Service" width="160px" [sortable]="false" mobilePriority="secondary">
+                  <ng-template #cell let-row>
+                    <span class="service-badge">{{ row.service }}</span>
+                  </ng-template>
+                </app-data-column>
+
+                <app-data-column key="message" header="Message" [sortable]="false" mobilePriority="primary">
+                  <ng-template #cell let-row>
+                    <span class="col-message" [title]="row.error ?? ''">{{ row.message }}</span>
+                  </ng-template>
+                </app-data-column>
+
+                <app-data-column key="time" header="Time" width="160px" [sortable]="false" mobilePriority="secondary">
+                  <ng-template #cell let-row>
+                    <span class="col-time">{{ row.createdAt | date:'short' }}</span>
+                  </ng-template>
+                </app-data-column>
+              </app-data-table>
             </section>
           }
 
@@ -158,14 +233,23 @@ import { BroncoButtonComponent, SelectComponent } from '../../shared/components/
                 Failed Queue Jobs
                 <span class="count-badge">{{ failedQueues().length }}</span>
               </h2>
-              <div class="card-grid">
-                @for (q of failedQueues(); track q.queue) {
-                  <div class="card issue-card severity-medium">
-                    <div class="card-title">{{ q.queue }}</div>
-                    <div class="queue-failed-count">{{ q.failed }} failed {{ q.failed === 1 ? 'job' : 'jobs' }}</div>
-                  </div>
-                }
-              </div>
+              <app-data-table
+                [data]="failedQueues()"
+                [trackBy]="trackQueueName"
+                [rowClickable]="false">
+
+                <app-data-column key="queue" header="Queue" [sortable]="false" mobilePriority="primary">
+                  <ng-template #cell let-row>
+                    {{ row.queue }}
+                  </ng-template>
+                </app-data-column>
+
+                <app-data-column key="failed" header="Failed Jobs" width="160px" [sortable]="false" mobilePriority="secondary">
+                  <ng-template #cell let-row>
+                    <span class="queue-failed-count">{{ row.failed }} failed {{ row.failed === 1 ? 'job' : 'jobs' }}</span>
+                  </ng-template>
+                </app-data-column>
+              </app-data-table>
             </section>
           }
         }
@@ -241,41 +325,27 @@ import { BroncoButtonComponent, SelectComponent } from '../../shared/components/
       padding: 2px 10px; border-radius: var(--radius-pill);
       font-family: var(--font-primary); font-size: 13px; font-weight: 500;
     }
-    .card-grid {
-      display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px;
-    }
-    .issue-card { border-left: 4px solid var(--text-tertiary); }
-    .issue-card.severity-critical { border-left-color: var(--color-error); }
-    .issue-card.severity-high { border-left-color: var(--color-error); }
-    .issue-card.severity-medium { border-left-color: var(--color-warning); }
-    .issue-card.severity-low { border-left-color: var(--color-info); }
 
-    .card-title { font-family: var(--font-primary); font-size: 15px; font-weight: 500; color: var(--text-primary); margin-bottom: 4px; }
-    .card-subtitle { font-family: var(--font-primary); font-size: 13px; color: var(--text-tertiary); margin-bottom: 8px; }
     .link { color: var(--accent-link); text-decoration: none; }
     .link:hover { text-decoration: underline; }
 
     .error-text {
-      background: var(--bg-muted); padding: 8px 12px; border-radius: var(--radius-sm);
-      font-family: monospace; font-size: 13px; color: var(--color-error);
-      word-break: break-word; max-height: 80px; overflow-y: auto; margin-bottom: 8px;
+      display: block;
+      background: var(--bg-muted); padding: 6px 10px; border-radius: var(--radius-sm);
+      font-family: monospace; font-size: 12px; color: var(--color-error);
+      word-break: break-word; max-height: 80px; overflow-y: auto;
     }
     .finding-description {
-      font-family: var(--font-primary); font-size: 14px; color: var(--text-tertiary);
-      margin-bottom: 8px; display: -webkit-box; -webkit-line-clamp: 3;
+      font-family: var(--font-primary); font-size: 13px; color: var(--text-tertiary);
+      display: -webkit-box; -webkit-line-clamp: 3;
       -webkit-box-orient: vertical; overflow: hidden;
-    }
-    .meta {
-      display: flex; align-items: center; justify-content: space-between;
-      flex-wrap: wrap; gap: 8px; font-size: 13px; color: var(--text-tertiary);
     }
     .mono {
       font-family: monospace; font-size: 12px; background: var(--bg-muted);
       padding: 2px 6px; border-radius: var(--radius-sm);
     }
-    .timestamp { white-space: nowrap; }
+    .timestamp { white-space: nowrap; font-size: 13px; color: var(--text-tertiary); }
 
-    .chip-set { display: flex; gap: 6px; flex-wrap: wrap; }
     .chip {
       font-family: var(--font-primary); font-size: 11px; font-weight: 500;
       padding: 2px 8px; border-radius: var(--radius-pill); background: var(--bg-muted);
@@ -286,23 +356,6 @@ import { BroncoButtonComponent, SelectComponent } from '../../shared/components/
     .severity-chip-medium { background: rgba(255, 149, 0, 0.1); color: var(--color-warning); }
     .severity-chip-low { background: rgba(0, 122, 255, 0.1); color: var(--color-info); }
 
-    .error-table {
-      background: var(--bg-card); border-radius: var(--radius-lg);
-      overflow: hidden; border: 1px solid var(--border-light); box-shadow: var(--shadow-card);
-    }
-    .error-table-header {
-      display: grid; grid-template-columns: 150px 1fr 120px;
-      padding: 12px 16px; background: var(--bg-muted);
-      font-family: var(--font-primary); font-weight: 500; font-size: 13px;
-      color: var(--text-tertiary); border-bottom: 1px solid var(--border-light);
-    }
-    .error-row {
-      display: grid; grid-template-columns: 150px 1fr 120px;
-      padding: 10px 16px; border-bottom: 1px solid var(--border-light);
-      font-family: var(--font-primary); font-size: 13px; align-items: center;
-    }
-    .error-row:last-child { border-bottom: none; }
-    .error-row:hover { background: var(--bg-hover); }
     .service-badge {
       background: var(--color-info-subtle); color: var(--accent);
       padding: 2px 8px; border-radius: var(--radius-sm);
@@ -310,12 +363,12 @@ import { BroncoButtonComponent, SelectComponent } from '../../shared/components/
     }
     .col-message {
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-      padding-right: 12px; color: var(--text-secondary);
+      color: var(--text-secondary);
     }
-    .col-time { color: var(--text-tertiary); text-align: right; }
+    .col-time { color: var(--text-tertiary); }
 
     .queue-failed-count {
-      font-family: var(--font-primary); font-size: 20px;
+      font-family: var(--font-primary); font-size: 16px;
       font-weight: 500; color: var(--color-error);
     }
 
@@ -354,6 +407,11 @@ export class SystemIssuesComponent implements OnInit, OnDestroy {
     if (!d) return [];
     return d.failedQueues.filter(q => q.failed > 0);
   });
+
+  trackJobId = (job: FailedIssueJob) => job.id;
+  trackFindingId = (f: OpenFinding) => f.id;
+  trackErrorId = (e: RecentError) => e.id;
+  trackQueueName = (q: FailedQueueInfo) => q.queue;
 
   ngOnInit() {
     this.refresh();

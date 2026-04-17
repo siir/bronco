@@ -1,9 +1,9 @@
 import { Component, DestroyRef, inject, OnInit, signal, input } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
-import { PromptService, PromptDetail, PromptOverride, PreviewResult } from '../../core/services/prompt.service';
-import { ClientService, Client } from '../../core/services/client.service';
-import { OverrideDialogComponent } from './override-dialog.component';
+import { PromptService, PromptDetail, PromptOverride, PreviewResult } from '../../core/services/prompt.service.js';
+import { ClientService, Client } from '../../core/services/client.service.js';
+import { OverrideDialogComponent } from './override-dialog.component.js';
 import {
   BroncoButtonComponent,
   CardComponent,
@@ -13,7 +13,7 @@ import {
   DialogComponent,
   IconComponent,
 } from '../../shared/components/index.js';
-import { ToastService } from '../../core/services/toast.service';
+import { ToastService } from '../../core/services/toast.service.js';
 
 @Component({
   standalone: true,

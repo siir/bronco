@@ -1,9 +1,9 @@
 import { Component, inject, input, output, OnInit, signal } from '@angular/core';
-import { IntegrationService } from '../../core/services/integration.service';
-import type { ClientIntegration } from '../../core/services/integration.service';
-import { AuthService } from '../../core/services/auth.service';
-import { McpToolVisibilityDialogComponent } from './mcp-tool-visibility-dialog.component';
-import { ToastService } from '../../core/services/toast.service';
+import { IntegrationService } from '../../core/services/integration.service.js';
+import type { ClientIntegration } from '../../core/services/integration.service.js';
+import { AuthService } from '../../core/services/auth.service.js';
+import { McpToolVisibilityDialogComponent } from './mcp-tool-visibility-dialog.component.js';
+import { ToastService } from '../../core/services/toast.service.js';
 import { DialogComponent, FormFieldComponent, TextInputComponent, TextareaComponent, SelectComponent, ToggleSwitchComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({

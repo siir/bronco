@@ -6,8 +6,8 @@ import { FormsModule } from '@angular/forms';
 import { Subject, debounceTime } from 'rxjs';
 import {
   AiUsageService, AiUsageSummary, AiModelCost, AiUsageLogEntry, AiUsageLogDetail,
-} from '../../core/services/ai-usage.service';
-import { ModelCostDialogComponent } from './model-cost-dialog.component';
+} from '../../core/services/ai-usage.service.js';
+import { ModelCostDialogComponent } from './model-cost-dialog.component.js';
 import {
   BroncoButtonComponent,
   SelectComponent,
@@ -19,7 +19,7 @@ import {
   DialogComponent,
   type PaginatorPageEvent,
 } from '../../shared/components/index.js';
-import { ToastService } from '../../core/services/toast.service';
+import { ToastService } from '../../core/services/toast.service.js';
 
 interface DatePreset {
   label: string;

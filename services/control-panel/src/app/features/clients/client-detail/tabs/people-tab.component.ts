@@ -1,7 +1,7 @@
 import { Component, DestroyRef, inject, input, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { Person, PersonService } from '../../../../core/services/person.service';
-import { ToastService } from '../../../../core/services/toast.service';
+import { Person, PersonService } from '../../../../core/services/person.service.js';
+import { ToastService } from '../../../../core/services/toast.service.js';
 import {
   BroncoButtonComponent,
   DataTableComponent,
@@ -9,7 +9,7 @@ import {
   DialogComponent,
   IconComponent,
 } from '../../../../shared/components/index.js';
-import { PersonDialogComponent } from '../../../people/person-dialog.component';
+import { PersonDialogComponent } from '../../../people/person-dialog.component.js';
 
 @Component({
   selector: 'app-client-people-tab',

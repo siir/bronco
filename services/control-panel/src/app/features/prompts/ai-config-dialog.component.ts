@@ -1,10 +1,10 @@
 import { Component, inject, OnInit, input, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { AiConfigService, AiModelConfig } from '../../core/services/ai-config.service';
-import { ClientService, Client } from '../../core/services/client.service';
-import { AiUsageService, CatalogModel } from '../../core/services/ai-usage.service';
-import { AiProviderService, ProviderType } from '../../core/services/ai-provider.service';
-import { ToastService } from '../../core/services/toast.service';
+import { AiConfigService, AiModelConfig } from '../../core/services/ai-config.service.js';
+import { ClientService, Client } from '../../core/services/client.service.js';
+import { AiUsageService, CatalogModel } from '../../core/services/ai-usage.service.js';
+import { AiProviderService, ProviderType } from '../../core/services/ai-provider.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 import { FormFieldComponent, TextInputComponent, SelectComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({

@@ -22,6 +22,7 @@ import {
   faAnglesRight,
   faHouse,
   faTurnDownRight,
+  faBars,
   // Status
   faCheck,
   faCircleCheck,
@@ -130,6 +131,7 @@ export const ICON_REGISTRY = {
   back: faArrowLeft,
   home: faHouse,
   subdirectory: faTurnDownRight,
+  menu: faBars,
   // Status
   check: faCheck,
   'check-circle': faCircleCheck,

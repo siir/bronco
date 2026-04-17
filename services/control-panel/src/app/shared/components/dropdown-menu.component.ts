@@ -134,6 +134,8 @@ export class DropdownItemComponent {
       position: fixed;
       z-index: 1000;
       min-width: 160px;
+      max-height: calc(100vh - 16px);
+      overflow-y: auto;
       padding: 4px 0;
       background: var(--bg-card);
       border: 1px solid var(--border-light);
@@ -162,6 +164,8 @@ export class DropdownMenuComponent implements OnDestroy {
   // Accepts HTMLElement, ElementRef, or a component instance (resolves nativeElement from host)
   @Input() trigger!: unknown;
 
+  @Output() closed = new EventEmitter<void>();
+
   isOpen = signal(false);
   posX = signal(0);
   posY = signal(0);
@@ -178,9 +182,20 @@ export class DropdownMenuComponent implements OnDestroy {
     const t = this.trigger;
     if (t instanceof HTMLElement) return t;
     if (t instanceof ElementRef) return t.nativeElement;
-    // Angular component ref — walk up to find the host element
+    // ElementRef-shaped object
     if (t && typeof t === 'object' && 'nativeElement' in (t as object)) {
       return (t as ElementRef).nativeElement;
+    }
+    // Component instance that exposes its host via an `elementRef` field
+    // (Angular template refs on a `<app-foo>` tag without `exportAs` resolve
+    // to the component instance, not its host element, so we have to look
+    // inside.)
+    if (t && typeof t === 'object' && 'elementRef' in (t as object)) {
+      const ref = (t as { elementRef: unknown }).elementRef;
+      if (ref instanceof ElementRef) return ref.nativeElement;
+      if (ref && typeof ref === 'object' && 'nativeElement' in (ref as object)) {
+        return (ref as ElementRef).nativeElement;
+      }
     }
     return null;
   }
@@ -192,11 +207,14 @@ export class DropdownMenuComponent implements OnDestroy {
 
     const rect: DOMRect = triggerEl.getBoundingClientRect();
     const menuWidth = 180; // approximate, will adjust after render
+    // Initial height estimate — refined after render via queueMicrotask once
+    // the panel is in the DOM and we can measure it.
+    const menuHeightEstimate = 240;
     const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
 
     // Position below trigger, right-aligned by default
     let x = rect.right - menuWidth;
-    const y = rect.bottom + 4;
 
     // If would overflow left, flip to left-aligned
     if (x < 8) {
@@ -209,12 +227,57 @@ export class DropdownMenuComponent implements OnDestroy {
     }
 
     this.posX.set(x);
-    this.posY.set(y);
+    this.posY.set(this.computeY(rect, menuHeightEstimate, viewportHeight));
     this.isOpen.set(true);
+
+    // Re-measure after the panel renders. The hardcoded 240px estimate can
+    // diverge from the real rendered height (tall menus, dense content), and
+    // the CSS max-height only caps overflow — it doesn't correct the top
+    // position we computed against the estimate. Queue a microtask so the
+    // template runs and the DOM node exists, then recompute with the actual
+    // height and re-measure the trigger (in case layout shifted).
+    queueMicrotask(() => {
+      if (!this.isOpen()) return;
+      const host = this.el.nativeElement as HTMLElement;
+      const panel = host.querySelector<HTMLElement>('.dropdown-panel');
+      if (!panel) return;
+      const triggerNow = this.resolveTriggerElement();
+      if (!triggerNow) return;
+      const triggerRect = triggerNow.getBoundingClientRect();
+      const actualHeight = panel.getBoundingClientRect().height;
+      const adjusted = this.computeY(triggerRect, actualHeight, window.innerHeight);
+      if (adjusted !== this.posY()) {
+        this.posY.set(adjusted);
+      }
+    });
+  }
+
+  /**
+   * Compute the menu's top coordinate given the trigger rect, the menu's
+   * height, and the current viewport height. Places the menu below the
+   * trigger by default. If that overflows the viewport bottom, flips above
+   * the trigger when there is more room there; otherwise clamps into the
+   * visible area. Important on mobile where row-action menus near the
+   * bottom would otherwise be cut off.
+   */
+  private computeY(rect: DOMRect, menuHeight: number, viewportHeight: number): number {
+    let y = rect.bottom + 4;
+    if (y + menuHeight > viewportHeight - 8) {
+      const spaceAbove = rect.top - 8;
+      const spaceBelow = viewportHeight - rect.bottom - 8;
+      if (spaceAbove > spaceBelow) {
+        y = Math.max(8, rect.top - menuHeight - 4);
+      } else {
+        y = Math.max(8, viewportHeight - menuHeight - 8);
+      }
+    }
+    return y;
   }
 
   close(): void {
+    const wasOpen = this.isOpen();
     this.isOpen.set(false);
+    if (wasOpen) this.closed.emit();
   }
 
   @HostListener('document:keydown.escape')

@@ -2,11 +2,11 @@ import { Component, inject, signal, OnInit } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
-import { environment } from '../../../environments/environment';
+import { environment } from '../../../environments/environment.js';
 import {
   DEFAULT_OPERATIONAL_ALERT_CONFIG,
   OperationalAlertConfig,
-} from '../../core/services/settings.service';
+} from '../../core/services/settings.service.js';
 import {
   BroncoButtonComponent,
   CardComponent,
@@ -18,7 +18,7 @@ import {
   DataTableComponent,
   DataTableColumnComponent,
 } from '../../shared/components/index.js';
-import { ToastService } from '../../core/services/toast.service';
+import { ToastService } from '../../core/services/toast.service.js';
 
 interface NotificationPreference {
   id: string;

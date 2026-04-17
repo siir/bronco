@@ -1,7 +1,7 @@
 import { Component, input, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { BroncoButtonComponent, TextareaComponent, IconComponent } from '../../shared/components/index.js';
-import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
+import { MarkdownPipe } from '../../shared/pipes/markdown.pipe.js';
 
 @Component({
   selector: 'app-ticket-detail-knowledge',

@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import { ApiService } from './api.service';
-import type { Person } from './person.service';
+import { ApiService } from './api.service.js';
+import type { Person } from './person.service.js';
 
 export interface Client {
   id: string;
