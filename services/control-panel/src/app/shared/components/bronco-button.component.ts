@@ -6,7 +6,7 @@ import { Component, ElementRef, inject, input } from '@angular/core';
   host: { '[class.full-width]': 'fullWidth()' },
   template: `
     <button
-      type="button"
+      [attr.type]="type()"
       [class]="'btn btn-' + variant() + ' btn-' + size() + (fullWidth() ? ' btn-full-width' : '')"
       [disabled]="disabled()"
       [attr.aria-label]="ariaLabel() || null"
@@ -94,6 +94,7 @@ export class BroncoButtonComponent {
 
   variant = input<'primary' | 'secondary' | 'ghost' | 'destructive' | 'icon'>('secondary');
   size = input<'sm' | 'md' | 'lg'>('md');
+  type = input<'button' | 'submit' | 'reset'>('button');
   disabled = input<boolean>(false);
   ariaLabel = input<string>('');
   fullWidth = input<boolean>(false);
