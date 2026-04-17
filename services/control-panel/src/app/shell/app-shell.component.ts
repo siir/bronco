@@ -72,6 +72,8 @@ const ROUTE_TITLE_MAP: Record<string, string> = {
       color: var(--text-primary);
       overflow: hidden;
       font-family: var(--font-primary);
+      padding-left: env(safe-area-inset-left);
+      padding-right: env(safe-area-inset-right);
     }
     .shell-main {
       flex: 1;
@@ -88,6 +90,7 @@ const ROUTE_TITLE_MAP: Record<string, string> = {
     @media (max-width: 767.98px) {
       .shell-content {
         padding: 12px;
+        padding-bottom: max(12px, env(safe-area-inset-bottom));
       }
     }
   `],

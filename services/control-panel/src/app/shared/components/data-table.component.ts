@@ -119,7 +119,7 @@ import { ViewportService } from '../../core/services/viewport.service.js';
     .table-container {
       background: var(--bg-card);
       border-radius: var(--radius-lg);
-      overflow: hidden;
+      overflow: auto;
       box-shadow: var(--shadow-card);
     }
 
