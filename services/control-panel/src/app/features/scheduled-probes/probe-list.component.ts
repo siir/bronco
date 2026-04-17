@@ -144,10 +144,10 @@ const ACTION_LABELS: Record<string, string> = {
           -->
           @if (viewport.isMobile()) {
             <div class="probe-mobile-actions" (click)="$event.stopPropagation()">
-              <app-bronco-button variant="icon" size="sm" aria-label="Run history" [routerLink]="['/scheduled-probes', row.id, 'runs']"><app-icon name="clipboard" size="sm" /></app-bronco-button>
-              <app-bronco-button variant="icon" size="sm" aria-label="Run now" (click)="runNow(row)"><app-icon name="play" size="sm" /></app-bronco-button>
-              <app-bronco-button variant="icon" size="sm" aria-label="Edit" (click)="editProbe(row)"><app-icon name="edit" size="sm" /></app-bronco-button>
-              <app-bronco-button variant="icon" size="sm" aria-label="Delete" (click)="deleteProbe(row)"><app-icon name="close" size="sm" /></app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" ariaLabel="Run history" [routerLink]="['/scheduled-probes', row.id, 'runs']"><app-icon name="clipboard" size="sm" /></app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" ariaLabel="Run now" (click)="runNow(row)"><app-icon name="play" size="sm" /></app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" ariaLabel="Edit" (click)="editProbe(row)"><app-icon name="edit" size="sm" /></app-bronco-button>
+              <app-bronco-button variant="icon" size="sm" ariaLabel="Delete" (click)="deleteProbe(row)"><app-icon name="close" size="sm" /></app-bronco-button>
             </div>
           }
         </ng-template>

@@ -348,7 +348,13 @@ export class UserListComponent implements OnInit {
     const currentTarget = event.currentTarget;
     this.menuTriggerEl = currentTarget instanceof HTMLElement ? currentTarget : null;
     this.openMenuRow.set(user);
-    this.menu?.open();
+    // Set the trigger on the menu directly — the `[trigger]` template binding
+    // doesn't propagate until the next CD cycle, so calling open() synchronously
+    // after updating menuTriggerEl would see the stale trigger and no-op.
+    if (this.menu) {
+      this.menu.trigger = this.menuTriggerEl;
+      this.menu.open();
+    }
   }
 
   // On mobile, tapping the card is the primary edit affordance since the
