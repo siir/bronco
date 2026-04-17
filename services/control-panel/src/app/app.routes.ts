@@ -2,7 +2,7 @@ import { Routes, RedirectFunction } from '@angular/router';
 import { inject } from '@angular/core';
 import { authGuard } from './core/guards/auth.guard';
 import { scopedOpsGuard } from './core/guards/scoped-ops.guard';
-import { loginRedirectGuard } from './core/guards/login-redirect.guard';
+import { loginRedirectGuard } from './core/guards/login-redirect.guard.js';
 import { AuthService } from './core/services/auth.service';
 
 /**

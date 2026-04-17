@@ -27,7 +27,7 @@ const isMac = /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent);
       <button class="search-trigger" type="button" aria-label="Search">
         <app-icon class="search-icon" name="search" size="sm" />
         <span class="search-text">Search...</span>
-        @if (!viewport.isMobile()) {
+        @if (!viewport.isCompactLayout()) {
           <kbd class="search-kbd">{{ shortcutHint }}</kbd>
         }
       </button>
@@ -112,13 +112,12 @@ const isMac = /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent);
     }
 
     /*
-     * Mobile compact mode: reduce horizontal padding, collapse the search
-     * trigger to an icon-only 44x44 hit area, and hide the "Search..." text
-     * and kbd hint. The hamburger already satisfies the 44px tap target on
-     * the left. The title stretches to fill the middle and truncates with
-     * ellipsis when it doesn't fit.
+     * Compact-layout mode: reduce horizontal padding, collapse the search
+     * trigger to an icon-only 44x44 hit area, and hide the "Search..." text.
+     * The kbd hint is hidden via the template @if (isCompactLayout). The
+     * hamburger satisfies the 44px tap target on the left.
      */
-    @media (max-width: 767.98px) {
+    @media (max-width: 1199.98px) {
       .header-bar { padding: 0 12px; }
       .search-trigger {
         width: 44px;
