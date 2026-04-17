@@ -6,12 +6,12 @@ import {
   SystemStatusResponse,
   QueueStats,
   McpServerStatus,
-} from '../../core/services/system-status.service';
-import type { McpDiscoveryMetadata } from '../../core/services/integration.service';
-import { AiProviderService } from '../../core/services/ai-provider.service';
-import { NotificationChannelsComponent } from '../notification-channels/notification-channels.component';
-import { McpServerInfoComponent } from '../../shared/components/mcp-server-info.component';
-import { ToastService } from '../../core/services/toast.service';
+} from '../../core/services/system-status.service.js';
+import type { McpDiscoveryMetadata } from '../../core/services/integration.service.js';
+import { AiProviderService } from '../../core/services/ai-provider.service.js';
+import { NotificationChannelsComponent } from '../notification-channels/notification-channels.component.js';
+import { McpServerInfoComponent } from '../../shared/components/mcp-server-info.component.js';
+import { ToastService } from '../../core/services/toast.service.js';
 import {
   DropdownMenuComponent,
   DropdownItemComponent,

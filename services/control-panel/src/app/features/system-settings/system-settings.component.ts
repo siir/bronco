@@ -9,7 +9,7 @@ import {
   ImapSystemConfig,
   SlackSystemConfig,
   PromptRetentionConfig,
-} from '../../core/services/settings.service';
+} from '../../core/services/settings.service.js';
 import {
   BroncoButtonComponent,
   CardComponent,
@@ -18,7 +18,7 @@ import {
   TabComponent,
   TabGroupComponent,
 } from '../../shared/components/index.js';
-import { ToastService } from '../../core/services/toast.service';
+import { ToastService } from '../../core/services/toast.service.js';
 
 const TAB_LABELS = ['SMTP', 'Azure DevOps', 'GitHub', 'IMAP', 'Slack', 'Prompt Retention'] as const;
 

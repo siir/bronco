@@ -1,7 +1,7 @@
 import { Component, inject, input, output, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ClientEnvironmentService, type ClientEnvironment } from '../../core/services/client-environment.service';
-import { ToastService } from '../../core/services/toast.service';
+import { ClientEnvironmentService, type ClientEnvironment } from '../../core/services/client-environment.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 import { FormFieldComponent, TextInputComponent, TextareaComponent, ToggleSwitchComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({

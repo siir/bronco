@@ -1,14 +1,14 @@
 import { Component, inject, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { AuthService } from '../../core/services/auth.service';
-import { ThemeService } from '../../core/services/theme.service';
+import { AuthService } from '../../core/services/auth.service.js';
+import { ThemeService } from '../../core/services/theme.service.js';
 import {
   BroncoButtonComponent,
   CardComponent,
   FormFieldComponent,
   IconComponent,
 } from '../../shared/components/index.js';
-import { ToastService } from '../../core/services/toast.service';
+import { ToastService } from '../../core/services/toast.service.js';
 
 @Component({
   standalone: true,

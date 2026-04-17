@@ -3,8 +3,8 @@ import { FormsModule } from '@angular/forms';
 import {
   SettingsService,
   TicketStatusConfig,
-} from '../../core/services/settings.service';
-import { ToastService } from '../../core/services/toast.service';
+} from '../../core/services/settings.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 import { FormFieldComponent, TextInputComponent, TextareaComponent, SelectComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({

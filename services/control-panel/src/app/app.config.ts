@@ -3,10 +3,10 @@ import { provideRouter, withComponentInputBinding } from '@angular/router';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { firstValueFrom } from 'rxjs';
-import { routes } from './app.routes';
-import { authInterceptor } from './core/interceptors/auth.interceptor';
-import { apiKeyInterceptor } from './core/interceptors/api-key.interceptor';
-import { AuthService } from './core/services/auth.service';
+import { routes } from './app.routes.js';
+import { authInterceptor } from './core/interceptors/auth.interceptor.js';
+import { apiKeyInterceptor } from './core/interceptors/api-key.interceptor.js';
+import { AuthService } from './core/services/auth.service.js';
 
 export const appConfig: ApplicationConfig = {
   providers: [

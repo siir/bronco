@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { Subject, EMPTY, switchMap, timer } from 'rxjs';
 import { catchError, takeUntil } from 'rxjs/operators';
-import { EmailLogService, EmailProcessingLog, EmailLogStats } from '../../core/services/email-log.service';
+import { EmailLogService, EmailProcessingLog, EmailLogStats } from '../../core/services/email-log.service.js';
 import {
   BroncoButtonComponent,
   SelectComponent,
@@ -18,7 +18,7 @@ import {
   DropdownDividerComponent,
   DropdownLabelComponent,
 } from '../../shared/components/index.js';
-import { ToastService } from '../../core/services/toast.service';
+import { ToastService } from '../../core/services/toast.service.js';
 
 @Component({
   standalone: true,

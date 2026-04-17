@@ -1,7 +1,7 @@
 import { Component, inject, OnInit, input, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { AiProviderService, AiProvider, ProviderType } from '../../core/services/ai-provider.service';
-import { ToastService } from '../../core/services/toast.service';
+import { AiProviderService, AiProvider, ProviderType } from '../../core/services/ai-provider.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 import { FormFieldComponent, TextInputComponent, SelectComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({

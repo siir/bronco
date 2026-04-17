@@ -1,9 +1,9 @@
 import { Component, inject, OnInit, input, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { TicketRouteService, TicketRoute } from '../../core/services/ticket-route.service';
-import type { RouteType } from '../../core/services/ticket-route.service';
-import { Client } from '../../core/services/client.service';
-import { ToastService } from '../../core/services/toast.service';
+import { TicketRouteService, TicketRoute } from '../../core/services/ticket-route.service.js';
+import type { RouteType } from '../../core/services/ticket-route.service.js';
+import { Client } from '../../core/services/client.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 import { FormFieldComponent, TextInputComponent, TextareaComponent, SelectComponent, ToggleSwitchComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 const SOURCES = [

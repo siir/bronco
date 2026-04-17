@@ -1,8 +1,8 @@
 import { Component, inject, OnInit, OnDestroy, signal, computed } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import type { Subscription } from 'rxjs';
-import { FailedJobsService, FailedJob } from '../../core/services/failed-jobs.service';
-import { SystemStatusService, QueueStats } from '../../core/services/system-status.service';
+import { FailedJobsService, FailedJob } from '../../core/services/failed-jobs.service.js';
+import { SystemStatusService, QueueStats } from '../../core/services/system-status.service.js';
 import {
   BroncoButtonComponent,
   ToolbarComponent,
@@ -11,8 +11,8 @@ import {
   DataTableComponent,
   DataTableColumnComponent,
 } from '../../shared/components/index.js';
-import { ToastService } from '../../core/services/toast.service';
-import { ViewportService } from '../../core/services/viewport.service';
+import { ToastService } from '../../core/services/toast.service.js';
+import { ViewportService } from '../../core/services/viewport.service.js';
 
 const ALL_QUEUES = [
   'issue-resolve', 'log-summarize', 'email-ingestion', 'ticket-analysis',

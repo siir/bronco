@@ -1,5 +1,5 @@
 import { Component, inject, input, output } from '@angular/core';
-import { FormFieldComponent } from './form-field.component';
+import { FormFieldComponent } from './form-field.component.js';
 
 let standaloneTextareaCounter = 0;
 

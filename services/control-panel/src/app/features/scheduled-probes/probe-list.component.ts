@@ -10,14 +10,14 @@ import {
   ToggleSwitchComponent,
   IconComponent,
 } from '../../shared/components/index.js';
-import { DialogComponent } from '../../shared/components/dialog.component';
+import { DialogComponent } from '../../shared/components/dialog.component.js';
 import { DetailPanelService } from '../../core/services/detail-panel.service.js';
-import { ViewportService } from '../../core/services/viewport.service';
-import { ScheduledProbeService, ScheduledProbe } from '../../core/services/scheduled-probe.service';
-import { ClientService, Client } from '../../core/services/client.service';
-import { CATEGORY_OPTIONS } from '../../core/services/client-memory.service';
-import { ProbeDialogComponent } from './probe-dialog.component';
-import { ToastService } from '../../core/services/toast.service';
+import { ViewportService } from '../../core/services/viewport.service.js';
+import { ScheduledProbeService, ScheduledProbe } from '../../core/services/scheduled-probe.service.js';
+import { ClientService, Client } from '../../core/services/client.service.js';
+import { CATEGORY_OPTIONS } from '../../core/services/client-memory.service.js';
+import { ProbeDialogComponent } from './probe-dialog.component.js';
+import { ToastService } from '../../core/services/toast.service.js';
 
 const CATEGORIES = CATEGORY_OPTIONS;
 

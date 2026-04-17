@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import { ApiService } from './api.service';
+import { ApiService } from './api.service.js';
 
 /** Step summary returned by the list endpoint (no output/error). */
 export interface IngestionRunStepSummary {
