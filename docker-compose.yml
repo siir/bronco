@@ -377,9 +377,9 @@ services:
   # Cloudflare Tunnel — outbound-only connection to Cloudflare edge.
   # Serves itrack.siirial.com via Zero Trust tunnel (no inbound ports needed).
   cloudflared:
-    image: cloudflare/cloudflared:latest
+    image: ${CLOUDFLARED_IMAGE:-cloudflare/cloudflared:latest}
     restart: unless-stopped
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN must be set in .env — create a tunnel at one.dash.cloudflare.com}
     depends_on:
       - caddy
 
@@ -391,21 +391,13 @@ services:
       dockerfile: services/control-panel/Dockerfile
     restart: unless-stopped
     ports:
-      # Bind to 127.0.0.1 — access via Tailscale, not public internet.
-      # If using a public domain with Caddy auto-TLS, open 80/443 on the
-      # VM only and restrict access at the network level (Tailscale ACLs,
-      # firewall rules). Do NOT port-forward on your router for prototypes.
+      # Plain HTTP only. TLS is terminated at Cloudflare's edge for public
+      # traffic (via cloudflared tunnel) and Tailscale encrypts the rest.
       - "80:80"
-      - "443:443"
-    environment:
-      DOMAIN: ${DOMAIN:-localhost}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - caddy_data:/data
       - caddy_config:/config
-      # TLS certs issued by acme.sh on the host and deployed to /etc/ssl/bronco/
-      # Run scripts/setup-acme.sh on the host to issue and configure auto-renewal.
-      - /etc/ssl/bronco:/etc/caddy/certs:ro
     depends_on:
       copilot-api:
         condition: service_healthy

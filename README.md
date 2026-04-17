@@ -354,6 +354,7 @@ cp .env.example .env
 #   IMAP_PASSWORD=<app password>
 #   MCP_DATABASE_URL=https://<your-app>.azurewebsites.net
 #   QNAP_MOUNT_PATH=/mnt/qnap
+#   CLOUDFLARE_TUNNEL_TOKEN=<from Cloudflare Zero Trust dashboard>
 
 # Verify QNAP is mounted before starting containers
 ls /mnt/qnap
@@ -369,9 +370,18 @@ docker compose logs -f copilot-api
 docker compose logs -f imap-worker
 ```
 
-#### Networking and Remote Access
+#### Access model
 
-Access Hugo via **Tailscale** — no public port forwarding is required or recommended.
+Hugo has no public inbound ports. Two access paths:
+
+| Path | Hostname | Used for | Auth |
+|------|----------|----------|------|
+| Tailscale | `http://100.106.127.1` | Admin / direct development | Tailscale ACL |
+| Cloudflare Tunnel | `https://itrack.siirial.com` | Mobile / public | Cloudflare Access (email OTP / SSO) |
+
+Caddy serves plain HTTP on port 80 inside the VM. TLS is handled *outside* Caddy:
+- On the Tailscale path, Tailscale's WireGuard tunnel encrypts everything end-to-end.
+- On the public path, Cloudflare terminates TLS at the edge and `cloudflared` carries traffic to Caddy over an encrypted outbound tunnel.
 
 ```bash
 # Install Tailscale on Hugo
@@ -379,17 +389,64 @@ curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up
 ```
 
-**Caddy** provides automatic HTTPS for the copilot-api. Edit `Caddyfile` to set your domain. Caddy listens on ports 80/443 on the VM. Access should be restricted to Tailscale — do NOT port-forward 80/443 on your router. Use Tailscale ACLs or firewall rules to control which devices can reach Hugo.
+Use Tailscale ACLs or firewall rules to control which devices can reach Hugo. Do NOT port-forward 80 on your router.
+
+#### Public access via Cloudflare Tunnel
+
+The `cloudflared` container in `docker-compose.yml` maintains an outbound QUIC tunnel to Cloudflare's edge. No inbound ports are opened on Hugo.
+
+**Initial setup (one-time):**
+
+1. **DNS migration** — At your registrar, point the domain's nameservers at Cloudflare (sign up at [cloudflare.com](https://cloudflare.com), add the domain, pick the free plan). Cloudflare imports existing records; verify MX, DKIM, and any other email-related records survive the move before flipping nameservers. Propagation is usually under an hour.
+2. **Create tunnel** — In the Cloudflare Zero Trust dashboard ([one.dash.cloudflare.com](https://one.dash.cloudflare.com)): **Networks → Tunnels → Create a tunnel → Cloudflared**. Name it (e.g. `hugo`). Copy the tunnel token shown in the Docker install command.
+3. **Configure env** — Set `CLOUDFLARE_TUNNEL_TOKEN=<token>` in Hugo's `.env`.
+4. **Add public hostname** — In the same tunnel page, **Public Hostname** tab: `itrack` . `siirial.com`, type `HTTP`, URL `caddy:80`. Save.
+5. **Create Access application** — In **Access controls → Applications → Add self-hosted**. App name `Bronco Control Panel`, domain `itrack.siirial.com`. Add policy: `Allow` where `Emails` includes your operator email. Enable **One-time PIN** as an identity provider for easy auth.
+
+**Rebuild after tunnel is lost or recreated:**
+
+Creating a new tunnel invalidates the old token. Update `CLOUDFLARE_TUNNEL_TOKEN` in `.env`, then `docker compose up -d cloudflared` to pick it up. The public hostname and Access policy in the dashboard persist across tunnel recreations as long as the same Cloudflare account owns them.
 
 **Service-to-service endpoints:**
 
 | From | To | URL | Notes |
 |------|----|-----|-------|
 | copilot-api | Ollama (Mac mini) | `http://siiriaplex:11434` | LAN via Google WiFi DNS reservation |
-| imap-worker | MCP Database | `${MCP_DATABASE_URL}` | Azure App Service over HTTPS |
+| ticket-analyzer | MCP Database | `${MCP_DATABASE_URL}` | Azure App Service over HTTPS |
 | copilot-api | QNAP artifacts | `/mnt/qnap` (bind mount) | Host-level NFS/SMB mount |
+| cloudflared | Caddy | `http://caddy:80` | Configured in the Cloudflare dashboard, not in the repo |
 | Claude Code (MacBook) | MCP Database | `https://<app>.azurewebsites.net/mcp` | Bearer token auth |
-| Claude Code (MacBook) | copilot-api (Hugo) | `https://<caddy-domain>/api/*` | Via Tailscale + Caddy |
+| Claude Code (MacBook) | copilot-api (Hugo) | `https://itrack.siirial.com/api/*` | Via Cloudflare Tunnel + Access |
+
+#### Disaster recovery: rebuild Hugo from scratch
+
+If the Hugo VM is lost, these are the steps to restore from nothing. Assumes you have:
+- The repo (GitHub)
+- Your last Postgres backup (`pg_dump` output on QNAP or external storage)
+- The `.env` file from your password manager / secrets backup
+- Cloudflare account access (tunnel and Access policies are preserved in the Cloudflare dashboard)
+
+1. **Provision the VM** — Ubuntu Server 24.04 LTS on the ESXi host. Assign it hostname `hugo` and whatever local-net IP/DHCP you use.
+2. **Install prerequisites** — Docker Engine + Compose plugin, Node.js 20, `nfs-common` (or `cifs-utils`). See [Prerequisites (install on Hugo)](#prerequisites-install-on-hugo) above.
+3. **Install Tailscale** — `curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up`. Authorize the machine from the Tailscale admin. Confirm it gets the same stable Tailscale IP as before (`tailscale ip -4`) — if the IP changes, update the `http://100.106.127.1` hostname in `Caddyfile` to match.
+4. **Mount QNAP** — `/mnt/qnap` via NFS or SMB. See [QNAP Storage Mount](#qnap-storage-mount-do-this-first) above. Persist via `/etc/fstab` so the mount survives reboots.
+5. **Clone the repo** — `git clone <repo-url> bronco && cd bronco`.
+6. **Restore `.env`** — place your backed-up `.env` at `bronco/.env`. Includes `CLOUDFLARE_TUNNEL_TOKEN`. If the tunnel token has rotated or needs to be recreated, get a new one from the Cloudflare dashboard (existing public hostname config in the dashboard attaches to any token under the same tunnel name).
+7. **Start containers** — `docker compose up -d`. Postgres starts with an empty database.
+8. **Restore Postgres** — restore your latest dump:
+   ```bash
+   docker compose cp ~/postgres-backup.sql postgres:/tmp/backup.sql
+   docker compose exec postgres psql -U bronco -d bronco -f /tmp/backup.sql
+   ```
+9. **Run migrations** — `docker compose exec copilot-api npx prisma migrate deploy` (no-op if the restore was current, safe to run).
+10. **Verify** — hit `https://itrack.siirial.com` from your phone (should reach the Cloudflare Access login page, then the control panel) and `http://100.106.127.1` over Tailscale from your Mac (direct, no auth). Check `docker compose ps` for all-healthy services.
+
+**Ongoing backups to make recovery possible:**
+
+- **Postgres** — scheduled `pg_dump` to `/mnt/qnap/backups/` (QNAP already replicates). Add a cron on Hugo or make it a scheduler-worker job.
+- **`.env`** — store in a password manager; update whenever any secret rotates.
+- **Tailscale** — the machine re-auths via the admin console; no backup needed beyond the Tailscale admin login.
+- **Cloudflare** — tunnel public hostname config, Access policies, and DNS records live in the Cloudflare dashboard, not on Hugo. Safe from a Hugo loss.
 
 ### Azure (MCP Database Server)
 
