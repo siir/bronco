@@ -119,7 +119,7 @@ const isMac = /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent);
      * hamburger satisfies the 44px tap target on the left.
      */
     @media (max-width: 1199.98px) {
-      .header-bar { padding: 0 12px; }
+      .header-bar { padding-left: 12px; padding-right: 12px; padding-bottom: 0; }
       .search-trigger {
         width: 44px;
         height: 44px;
