@@ -30,6 +30,30 @@
   }
 }
 
+# Cloudflare Tunnel: itrack.siirial.com (TLS terminated at Cloudflare edge)
+http://itrack.siirial.com {
+  handle /api/* {
+    reverse_proxy copilot-api:3000
+  }
+
+  handle_path /cp* {
+    root * /srv/control-panel
+    try_files {path} /index.html
+    file_server
+  }
+
+  handle_path /portal* {
+    root * /srv/ticket-portal
+    try_files {path} /index.html
+    file_server
+  }
+
+  handle {
+    redir / /cp/ permanent
+    redir /* /cp{uri} permanent
+  }
+}
+
 # Fallback: serve by Tailscale IP (plain HTTP, no TLS)
 http://100.106.127.1 {
   handle /api/* {

@@ -374,6 +374,15 @@ services:
       retries: 3
       start_period: 10s
 
+  # Cloudflare Tunnel — outbound-only connection to Cloudflare edge.
+  # Serves itrack.siirial.com via Zero Trust tunnel (no inbound ports needed).
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - caddy
+
   # Caddy reverse proxy + static file server for Angular control panel
   caddy:
     image: ${CONTROL_PANEL_IMAGE:-ghcr.io/siir/bronco/control-panel:latest}
