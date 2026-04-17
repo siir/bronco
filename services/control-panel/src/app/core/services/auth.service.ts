@@ -2,7 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { Observable, of, tap, map, catchError, shareReplay, finalize, switchMap, throwError } from 'rxjs';
-import { environment } from '../../../environments/environment';
+import { environment } from '../../../environments/environment.js';
 
 export type PortalUserType = 'ADMIN' | 'OPERATOR' | 'USER';
 

@@ -1,8 +1,8 @@
 import { Component, DestroyRef, inject, input, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { Invoice, InvoiceService } from '../../../../core/services/invoice.service';
-import { ToastService } from '../../../../core/services/toast.service';
+import { Invoice, InvoiceService } from '../../../../core/services/invoice.service.js';
+import { ToastService } from '../../../../core/services/toast.service.js';
 import {
   BroncoButtonComponent,
   DataTableComponent,
@@ -10,7 +10,7 @@ import {
   DialogComponent,
   IconComponent,
 } from '../../../../shared/components/index.js';
-import { GenerateInvoiceDialogComponent } from '../../generate-invoice-dialog.component';
+import { GenerateInvoiceDialogComponent } from '../../generate-invoice-dialog.component.js';
 
 @Component({
   selector: 'app-client-invoices-tab',

@@ -1,8 +1,8 @@
 import { Component, inject, input, OnInit, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { SystemService } from '../../core/services/system.service';
-import { System } from '../../core/services/client.service';
-import { ToastService } from '../../core/services/toast.service';
+import { SystemService } from '../../core/services/system.service.js';
+import { System } from '../../core/services/client.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 import { FormFieldComponent, TextInputComponent, TextareaComponent, SelectComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({

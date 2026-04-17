@@ -1,7 +1,7 @@
 import { Component, inject, input, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { InvoiceService } from '../../core/services/invoice.service';
-import { ToastService } from '../../core/services/toast.service';
+import { InvoiceService } from '../../core/services/invoice.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 import { FormFieldComponent, TextInputComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({

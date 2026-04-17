@@ -1,7 +1,7 @@
 import { Component, DestroyRef, inject, input, output, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { Client, ClientService } from '../../../../core/services/client.service';
-import { ToastService } from '../../../../core/services/toast.service';
+import { Client, ClientService } from '../../../../core/services/client.service.js';
+import { ToastService } from '../../../../core/services/toast.service.js';
 import {
   BroncoButtonComponent,
   ToggleSwitchComponent,

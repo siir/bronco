@@ -1,5 +1,5 @@
 import { Component, computed, input, output } from '@angular/core';
-import { IconComponent } from './icon.component';
+import { IconComponent } from './icon.component.js';
 
 export interface PaginatorPageEvent {
   pageSize: number;

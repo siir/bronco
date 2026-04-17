@@ -1,7 +1,7 @@
 import { Component, inject, input, output, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { PersonService, type Person } from '../../core/services/person.service';
-import { ToastService } from '../../core/services/toast.service';
+import { PersonService, type Person } from '../../core/services/person.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 import {
   FormFieldComponent,
   TextInputComponent,

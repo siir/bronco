@@ -1,11 +1,11 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { SystemAnalysisService, type SystemAnalysis, type SystemAnalysisStats } from '../../core/services/system-analysis.service';
-import { RejectDialogComponent } from './reject-dialog.component';
-import { DialogComponent } from '../../shared/components/dialog.component';
+import { SystemAnalysisService, type SystemAnalysis, type SystemAnalysisStats } from '../../core/services/system-analysis.service.js';
+import { RejectDialogComponent } from './reject-dialog.component.js';
+import { DialogComponent } from '../../shared/components/dialog.component.js';
 import { BroncoButtonComponent, SelectComponent, PaginatorComponent, type PaginatorPageEvent } from '../../shared/components/index.js';
-import { ToastService } from '../../core/services/toast.service';
+import { ToastService } from '../../core/services/toast.service.js';
 
 const STATUS_META: Record<string, { label: string; color: string }> = {
   PENDING: { label: 'Pending Review', color: 'var(--color-warning)' },

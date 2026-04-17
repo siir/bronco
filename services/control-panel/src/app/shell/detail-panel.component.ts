@@ -2,14 +2,14 @@ import { Component, effect, inject, signal } from '@angular/core';
 import { Subscription } from 'rxjs';
 import { Router, RouterLink } from '@angular/router';
 import { DatePipe, DecimalPipe, SlicePipe } from '@angular/common';
-import { DetailPanelService, DetailEntityType } from '../core/services/detail-panel.service';
-import { TicketService, Ticket, TicketEvent, TicketAiUsageLog, UnifiedLogEntry } from '../core/services/ticket.service';
-import { ClientService, Client } from '../core/services/client.service';
-import { AiUsageService, type AiUsageClientSummary } from '../core/services/ai-usage.service';
-import { ScheduledProbeService, ScheduledProbe } from '../core/services/scheduled-probe.service';
-import { SystemStatusService, ComponentStatus, QueueStats, SystemStatusResponse } from '../core/services/system-status.service';
-import { SystemAnalysisService, SystemAnalysis } from '../core/services/system-analysis.service';
-import { IngestionService, IngestionRunDetail } from '../core/services/ingestion.service';
+import { DetailPanelService, DetailEntityType } from '../core/services/detail-panel.service.js';
+import { TicketService, Ticket, TicketEvent, TicketAiUsageLog, UnifiedLogEntry } from '../core/services/ticket.service.js';
+import { ClientService, Client } from '../core/services/client.service.js';
+import { AiUsageService, type AiUsageClientSummary } from '../core/services/ai-usage.service.js';
+import { ScheduledProbeService, ScheduledProbe } from '../core/services/scheduled-probe.service.js';
+import { SystemStatusService, ComponentStatus, QueueStats, SystemStatusResponse } from '../core/services/system-status.service.js';
+import { SystemAnalysisService, SystemAnalysis } from '../core/services/system-analysis.service.js';
+import { IngestionService, IngestionRunDetail } from '../core/services/ingestion.service.js';
 import {
   StatusBadgeComponent,
   PriorityPillComponent,

@@ -1,8 +1,8 @@
 import { Routes, RedirectFunction } from '@angular/router';
 import { inject } from '@angular/core';
-import { authGuard } from './core/guards/auth.guard';
-import { scopedOpsGuard } from './core/guards/scoped-ops.guard';
-import { AuthService } from './core/services/auth.service';
+import { authGuard } from './core/guards/auth.guard.js';
+import { scopedOpsGuard } from './core/guards/scoped-ops.guard.js';
+import { AuthService } from './core/services/auth.service.js';
 
 /**
  * Default redirect for the `/` path. Operators go to /dashboard; scoped ops
@@ -20,7 +20,7 @@ const defaultRedirect: RedirectFunction = () => {
 export const routes: Routes = [
   {
     path: 'login',
-    loadComponent: () => import('./features/login/login.component').then(m => m.LoginComponent),
+    loadComponent: () => import('./features/login/login.component.js').then(m => m.LoginComponent),
   },
   {
     path: '',
@@ -30,93 +30,93 @@ export const routes: Routes = [
       {
         path: 'dashboard',
         canActivate: [scopedOpsGuard],
-        loadComponent: () => import('./features/dashboard/dashboard.component').then(m => m.DashboardComponent),
+        loadComponent: () => import('./features/dashboard/dashboard.component.js').then(m => m.DashboardComponent),
       },
       {
         path: 'clients',
         canActivate: [scopedOpsGuard],
-        loadComponent: () => import('./features/clients/client-list.component').then(m => m.ClientListComponent),
+        loadComponent: () => import('./features/clients/client-list.component.js').then(m => m.ClientListComponent),
       },
       {
         path: 'clients/:id',
-        loadComponent: () => import('./features/clients/client-detail.component').then(m => m.ClientDetailComponent),
+        loadComponent: () => import('./features/clients/client-detail.component.js').then(m => m.ClientDetailComponent),
       },
       {
         path: 'tickets',
-        loadComponent: () => import('./features/tickets/ticket-list.component').then(m => m.TicketListComponent),
+        loadComponent: () => import('./features/tickets/ticket-list.component.js').then(m => m.TicketListComponent),
       },
       {
         path: 'tickets/:id',
-        loadComponent: () => import('./features/tickets/ticket-detail.component').then(m => m.TicketDetailComponent),
+        loadComponent: () => import('./features/tickets/ticket-detail.component.js').then(m => m.TicketDetailComponent),
       },
       {
         path: 'prompts',
         canActivate: [scopedOpsGuard],
-        loadComponent: () => import('./features/prompts/prompt-list.component').then(m => m.PromptListComponent),
+        loadComponent: () => import('./features/prompts/prompt-list.component.js').then(m => m.PromptListComponent),
       },
       {
         path: 'prompts/:key',
         canActivate: [scopedOpsGuard],
-        loadComponent: () => import('./features/prompts/prompt-detail.component').then(m => m.PromptDetailComponent),
+        loadComponent: () => import('./features/prompts/prompt-detail.component.js').then(m => m.PromptDetailComponent),
       },
       {
         path: 'logs',
         canActivate: [scopedOpsGuard],
-        loadComponent: () => import('./features/logs/log-viewer.component').then(m => m.LogViewerComponent),
+        loadComponent: () => import('./features/logs/log-viewer.component.js').then(m => m.LogViewerComponent),
       },
       {
         path: 'email-logs',
         canActivate: [scopedOpsGuard],
-        loadComponent: () => import('./features/email-logs/email-log.component').then(m => m.EmailLogComponent),
+        loadComponent: () => import('./features/email-logs/email-log.component.js').then(m => m.EmailLogComponent),
       },
       {
         path: 'slack-conversations',
         canActivate: [scopedOpsGuard],
-        loadComponent: () => import('./features/slack-conversations/slack-conversations.component').then(m => m.SlackConversationsComponent),
+        loadComponent: () => import('./features/slack-conversations/slack-conversations.component.js').then(m => m.SlackConversationsComponent),
       },
       {
         path: 'ai-usage',
         canActivate: [scopedOpsGuard],
-        loadComponent: () => import('./features/ai-usage/ai-usage.component').then(m => m.AiUsageComponent),
+        loadComponent: () => import('./features/ai-usage/ai-usage.component.js').then(m => m.AiUsageComponent),
       },
       {
         path: 'ai-providers',
         canActivate: [scopedOpsGuard],
-        loadComponent: () => import('./features/ai-providers/ai-providers.component').then(m => m.AiProvidersComponent),
+        loadComponent: () => import('./features/ai-providers/ai-providers.component.js').then(m => m.AiProvidersComponent),
       },
       {
         path: 'activity',
         canActivate: [scopedOpsGuard],
-        loadComponent: () => import('./features/activity-feed/activity-feed.component').then(m => m.ActivityFeedComponent),
+        loadComponent: () => import('./features/activity-feed/activity-feed.component.js').then(m => m.ActivityFeedComponent),
       },
       {
         path: 'profile',
-        loadComponent: () => import('./features/profile/profile.component').then(m => m.ProfileComponent),
+        loadComponent: () => import('./features/profile/profile.component.js').then(m => m.ProfileComponent),
       },
       {
         path: 'system-status',
         canActivate: [scopedOpsGuard],
-        loadComponent: () => import('./features/system-status/system-status.component').then(m => m.SystemStatusComponent),
+        loadComponent: () => import('./features/system-status/system-status.component.js').then(m => m.SystemStatusComponent),
       },
       {
         path: 'failed-jobs',
         canActivate: [scopedOpsGuard],
-        loadComponent: () => import('./features/failed-jobs/failed-job-list.component').then(m => m.FailedJobListComponent),
+        loadComponent: () => import('./features/failed-jobs/failed-job-list.component.js').then(m => m.FailedJobListComponent),
       },
       {
         path: 'system-issues',
         canActivate: [scopedOpsGuard],
-        loadComponent: () => import('./features/system-issues/system-issues.component').then(m => m.SystemIssuesComponent),
+        loadComponent: () => import('./features/system-issues/system-issues.component.js').then(m => m.SystemIssuesComponent),
       },
       {
         path: 'system-analysis',
         canActivate: [scopedOpsGuard],
-        loadComponent: () => import('./features/system-analysis/system-analysis.component').then(m => m.SystemAnalysisComponent),
+        loadComponent: () => import('./features/system-analysis/system-analysis.component.js').then(m => m.SystemAnalysisComponent),
       },
       {
         path: 'notification-preferences',
         canActivate: [scopedOpsGuard],
-        loadComponent: () => import('./features/notification-preferences/notification-preferences.component').then(m => m.NotificationPreferencesComponent),
+        loadComponent: () => import('./features/notification-preferences/notification-preferences.component.js').then(m => m.NotificationPreferencesComponent),
       },
       {
         path: 'system-settings',
@@ -126,37 +126,37 @@ export const routes: Routes = [
       {
         path: 'settings',
         canActivate: [scopedOpsGuard],
-        loadComponent: () => import('./features/settings/settings.component').then(m => m.SettingsComponent),
+        loadComponent: () => import('./features/settings/settings.component.js').then(m => m.SettingsComponent),
       },
       {
         path: 'release-notes',
         canActivate: [scopedOpsGuard],
-        loadComponent: () => import('./features/release-notes/release-notes.component').then(m => m.ReleaseNotesComponent),
+        loadComponent: () => import('./features/release-notes/release-notes.component.js').then(m => m.ReleaseNotesComponent),
       },
       {
         path: 'ticket-routes',
         canActivate: [scopedOpsGuard],
-        loadComponent: () => import('./features/ticket-routes/ticket-route-list.component').then(m => m.TicketRouteListComponent),
+        loadComponent: () => import('./features/ticket-routes/ticket-route-list.component.js').then(m => m.TicketRouteListComponent),
       },
       {
         path: 'ingestion-jobs',
         canActivate: [scopedOpsGuard],
-        loadComponent: () => import('./features/ingestion-jobs/ingestion-job-list.component').then(m => m.IngestionJobListComponent),
+        loadComponent: () => import('./features/ingestion-jobs/ingestion-job-list.component.js').then(m => m.IngestionJobListComponent),
       },
       {
         path: 'scheduled-probes',
         canActivate: [scopedOpsGuard],
-        loadComponent: () => import('./features/scheduled-probes/probe-list.component').then(m => m.ProbeListComponent),
+        loadComponent: () => import('./features/scheduled-probes/probe-list.component.js').then(m => m.ProbeListComponent),
       },
       {
         path: 'scheduled-probes/:id/runs',
         canActivate: [scopedOpsGuard],
-        loadComponent: () => import('./features/scheduled-probes/probe-runs.component').then(m => m.ProbeRunsComponent),
+        loadComponent: () => import('./features/scheduled-probes/probe-runs.component.js').then(m => m.ProbeRunsComponent),
       },
       {
         path: 'users',
         canActivate: [scopedOpsGuard],
-        loadComponent: () => import('./features/users/user-list.component').then(m => m.UserListComponent),
+        loadComponent: () => import('./features/users/user-list.component.js').then(m => m.UserListComponent),
       },
       {
         // Mobile-only routed full-screen detail view. Desktop never navigates
@@ -165,7 +165,7 @@ export const routes: Routes = [
         // direct deep links); the shell's detail-view wrapper just renders
         // the same panel full-width.
         path: 'detail/:type/:id',
-        loadComponent: () => import('./shell/detail-view.component').then(m => m.DetailViewComponent),
+        loadComponent: () => import('./shell/detail-view.component.js').then(m => m.DetailViewComponent),
       },
     ],
   },

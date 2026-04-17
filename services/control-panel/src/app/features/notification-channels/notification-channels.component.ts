@@ -2,9 +2,9 @@ import { Component, inject, OnInit, signal } from '@angular/core';
 import {
   NotificationChannelService,
   NotificationChannel,
-} from '../../core/services/notification-channel.service';
-import { NotificationChannelDialogComponent } from './notification-channel-dialog.component';
-import { ToastService } from '../../core/services/toast.service';
+} from '../../core/services/notification-channel.service.js';
+import { NotificationChannelDialogComponent } from './notification-channel-dialog.component.js';
+import { ToastService } from '../../core/services/toast.service.js';
 import {
   BroncoButtonComponent,
   CardComponent,

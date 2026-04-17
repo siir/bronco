@@ -1,14 +1,14 @@
 import { Component, DestroyRef, inject, input, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { System } from '../../../../core/services/client.service';
-import { SystemService } from '../../../../core/services/system.service';
+import { System } from '../../../../core/services/client.service.js';
+import { SystemService } from '../../../../core/services/system.service.js';
 import {
   BroncoButtonComponent,
   DataTableComponent,
   DataTableColumnComponent,
   DialogComponent,
 } from '../../../../shared/components/index.js';
-import { SystemDialogComponent } from '../../../systems/system-dialog.component';
+import { SystemDialogComponent } from '../../../systems/system-dialog.component.js';
 
 @Component({
   selector: 'app-client-systems-tab',

@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import { ApiService } from './api.service';
+import { ApiService } from './api.service.js';
 
 export type LogSummaryType = 'TICKET' | 'ORPHAN' | 'SERVICE' | 'UNCATEGORIZED';
 export type AttentionLevel = 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH';

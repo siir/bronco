@@ -7,8 +7,8 @@ import {
   SlackConversationService,
   SlackConversationSummary,
   SlackConversationDetail,
-} from '../../core/services/slack-conversation.service';
-import { ClientService, Client } from '../../core/services/client.service';
+} from '../../core/services/slack-conversation.service.js';
+import { ClientService, Client } from '../../core/services/client.service.js';
 import {
   BroncoButtonComponent,
   SelectComponent,
@@ -17,7 +17,7 @@ import {
   DataTableComponent,
   DataTableColumnComponent,
 } from '../../shared/components/index.js';
-import { ToastService } from '../../core/services/toast.service';
+import { ToastService } from '../../core/services/toast.service.js';
 
 @Component({
   standalone: true,

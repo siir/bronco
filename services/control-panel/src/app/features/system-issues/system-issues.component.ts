@@ -10,7 +10,7 @@ import {
   type OpenFinding,
   type RecentError,
   type FailedQueueInfo,
-} from '../../core/services/system-issues.service';
+} from '../../core/services/system-issues.service.js';
 import {
   BroncoButtonComponent,
   SelectComponent,

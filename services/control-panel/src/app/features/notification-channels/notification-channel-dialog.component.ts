@@ -2,8 +2,8 @@ import { Component, inject, input, output, OnInit } from '@angular/core';
 import {
   NotificationChannelService,
   NotificationChannel,
-} from '../../core/services/notification-channel.service';
-import { ToastService } from '../../core/services/toast.service';
+} from '../../core/services/notification-channel.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 import { FormFieldComponent, TextInputComponent, SelectComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({

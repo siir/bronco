@@ -1,9 +1,9 @@
 import { Component, computed, input, output, signal } from '@angular/core';
 import { CommonModule, DecimalPipe } from '@angular/common';
 import { CardComponent, BroncoButtonComponent, SelectComponent, FormFieldComponent, IconComponent, type IconName } from '../../shared/components/index.js';
-import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
-import { RelativeTimePipe } from '../../shared/pipes/relative-time.pipe';
-import { type TicketEvent } from '../../core/services/ticket.service';
+import { MarkdownPipe } from '../../shared/pipes/markdown.pipe.js';
+import { RelativeTimePipe } from '../../shared/pipes/relative-time.pipe.js';
+import { type TicketEvent } from '../../core/services/ticket.service.js';
 
 @Component({
   selector: 'app-ticket-detail-timeline',

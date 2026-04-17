@@ -5,7 +5,7 @@ import { ActivatedRoute } from '@angular/router';
 import { PaginatorComponent, type PaginatorPageEvent } from '../../shared/components/index.js';
 import { EMPTY, Subject, switchMap, timer } from 'rxjs';
 import { catchError, takeUntil } from 'rxjs/operators';
-import { LogService, AppLog } from '../../core/services/log.service';
+import { LogService, AppLog } from '../../core/services/log.service.js';
 import {
   BroncoButtonComponent,
   SelectComponent,

@@ -2,19 +2,19 @@ import { Component, DestroyRef, inject, OnInit, signal, input } from '@angular/c
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { TabGroupComponent, TabComponent } from '../../shared/components/index.js';
-import { ClientHeaderComponent } from './client-detail/client-header.component';
-import { ClientService, Client } from '../../core/services/client.service';
-import { ClientSystemsTabComponent } from './client-detail/tabs/systems-tab.component';
-import { ClientPeopleTabComponent } from './client-detail/tabs/people-tab.component';
-import { ClientReposTabComponent } from './client-detail/tabs/repos-tab.component';
-import { ClientIntegrationsTabComponent } from './client-detail/tabs/integrations-tab.component';
-import { ClientTicketsTabComponent } from './client-detail/tabs/tickets-tab.component';
-import { ClientMemoryTabComponent } from './client-detail/tabs/memory-tab.component';
-import { ClientEnvironmentsTabComponent } from './client-detail/tabs/environments-tab.component';
-import { ClientAiCredentialsTabComponent } from './client-detail/tabs/ai-credentials-tab.component';
-import { ClientInvoicesTabComponent } from './client-detail/tabs/invoices-tab.component';
-import { ClientAiUsageTabComponent } from './client-detail/tabs/ai-usage-tab.component';
-import { ClientConfigTabComponent } from './client-detail/tabs/config-tab.component';
+import { ClientHeaderComponent } from './client-detail/client-header.component.js';
+import { ClientService, Client } from '../../core/services/client.service.js';
+import { ClientSystemsTabComponent } from './client-detail/tabs/systems-tab.component.js';
+import { ClientPeopleTabComponent } from './client-detail/tabs/people-tab.component.js';
+import { ClientReposTabComponent } from './client-detail/tabs/repos-tab.component.js';
+import { ClientIntegrationsTabComponent } from './client-detail/tabs/integrations-tab.component.js';
+import { ClientTicketsTabComponent } from './client-detail/tabs/tickets-tab.component.js';
+import { ClientMemoryTabComponent } from './client-detail/tabs/memory-tab.component.js';
+import { ClientEnvironmentsTabComponent } from './client-detail/tabs/environments-tab.component.js';
+import { ClientAiCredentialsTabComponent } from './client-detail/tabs/ai-credentials-tab.component.js';
+import { ClientInvoicesTabComponent } from './client-detail/tabs/invoices-tab.component.js';
+import { ClientAiUsageTabComponent } from './client-detail/tabs/ai-usage-tab.component.js';
+import { ClientConfigTabComponent } from './client-detail/tabs/config-tab.component.js';
 
 const CLIENT_DETAIL_TAB_SLUGS = [
   'systems',

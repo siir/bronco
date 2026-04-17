@@ -1,7 +1,7 @@
 import { Component, computed, DestroyRef, inject, input, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ClientMemory, ClientMemoryService } from '../../../../core/services/client-memory.service';
-import { ToastService } from '../../../../core/services/toast.service';
+import { ClientMemory, ClientMemoryService } from '../../../../core/services/client-memory.service.js';
+import { ToastService } from '../../../../core/services/toast.service.js';
 import {
   BroncoButtonComponent,
   CardComponent,
@@ -10,7 +10,7 @@ import {
   ToggleSwitchComponent,
   IconComponent,
 } from '../../../../shared/components/index.js';
-import { ClientMemoryDialogComponent } from '../../client-memory-dialog.component';
+import { ClientMemoryDialogComponent } from '../../client-memory-dialog.component.js';
 
 const SOURCE_OPTIONS = [
   { value: '', label: 'All sources' },

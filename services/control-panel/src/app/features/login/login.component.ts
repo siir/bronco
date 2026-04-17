@@ -1,6 +1,6 @@
 import { Component, inject, signal } from '@angular/core';
-import { AuthService } from '../../core/services/auth.service';
-import { ToastService } from '../../core/services/toast.service';
+import { AuthService } from '../../core/services/auth.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 import {
   CardComponent,
   FormFieldComponent,

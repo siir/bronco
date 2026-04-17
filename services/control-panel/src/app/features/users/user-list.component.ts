@@ -1,9 +1,9 @@
 import { Component, inject, signal, OnInit, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
-import { UserService, type ControlPanelUser } from '../../core/services/user.service';
-import { AuthService } from '../../core/services/auth.service';
-import { UserDialogComponent } from './user-dialog.component';
+import { UserService, type ControlPanelUser } from '../../core/services/user.service.js';
+import { AuthService } from '../../core/services/auth.service.js';
+import { UserDialogComponent } from './user-dialog.component.js';
 import {
   BroncoButtonComponent,
   CardComponent,
@@ -14,8 +14,8 @@ import {
   DataTableComponent,
   DataTableColumnComponent,
 } from '../../shared/components/index.js';
-import { ViewportService } from '../../core/services/viewport.service';
-import { ToastService } from '../../core/services/toast.service';
+import { ViewportService } from '../../core/services/viewport.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
 
 @Component({
   standalone: true,

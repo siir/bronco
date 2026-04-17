@@ -1,7 +1,7 @@
 import { Component, DestroyRef, inject, input, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
-import { Ticket, TicketService } from '../../../../core/services/ticket.service';
+import { Ticket, TicketService } from '../../../../core/services/ticket.service.js';
 import {
   BroncoButtonComponent,
   CategoryChipComponent,
@@ -10,7 +10,7 @@ import {
   DialogComponent,
   PriorityPillComponent,
 } from '../../../../shared/components/index.js';
-import { TicketDialogComponent } from '../../../tickets/ticket-dialog.component';
+import { TicketDialogComponent } from '../../../tickets/ticket-dialog.component.js';
 
 type Priority = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
 
