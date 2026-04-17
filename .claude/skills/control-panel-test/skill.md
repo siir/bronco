@@ -46,12 +46,13 @@ Write `services/control-panel/proxy.conf.hugo.json` if it doesn't already exist 
 ```json
 {
   "/api": {
-    "target": "https://hugo.taila1bf6b.ts.net",
-    "secure": false,
+    "target": "http://100.106.127.1",
     "changeOrigin": true
   }
 }
 ```
+
+The target is Hugo's Tailscale IP — Tailscale provides end-to-end encryption, so plain HTTP is fine here. If Hugo's Tailscale IP ever changes, update this file and the `http://100.106.127.1` block in `Caddyfile`.
 
 4. **Install dependencies**
 
@@ -74,7 +75,7 @@ Tell the user:
 - **Branch**: `<branch-name>`
 - **Working directory**: current repo root
 - **URL**: http://localhost:4200/cp/
-- **API proxied to**: Hugo (https://hugo.taila1bf6b.ts.net)
+- **API proxied to**: Hugo (http://100.106.127.1 over Tailscale)
 - Hot reload is active — file saves in the working directory reflect instantly
 - If another session is making changes, they must edit files in this same directory on this branch for hot reload to pick them up
 
