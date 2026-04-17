@@ -102,8 +102,16 @@ import { ToastService } from '../../core/services/toast.service';
           </app-data-column>
         </app-data-table>
 
-        @if (openMenuRow(); as activeRow) {
-          <app-dropdown-menu #menu [trigger]="menuTriggerEl" (closed)="openMenuRow.set(null)">
+        <!--
+          Always render the dropdown so ViewChild resolves on first render.
+          Gating the whole dropdown on @if (openMenuRow()) caused the
+          ViewChild to be undefined on the first click, requiring a second
+          click to open. The dropdown's internal state (isOpen) controls
+          visibility; only the content (which needs the active row) is
+          conditionally rendered.
+        -->
+        <app-dropdown-menu #menu [trigger]="menuTriggerEl" (closed)="openMenuRow.set(null)">
+          @if (openMenuRow(); as activeRow) {
             <app-dropdown-item (action)="openEdit(activeRow)">Edit</app-dropdown-item>
             <app-dropdown-item (action)="openResetPassword(activeRow)">Reset Password</app-dropdown-item>
             @if (activeRow.id !== currentUserId()) {
@@ -113,8 +121,8 @@ import { ToastService } from '../../core/services/toast.service';
                 <app-dropdown-item (action)="activate(activeRow)">Activate</app-dropdown-item>
               }
             }
-          </app-dropdown-menu>
-        }
+          }
+        </app-dropdown-menu>
       }
 
       @if (showUserDialog()) {
@@ -340,8 +348,7 @@ export class UserListComponent implements OnInit {
     const currentTarget = event.currentTarget;
     this.menuTriggerEl = currentTarget instanceof HTMLElement ? currentTarget : null;
     this.openMenuRow.set(user);
-    // Wait for @if to render the dropdown before calling open().
-    queueMicrotask(() => this.menu?.open());
+    this.menu?.open();
   }
 
   // On mobile, tapping the card is the primary edit affordance since the
