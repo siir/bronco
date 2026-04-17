@@ -95,7 +95,7 @@ import { ToastService } from '../../core/services/toast.service.js';
 
           <app-data-column key="actions" header="" width="60px" [sortable]="false" mobilePriority="hidden">
             <ng-template #cell let-row>
-              <app-bronco-button variant="icon" size="sm" [attr.aria-label]="'Actions for ' + row.name" (click)="onActionsClick(row, $event)">
+              <app-bronco-button variant="icon" size="sm" [ariaLabel]="'Actions for ' + row.name" (click)="onActionsClick(row, $event)">
                 ...
               </app-bronco-button>
             </ng-template>

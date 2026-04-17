@@ -143,6 +143,7 @@ export class AppShellComponent implements OnInit {
           this.openDrawer();
         } else {
           this.closeDrawer();
+          if (open && !compact) this.sidebar.close();
         }
       });
     });
