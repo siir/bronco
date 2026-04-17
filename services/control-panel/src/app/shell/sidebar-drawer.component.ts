@@ -5,8 +5,9 @@ import { SidebarComponent } from './sidebar.component.js';
 /**
  * Mobile drawer wrapper around `SidebarComponent`.
  *
- * Attached to a CDK Overlay by `AppShellComponent` when `viewport.isMobile()`
- * is true and the drawer is open. Applies a focus trap so keyboard Tab stays
+ * Attached to a CDK Overlay by `AppShellComponent` when
+ * `viewport.isCompactLayout()` is true (< 1200px) and the drawer is open.
+ * Applies a focus trap so keyboard Tab stays
  * within the drawer while open. The drawer chrome (width, slide animation,
  * tap-target overrides) is styled globally via `.sidebar-drawer-pane` in
  * styles.scss — `SidebarComponent` itself stays untouched.

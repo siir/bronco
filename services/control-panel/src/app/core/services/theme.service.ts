@@ -95,6 +95,14 @@ export class ThemeService {
       classList.add(theme.bodyClass);
     }
     localStorage.setItem(STORAGE_KEY, theme.id);
+    this.applyThemeColorMeta();
+  }
+
+  private applyThemeColorMeta(): void {
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    if (!meta) return;
+    const color = getComputedStyle(document.body).getPropertyValue('--bg-page').trim() || '#08090a';
+    meta.content = color;
   }
 
   private resolveInitial(): ThemeOption {
