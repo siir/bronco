@@ -1,5 +1,5 @@
 import { Component, effect, inject, signal } from '@angular/core';
-import { Subscription } from 'rxjs';
+import { Subscription, timer, switchMap, tap, takeWhile } from 'rxjs';
 import { Router, RouterLink } from '@angular/router';
 import { DatePipe, DecimalPipe, SlicePipe } from '@angular/common';
 import { DetailPanelService, DetailEntityType } from '../core/services/detail-panel.service.js';
@@ -1329,39 +1329,17 @@ export class DetailPanelComponent {
             error: () => { this.error.set(true); this.loading.set(false); },
           });
           break;
-        case 'job': {
-          // Keep the detail view live while the run is processing. The list
-          // page polls its own rows every 3s but doesn't push updates into
-          // this panel, so without our own poll an operator watching a live
-          // ingestion would see a frozen snapshot until they reopen the panel.
-          let pollTimer: ReturnType<typeof setInterval> | null = null;
-          const stopPoll = () => {
-            if (pollTimer) {
-              clearInterval(pollTimer);
-              pollTimer = null;
-            }
-          };
-          const jobSub = this.ingestionService.getRun(id).subscribe({
-            next: (j) => {
-              this.job.set(j);
-              this.loading.set(false);
-              if (j.status === 'processing' && !pollTimer) {
-                pollTimer = setInterval(() => {
-                  this.ingestionService.getRun(id).subscribe({
-                    next: (updated) => {
-                      this.job.set(updated);
-                      if (updated.status !== 'processing') stopPoll();
-                    },
-                    error: () => stopPoll(),
-                  });
-                }, 4000);
-              }
-            },
+        case 'job':
+          // Poll every 4s while processing; switchMap cancels in-flight
+          // requests on each new tick so requests cannot overlap.
+          sub = timer(0, 4000).pipe(
+            switchMap(() => this.ingestionService.getRun(id)),
+            tap(j => { this.job.set(j); this.loading.set(false); }),
+            takeWhile(j => j.status === 'processing', true),
+          ).subscribe({
             error: () => { this.error.set(true); this.loading.set(false); },
           });
-          sub = { unsubscribe: () => { jobSub.unsubscribe(); stopPoll(); } } as Subscription;
           break;
-        }
         default:
           this.loading.set(false);
       }
