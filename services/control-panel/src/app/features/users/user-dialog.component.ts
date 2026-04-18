@@ -1,4 +1,4 @@
-import { Component, inject, input, output, OnInit } from '@angular/core';
+import { Component, effect, inject, input, output, untracked } from '@angular/core';
 import { UserService, type ControlPanelUser } from '../../core/services/user.service.js';
 import { ToastService } from '../../core/services/toast.service.js';
 import { FormFieldComponent, TextInputComponent, SelectComponent, ToggleSwitchComponent, BroncoButtonComponent } from '../../shared/components/index.js';
@@ -48,7 +48,7 @@ import { FormFieldComponent, TextInputComponent, SelectComponent, ToggleSwitchCo
     .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
   `],
 })
-export class UserDialogComponent implements OnInit {
+export class UserDialogComponent {
   private userService = inject(UserService);
   private toast = inject(ToastService);
 
@@ -70,16 +70,34 @@ export class UserDialogComponent implements OnInit {
     { value: 'OPERATOR', label: 'Operator' },
   ];
 
-  ngOnInit(): void {
-    const u = this.user();
-    if (u) {
-      this.name = u.name;
-      this.email = u.email;
-      this.role = u.role;
-      this.slackUserId = u.slackUserId ?? '';
-      this.isActive = u.isActive;
-      this.isSelf = u.id === this.currentUserId();
-    }
+  constructor() {
+    // Re-sync form fields whenever the `user` input changes — e.g. when the
+    // operator picks a different user via the command palette while the
+    // dialog is already open. ngOnInit only ran once and left stale values
+    // in the form for subsequent swaps.
+    effect(() => {
+      const u = this.user();
+      const currentId = this.currentUserId();
+      untracked(() => {
+        if (u) {
+          this.name = u.name;
+          this.email = u.email;
+          this.role = u.role;
+          this.slackUserId = u.slackUserId ?? '';
+          this.isActive = u.isActive;
+          this.isSelf = u.id === currentId;
+          this.password = ''; // never carry a typed-but-unsaved password across user swaps
+        } else {
+          this.name = '';
+          this.email = '';
+          this.role = 'OPERATOR';
+          this.slackUserId = '';
+          this.isActive = true;
+          this.isSelf = false;
+          this.password = '';
+        }
+      });
+    });
   }
 
   save(): void {

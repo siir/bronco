@@ -1,4 +1,6 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, Router } from '@angular/router';
 import { ClientService, Client } from '../../core/services/client.service.js';
 import { ClientDialogComponent } from './client-dialog.component.js';
 import { DetailPanelService } from '../../core/services/detail-panel.service.js';
@@ -76,6 +78,9 @@ import { DataTableComponent, DataTableColumnComponent, BroncoButtonComponent, Di
 export class ClientListComponent implements OnInit {
   private clientService = inject(ClientService);
   private detailPanel = inject(DetailPanelService);
+  private route = inject(ActivatedRoute);
+  private router = inject(Router);
+  private destroyRef = inject(DestroyRef);
 
   clients = signal<Client[]>([]);
   showClientDialog = signal(false);
@@ -83,6 +88,20 @@ export class ClientListComponent implements OnInit {
 
   ngOnInit(): void {
     this.load();
+    this.route.queryParamMap
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(params => this.handleCreateQueryParam(params.get('create')));
+  }
+
+  private handleCreateQueryParam(create: string | null): void {
+    if (!create) return;
+    this.showClientDialog.set(true);
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { create: null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
   }
 
   load(): void {
