@@ -6,6 +6,7 @@ import { ThemeService } from '../core/services/theme.service.js';
 import { VersionService } from '../core/services/version.service.js';
 import { TicketService } from '../core/services/ticket.service.js';
 import { FailedJobsService } from '../core/services/failed-jobs.service.js';
+import { APP_CONSTANTS } from '../core/config/app-constants.js';
 
 @Component({
   selector: 'app-sidebar',
@@ -36,6 +37,7 @@ import { FailedJobsService } from '../core/services/failed-jobs.service.js';
           <div class="nav-section">
             <span class="section-label">Account</span>
             <a routerLink="/profile" routerLinkActive="nav-active" class="nav-item">Profile</a>
+            <button class="nav-item logout-btn" (click)="authService.logout()">Logout</button>
           </div>
         } @else {
           <div class="nav-section">
@@ -82,17 +84,18 @@ import { FailedJobsService } from '../core/services/failed-jobs.service.js';
             <span class="section-label">Account</span>
             <a routerLink="/profile" routerLinkActive="nav-active" class="nav-item">Profile</a>
             <a routerLink="/notification-preferences" routerLinkActive="nav-active" class="nav-item">Notifications</a>
+            <button class="nav-item logout-btn" (click)="authService.logout()">Logout</button>
           </div>
         }
-      </div>
 
-      <div class="sidebar-footer">
-        <button class="nav-item logout-btn" (click)="authService.logout()">Logout</button>
         <a routerLink="/profile" class="theme-indicator">
           <span class="theme-dot" [style.background]="themeService.currentTheme().accentColor"></span>
           <span>{{ themeService.currentTheme().name }}</span>
         </a>
-        <span class="version-label">v{{ version() }}</span>
+      </div>
+
+      <div class="sidebar-footer">
+        <span class="version-label">Project {{ projectName }} {{ version() }}</span>
       </div>
     </nav>
   `,
@@ -181,7 +184,6 @@ import { FailedJobsService } from '../core/services/failed-jobs.service.js';
       padding: 8px 0 4px;
     }
     .logout-btn {
-      width: calc(100% - 16px);
       text-align: left;
       background: none;
       border: none;
@@ -261,6 +263,7 @@ export class SidebarComponent {
   private readonly ticketService = inject(TicketService);
   private readonly failedJobsService = inject(FailedJobsService);
 
+  readonly projectName = APP_CONSTANTS.projectName;
   readonly version = toSignal(this.versionService.getVersion(), { initialValue: '' });
   readonly ticketBadge = this.ticketService.activeCount;
   readonly failedJobsBadge = this.failedJobsService.totalCount;

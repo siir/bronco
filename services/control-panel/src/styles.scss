@@ -55,22 +55,17 @@ app-dialog .dialog-body [dialogFooter] {
 }
 
 /*
- * iOS Safari auto-zooms on focus when an input has font-size < 16px. The
- * native-element selectors alone aren't enough: the primitives set their
- * own 14px via view-encapsulated attribute selectors (e.g.
- * `.text-input[_ngcontent-xxx]`), which have higher specificity than the
- * global `input { ... }` rule. So the mobile override targets both the
- * native elements AND the primitive classes by name, guaranteeing the 16px
- * wins on small screens. Desktop keeps the 14px default for density.
+ * iOS Safari auto-zooms on focus when an input has font-size < 16px.
+ * Primitives (app-text-input, app-textarea) set their mobile 16px inside
+ * their own component styles so view-encapsulation source order guarantees
+ * the rule wins. This global block covers raw native inputs (e.g. <input>
+ * with .date-input) that aren't wrapped by a primitive, as a safety net.
  * Form-field tap targets also get bumped to a 44px minimum height.
  */
 @media (max-width: 767.98px) {
   input,
   textarea,
   select,
-  app-text-input .text-input,
-  app-textarea .textarea-input,
-  app-select .select-input,
   .date-input {
     font-size: 16px;
   }
@@ -80,6 +75,25 @@ app-dialog .dialog-body [dialogFooter] {
   app-select .select-input {
     min-height: 44px;
   }
+}
+
+@keyframes ptr-spin {
+  to { transform: translateX(-50%) rotate(360deg); }
+}
+.pull-to-refresh-spinner {
+  position: fixed;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2.5px solid var(--border-medium);
+  border-top-color: var(--accent);
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0;
+  animation: ptr-spin 0.8s linear infinite;
 }
 
 @media (max-width: 767px) {

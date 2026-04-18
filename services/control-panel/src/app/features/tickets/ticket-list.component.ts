@@ -17,6 +17,7 @@ import {
   PriorityPillComponent,
   IconComponent,
 } from '../../shared/components/index.js';
+import { PullToRefreshDirective } from '../../shared/directives/pull-to-refresh.directive.js';
 import { ToastService } from '../../core/services/toast.service.js';
 
 interface StatusPill {
@@ -85,9 +86,10 @@ interface ActiveFilterChip {
     TicketQuickActionsDialogComponent,
     TicketFilterDialogComponent,
     IconComponent,
+    PullToRefreshDirective,
   ],
   template: `
-    <div class="ticket-list-page">
+    <div class="ticket-list-page" appPullToRefresh (refresh)="load()">
       <div class="page-header">
         <h1 class="page-title">Tickets</h1>
         <app-bronco-button variant="primary" (click)="showCreateDialog.set(true)">+ Create Ticket</app-bronco-button>
