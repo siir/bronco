@@ -18,6 +18,68 @@ function validateDomainMappings(domains: string[] | undefined): string[] | undef
 }
 
 export async function clientRoutes(fastify: FastifyInstance): Promise<void> {
+  // GET /api/search/clients — lightweight search for the command palette
+  fastify.get<{ Querystring: { q?: string; limit?: string } }>(
+    '/api/search/clients',
+    async (request) => {
+      const rawQ = (request.query.q ?? '').trim();
+      if (!rawQ) return fastify.httpErrors.badRequest('q is required');
+      if (rawQ.length < 2) return fastify.httpErrors.badRequest('q must be at least 2 characters');
+
+      const rawLimit = request.query.limit ?? '20';
+      const limit = Math.trunc(Number(rawLimit));
+      if (!Number.isFinite(limit) || limit < 1 || limit > 50) {
+        return fastify.httpErrors.badRequest('limit must be between 1 and 50');
+      }
+
+      const scope = await resolveClientScope(request, (operatorId) =>
+        getOperatorClientIds(fastify.db, operatorId),
+      );
+      if (scope.type === 'assigned' && scope.clientIds.length === 0) return [];
+
+      // Translate clientId scope to id filter (clients are queried by their own id).
+      const scopeWhere = scopeToWhere(scope);
+      const idFilter = scopeWhere.clientId !== undefined ? { id: scopeWhere.clientId } : {};
+
+      const results = await fastify.db.client.findMany({
+        where: {
+          isInternal: false,
+          ...idFilter,
+          OR: [
+            { name: { contains: rawQ, mode: 'insensitive' } },
+            { shortCode: { contains: rawQ, mode: 'insensitive' } },
+          ],
+        },
+        select: {
+          id: true,
+          name: true,
+          shortCode: true,
+          isActive: true,
+        },
+        take: limit * 2,
+        orderBy: { name: 'asc' },
+      });
+
+      const qLower = rawQ.toLowerCase();
+      const getRank = (name: string, shortCode: string): number => {
+        const nameLower = name.toLowerCase();
+        const shortCodeLower = shortCode.toLowerCase();
+        if (shortCodeLower === qLower) return 0;
+        if (shortCodeLower.startsWith(qLower)) return 1;
+        if (nameLower === qLower) return 2;
+        if (nameLower.startsWith(qLower)) return 3;
+        return 4;
+      };
+      results.sort((a, b) => {
+        const rankDiff = getRank(a.name, a.shortCode) - getRank(b.name, b.shortCode);
+        if (rankDiff !== 0) return rankDiff;
+        return a.name.localeCompare(b.name);
+      });
+
+      return results.slice(0, limit);
+    },
+  );
+
   fastify.get('/api/clients', async (request) => {
     const scope = await resolveClientScope(request, (operatorId) =>
       getOperatorClientIds(fastify.db, operatorId),

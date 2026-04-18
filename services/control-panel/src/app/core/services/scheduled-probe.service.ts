@@ -143,4 +143,18 @@ export class ScheduledProbeService {
   getBuiltinTools(): Observable<Array<{ name: string; description: string; inputSchema?: Record<string, unknown> }>> {
     return this.api.get('/scheduled-probes/builtin-tools');
   }
+
+  searchProbes(q: string, limit = 20): Observable<ProbeSearchResult[]> {
+    return this.api.get<ProbeSearchResult[]>('/search/scheduled-probes', { q, limit });
+  }
+}
+
+export interface ProbeSearchResult {
+  id: string;
+  name: string;
+  clientId: string;
+  clientName: string;
+  clientShortCode: string;
+  toolName: string;
+  isActive: boolean;
 }

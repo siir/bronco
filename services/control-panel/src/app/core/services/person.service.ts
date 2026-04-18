@@ -48,4 +48,19 @@ export class PersonService {
   resetPassword(id: string, password: string): Observable<{ message: string }> {
     return this.api.post<{ message: string }>(`/people/${id}/reset-password`, { password });
   }
+
+  searchPeople(q: string, limit = 20): Observable<PersonSearchResult[]> {
+    return this.api.get<PersonSearchResult[]>('/search/people', { q, limit });
+  }
+}
+
+export interface PersonSearchResult {
+  id: string;
+  name: string;
+  email: string;
+  clientId: string;
+  clientName: string;
+  clientShortCode: string;
+  role: string | null;
+  isActive: boolean;
 }

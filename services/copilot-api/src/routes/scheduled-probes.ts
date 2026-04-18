@@ -6,6 +6,7 @@ import cronParser from 'cron-parser';
 const { parseExpression } = cronParser;
 import { ProbeAction, TicketCategory, IntegrationType, BUILTIN_PROBE_TOOL_NAMES, BUILTIN_PROBE_TOOLS } from '@bronco/shared-types';
 import { buildUtcCron } from '@bronco/shared-utils';
+import { resolveClientScope, scopeToWhere, getOperatorClientIds } from '../plugins/client-scope.js';
 
 const VALID_ACTIONS = new Set(Object.values(ProbeAction));
 const VALID_CATEGORIES = new Set(Object.values(TicketCategory));
@@ -95,6 +96,74 @@ export async function scheduledProbeRoutes(
   opts: ScheduledProbeOpts,
 ): Promise<void> {
   const { probeQueue } = opts;
+
+  // GET /api/search/scheduled-probes — lightweight search for the command palette
+  fastify.get<{ Querystring: { q?: string; limit?: string } }>(
+    '/api/search/scheduled-probes',
+    async (request) => {
+      const rawQ = (request.query.q ?? '').trim();
+      if (!rawQ) return fastify.httpErrors.badRequest('q is required');
+      if (rawQ.length < 2) return fastify.httpErrors.badRequest('q must be at least 2 characters');
+
+      const rawLimit = request.query.limit ?? '20';
+      const limit = Math.trunc(Number(rawLimit));
+      if (!Number.isFinite(limit) || limit < 1 || limit > 50) {
+        return fastify.httpErrors.badRequest('limit must be between 1 and 50');
+      }
+
+      const scope = await resolveClientScope(request, (operatorId) =>
+        getOperatorClientIds(fastify.db, operatorId),
+      );
+      if (scope.type === 'assigned' && scope.clientIds.length === 0) return [];
+
+      const clientWhere = scopeToWhere(scope);
+
+      const results = await fastify.db.scheduledProbe.findMany({
+        where: {
+          ...clientWhere,
+          OR: [
+            { name: { contains: rawQ, mode: 'insensitive' } },
+            { description: { contains: rawQ, mode: 'insensitive' } },
+            { client: { name: { contains: rawQ, mode: 'insensitive' } } },
+            { client: { shortCode: { contains: rawQ, mode: 'insensitive' } } },
+          ],
+        },
+        select: {
+          id: true,
+          name: true,
+          createdAt: true,
+          clientId: true,
+          toolName: true,
+          isActive: true,
+          client: { select: { name: true, shortCode: true } },
+        },
+        take: limit,
+        orderBy: [{ createdAt: 'desc' }, { name: 'asc' }],
+      });
+
+      const qLower = rawQ.toLowerCase();
+      results.sort((a, b) => {
+        const aStarts = a.name.toLowerCase().startsWith(qLower) ? 0 : 1;
+        const bStarts = b.name.toLowerCase().startsWith(qLower) ? 0 : 1;
+        if (aStarts !== bStarts) return aStarts - bStarts;
+
+        const createdAtDiff = b.createdAt.getTime() - a.createdAt.getTime();
+        if (createdAtDiff !== 0) return createdAtDiff;
+
+        return a.name.localeCompare(b.name);
+      });
+
+      return results.slice(0, limit).map(p => ({
+        id: p.id,
+        name: p.name,
+        clientId: p.clientId,
+        clientName: p.client.name,
+        clientShortCode: p.client.shortCode,
+        toolName: p.toolName,
+        isActive: p.isActive,
+      }));
+    },
+  );
 
   // List all probes, optionally filtered by clientId
   fastify.get<{
