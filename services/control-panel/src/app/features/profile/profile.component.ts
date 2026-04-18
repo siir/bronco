@@ -77,40 +77,42 @@ import { ToastService } from '../../core/services/toast.service.js';
 
         <app-card>
           <h2 class="section-title">Change Password</h2>
-          <form class="form-grid" (ngSubmit)="changePassword()" autocomplete="on">
-            <input
-              type="text"
-              name="username"
-              autocomplete="username"
-              [value]="user.email"
-              readonly
-              tabindex="-1"
-              aria-hidden="true"
-              class="pw-username-hint" />
-            <app-form-field label="Current Password">
+          <form (ngSubmit)="changePassword()" autocomplete="on">
+            <div class="form-grid">
               <input
-                class="text-input"
-                type="password"
-                name="currentPassword"
-                autocomplete="current-password"
-                [(ngModel)]="currentPassword" />
-            </app-form-field>
-            <app-form-field label="New Password">
-              <input
-                class="text-input"
-                type="password"
-                name="newPassword"
-                autocomplete="new-password"
-                [(ngModel)]="newPassword" />
-            </app-form-field>
-            <app-form-field label="Confirm New Password">
-              <input
-                class="text-input"
-                type="password"
-                name="confirmPassword"
-                autocomplete="new-password"
-                [(ngModel)]="confirmPassword" />
-            </app-form-field>
+                type="text"
+                name="username"
+                autocomplete="username"
+                [value]="user.email"
+                readonly
+                tabindex="-1"
+                aria-hidden="true"
+                class="pw-username-hint" />
+              <app-form-field label="Current Password">
+                <input
+                  class="text-input"
+                  type="password"
+                  name="currentPassword"
+                  autocomplete="current-password"
+                  [(ngModel)]="currentPassword" />
+              </app-form-field>
+              <app-form-field label="New Password">
+                <input
+                  class="text-input"
+                  type="password"
+                  name="newPassword"
+                  autocomplete="new-password"
+                  [(ngModel)]="newPassword" />
+              </app-form-field>
+              <app-form-field label="Confirm New Password">
+                <input
+                  class="text-input"
+                  type="password"
+                  name="confirmPassword"
+                  autocomplete="new-password"
+                  [(ngModel)]="confirmPassword" />
+              </app-form-field>
+            </div>
             <div class="card-actions">
               <app-bronco-button type="submit" variant="destructive" [disabled]="passwordSaving">
                 Change Password
@@ -221,8 +223,10 @@ import { ToastService } from '../../core/services/toast.service.js';
     }
 
     /* Hidden-but-discoverable username input so Safari/1Password can
-       correlate the password change to the saved credential. Keeping the
-       element in layout (not display:none) is what makes autofill see it. */
+       correlate the password change to the saved credential. The element
+       must stay in the DOM — display:none / visibility:hidden would make
+       autofill skip it. Absolute positioning + 1px/opacity:0 keeps it
+       parseable by autofill while visually invisible. */
     .pw-username-hint {
       position: absolute;
       width: 1px;
