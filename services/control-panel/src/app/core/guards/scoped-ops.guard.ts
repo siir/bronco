@@ -1,26 +1,14 @@
 import { CanActivateFn, Router } from '@angular/router';
 import { inject } from '@angular/core';
 import { AuthService } from '../services/auth.service.js';
+import { isScopedOpsAllowedPath } from './scoped-ops-allowlist.js';
 
 /**
- * Routes a scoped ops user (client-side Person with hasOpsAccess) is allowed
- * to visit directly. Anything else is redirected to their own client detail
- * page. This guard is a no-op for operators.
+ * Blocks scoped ops users (portal users with ops access) from reaching routes
+ * outside their permitted surface. The allowed route list lives in
+ * `scoped-ops-allowlist.ts` so the command palette can share the same source
+ * of truth. No-op for operators.
  */
-const SCOPED_ALLOWED_PREFIXES = [
-  '/dashboard',   // dashboard is rewritten to client detail in the default redirect
-  '/tickets',     // list + detail
-  '/profile',
-  '/login',
-];
-
-function isAllowedPath(url: string): boolean {
-  // /clients/:id is allowed, but /clients (the list) is not
-  if (url === '/clients' || url.startsWith('/clients?')) return false;
-  if (url.startsWith('/clients/')) return true;
-  return SCOPED_ALLOWED_PREFIXES.some(prefix => url === prefix || url.startsWith(`${prefix}/`) || url.startsWith(`${prefix}?`));
-}
-
 export const scopedOpsGuard: CanActivateFn = (_route, state) => {
   const auth = inject(AuthService);
   const router = inject(Router);
@@ -34,7 +22,7 @@ export const scopedOpsGuard: CanActivateFn = (_route, state) => {
   const clientId = user.clientId;
   const fallback = clientId ? router.parseUrl(`/clients/${clientId}`) : router.parseUrl('/profile');
 
-  if (isAllowedPath(state.url)) {
+  if (isScopedOpsAllowedPath(state.url)) {
     return true;
   }
   return fallback;

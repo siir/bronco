@@ -5,7 +5,7 @@ import { ensureClientUser, Prisma } from '@bronco/db';
 import { TicketStatus, TicketCategory, TicketEventType, Priority, TicketSource, TaskType, isClosedStatus, AnalysisStatus, SufficiencyStatus, LogLevel } from '@bronco/shared-types';
 import { getSelfAnalysisConfig } from '@bronco/shared-utils';
 import type { TicketCreatedJob, IngestionJob } from '@bronco/shared-types';
-import { resolveClientScope, getOperatorClientIds } from '../plugins/client-scope.js';
+import { resolveClientScope, getOperatorClientIds, scopeToWhere } from '../plugins/client-scope.js';
 
 interface TicketRouteOpts {
   logSummarizeQueue?: Queue;
@@ -139,6 +139,96 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
         take,
         skip,
       });
+    },
+  );
+
+  // GET /api/search/tickets — lightweight full-text search for the command palette
+  fastify.get<{ Querystring: { q?: string; limit?: string } }>(
+    '/api/search/tickets',
+    async (request) => {
+      const rawQ = (request.query.q ?? '').trim();
+      if (!rawQ) return fastify.httpErrors.badRequest('q is required');
+
+      const rawLimit = request.query.limit ?? '20';
+      const limit = Math.trunc(Number(rawLimit));
+      if (!Number.isFinite(limit) || limit < 1 || limit > 50) {
+        return fastify.httpErrors.badRequest('limit must be between 1 and 50');
+      }
+
+      const scope = await resolveClientScope(request, (operatorId) =>
+        getOperatorClientIds(fastify.db, operatorId),
+      );
+      if (scope.type === 'assigned' && scope.clientIds.length === 0) return [];
+
+      const clientWhere = scopeToWhere(scope);
+      const ticketNumberMatch = /^\d+$/.test(rawQ) ? Number(rawQ) : null;
+
+      const selectShape = {
+        id: true,
+        ticketNumber: true,
+        subject: true,
+        status: true,
+        priority: true,
+        clientId: true,
+        createdAt: true,
+        client: { select: { name: true, shortCode: true } },
+      } as const;
+
+      // For numeric queries, fetch the exact ticketNumber match separately so
+      // it's guaranteed to appear in the result — otherwise a broad subject
+      // match could fill the `take` limit and push the exact match out of the
+      // DB slice before the in-memory ranker sees it.
+      const exactPromise = ticketNumberMatch !== null
+        ? fastify.db.ticket.findFirst({
+            where: { ...clientWhere, ticketNumber: ticketNumberMatch },
+            select: selectShape,
+          })
+        : Promise.resolve(null);
+
+      const broadPromise = fastify.db.ticket.findMany({
+        where: {
+          ...clientWhere,
+          OR: [
+            { subject: { contains: rawQ, mode: 'insensitive' as const } },
+            { client: { shortCode: { contains: rawQ, mode: 'insensitive' as const } } },
+            { client: { name: { contains: rawQ, mode: 'insensitive' as const } } },
+          ],
+        },
+        select: selectShape,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+      });
+
+      const [exact, broad] = await Promise.all([exactPromise, broadPromise]);
+
+      // Merge + dedupe by id (exact match may also appear in the broad set
+      // via subject contains, e.g. `q="42"` and a ticket with subject "42 bug").
+      const byId = new Map<string, typeof broad[number]>();
+      if (exact) byId.set(exact.id, exact);
+      for (const row of broad) byId.set(row.id, row);
+      const merged = Array.from(byId.values());
+
+      const qLower = rawQ.toLowerCase();
+      merged.sort((a, b) => {
+        const aExact = ticketNumberMatch !== null && a.ticketNumber === ticketNumberMatch ? 0 : 1;
+        const bExact = ticketNumberMatch !== null && b.ticketNumber === ticketNumberMatch ? 0 : 1;
+        if (aExact !== bExact) return aExact - bExact;
+        const aStarts = a.subject.toLowerCase().startsWith(qLower) ? 0 : 1;
+        const bStarts = b.subject.toLowerCase().startsWith(qLower) ? 0 : 1;
+        if (aStarts !== bStarts) return aStarts - bStarts;
+        return b.createdAt.getTime() - a.createdAt.getTime();
+      });
+
+      return merged.slice(0, limit).map(t => ({
+        id: t.id,
+        ticketNumber: t.ticketNumber,
+        subject: t.subject,
+        status: t.status,
+        priority: t.priority,
+        clientId: t.clientId,
+        clientName: t.client.name,
+        clientShortCode: t.client.shortCode,
+      }));
     },
   );
 

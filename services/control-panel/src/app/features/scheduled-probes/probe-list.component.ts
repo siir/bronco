@@ -1,6 +1,7 @@
-import { Component, computed, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NgClass } from '@angular/common';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import {
   DataTableComponent,
   DataTableColumnComponent,
@@ -190,6 +191,9 @@ export class ProbeListComponent implements OnInit {
   private toast = inject(ToastService);
   private detailPanel = inject(DetailPanelService);
   readonly viewport = inject(ViewportService);
+  private route = inject(ActivatedRoute);
+  private router = inject(Router);
+  private destroyRef = inject(DestroyRef);
 
   showProbeDialog = signal(false);
   editingProbe = signal<ScheduledProbe | null>(null);
@@ -219,6 +223,21 @@ export class ProbeListComponent implements OnInit {
       for (const t of tools) this.builtinToolNames.add(t.name);
     });
     this.loadProbes();
+    this.route.queryParamMap
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(params => this.handleCreateQueryParam(params.get('create')));
+  }
+
+  private handleCreateQueryParam(create: string | null): void {
+    if (!create) return;
+    this.editingProbe.set(null);
+    this.showProbeDialog.set(true);
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { create: null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
   }
 
   loadProbes(): void {
