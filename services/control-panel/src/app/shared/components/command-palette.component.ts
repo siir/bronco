@@ -111,6 +111,11 @@ function isAllowedForScoped(url: string): boolean {
           placeholder="Search clients, probes, users, people, or navigate…"
           autocomplete="off"
           spellcheck="false"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-controls="palette-listbox"
+          [attr.aria-expanded]="filteredSections().length > 0"
+          [attr.aria-activedescendant]="selectedItem() ? 'palette-item-' + selectedItem()!.id : null"
           [value]="query()"
           (input)="onQueryInput($event)"
           (keydown)="onInputKeydown($event)"
@@ -121,12 +126,15 @@ function isAllowedForScoped(url: string): boolean {
       </div>
 
       @if (filteredSections().length > 0) {
-        <div class="palette-results">
+        <div class="palette-results" id="palette-listbox" role="listbox">
           @for (group of filteredSections(); track group.section) {
-            <div class="section-header">{{ sectionLabels[group.section] }}</div>
+            <div class="section-header" role="presentation">{{ sectionLabels[group.section] }}</div>
             @for (item of group.items; track item.id) {
               <div
                 class="palette-item"
+                role="option"
+                [id]="'palette-item-' + item.id"
+                [attr.aria-selected]="selectedItem() === item"
                 [class.palette-item-selected]="selectedItem() === item"
                 (click)="activate(item)"
                 (mouseenter)="onItemHover(item)">
@@ -335,10 +343,14 @@ export class CommandPaletteComponent {
     const items = this.filteredItems();
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      this.selectedIndex.update(i => Math.min(i + 1, items.length - 1));
+      if (items.length === 0) return;
+      const lastIndex = items.length - 1;
+      this.selectedIndex.update(i => Math.max(0, Math.min(i + 1, lastIndex)));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      this.selectedIndex.update(i => Math.max(i - 1, 0));
+      if (items.length === 0) return;
+      const lastIndex = items.length - 1;
+      this.selectedIndex.update(i => Math.max(0, Math.min(i - 1, lastIndex)));
     } else if (e.key === 'Enter') {
       e.preventDefault();
       const item = this.selectedItem();
