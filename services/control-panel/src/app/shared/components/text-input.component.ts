@@ -47,6 +47,10 @@ let standaloneInputCounter = 0;
       opacity: 0.5;
       cursor: not-allowed;
     }
+
+    @media (max-width: 767.98px) {
+      .text-input { font-size: 16px; }
+    }
   `],
 })
 export class TextInputComponent {

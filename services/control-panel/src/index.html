@@ -5,10 +5,9 @@
   <title>iTrack 3 — Control Panel</title>
   <base href="/cp/">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <!-- Initial theme-color matches the default Apple theme (--bg-page: #f5f5f7).
-       The inline script below updates this before Safari samples it if the
-       user has a different theme saved in localStorage. Kept in sync with
-       THEMES[0] in services/control-panel/src/app/core/services/theme.service.ts. -->
+  <!-- Initial theme-color matches THEME_COLORS[DEFAULT_THEME] from theme-colors.ts
+       (currently #f5f5f7 for Apple). The inline script below updates this before
+       Safari samples it if the user has a different theme saved in localStorage. -->
   <meta name="theme-color" content="#f5f5f7">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -38,9 +37,11 @@
      * applies the correct body class on boot, and the inline <html> background
      * + <meta> cover the gap.
      *
-     * Kept in sync with the THEMES list in
-     * services/control-panel/src/app/core/services/theme.service.ts.
-     * If a theme is added or renamed there, update the map here.
+     * Single source of truth: theme-colors.ts
+     * (services/control-panel/src/app/core/services/theme-colors.ts)
+     * The map below MUST match THEME_COLORS exported from that file.
+     * The prebuild script (scripts/check-theme-colors.mjs) enforces this and
+     * will fail CI if the two maps diverge.
      */
     (function () {
       var THEME_COLORS = {
@@ -51,8 +52,9 @@
         nvidia: '#000000',
         vercel: '#ffffff'
       };
-      // Default matches THEMES[0] in theme.service.ts. Used when localStorage
-      // is empty (first-time visitor) or holds an unknown theme id.
+      // Must match DEFAULT_THEME from theme-colors.ts. Used when localStorage
+      // is empty (first-time visitor) or holds an unknown theme id. The
+      // prebuild drift-check enforces this stays in sync.
       var DEFAULT_THEME = 'apple';
       var saved;
       try {

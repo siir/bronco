@@ -48,6 +48,10 @@ let standaloneTextareaCounter = 0;
       opacity: 0.5;
       cursor: not-allowed;
     }
+
+    @media (max-width: 767.98px) {
+      .textarea-input { font-size: 16px; }
+    }
   `],
 })
 export class TextareaComponent {

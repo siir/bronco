@@ -24,6 +24,61 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
   });
 
   /**
+   * GET /api/search/users
+   * Lightweight search for the command palette. Admin gate inherited from preHandler.
+   */
+  fastify.get<{ Querystring: { q?: string; limit?: string } }>(
+    '/api/search/users',
+    async (request) => {
+      const rawQ = (request.query.q ?? '').trim();
+      if (!rawQ) return fastify.httpErrors.badRequest('q is required');
+      if (rawQ.length < 2) return fastify.httpErrors.badRequest('q must be at least 2 characters');
+
+      const rawLimit = request.query.limit ?? '20';
+      const limit = Math.trunc(Number(rawLimit));
+      if (!Number.isFinite(limit) || limit < 1 || limit > 50) {
+        return fastify.httpErrors.badRequest('limit must be between 1 and 50');
+      }
+
+      const results = await fastify.db.user.findMany({
+        where: {
+          OR: [
+            { name: { contains: rawQ, mode: 'insensitive' } },
+            { email: { contains: rawQ, mode: 'insensitive' } },
+          ],
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          isActive: true,
+        },
+        take: limit,
+        orderBy: { name: 'asc' },
+      });
+
+      const qLower = rawQ.toLowerCase();
+      const getRank = (user: { name: string; email: string }): number => {
+        const nameLower = user.name.toLowerCase();
+        const emailLower = user.email.toLowerCase();
+        if (emailLower === qLower) return 0;
+        if (nameLower.startsWith(qLower) || emailLower.startsWith(qLower)) return 1;
+        return 2;
+      };
+      results.sort((a, b) => {
+        const rankDiff = getRank(a) - getRank(b);
+        if (rankDiff !== 0) return rankDiff;
+        const nameDiff = a.name.localeCompare(b.name);
+        if (nameDiff !== 0) return nameDiff;
+        return a.email.localeCompare(b.email);
+      });
+
+      return results.slice(0, limit);
+    },
+  );
+
+  /**
    * GET /api/users
    * List all control panel users. Includes slackUserId from matching Operator record.
    */
