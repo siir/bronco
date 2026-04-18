@@ -18,6 +18,7 @@ Feature branches PR into **staging**; staging PRs into **master**.
 
 - `pnpm --filter @bronco/control-panel typecheck` (or the relevant package) after every fix
 - `pnpm install` for dependencies
+- Run `pnpm db:generate` after changes to `packages/db/prisma/schema.prisma` before `pnpm build` or `pnpm typecheck`
 
 ## Committing
 
@@ -80,7 +81,8 @@ If the operator has `pnpm dev:panel` (`:4200`) or `pnpm dev:api` (`:3000`) runni
 
 ## Shipping
 
-- If merging to staging: use `--rebase`.
+- If merging a PR into staging: use `--squash` (keeps staging history linear — one commit per PR).
+- If you need to sync your local feature branch before merging, rebasing is fine (`git pull --rebase` / `git rebase`), but that is separate from the PR merge strategy.
 - If promoting staging to master: use `--merge` (regular merge commit, no squash).
 - Watch `deploy-hugo.yml` after the tag is created to confirm a clean deploy.
 - Walk `.tmp/post-deploy-verification.md` against the live deploy.
