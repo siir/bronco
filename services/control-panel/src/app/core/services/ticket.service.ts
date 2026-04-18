@@ -264,9 +264,24 @@ export class TicketService {
     return this.api.get<TicketArtifact[]>(`/tickets/${ticketId}/artifacts`);
   }
 
+  searchTickets(q: string, limit = 20): Observable<TicketSearchResult[]> {
+    return this.api.get<TicketSearchResult[]>('/search/tickets', { q, limit });
+  }
+
   getArtifactDownloadUrl(artifactId: string): string {
     return `/api/artifacts/${artifactId}/download`;
   }
+}
+
+export interface TicketSearchResult {
+  id: string;
+  ticketNumber: number | null;
+  subject: string;
+  status: string;
+  priority: string;
+  clientId: string;
+  clientName: string;
+  clientShortCode: string;
 }
 
 export interface AiHelpResponse {

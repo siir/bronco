@@ -59,6 +59,14 @@ export class ThemeService {
     this.applyTheme();
   }
 
+  cycleToNext(): ThemeOption {
+    const current = this._currentTheme();
+    const idx = THEMES.findIndex(t => t.id === current.id);
+    const next = THEMES[(idx + 1) % THEMES.length];
+    this.setTheme(next.id);
+    return next;
+  }
+
   setTheme(id: string): void {
     const theme = THEMES.find(t => t.id === id);
     if (!theme) return;

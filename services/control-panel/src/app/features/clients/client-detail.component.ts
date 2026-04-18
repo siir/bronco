@@ -1,6 +1,5 @@
 import { Component, DestroyRef, effect, inject, OnInit, signal, input, untracked } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { Subscription } from 'rxjs';
 import { ActivatedRoute, Router } from '@angular/router';
 import { TabGroupComponent, TabComponent } from '../../shared/components/index.js';
 import { ClientHeaderComponent } from './client-detail/client-header.component.js';
@@ -128,19 +127,23 @@ export class ClientDetailComponent implements OnInit {
     // input — fixes the 9 tabs that only fetch their data in ngOnInit and
     // would otherwise display the previous client's systems/people/repos/etc.
     // The brief "Loading…" flash is acceptable and makes the switch legible.
-    effect((onCleanup) => {
-      const cid = this.id();
+    //
+    // With `withComponentInputBinding()` in app.config.ts, the router binds
+    // `id` before this effect's first run. The try/catch is a defensive guard
+    // against the documented edge case where a required input is read before
+    // binding — extremely unlikely for a routed loadComponent but zero-cost.
+    effect(() => {
+      let cid: string;
+      try {
+        cid = this.id();
+      } catch {
+        return;
+      }
       if (!cid) return;
-      let sub: Subscription | null = null;
       untracked(() => {
         this.client.set(null);
-        sub = this.clientService.getClient(cid).subscribe(c => {
-          // Guard against stale responses: only apply if this is still the
-          // active client id when the request resolves.
-          if (this.id() === cid) this.client.set(c);
-        });
+        this.load(cid);
       });
-      onCleanup(() => sub?.unsubscribe());
     });
   }
 

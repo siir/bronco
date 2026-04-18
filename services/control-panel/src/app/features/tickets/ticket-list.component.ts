@@ -1,4 +1,5 @@
-import { Component, computed, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { TicketService, Ticket, ACTIVE_STATUS_FILTER } from '../../core/services/ticket.service.js';
 import { ClientService, Client } from '../../core/services/client.service.js';
@@ -421,6 +422,7 @@ export class TicketListComponent implements OnInit {
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private toast = inject(ToastService);
+  private destroyRef = inject(DestroyRef);
 
   tickets = signal<Ticket[]>([]);
   presets = signal<TicketFilterPreset[]>([]);
@@ -498,6 +500,11 @@ export class TicketListComponent implements OnInit {
   ngOnInit(): void {
     this.clientIdFilter.set(this.route.snapshot.queryParams['clientId'] ?? '');
     this.clientService.getClients().subscribe(clients => this.clients.set(clients));
+    // Subscribe to queryParamMap so subsequent palette activations fire while
+    // already on /tickets.
+    this.route.queryParamMap
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(params => this.handleCreateQueryParam(params.get('create')));
     this.loadPresets({
       next: () => {
         const defaultPreset = this.presets().find(p => p.isDefault);
@@ -614,6 +621,17 @@ export class TicketListComponent implements OnInit {
   isSelectedPresetDefault(): boolean {
     const selected = this.presets().find(p => p.id === this.selectedPresetId());
     return selected?.isDefault ?? false;
+  }
+
+  private handleCreateQueryParam(create: string | null): void {
+    if (!create) return;
+    this.showCreateDialog.set(true);
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { create: null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
   }
 
   onTicketCreated(result: { id: string }): void {

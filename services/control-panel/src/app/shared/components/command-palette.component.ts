@@ -11,7 +11,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
-import { forkJoin, of, Subject } from 'rxjs';
+import { debounceTime, distinctUntilChanged, forkJoin, of, Subject, switchMap } from 'rxjs';
 import { catchError, map, takeUntil } from 'rxjs/operators';
 import { DialogComponent } from './dialog.component.js';
 import { IconComponent } from './icon.component.js';
@@ -22,33 +22,43 @@ import { ClientService, type Client } from '../../core/services/client.service.j
 import { ScheduledProbeService, type ScheduledProbe } from '../../core/services/scheduled-probe.service.js';
 import { UserService, type ControlPanelUser } from '../../core/services/user.service.js';
 import { PersonService, type Person } from '../../core/services/person.service.js';
+import { TicketService, type TicketSearchResult } from '../../core/services/ticket.service.js';
+import { ThemeService } from '../../core/services/theme.service.js';
+import { ToastService } from '../../core/services/toast.service.js';
+import { isScopedOpsAllowedPath } from '../../core/guards/scoped-ops-allowlist.js';
 
 interface PaletteItem {
   id: string;
   label: string;
   secondary?: string;
   icon: IconName;
-  route: readonly string[];
+  route?: readonly string[];
   /** Optional query params applied when the item is activated. */
   queryParams?: Record<string, string>;
+  /** Callback fired on activation — exclusive with route. */
+  action?: () => void;
   section: PaletteSection;
   searchText: string;
 }
 
-type PaletteSection = 'clients' | 'probes' | 'users' | 'people' | 'navigate';
+type PaletteSection = 'clients' | 'tickets' | 'probes' | 'users' | 'people' | 'commands' | 'navigate';
 
 interface SectionGroup {
   section: PaletteSection;
+  label: string;
   items: PaletteItem[];
+  loading?: boolean;
 }
 
-const SECTION_ORDER: PaletteSection[] = ['clients', 'probes', 'users', 'people', 'navigate'];
+const SECTION_ORDER: PaletteSection[] = ['clients', 'tickets', 'probes', 'users', 'people', 'commands', 'navigate'];
 
 const SECTION_LABELS: Record<PaletteSection, string> = {
   clients: 'Clients',
+  tickets: 'Tickets',
   probes: 'Scheduled Probes',
   users: 'Users',
   people: 'People',
+  commands: 'Commands',
   navigate: 'Navigate',
 };
 
@@ -83,16 +93,6 @@ const ALL_NAV_ROUTES: NavRoute[] = [
   { label: 'Notifications', route: '/notification-preferences', icon: 'bell' },
 ];
 
-const SCOPED_ALLOWED_PREFIXES = ['/dashboard', '/tickets', '/profile', '/login'];
-
-function isAllowedForScoped(url: string): boolean {
-  if (url === '/clients' || url.startsWith('/clients?')) return false;
-  if (url.startsWith('/clients/')) return true;
-  return SCOPED_ALLOWED_PREFIXES.some(
-    p => url === p || url.startsWith(`${p}/`) || url.startsWith(`${p}?`),
-  );
-}
-
 @Component({
   selector: 'app-command-palette',
   standalone: true,
@@ -108,14 +108,14 @@ function isAllowedForScoped(url: string): boolean {
           #searchInput
           type="text"
           class="palette-input"
-          placeholder="Search clients, probes, users, people, or navigate…"
+          placeholder="Search clients, tickets, probes, users, people, or navigate…"
           autocomplete="off"
           spellcheck="false"
           role="combobox"
-          aria-autocomplete="list"
-          aria-controls="palette-listbox"
+          aria-controls="command-palette-listbox"
           [attr.aria-expanded]="filteredSections().length > 0"
-          [attr.aria-activedescendant]="selectedItem() ? 'palette-item-' + selectedItem()!.id : null"
+          aria-autocomplete="list"
+          [attr.aria-activedescendant]="selectedItem() ? itemDomId(selectedItem()!) : null"
           [value]="query()"
           (input)="onQueryInput($event)"
           (keydown)="onInputKeydown($event)"
@@ -126,14 +126,19 @@ function isAllowedForScoped(url: string): boolean {
       </div>
 
       @if (filteredSections().length > 0) {
-        <div class="palette-results" id="palette-listbox" role="listbox">
+        <div class="palette-results" role="listbox" id="command-palette-listbox">
           @for (group of filteredSections(); track group.section) {
-            <div class="section-header" role="presentation">{{ sectionLabels[group.section] }}</div>
+            <div class="section-header" role="presentation">
+              {{ group.label }}
+              @if (group.loading) {
+                <app-icon name="spinner" size="sm" class="section-spinner" />
+              }
+            </div>
             @for (item of group.items; track item.id) {
               <div
                 class="palette-item"
                 role="option"
-                [id]="'palette-item-' + item.id"
+                [id]="itemDomId(item)"
                 [attr.aria-selected]="selectedItem() === item"
                 [class.palette-item-selected]="selectedItem() === item"
                 (click)="activate(item)"
@@ -194,12 +199,19 @@ function isAllowedForScoped(url: string): boolean {
       overflow-y: auto;
     }
     .section-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
       padding: 10px 4px 4px;
       font-size: 11px;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.5px;
       color: var(--text-tertiary);
+    }
+    .section-spinner {
+      color: var(--text-tertiary);
+      animation: palette-spin 1s linear infinite;
     }
     .palette-item {
       display: flex;
@@ -254,16 +266,21 @@ export class CommandPaletteComponent {
   private readonly probeService = inject(ScheduledProbeService);
   private readonly userService = inject(UserService);
   private readonly personService = inject(PersonService);
+  private readonly ticketService = inject(TicketService);
+  private readonly theme = inject(ThemeService);
+  private readonly toast = inject(ToastService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
 
   private readonly searchInputRef = viewChild<ElementRef<HTMLInputElement>>('searchInput');
   private readonly cancelLoad$ = new Subject<void>();
+  private readonly ticketSearch$ = new Subject<string>();
 
-  readonly sectionLabels = SECTION_LABELS;
   readonly query = signal('');
   readonly items = signal<PaletteItem[]>([]);
+  readonly ticketItems = signal<PaletteItem[]>([]);
   readonly loading = signal(false);
+  readonly ticketsLoading = signal(false);
   readonly selectedIndex = signal(0);
 
   readonly filteredItems = computed(() => {
@@ -287,16 +304,31 @@ export class CommandPaletteComponent {
       bucket.push(item);
       itemMap.set(item.section, bucket);
     }
+
+    // Ticket items are pre-filtered server-side; merge them separately.
+    const tickets = this.ticketItems();
+    const isTicketsLoading = this.ticketsLoading();
+    if (tickets.length > 0 || isTicketsLoading) {
+      itemMap.set('tickets', tickets);
+    }
+
     return SECTION_ORDER
       .filter(s => itemMap.has(s))
-      .map(s => ({ section: s, items: itemMap.get(s)! }));
+      .map(s => ({
+        section: s,
+        label: SECTION_LABELS[s],
+        items: itemMap.get(s)!,
+        loading: s === 'tickets' && isTicketsLoading,
+      }));
   });
 
   readonly selectedItem = computed(() => {
     const idx = this.selectedIndex();
     const items = this.filteredItems();
-    if (idx < 0 || idx >= items.length) return null;
-    return items[idx];
+    // Flatten all section items for keyboard nav (includes ticket items)
+    const allVisible = this.filteredSections().flatMap(g => g.items);
+    if (idx < 0 || idx >= allVisible.length) return null;
+    return allVisible[idx];
   });
 
   constructor() {
@@ -307,7 +339,9 @@ export class CommandPaletteComponent {
         untracked(() => {
           this.query.set('');
           this.items.set([]);
+          this.ticketItems.set([]);
           this.loading.set(false);
+          this.ticketsLoading.set(false);
           this.selectedIndex.set(0);
         });
         return;
@@ -328,6 +362,42 @@ export class CommandPaletteComponent {
       untracked(() => this.selectedIndex.set(0));
     });
 
+    // Drive the debounced ticket search from the query signal.
+    effect(() => {
+      const q = this.query().trim();
+      untracked(() => this.ticketSearch$.next(q));
+    });
+
+    this.ticketSearch$
+      .pipe(
+        debounceTime(200),
+        distinctUntilChanged(),
+        switchMap(q => {
+          if (q.length < 2) {
+            this.ticketsLoading.set(false);
+            this.ticketItems.set([]);
+            return of([] as TicketSearchResult[]);
+          }
+          this.ticketsLoading.set(true);
+          return this.ticketService.searchTickets(q, 20).pipe(
+            catchError(() => of([] as TicketSearchResult[])),
+          );
+        }),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe(results => {
+        this.ticketsLoading.set(false);
+        this.ticketItems.set(results.map(t => ({
+          id: `ticket:${t.id}`,
+          label: t.subject,
+          secondary: `#${t.ticketNumber ?? '?'} · ${t.clientShortCode}`,
+          icon: 'ticket' as IconName,
+          route: ['/tickets', t.id] as const,
+          section: 'tickets' as const,
+          searchText: `${t.subject} ${t.ticketNumber ?? ''} ${t.clientShortCode} ${t.clientName}`.toLowerCase(),
+        })));
+      });
+
     this.destroyRef.onDestroy(() => this.cancelLoad$.complete());
   }
 
@@ -340,17 +410,15 @@ export class CommandPaletteComponent {
   }
 
   onInputKeydown(e: KeyboardEvent): void {
-    const items = this.filteredItems();
+    const allVisible = this.filteredSections().flatMap(g => g.items);
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      if (items.length === 0) return;
-      const lastIndex = items.length - 1;
-      this.selectedIndex.update(i => Math.max(0, Math.min(i + 1, lastIndex)));
+      if (allVisible.length === 0) return;
+      this.selectedIndex.update(i => Math.min(i + 1, allVisible.length - 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      if (items.length === 0) return;
-      const lastIndex = items.length - 1;
-      this.selectedIndex.update(i => Math.max(0, Math.min(i - 1, lastIndex)));
+      if (allVisible.length === 0) return;
+      this.selectedIndex.update(i => Math.max(i - 1, 0));
     } else if (e.key === 'Enter') {
       e.preventDefault();
       const item = this.selectedItem();
@@ -359,12 +427,27 @@ export class CommandPaletteComponent {
   }
 
   onItemHover(item: PaletteItem): void {
-    const idx = this.filteredItems().indexOf(item);
+    const allVisible = this.filteredSections().flatMap(g => g.items);
+    const idx = allVisible.indexOf(item);
     if (idx >= 0) this.selectedIndex.set(idx);
   }
 
+  /**
+   * Stable DOM id for each option row, consumed by the input's
+   * `aria-activedescendant` so screen readers announce the active option
+   * without the results container needing its own focus.
+   */
+  itemDomId(item: PaletteItem): string {
+    // Replace colons so the id is a valid CSS/DOM id — `client:abc` → `client_abc`.
+    return `cp-item-${item.id.replace(/:/g, '_')}`;
+  }
+
   activate(item: PaletteItem): void {
-    this.router.navigate([...item.route], item.queryParams ? { queryParams: item.queryParams } : undefined);
+    if (item.action) {
+      item.action();
+    } else if (item.route) {
+      this.router.navigate([...item.route], item.queryParams ? { queryParams: item.queryParams } : undefined);
+    }
     this.paletteService.close();
   }
 
@@ -461,8 +544,60 @@ export class CommandPaletteComponent {
             });
           }
 
+          // Commands — static actions; Create commands hidden for scoped users.
+          if (!isScoped) {
+            newItems.push({
+              id: 'cmd:create-ticket',
+              label: 'Create Ticket',
+              icon: 'add',
+              route: ['/tickets'],
+              queryParams: { create: '1' },
+              section: 'commands',
+              searchText: 'create ticket',
+            });
+            newItems.push({
+              id: 'cmd:create-client',
+              label: 'Create Client',
+              icon: 'add',
+              route: ['/clients'],
+              queryParams: { create: '1' },
+              section: 'commands',
+              searchText: 'create client',
+            });
+            newItems.push({
+              id: 'cmd:create-probe',
+              label: 'Create Scheduled Probe',
+              icon: 'add',
+              route: ['/scheduled-probes'],
+              queryParams: { create: '1' },
+              section: 'commands',
+              searchText: 'create scheduled probe',
+            });
+          }
+
+          newItems.push({
+            id: 'cmd:switch-theme',
+            label: 'Switch Theme',
+            icon: 'sparkles',
+            action: () => {
+              const next = this.theme.cycleToNext();
+              this.toast.info(`Theme: ${next.name}`);
+            },
+            section: 'commands',
+            searchText: 'switch theme',
+          });
+
+          newItems.push({
+            id: 'cmd:logout',
+            label: 'Logout',
+            icon: 'close',
+            action: () => this.auth.logout(),
+            section: 'commands',
+            searchText: 'logout',
+          });
+
           const navRoutes = isScoped
-            ? ALL_NAV_ROUTES.filter(r => isAllowedForScoped(r.route))
+            ? ALL_NAV_ROUTES.filter(r => isScopedOpsAllowedPath(r.route))
             : ALL_NAV_ROUTES;
 
           for (const r of navRoutes) {

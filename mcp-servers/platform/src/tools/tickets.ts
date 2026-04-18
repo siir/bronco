@@ -5,6 +5,86 @@ import type { ServerDeps } from '../server.js';
 
 export function registerTicketTools(server: McpServer, { db }: ServerDeps): void {
   server.tool(
+    'search_tickets',
+    'Search tickets by query across ticket number, subject, client name, and client short code. Returns a lightweight projection for UI pickers.',
+    {
+      q: z.string().min(1).describe('Search query (ticket number, subject, client name, or short code)'),
+      limit: z.number().int().min(1).max(50).optional().describe('Max results to return (default 20)'),
+    },
+    async (params) => {
+      const { q, limit = 20 } = params;
+      const ticketNumberMatch = /^\d+$/.test(q) ? Number(q) : null;
+      const qLower = q.toLowerCase();
+
+      const selectShape = {
+        id: true,
+        ticketNumber: true,
+        subject: true,
+        status: true,
+        priority: true,
+        clientId: true,
+        createdAt: true,
+        client: { select: { name: true, shortCode: true } },
+      } as const;
+
+      // For numeric queries, fetch the exact ticketNumber match separately so
+      // it's guaranteed to appear in the result — otherwise a broad subject
+      // match could fill the `take` limit and push the exact match out of the
+      // DB slice before the in-memory ranker sees it. Mirrors the REST handler
+      // in services/copilot-api/src/routes/tickets.ts.
+      const exactPromise = ticketNumberMatch !== null
+        ? db.ticket.findFirst({
+            where: { ticketNumber: ticketNumberMatch },
+            select: selectShape,
+          })
+        : Promise.resolve(null);
+
+      const broadPromise = db.ticket.findMany({
+        where: {
+          OR: [
+            { subject: { contains: q, mode: 'insensitive' as const } },
+            { client: { shortCode: { contains: q, mode: 'insensitive' as const } } },
+            { client: { name: { contains: q, mode: 'insensitive' as const } } },
+          ],
+        },
+        select: selectShape,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+      });
+
+      const [exact, broad] = await Promise.all([exactPromise, broadPromise]);
+
+      const byId = new Map<string, typeof broad[number]>();
+      if (exact) byId.set(exact.id, exact);
+      for (const row of broad) byId.set(row.id, row);
+      const merged = Array.from(byId.values());
+
+      merged.sort((a, b) => {
+        const aExact = ticketNumberMatch !== null && a.ticketNumber === ticketNumberMatch ? 0 : 1;
+        const bExact = ticketNumberMatch !== null && b.ticketNumber === ticketNumberMatch ? 0 : 1;
+        if (aExact !== bExact) return aExact - bExact;
+        const aStarts = a.subject.toLowerCase().startsWith(qLower) ? 0 : 1;
+        const bStarts = b.subject.toLowerCase().startsWith(qLower) ? 0 : 1;
+        if (aStarts !== bStarts) return aStarts - bStarts;
+        return b.createdAt.getTime() - a.createdAt.getTime();
+      });
+
+      const result = merged.slice(0, limit).map(t => ({
+        id: t.id,
+        ticketNumber: t.ticketNumber,
+        subject: t.subject,
+        status: t.status,
+        priority: t.priority,
+        clientId: t.clientId,
+        clientName: t.client.name,
+        clientShortCode: t.client.shortCode,
+      }));
+
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    },
+  );
+
+  server.tool(
     'list_tickets',
     'List tickets with optional filters. Returns summary array with id, ticketNumber, subject, status, priority, category, client name, createdAt, and analysisStatus.',
     {
