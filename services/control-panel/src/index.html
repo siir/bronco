@@ -5,13 +5,81 @@
   <title>iTrack 3 — Control Panel</title>
   <base href="/cp/">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#08090a">
+  <!-- Initial theme-color matches the default Apple theme (--bg-page: #f5f5f7).
+       The inline script below updates this before Safari samples it if the
+       user has a different theme saved in localStorage. Kept in sync with
+       THEMES[0] in services/control-panel/src/app/core/services/theme.service.ts. -->
+  <meta name="theme-color" content="#f5f5f7">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="iTrack">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="icon" type="image/svg+xml" href="logo.svg">
   <link rel="icon" type="image/x-icon" href="favicon.ico">
-  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500&display=swap" rel="stylesheet">
-  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  <script>
+    /*
+     * Pre-boot theme application.
+     *
+     * Two first-paint problems this solves:
+     *
+     * 1. iOS Safari reads <meta name="theme-color"> at FIRST PAINT to tint the
+     *    URL bar / status-bar region. Angular's ThemeService updates the meta
+     *    after boot — too late. This sets it before Safari samples.
+     *
+     * 2. `html, body { background: var(--bg-page) }` in styles.scss fills the
+     *    safe-area region with the theme background, but var(--bg-page)
+     *    resolves to the :root default (Apple cream) until the body class
+     *    is applied. Setting inline background on <html> overrides that for
+     *    first paint so the safe-area doesn't flash cream on dark themes.
+     *
+     * The body class itself cannot be set here — this script runs while <body>
+     * is still being parsed, so `document.body` is null. Angular's ThemeService
+     * applies the correct body class on boot, and the inline <html> background
+     * + <meta> cover the gap.
+     *
+     * Kept in sync with the THEMES list in
+     * services/control-panel/src/app/core/services/theme.service.ts.
+     * If a theme is added or renamed there, update the map here.
+     */
+    (function () {
+      var THEME_COLORS = {
+        apple: '#f5f5f7',
+        linear: '#08090a',
+        sentry: '#1f1633',
+        supabase: '#171717',
+        nvidia: '#000000',
+        vercel: '#ffffff'
+      };
+      // Default matches THEMES[0] in theme.service.ts. Used when localStorage
+      // is empty (first-time visitor) or holds an unknown theme id.
+      var DEFAULT_THEME = 'apple';
+      var saved;
+      try {
+        saved = localStorage.getItem('bronco-theme');
+      } catch (e) { /* localStorage unavailable */ }
+      var themeId = (saved && THEME_COLORS[saved]) ? saved : DEFAULT_THEME;
+      var color = THEME_COLORS[themeId];
+      var meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.setAttribute('content', color);
+      // Only override the <html> background for non-default themes — leaving
+      // the default theme to the CSS rule avoids a specificity win that would
+      // need clearing later. For custom themes, ThemeService.applyThemeColorMeta
+      // clears this inline style after the body class is applied.
+      if (themeId !== DEFAULT_THEME) {
+        document.documentElement.style.background = color;
+      }
+    })();
+  </script>
+  <style>
+    /*
+     * Fill the full viewport (including iOS safe-area regions) with the
+     * current theme's --bg-page. Without this, Safari paints the safe-area
+     * strip at the bottom (behind its floating URL pill) with its default
+     * white, creating a visible white band when the app is dark-themed.
+     */
+    html, body { background: var(--bg-page); }
+  </style>
 </head>
 <body>
   <app-root></app-root>

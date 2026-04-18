@@ -14,7 +14,8 @@ import { SidebarService } from '../core/services/sidebar.service.js';
 import { AuthService } from '../core/services/auth.service.js';
 import { TicketService } from '../core/services/ticket.service.js';
 import { FailedJobsService } from '../core/services/failed-jobs.service.js';
-import { ToastContainerComponent } from '../shared/components/toast-container.component.js';
+import { CommandPaletteComponent } from '../shared/components/command-palette.component.js';
+import { CommandPaletteService } from '../core/services/command-palette.service.js';
 
 const ROUTE_TITLE_MAP: Record<string, string> = {
   dashboard: 'Dashboard',
@@ -46,7 +47,7 @@ const ROUTE_TITLE_MAP: Record<string, string> = {
 @Component({
   selector: 'app-shell',
   standalone: true,
-  imports: [RouterOutlet, SidebarComponent, HeaderBarComponent, DetailPanelComponent, ToastContainerComponent],
+  imports: [RouterOutlet, SidebarComponent, HeaderBarComponent, DetailPanelComponent, CommandPaletteComponent],
   template: `
     <div class="shell">
       @if (!viewport.isCompactLayout()) {
@@ -62,7 +63,7 @@ const ROUTE_TITLE_MAP: Record<string, string> = {
         <app-detail-panel />
       }
     </div>
-    <app-toast-container />
+    <app-command-palette />
   `,
   styles: [`
     .shell {
@@ -98,6 +99,7 @@ const ROUTE_TITLE_MAP: Record<string, string> = {
 export class AppShellComponent implements OnInit {
   readonly detailPanel = inject(DetailPanelService);
   readonly viewport = inject(ViewportService);
+  readonly paletteService = inject(CommandPaletteService);
   private readonly sidebar = inject(SidebarService);
   private readonly theme = inject(ThemeService);
   private readonly auth = inject(AuthService);
@@ -110,6 +112,17 @@ export class AppShellComponent implements OnInit {
   readonly onDetailRoute = signal(false);
 
   private drawerRef: OverlayRef | null = null;
+
+  /**
+   * Global ⌘K / Ctrl+K handler — opens the command palette.
+   */
+  @HostListener('document:keydown', ['$event'])
+  private onDocumentKeydown(e: KeyboardEvent): void {
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+      e.preventDefault();
+      this.paletteService.open();
+    }
+  }
 
   /**
    * Global Escape handler for the sidebar drawer.

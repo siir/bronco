@@ -1,4 +1,6 @@
-import { Component, inject, signal, OnInit, ViewChild } from '@angular/core';
+import { Component, DestroyRef, inject, signal, OnInit, ViewChild } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
 import { UserService, type ControlPanelUser } from '../../core/services/user.service.js';
@@ -298,6 +300,9 @@ export class UserListComponent implements OnInit {
   private userService = inject(UserService);
   private authService = inject(AuthService);
   private toast = inject(ToastService);
+  private route = inject(ActivatedRoute);
+  private router = inject(Router);
+  private destroyRef = inject(DestroyRef);
   readonly viewport = inject(ViewportService);
 
   @ViewChild('menu') private menu?: DropdownMenuComponent;
@@ -317,6 +322,11 @@ export class UserListComponent implements OnInit {
 
   ngOnInit(): void {
     this.load();
+    // Subscribe to queryParamMap so subsequent palette activations fire while
+    // already on /users. The snapshot alone only catches the first-load case.
+    this.route.queryParamMap
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(params => this.handleEditQueryParam(params.get('edit')));
   }
 
   load(): void {
@@ -325,11 +335,29 @@ export class UserListComponent implements OnInit {
       next: (users) => {
         this.users.set(users);
         this.loading.set(false);
+        // Re-evaluate after users arrive (queryParamMap may have fired
+        // before the fetch completed).
+        this.handleEditQueryParam(this.route.snapshot.queryParamMap.get('edit'));
       },
       error: (err) => {
         this.loading.set(false);
         this.toast.error(err.error?.message ?? err.error?.error ?? 'Failed to load users');
       },
+    });
+  }
+
+  private handleEditQueryParam(editId: string | null): void {
+    if (!editId) return;
+    const target = this.users().find(u => u.id === editId);
+    if (!target) return; // Users not loaded yet, or no match — no-op.
+    this.openEdit(target);
+    // Consume the param so back/forward doesn't re-open and a subsequent
+    // palette pick with the same id still fires a new queryParamMap event.
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { edit: null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
     });
   }
 

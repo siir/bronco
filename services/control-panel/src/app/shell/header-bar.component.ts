@@ -2,6 +2,7 @@ import { Component, inject, input } from '@angular/core';
 import { IconComponent } from '../shared/components/icon.component.js';
 import { ViewportService } from '../core/services/viewport.service.js';
 import { SidebarService } from '../core/services/sidebar.service.js';
+import { CommandPaletteService } from '../core/services/command-palette.service.js';
 
 const isMac = /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
@@ -24,7 +25,7 @@ const isMac = /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent);
         }
         <span class="page-title">{{ title() }}</span>
       </div>
-      <button class="search-trigger" type="button" aria-label="Search">
+      <button class="search-trigger" type="button" aria-label="Search" (click)="paletteService.open()">
         <app-icon class="search-icon" name="search" size="sm" />
         <span class="search-text">Search...</span>
         @if (!viewport.isCompactLayout()) {
@@ -136,6 +137,7 @@ const isMac = /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent);
 export class HeaderBarComponent {
   readonly viewport = inject(ViewportService);
   readonly sidebar = inject(SidebarService);
+  readonly paletteService = inject(CommandPaletteService);
   title = input<string>('Dashboard');
   readonly shortcutHint = isMac ? '⌘K' : 'Ctrl+K';
 }

@@ -59,6 +59,14 @@ export class ThemeService {
     this.applyTheme();
   }
 
+  cycleToNext(): ThemeOption {
+    const current = this._currentTheme();
+    const idx = THEMES.findIndex(t => t.id === current.id);
+    const next = THEMES[(idx + 1) % THEMES.length];
+    this.setTheme(next.id);
+    return next;
+  }
+
   setTheme(id: string): void {
     const theme = THEMES.find(t => t.id === id);
     if (!theme) return;
@@ -95,6 +103,22 @@ export class ThemeService {
       classList.add(theme.bodyClass);
     }
     localStorage.setItem(STORAGE_KEY, theme.id);
+    this.applyThemeColorMeta();
+  }
+
+  private applyThemeColorMeta(): void {
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    if (!meta) return;
+    const color = getComputedStyle(document.body).getPropertyValue('--bg-page').trim() || '#08090a';
+    meta.content = color;
+    // Clear the inline background style set by the pre-boot script in
+    // index.html. That inline style exists only to cover first-paint on iOS
+    // Safari; after Angular boots and applies the body class, the CSS rule
+    // `html, body { background: var(--bg-page) }` takes over. If we leave
+    // the inline style in place, it beats the CSS rule via specificity and
+    // the safe-area strip stays pinned to whatever the initial theme was
+    // even after the user switches themes.
+    document.documentElement.style.removeProperty('background');
   }
 
   private resolveInitial(): ThemeOption {
