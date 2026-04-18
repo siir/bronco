@@ -126,6 +126,13 @@ export class ThemeService {
 
   private resolveInitial(): ThemeOption {
     const saved = localStorage.getItem(STORAGE_KEY);
-    return THEMES.find(t => t.id === saved) ?? THEMES[0];
+    // Fall back to DEFAULT_THEME (single source of truth in theme-colors.ts)
+    // rather than THEMES[0], so changing the default doesn't require reordering
+    // the array. THEMES[0] remains only as a last-resort safety net.
+    return (
+      THEMES.find(t => t.id === saved) ??
+      THEMES.find(t => t.id === DEFAULT_THEME) ??
+      THEMES[0]
+    );
   }
 }

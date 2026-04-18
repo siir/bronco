@@ -52,8 +52,9 @@
         nvidia: '#000000',
         vercel: '#ffffff'
       };
-      // Default matches THEMES[0] in theme.service.ts. Used when localStorage
-      // is empty (first-time visitor) or holds an unknown theme id.
+      // Must match DEFAULT_THEME from theme-colors.ts. Used when localStorage
+      // is empty (first-time visitor) or holds an unknown theme id. The
+      // prebuild drift-check enforces this stays in sync.
       var DEFAULT_THEME = 'apple';
       var saved;
       try {
