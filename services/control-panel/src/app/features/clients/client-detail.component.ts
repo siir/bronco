@@ -128,17 +128,14 @@ export class ClientDetailComponent implements OnInit {
     // would otherwise display the previous client's systems/people/repos/etc.
     // The brief "Loading…" flash is acceptable and makes the switch legible.
     //
-    // With `withComponentInputBinding()` in app.config.ts, the router binds
-    // `id` before this effect's first run. The try/catch is a defensive guard
-    // against the documented edge case where a required input is read before
-    // binding — extremely unlikely for a routed loadComponent but zero-cost.
+    // `withComponentInputBinding()` in app.config.ts guarantees `id` is bound
+    // before this constructor effect's first run, so reading `this.id()`
+    // directly is safe. Any throw here is a genuine bug we want to surface,
+    // not swallow — reading through a try/catch would also prevent the
+    // effect from tracking the signal dependency, so the effect would never
+    // re-run on subsequent route changes.
     effect(() => {
-      let cid: string;
-      try {
-        cid = this.id();
-      } catch {
-        return;
-      }
+      const cid = this.id();
       if (!cid) return;
       untracked(() => {
         this.client.set(null);

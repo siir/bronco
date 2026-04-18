@@ -27,17 +27,22 @@ export function registerTicketTools(server: McpServer, { db }: ServerDeps): void
         client: { select: { name: true, shortCode: true } },
       } as const;
 
-      // For numeric queries, fetch the exact ticketNumber match separately so
-      // it's guaranteed to appear in the result — otherwise a broad subject
-      // match could fill the `take` limit and push the exact match out of the
-      // DB slice before the in-memory ranker sees it. Mirrors the REST handler
-      // in services/copilot-api/src/routes/tickets.ts.
-      const exactPromise = ticketNumberMatch !== null
-        ? db.ticket.findFirst({
-            where: { ticketNumber: ticketNumberMatch },
-            select: selectShape,
-          })
-        : Promise.resolve(null);
+      // For numeric queries, fetch exact ticketNumber matches separately so
+      // they're guaranteed to appear regardless of how many broad matches
+      // exist — otherwise the broad query's `take: limit` could push them
+      // out before the in-memory ranker sees them.
+      //
+      // ticketNumber is unique per-client (@@unique([clientId, ticketNumber]))
+      // so a numeric query may match one ticket per client. findMany returns
+      // all of them; the MCP platform tool is trusted and unscoped. Mirrors
+      // the REST handler in services/copilot-api/src/routes/tickets.ts.
+      const exactPromise: Promise<Array<Prisma.TicketGetPayload<{ select: typeof selectShape }>>> =
+        ticketNumberMatch !== null
+          ? db.ticket.findMany({
+              where: { ticketNumber: ticketNumberMatch },
+              select: selectShape,
+            })
+          : Promise.resolve([]);
 
       const broadPromise = db.ticket.findMany({
         where: {
@@ -55,7 +60,7 @@ export function registerTicketTools(server: McpServer, { db }: ServerDeps): void
       const [exact, broad] = await Promise.all([exactPromise, broadPromise]);
 
       const byId = new Map<string, typeof broad[number]>();
-      if (exact) byId.set(exact.id, exact);
+      for (const row of exact) byId.set(row.id, row);
       for (const row of broad) byId.set(row.id, row);
       const merged = Array.from(byId.values());
 

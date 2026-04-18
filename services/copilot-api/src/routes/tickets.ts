@@ -174,16 +174,21 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
         client: { select: { name: true, shortCode: true } },
       } as const;
 
-      // For numeric queries, fetch the exact ticketNumber match separately so
-      // it's guaranteed to appear in the result — otherwise a broad subject
-      // match could fill the `take` limit and push the exact match out of the
-      // DB slice before the in-memory ranker sees it.
-      const exactPromise = ticketNumberMatch !== null
-        ? fastify.db.ticket.findFirst({
-            where: { ...clientWhere, ticketNumber: ticketNumberMatch },
-            select: selectShape,
-          })
-        : Promise.resolve(null);
+      // For numeric queries, fetch exact ticketNumber matches separately so
+      // they're guaranteed to appear regardless of how many broad (subject/
+      // client) matches exist — otherwise the broad query's `take: limit`
+      // could push them out before the in-memory ranker sees them.
+      //
+      // ticketNumber is unique per-client (@@unique([clientId, ticketNumber]))
+      // so a numeric query may match multiple tickets across the caller's
+      // accessible clients. findMany + clientWhere covers all of them.
+      const exactPromise: Promise<Array<Prisma.TicketGetPayload<{ select: typeof selectShape }>>> =
+        ticketNumberMatch !== null
+          ? fastify.db.ticket.findMany({
+              where: { ...clientWhere, ticketNumber: ticketNumberMatch },
+              select: selectShape,
+            })
+          : Promise.resolve([]);
 
       const broadPromise = fastify.db.ticket.findMany({
         where: {
@@ -201,10 +206,11 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
 
       const [exact, broad] = await Promise.all([exactPromise, broadPromise]);
 
-      // Merge + dedupe by id (exact match may also appear in the broad set
-      // via subject contains, e.g. `q="42"` and a ticket with subject "42 bug").
+      // Merge + dedupe by id (an exact-number row may also appear in the
+      // broad set via subject contains, e.g. `q="42"` and a ticket with
+      // subject "42 bug").
       const byId = new Map<string, typeof broad[number]>();
-      if (exact) byId.set(exact.id, exact);
+      for (const row of exact) byId.set(row.id, row);
       for (const row of broad) byId.set(row.id, row);
       const merged = Array.from(byId.values());
 
