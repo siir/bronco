@@ -148,6 +148,7 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     async (request) => {
       const rawQ = (request.query.q ?? '').trim();
       if (!rawQ) return fastify.httpErrors.badRequest('q is required');
+      if (rawQ.length < 2) return fastify.httpErrors.badRequest('q must be at least 2 characters');
 
       const rawLimit = request.query.limit ?? '20';
       const limit = Math.trunc(Number(rawLimit));
@@ -187,6 +188,7 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
           ? fastify.db.ticket.findMany({
               where: { ...clientWhere, ticketNumber: ticketNumberMatch },
               select: selectShape,
+              take: limit,
             })
           : Promise.resolve([]);
 

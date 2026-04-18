@@ -8,7 +8,7 @@ export function registerTicketTools(server: McpServer, { db }: ServerDeps): void
     'search_tickets',
     'Search tickets by query across ticket number, subject, client name, and client short code. Returns a lightweight projection for UI pickers.',
     {
-      q: z.string().min(1).describe('Search query (ticket number, subject, client name, or short code)'),
+      q: z.string().min(2).describe('Search query (ticket number, subject, client name, or short code). Must be at least 2 characters.'),
       limit: z.number().int().min(1).max(50).optional().describe('Max results to return (default 20)'),
     },
     async (params) => {
@@ -41,6 +41,7 @@ export function registerTicketTools(server: McpServer, { db }: ServerDeps): void
           ? db.ticket.findMany({
               where: { ticketNumber: ticketNumberMatch },
               select: selectShape,
+              take: limit,
             })
           : Promise.resolve([]);
 
