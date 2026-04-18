@@ -5,6 +5,7 @@ import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
 import { UserService, type ControlPanelUser } from '../../core/services/user.service.js';
 import { AuthService } from '../../core/services/auth.service.js';
+import { HapticService } from '../../core/services/haptic.service.js';
 import { UserDialogComponent } from './user-dialog.component.js';
 import {
   BroncoButtonComponent,
@@ -299,6 +300,7 @@ import { ToastService } from '../../core/services/toast.service.js';
 export class UserListComponent implements OnInit {
   private userService = inject(UserService);
   private authService = inject(AuthService);
+  private haptic = inject(HapticService);
   private toast = inject(ToastService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
@@ -416,6 +418,7 @@ export class UserListComponent implements OnInit {
   }
 
   deactivate(user: ControlPanelUser): void {
+    this.haptic.warn();
     this.userService.deleteUser(user.id).subscribe({
       next: () => {
         this.toast.success('User deactivated');

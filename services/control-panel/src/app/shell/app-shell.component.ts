@@ -89,10 +89,14 @@ const ROUTE_TITLE_MAP: Record<string, string> = {
       padding: 24px;
     }
     @media (max-width: 767.98px) {
+      .shell { height: auto; overflow: visible; min-height: 100dvh; }
+      .shell-main { overflow: visible; }
       .shell-content {
+        overflow: visible;
         padding: 12px;
         padding-bottom: max(12px, env(safe-area-inset-bottom));
       }
+      app-header-bar { position: sticky; top: 0; z-index: 5; }
     }
   `],
 })

@@ -1,6 +1,7 @@
 import { Component, effect, inject, input, output, untracked } from '@angular/core';
 import { UserService, type ControlPanelUser } from '../../core/services/user.service.js';
 import { ToastService } from '../../core/services/toast.service.js';
+import { HapticService } from '../../core/services/haptic.service.js';
 import { FormFieldComponent, TextInputComponent, SelectComponent, ToggleSwitchComponent, BroncoButtonComponent } from '../../shared/components/index.js';
 
 @Component({
@@ -50,6 +51,7 @@ import { FormFieldComponent, TextInputComponent, SelectComponent, ToggleSwitchCo
 })
 export class UserDialogComponent {
   private userService = inject(UserService);
+  private haptic = inject(HapticService);
   private toast = inject(ToastService);
 
   user = input<ControlPanelUser | undefined>(undefined);
@@ -101,6 +103,7 @@ export class UserDialogComponent {
   }
 
   save(): void {
+    this.haptic.success();
     const u = this.user();
     if (!u && this.password.length < 8) {
       this.toast.error('Password must be at least 8 characters');
