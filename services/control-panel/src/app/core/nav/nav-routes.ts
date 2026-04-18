@@ -51,9 +51,9 @@ export const NAV_ROUTES: readonly NavRoute[] = [
   { route: '/release-notes', label: 'Release Notes', icon: 'book', section: 'integrations' },
 
   // System
-  { route: '/system-status', label: 'System Status', icon: 'server', section: 'system' },
+  { route: '/system-status', label: 'Status', icon: 'server', section: 'system' },
   { route: '/settings', label: 'Settings', icon: 'gear', section: 'system' },
-  { route: '/users', label: 'User Maintenance', icon: 'user', section: 'system' },
+  { route: '/users', label: 'User Maint', icon: 'user', section: 'system' },
 
   // Account
   { route: '/profile', label: 'Profile', icon: 'user', section: 'account' },
