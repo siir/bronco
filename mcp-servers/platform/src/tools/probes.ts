@@ -26,19 +26,25 @@ export function registerProbeTools(server: McpServer, { db, probeQueue }: Server
         select: {
           id: true,
           name: true,
+          createdAt: true,
           clientId: true,
           toolName: true,
           isActive: true,
           client: { select: { name: true, shortCode: true } },
         },
         take: limit,
-        orderBy: { name: 'asc' },
+        orderBy: [{ createdAt: 'desc' }, { name: 'asc' }],
       });
 
       results.sort((a, b) => {
         const aStarts = a.name.toLowerCase().startsWith(qLower) ? 0 : 1;
         const bStarts = b.name.toLowerCase().startsWith(qLower) ? 0 : 1;
-        return aStarts - bStarts;
+        if (aStarts !== bStarts) return aStarts - bStarts;
+
+        const createdAtDiff = b.createdAt.getTime() - a.createdAt.getTime();
+        if (createdAtDiff !== 0) return createdAtDiff;
+
+        return a.name.localeCompare(b.name);
       });
 
       const result = results.slice(0, limit).map(p => ({

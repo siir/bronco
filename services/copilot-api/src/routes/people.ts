@@ -102,9 +102,18 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
 
       const qLower = rawQ.toLowerCase();
       results.sort((a, b) => {
+        const aEmailExact = a.email.toLowerCase() === qLower ? 0 : 1;
+        const bEmailExact = b.email.toLowerCase() === qLower ? 0 : 1;
+        if (aEmailExact !== bEmailExact) return aEmailExact - bEmailExact;
+
         const aStarts = a.name.toLowerCase().startsWith(qLower) ? 0 : 1;
         const bStarts = b.name.toLowerCase().startsWith(qLower) ? 0 : 1;
-        return aStarts - bStarts;
+        if (aStarts !== bStarts) return aStarts - bStarts;
+
+        const nameCompare = a.name.localeCompare(b.name);
+        if (nameCompare !== 0) return nameCompare;
+
+        return a.email.localeCompare(b.email);
       });
 
       return results.slice(0, limit).map(p => ({

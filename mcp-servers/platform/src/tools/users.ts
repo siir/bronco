@@ -32,10 +32,19 @@ export function registerUserTools(server: McpServer, { db }: ServerDeps): void {
         orderBy: { name: 'asc' },
       });
 
+      const getRank = (user: { name: string; email: string }): number => {
+        const nameLower = user.name.toLowerCase();
+        const emailLower = user.email.toLowerCase();
+        if (emailLower === qLower) return 0;
+        if (nameLower.startsWith(qLower) || emailLower.startsWith(qLower)) return 1;
+        return 2;
+      };
       results.sort((a, b) => {
-        const aStarts = a.name.toLowerCase().startsWith(qLower) ? 0 : 1;
-        const bStarts = b.name.toLowerCase().startsWith(qLower) ? 0 : 1;
-        return aStarts - bStarts;
+        const rankDiff = getRank(a) - getRank(b);
+        if (rankDiff !== 0) return rankDiff;
+        const nameDiff = a.name.localeCompare(b.name);
+        if (nameDiff !== 0) return nameDiff;
+        return a.email.localeCompare(b.email);
       });
 
       return { content: [{ type: 'text', text: JSON.stringify(results.slice(0, limit), null, 2) }] };

@@ -29,12 +29,21 @@ export function registerClientTools(server: McpServer, { db }: ServerDeps): void
           isActive: true,
         },
         take: limit * 2,
+        orderBy: { name: 'asc' },
       });
 
+      const getRank = (name: string, shortCode: string): number => {
+        const nameLower = name.toLowerCase();
+        const shortCodeLower = shortCode.toLowerCase();
+        if (shortCodeLower === qLower) return 0;
+        if (shortCodeLower.startsWith(qLower)) return 1;
+        if (nameLower === qLower) return 2;
+        if (nameLower.startsWith(qLower)) return 3;
+        return 4;
+      };
       results.sort((a, b) => {
-        const aStarts = a.name.toLowerCase().startsWith(qLower) ? 0 : 1;
-        const bStarts = b.name.toLowerCase().startsWith(qLower) ? 0 : 1;
-        if (aStarts !== bStarts) return aStarts - bStarts;
+        const rankDiff = getRank(a.name, a.shortCode) - getRank(b.name, b.shortCode);
+        if (rankDiff !== 0) return rankDiff;
         return a.name.localeCompare(b.name);
       });
 

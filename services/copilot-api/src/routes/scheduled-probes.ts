@@ -131,20 +131,26 @@ export async function scheduledProbeRoutes(
         select: {
           id: true,
           name: true,
+          createdAt: true,
           clientId: true,
           toolName: true,
           isActive: true,
           client: { select: { name: true, shortCode: true } },
         },
         take: limit,
-        orderBy: { name: 'asc' },
+        orderBy: [{ createdAt: 'desc' }, { name: 'asc' }],
       });
 
       const qLower = rawQ.toLowerCase();
       results.sort((a, b) => {
         const aStarts = a.name.toLowerCase().startsWith(qLower) ? 0 : 1;
         const bStarts = b.name.toLowerCase().startsWith(qLower) ? 0 : 1;
-        return aStarts - bStarts;
+        if (aStarts !== bStarts) return aStarts - bStarts;
+
+        const createdAtDiff = b.createdAt.getTime() - a.createdAt.getTime();
+        if (createdAtDiff !== 0) return createdAtDiff;
+
+        return a.name.localeCompare(b.name);
       });
 
       return results.slice(0, limit).map(p => ({
