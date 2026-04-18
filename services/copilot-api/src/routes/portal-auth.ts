@@ -21,13 +21,13 @@ function signPortalAccessToken(secret: string, payload: PortalJwtPayload & { nam
   return jwt.sign(payload, secret, { expiresIn: ACCESS_TOKEN_EXPIRY });
 }
 
-function signPortalRefreshToken(secret: string, personId: string, jti: string): string {
-  const payload: PortalRefreshPayload = { sub: personId, jti, type: 'portal_refresh' };
+function signPortalRefreshToken(secret: string, personId: string, clientUserId: string, jti: string): string {
+  const payload: PortalRefreshPayload = { sub: personId, jti, clientUserId, type: 'portal_refresh' };
   return jwt.sign(payload, secret, { expiresIn: REFRESH_TOKEN_EXPIRY });
 }
 
 export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> {
-  async function issueRefreshToken(personId: string): Promise<string> {
+  async function issueRefreshToken(personId: string, clientUserId: string): Promise<string> {
     const jti = randomUUID();
     const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS);
 
@@ -35,7 +35,7 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
       data: { jti, personId, accessType: AccessType.CLIENT_USER, expiresAt },
     });
 
-    return signPortalRefreshToken(fastify.portalJwtSecret, personId, jti);
+    return signPortalRefreshToken(fastify.portalJwtSecret, personId, clientUserId, jti);
   }
 
   interface ResolvedPortalUser {
@@ -49,6 +49,11 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
       where: { emailLower },
       include: {
         clientUsers: {
+          // Deterministic order when the caller didn't specify clientId:
+          // primary contacts first, then oldest-created. Without this
+          // Prisma's ordering is undefined and multi-client Persons could
+          // land in the wrong tenant.
+          orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
           include: { client: { select: { id: true, name: true, shortCode: true } } },
         },
       },
@@ -132,7 +137,7 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
         type: 'portal_access',
         name: resolved.person.name,
       });
-      const refreshToken = await issueRefreshToken(resolved.person.id);
+      const refreshToken = await issueRefreshToken(resolved.person.id, resolved.clientUser.id);
 
       return toLoginResponse(resolved, accessToken, refreshToken);
     },
@@ -170,28 +175,36 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
         }
       }
 
-      const person = await fastify.db.person.findUnique({
-        where: { id: payload.sub },
-        include: {
-          clientUsers: { include: { client: { select: { name: true, shortCode: true } } } },
-        },
+      // Pin the refresh to the exact ClientUser the token was issued for.
+      // Without this a Person with ClientUsers across multiple tenants could
+      // silently hop tenants on refresh.
+      if (!payload.clientUserId) {
+        return reply.code(401).send({ error: 'Invalid refresh token' });
+      }
+
+      const clientUser = await fastify.db.clientUser.findUnique({
+        where: { id: payload.clientUserId },
+        include: { person: true },
       });
 
-      if (!person || !person.isActive || person.clientUsers.length === 0) {
+      if (
+        !clientUser ||
+        clientUser.personId !== payload.sub ||
+        !clientUser.person.isActive
+      ) {
         return reply.code(401).send({ error: 'User not found or inactive' });
       }
 
-      const cu = person.clientUsers[0];
       const newAccessToken = signPortalAccessToken(fastify.portalJwtSecret, {
-        sub: person.id,
-        clientUserId: cu.id,
-        email: person.email,
-        clientId: cu.clientId,
-        userType: cu.userType,
+        sub: clientUser.person.id,
+        clientUserId: clientUser.id,
+        email: clientUser.person.email,
+        clientId: clientUser.clientId,
+        userType: clientUser.userType,
         type: 'portal_access',
-        name: person.name,
+        name: clientUser.person.name,
       });
-      const newRefreshToken = await issueRefreshToken(person.id);
+      const newRefreshToken = await issueRefreshToken(clientUser.person.id, clientUser.id);
 
       return { accessToken: newAccessToken, refreshToken: newRefreshToken };
     },
@@ -297,7 +310,7 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
         type: 'portal_access',
         name: person.name,
       });
-      const refreshToken = await issueRefreshToken(person.id);
+      const refreshToken = await issueRefreshToken(person.id, clientUser.id);
 
       const me: PortalMeResponse = {
         personId: person.id,

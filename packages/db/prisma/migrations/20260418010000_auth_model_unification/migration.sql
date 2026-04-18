@@ -5,9 +5,11 @@
 -- Password lives on Person; refresh tokens unified in person_refresh_tokens
 -- keyed by accessType (OPERATOR | CLIENT_USER).
 --
--- Idempotent-safe: re-running this migration on an already-migrated database
--- is a no-op because the source tables (users, refresh_tokens) and legacy
--- columns on people/operators have been dropped at the end.
+-- This migration is one-shot: Prisma's _prisma_migrations log prevents it
+-- from running twice against the same database, so CREATE TYPE / ALTER TABLE
+-- ADD COLUMN statements below are intentionally written without IF NOT EXISTS
+-- guards. The steps are structured to leave a consistent final state from a
+-- pre-migration database; they are not designed to be rerun.
 
 -- =========================================================================
 -- STEP 1: Prepare — add new columns/tables alongside old ones so we can

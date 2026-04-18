@@ -607,14 +607,15 @@ async function executeIngestionPipeline(
         const personId = payloadStr(payload, 'personId');
         let requesterPersonId: string | undefined;
         if (personId) {
-          // Verify the payload personId belongs to this client (via ClientUser
-          // under the unified model). Wave 2A may relax this now that Person
-          // is global — intentional clients can still be linked by the caller.
+          // Verify the payload personId is linked to this client via a
+          // ClientUser row. If not, drop the requester association — without
+          // this check we'd attach a follower from another tenant (or a
+          // nonexistent person) to the new ticket.
           const verified = await db.person.findFirst({
             where: { id: personId, clientUsers: { some: { clientId } } },
             select: { id: true },
           });
-          requesterPersonId = verified?.id ?? (personId ?? undefined);
+          requesterPersonId = verified?.id ?? undefined;
         }
         if (!requesterPersonId && operatorEmail) {
           const person = await db.person.findFirst({

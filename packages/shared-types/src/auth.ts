@@ -74,5 +74,9 @@ export interface PortalJwtPayload {
 export interface PortalRefreshPayload {
   sub: string;
   jti: string;
+  /** ClientUser this refresh token is pinned to. A Person with ClientUsers
+   *  across multiple tenants stays on the tenant they logged in under when
+   *  refreshing; without this the refresh handler would have to guess. */
+  clientUserId: string;
   type: 'portal_refresh';
 }

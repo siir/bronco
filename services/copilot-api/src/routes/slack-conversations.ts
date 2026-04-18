@@ -47,7 +47,7 @@ export async function slackConversationRoutes(fastify: FastifyInstance): Promise
       where.createdAt = createdAt;
     }
 
-    const [items, total] = await Promise.all([
+    const [rows, total] = await Promise.all([
       fastify.db.slackConversationLog.findMany({
         where,
         orderBy: { updatedAt: 'desc' },
@@ -70,6 +70,14 @@ export async function slackConversationRoutes(fastify: FastifyInstance): Promise
       fastify.db.slackConversationLog.count({ where }),
     ]);
 
+    // Flatten operator.person.name → operator.name to preserve the pre-Wave-1
+    // response shape expected by the control panel. Wave 2C will consume the
+    // unified Person+Operator model natively.
+    const items = rows.map((r) => ({
+      ...r,
+      operator: r.operator ? { id: r.operator.id, name: r.operator.person.name } : null,
+    }));
+
     return { items, total };
   });
 
@@ -89,6 +97,12 @@ export async function slackConversationRoutes(fastify: FastifyInstance): Promise
       return fastify.httpErrors.notFound('Conversation not found');
     }
 
-    return conversation;
+    // Match the list-route flatten: preserve pre-Wave-1 operator.name shape.
+    return {
+      ...conversation,
+      operator: conversation.operator
+        ? { id: conversation.operator.id, name: conversation.operator.person.name }
+        : null,
+    };
   });
 }

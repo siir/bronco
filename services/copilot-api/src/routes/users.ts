@@ -161,7 +161,10 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
         const person = existing
           ? await tx.person.update({
               where: { id: existing.id },
-              data: { passwordHash, name: name.trim() },
+              // Reactivate the Person on operator promotion — a previously
+              // deactivated contact being given control-panel access must be
+              // able to log in, and Person.isActive is the master switch.
+              data: { passwordHash, name: name.trim(), isActive: true },
             })
           : await tx.person.create({
               data: { name: name.trim(), email, emailLower, passwordHash },
