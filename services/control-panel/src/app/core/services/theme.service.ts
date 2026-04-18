@@ -2,9 +2,10 @@ import { Injectable, effect, inject, signal } from '@angular/core';
 import { AuthService } from './auth.service.js';
 import { ApiService } from './api.service.js';
 import { ToastService } from './toast.service.js';
+import { THEME_COLORS, DEFAULT_THEME, type ThemeId } from './theme-colors.js';
 
 export interface ThemeOption {
-  id: string;
+  id: ThemeId;
   name: string;
   bodyClass: string;
   description: string;
@@ -109,7 +110,9 @@ export class ThemeService {
   private applyThemeColorMeta(): void {
     const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
     if (!meta) return;
-    const color = getComputedStyle(document.body).getPropertyValue('--bg-page').trim() || '#08090a';
+    const theme = this.currentTheme();
+    const computed = getComputedStyle(document.body).getPropertyValue('--bg-page').trim();
+    const color = computed || THEME_COLORS[theme.id] || THEME_COLORS[DEFAULT_THEME];
     meta.content = color;
     // Clear the inline background style set by the pre-boot script in
     // index.html. That inline style exists only to cover first-paint on iOS
