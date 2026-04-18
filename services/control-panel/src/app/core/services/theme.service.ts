@@ -103,6 +103,14 @@ export class ThemeService {
     if (!meta) return;
     const color = getComputedStyle(document.body).getPropertyValue('--bg-page').trim() || '#08090a';
     meta.content = color;
+    // Clear the inline background style set by the pre-boot script in
+    // index.html. That inline style exists only to cover first-paint on iOS
+    // Safari; after Angular boots and applies the body class, the CSS rule
+    // `html, body { background: var(--bg-page) }` takes over. If we leave
+    // the inline style in place, it beats the CSS rule via specificity and
+    // the safe-area strip stays pinned to whatever the initial theme was
+    // even after the user switches themes.
+    document.documentElement.style.removeProperty('background');
   }
 
   private resolveInitial(): ThemeOption {
