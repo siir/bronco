@@ -82,7 +82,10 @@ app-dialog .dialog-body [dialogFooter] {
 }
 .pull-to-refresh-spinner {
   position: fixed;
-  top: 60px;
+  // Position below the sticky header, respecting the iOS safe-area inset so
+  // the spinner clears Safari's status-bar region. Tracks --header-height so
+  // future header resizes propagate automatically.
+  top: calc(var(--header-height) + env(safe-area-inset-top) + 8px);
   left: 50%;
   transform: translateX(-50%);
   width: 28px;
@@ -90,7 +93,9 @@ app-dialog .dialog-body [dialogFooter] {
   border-radius: 50%;
   border: 2.5px solid var(--border-medium);
   border-top-color: var(--accent);
-  z-index: 9999;
+  // Sits above normal content but below dialogs/menus (z-index: 1000) and
+  // toasts (10000), so refresh gestures never obscure active modal UI.
+  z-index: 100;
   pointer-events: none;
   opacity: 0;
   animation: ptr-spin 0.8s linear infinite;

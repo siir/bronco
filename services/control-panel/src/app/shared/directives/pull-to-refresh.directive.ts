@@ -1,11 +1,11 @@
-import { Directive, HostListener, Renderer2, inject, output } from '@angular/core';
+import { Directive, HostListener, OnDestroy, Renderer2, inject, output } from '@angular/core';
 
 @Directive({
   selector: '[appPullToRefresh]',
   standalone: true,
   host: { style: 'overscroll-behavior: contain' },
 })
-export class PullToRefreshDirective {
+export class PullToRefreshDirective implements OnDestroy {
   private renderer = inject(Renderer2);
 
   readonly refresh = output<void>();
@@ -41,6 +41,20 @@ export class PullToRefreshDirective {
     const delta = this.currentDelta;
     this.reset();
     if (delta >= this.threshold) this.refresh.emit();
+  }
+
+  // Clean up the spinner if the gesture is interrupted (e.g. a phone call,
+  // system dialog, or the browser cancelling touches). Without this, the
+  // spinner can be left attached to document.body.
+  @HostListener('touchcancel')
+  onTouchCancel(): void {
+    this.reset();
+  }
+
+  // Also clean up if the directive is destroyed mid-gesture (e.g. the user
+  // navigates away while holding). Angular won't fire touchend for us.
+  ngOnDestroy(): void {
+    this.reset();
   }
 
   private showSpinner(progress: number): void {
