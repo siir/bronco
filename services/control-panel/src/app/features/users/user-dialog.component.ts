@@ -103,7 +103,6 @@ export class UserDialogComponent {
   }
 
   save(): void {
-    this.haptic.success();
     const u = this.user();
     if (!u && this.password.length < 8) {
       this.toast.error('Password must be at least 8 characters');
@@ -118,6 +117,7 @@ export class UserDialogComponent {
         ...(this.slackUserId !== undefined && { slackUserId: this.slackUserId }),
       }).subscribe({
         next: () => {
+          this.haptic.success();
           this.toast.success('User updated');
           this.saved.emit(true);
         },
@@ -132,6 +132,7 @@ export class UserDialogComponent {
         ...(this.slackUserId && { slackUserId: this.slackUserId }),
       }).subscribe({
         next: () => {
+          this.haptic.success();
           this.toast.success('User created');
           this.saved.emit(true);
         },
