@@ -7,6 +7,8 @@ import { VersionService } from '../core/services/version.service.js';
 import { TicketService } from '../core/services/ticket.service.js';
 import { FailedJobsService } from '../core/services/failed-jobs.service.js';
 import { APP_CONSTANTS } from '../core/config/app-constants.js';
+import { NAV_ROUTES, NAV_SECTIONS, NAV_SECTION_LABELS, type NavRoute, type NavSection } from '../core/nav/nav-routes.js';
+import { isScopedOpsAllowedPath } from '../core/guards/scoped-ops-allowlist.js';
 
 @Component({
   selector: 'app-sidebar',
@@ -23,69 +25,28 @@ import { APP_CONSTANTS } from '../core/config/app-constants.js';
       </div>
 
       <div class="nav-sections">
-        @if (isScoped()) {
+        @for (group of navGroups(); track group.section) {
           <div class="nav-section">
-            <span class="section-label">Main</span>
-            <a routerLink="/tickets" routerLinkActive="nav-active" class="nav-item">Tickets @if (ticketBadge() > 0) { <span class="badge">{{ ticketBadge() }}</span> }</a>
+            <span class="section-label">{{ group.label }}</span>
+            @for (r of group.routes; track r.route) {
+              <a [routerLink]="r.route" routerLinkActive="nav-active" class="nav-item">
+                {{ r.label }}
+                @if (r.route === '/tickets' && ticketBadge() > 0) { <span class="badge">{{ ticketBadge() }}</span> }
+                @if (r.route === '/failed-jobs' && failedJobsBadge() > 0) { <span class="badge">{{ failedJobsBadge() }}</span> }
+              </a>
+            }
+            @if (group.section === 'account') {
+              <button class="nav-item logout-btn" (click)="authService.logout()">Logout</button>
+            }
           </div>
-          @if (scopedClientLink(); as clientLink) {
-            <div class="nav-section">
-              <span class="section-label">Client</span>
-              <a [routerLink]="clientLink" routerLinkActive="nav-active" class="nav-item">Client Details</a>
-            </div>
+          @if (group.section === 'main' && isScoped()) {
+            @if (scopedClientLink(); as clientLink) {
+              <div class="nav-section">
+                <span class="section-label">Client</span>
+                <a [routerLink]="clientLink" routerLinkActive="nav-active" class="nav-item">Client Details</a>
+              </div>
+            }
           }
-          <div class="nav-section">
-            <span class="section-label">Account</span>
-            <a routerLink="/profile" routerLinkActive="nav-active" class="nav-item">Profile</a>
-            <button class="nav-item logout-btn" (click)="authService.logout()">Logout</button>
-          </div>
-        } @else {
-          <div class="nav-section">
-            <span class="section-label">Main</span>
-            <a routerLink="/dashboard" routerLinkActive="nav-active" class="nav-item">Dashboard</a>
-            <a routerLink="/tickets" routerLinkActive="nav-active" class="nav-item">Tickets @if (ticketBadge() > 0) { <span class="badge">{{ ticketBadge() }}</span> }</a>
-            <a routerLink="/activity" routerLinkActive="nav-active" class="nav-item">Activity Feed</a>
-            <a routerLink="/clients" routerLinkActive="nav-active" class="nav-item">Clients</a>
-          </div>
-
-          <div class="nav-section">
-            <span class="section-label">Operations</span>
-            <a routerLink="/scheduled-probes" routerLinkActive="nav-active" class="nav-item">Scheduled Probes</a>
-            <a routerLink="/ingestion-jobs" routerLinkActive="nav-active" class="nav-item">Ingestion Jobs</a>
-            <a routerLink="/failed-jobs" routerLinkActive="nav-active" class="nav-item">Failed Jobs @if (failedJobsBadge() > 0) { <span class="badge">{{ failedJobsBadge() }}</span> }</a>
-            <a routerLink="/logs" routerLinkActive="nav-active" class="nav-item">Logs</a>
-            <a routerLink="/email-logs" routerLinkActive="nav-active" class="nav-item">Email Log</a>
-          </div>
-
-          <div class="nav-section">
-            <span class="section-label">AI</span>
-            <a routerLink="/prompts" routerLinkActive="nav-active" class="nav-item">AI Prompts</a>
-            <a routerLink="/ai-providers" routerLinkActive="nav-active" class="nav-item">AI Providers</a>
-            <a routerLink="/ai-usage" routerLinkActive="nav-active" class="nav-item">AI Usage</a>
-            <a routerLink="/ticket-routes" routerLinkActive="nav-active" class="nav-item">Ticket Routes</a>
-            <a routerLink="/system-analysis" routerLinkActive="nav-active" class="nav-item">System Analysis</a>
-            <a routerLink="/system-issues" routerLinkActive="nav-active" class="nav-item">System Issues</a>
-          </div>
-
-          <div class="nav-section">
-            <span class="section-label">Integrations</span>
-            <a routerLink="/slack-conversations" routerLinkActive="nav-active" class="nav-item">Slack Conversations</a>
-            <a routerLink="/release-notes" routerLinkActive="nav-active" class="nav-item">Release Notes</a>
-          </div>
-
-          <div class="nav-section">
-            <span class="section-label">System</span>
-            <a routerLink="/system-status" routerLinkActive="nav-active" class="nav-item">Status</a>
-            <a routerLink="/settings" routerLinkActive="nav-active" class="nav-item">Settings</a>
-            <a routerLink="/users" routerLinkActive="nav-active" class="nav-item">User Maint</a>
-          </div>
-
-          <div class="nav-section">
-            <span class="section-label">Account</span>
-            <a routerLink="/profile" routerLinkActive="nav-active" class="nav-item">Profile</a>
-            <a routerLink="/notification-preferences" routerLinkActive="nav-active" class="nav-item">Notifications</a>
-            <button class="nav-item logout-btn" (click)="authService.logout()">Logout</button>
-          </div>
         }
 
         <a routerLink="/profile" class="theme-indicator">
@@ -282,4 +243,24 @@ export class SidebarComponent {
     return ['/clients', user.clientId];
   });
 
+  /** Nav sections with their routes, filtered and grouped for the current user. */
+  readonly navGroups = computed(() => {
+    const scoped = this.isScoped();
+    // For scoped users: filter to allowed routes, excluding /dashboard which
+    // auto-redirects to client detail (shown separately as Client Details).
+    const routes = scoped
+      ? NAV_ROUTES.filter(r => isScopedOpsAllowedPath(r.route) && r.route !== '/dashboard')
+      : NAV_ROUTES;
+
+    const grouped = new Map<NavSection, NavRoute[]>();
+    for (const r of routes) {
+      const bucket = grouped.get(r.section) ?? [];
+      bucket.push(r);
+      grouped.set(r.section, bucket);
+    }
+
+    return NAV_SECTIONS
+      .filter(s => grouped.has(s))
+      .map(s => ({ section: s as NavSection, label: NAV_SECTION_LABELS[s], routes: grouped.get(s)! }));
+  });
 }

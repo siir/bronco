@@ -26,6 +26,7 @@ import { TicketService, type TicketSearchResult } from '../../core/services/tick
 import { ThemeService } from '../../core/services/theme.service.js';
 import { ToastService } from '../../core/services/toast.service.js';
 import { isScopedOpsAllowedPath } from '../../core/guards/scoped-ops-allowlist.js';
+import { NAV_ROUTES } from '../../core/nav/nav-routes.js';
 
 interface PaletteItem {
   id: string;
@@ -61,37 +62,6 @@ const SECTION_LABELS: Record<PaletteSection, string> = {
   commands: 'Commands',
   navigate: 'Navigate',
 };
-
-interface NavRoute {
-  label: string;
-  route: string;
-  icon: IconName;
-}
-
-const ALL_NAV_ROUTES: NavRoute[] = [
-  { label: 'Dashboard', route: '/dashboard', icon: 'home' },
-  { label: 'Tickets', route: '/tickets', icon: 'ticket' },
-  { label: 'Activity Feed', route: '/activity', icon: 'bell' },
-  { label: 'Clients', route: '/clients', icon: 'building' },
-  { label: 'Scheduled Probes', route: '/scheduled-probes', icon: 'clock' },
-  { label: 'Ingestion Jobs', route: '/ingestion-jobs', icon: 'play' },
-  { label: 'Failed Jobs', route: '/failed-jobs', icon: 'warning' },
-  { label: 'Logs', route: '/logs', icon: 'file' },
-  { label: 'Email Log', route: '/email-logs', icon: 'email' },
-  { label: 'AI Prompts', route: '/prompts', icon: 'sparkles' },
-  { label: 'AI Providers', route: '/ai-providers', icon: 'robot' },
-  { label: 'AI Usage', route: '/ai-usage', icon: 'bolt' },
-  { label: 'Ticket Routes', route: '/ticket-routes', icon: 'tag' },
-  { label: 'System Analysis', route: '/system-analysis', icon: 'search' },
-  { label: 'System Issues', route: '/system-issues', icon: 'warning' },
-  { label: 'Slack Conversations', route: '/slack-conversations', icon: 'comment' },
-  { label: 'Release Notes', route: '/release-notes', icon: 'book' },
-  { label: 'System Status', route: '/system-status', icon: 'server' },
-  { label: 'Settings', route: '/settings', icon: 'gear' },
-  { label: 'User Maintenance', route: '/users', icon: 'user' },
-  { label: 'Profile', route: '/profile', icon: 'user' },
-  { label: 'Notifications', route: '/notification-preferences', icon: 'bell' },
-];
 
 @Component({
   selector: 'app-command-palette',
@@ -677,8 +647,8 @@ export class CommandPaletteComponent {
     });
 
     const navRoutes = isScoped
-      ? ALL_NAV_ROUTES.filter(r => isScopedOpsAllowedPath(r.route))
-      : ALL_NAV_ROUTES;
+      ? NAV_ROUTES.filter(r => isScopedOpsAllowedPath(r.route))
+      : NAV_ROUTES;
 
     for (const r of navRoutes) {
       newItems.push({
