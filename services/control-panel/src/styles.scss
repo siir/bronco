@@ -6,6 +6,15 @@ html, body {
   height: 100%;
   margin: 0;
   font-family: var(--font-primary, -apple-system, 'SF Pro Text', 'Helvetica Neue', Helvetica, Arial, sans-serif);
+  /*
+   * Fill the full viewport (including iOS safe-area regions) with the current
+   * theme's --bg-page. Without this, Safari paints the safe-area strip at the
+   * bottom (behind its floating URL pill) with its default white, creating a
+   * visible white band when the app is dark-themed. An inline <html> style in
+   * index.html covers the first-paint gap before Angular applies the body
+   * class and --bg-page resolves correctly.
+   */
+  background: var(--bg-page);
 }
 
 .spacer {
