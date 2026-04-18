@@ -283,7 +283,16 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
       include: {
         client: true,
         system: true,
-        followers: { include: { person: true }, orderBy: { createdAt: 'asc' } },
+        followers: {
+          // Explicit Person select — never spread `person`. `passwordHash`
+          // and `emailLower` must not leak via the ticket detail response.
+          include: {
+            person: {
+              select: { id: true, name: true, email: true, phone: true, isActive: true },
+            },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
         events: { orderBy: { createdAt: 'asc' } },
         artifacts: true,
       },
@@ -315,17 +324,18 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
 
     if (requesterId) {
       // Tenant validation: the requester must be linked to the target
-      // client via a ClientUser row. Without this check a caller could
-      // attach a follower from another tenant (or a random Person ID) to
-      // the new ticket. Platform operators pass through because they can
-      // legitimately create tickets on behalf of any client; they're
-      // authorized at the route level via requireOpsAccess upstream.
+      // client via a ClientUser row, OR be a platform operator
+      // (Operator.clientId === null), OR be a client-scoped operator
+      // pinned to THIS client. A STANDARD operator scoped to a DIFFERENT
+      // client is not a valid requester here — they can't legitimately
+      // author a ticket on behalf of a tenant they don't serve.
       const requesterPerson = await fastify.db.person.findFirst({
         where: {
           id: requesterId,
           OR: [
             { clientUsers: { some: { clientId } } },
-            { operator: { isNot: null } },
+            { operator: { clientId: null } },
+            { operator: { clientId } },
           ],
         },
         select: { id: true },

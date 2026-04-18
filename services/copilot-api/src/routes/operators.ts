@@ -60,7 +60,7 @@ export async function operatorRoutes(fastify: FastifyInstance): Promise<void> {
       const includeInactive = request.query.includeInactive === 'true';
       const operators = await fastify.db.operator.findMany({
         where: includeInactive ? {} : { person: { isActive: true } },
-        include: { person: true },
+        include: { person: { select: { email: true, name: true, isActive: true } } },
         orderBy: { person: { name: 'asc' } },
       });
       return operators.map(flatten);
@@ -75,7 +75,7 @@ export async function operatorRoutes(fastify: FastifyInstance): Promise<void> {
     async (request) => {
       const operator = await fastify.db.operator.findUnique({
         where: { id: request.params.id },
-        include: { person: true },
+        include: { person: { select: { email: true, name: true, isActive: true } } },
       });
       if (!operator) return fastify.httpErrors.notFound('Operator not found');
       return flatten(operator);
@@ -134,7 +134,7 @@ export async function operatorRoutes(fastify: FastifyInstance): Promise<void> {
           ...(notifySlack !== undefined && { notifySlack }),
           ...(trimmedSlackUserId !== undefined && { slackUserId: trimmedSlackUserId }),
         },
-        include: { person: true },
+        include: { person: { select: { email: true, name: true, isActive: true } } },
       });
     });
 
@@ -160,7 +160,7 @@ export async function operatorRoutes(fastify: FastifyInstance): Promise<void> {
 
     const target = await fastify.db.operator.findUnique({
       where: { id },
-      include: { person: true },
+      include: { person: { select: { email: true, name: true, isActive: true } } },
     });
     if (!target) {
       return reply.code(404).send({ error: 'Operator not found' });
@@ -199,7 +199,7 @@ export async function operatorRoutes(fastify: FastifyInstance): Promise<void> {
           ...(notifySlack !== undefined && { notifySlack }),
           ...(trimmedSlackUserId !== undefined && { slackUserId: trimmedSlackUserId }),
         },
-        include: { person: true },
+        include: { person: { select: { email: true, name: true, isActive: true } } },
       });
     });
 

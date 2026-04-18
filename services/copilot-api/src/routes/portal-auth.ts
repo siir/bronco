@@ -84,21 +84,39 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
     };
   }
 
-  function toLoginResponse(
-    resolved: ResolvedPortalUser,
-    accessToken: string,
-    refreshToken: string,
-  ): PortalLoginResponse {
-    const me: PortalMeResponse = {
+  // Wave 1 BC shim: the ticket-portal frontend reads `user.id` and
+  // `user.client.{name, shortCode}` from the login/register responses.
+  // The canonical PortalMeResponse dropped those fields in favor of
+  // `personId` + a separate `clientId`. Wave 2C migrates the frontend;
+  // until then we ship both shapes from this endpoint.
+  type PortalMeResponseShim = PortalMeResponse & {
+    id: string;
+    client: { name: string; shortCode: string };
+  };
+
+  function buildPortalMeShim(resolved: ResolvedPortalUser): PortalMeResponseShim {
+    return {
       personId: resolved.person.id,
+      id: resolved.person.id,
       clientUserId: resolved.clientUser.id,
       email: resolved.person.email,
       name: resolved.person.name,
       userType: resolved.clientUser.userType,
       clientId: resolved.clientUser.clientId,
       isPrimary: resolved.clientUser.isPrimary,
+      client: {
+        name: resolved.client.name,
+        shortCode: resolved.client.shortCode,
+      },
     };
-    return { accessToken, refreshToken, user: me };
+  }
+
+  function toLoginResponse(
+    resolved: ResolvedPortalUser,
+    accessToken: string,
+    refreshToken: string,
+  ): PortalLoginResponse {
+    return { accessToken, refreshToken, user: buildPortalMeShim(resolved) };
   }
 
   /**
@@ -182,9 +200,17 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
         return reply.code(401).send({ error: 'Invalid refresh token' });
       }
 
+      // Explicit Person select — never pull `passwordHash` into memory on
+      // refresh. Defense-in-depth against future edits that spread the row.
       const clientUser = await fastify.db.clientUser.findUnique({
         where: { id: payload.clientUserId },
-        include: { person: true },
+        select: {
+          id: true,
+          personId: true,
+          clientId: true,
+          userType: true,
+          person: { select: { id: true, name: true, email: true, isActive: true } },
+        },
       });
 
       if (
@@ -252,43 +278,34 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
         });
       }
 
-      const passwordHash = await bcrypt.hash(password, 10);
-
-      // Find existing Person by email (regardless of client).
+      // SECURITY: Self-registration MUST NOT grant a session for an existing
+      // Person. The pre-fix code accepted the /register call for anyone who
+      // controlled a domain-mapped email address and then issued tokens for
+      // the existing Person — effectively a session hijack (including of
+      // operator accounts). Reject outright; the caller must use /login
+      // instead. Linking an existing Person to a new client is an
+      // authenticated operation that doesn't belong on this endpoint.
       const existingPerson = await fastify.db.person.findUnique({
         where: { emailLower },
-        include: { clientUsers: true },
+        select: { id: true },
       });
+      if (existingPerson) {
+        return reply
+          .code(409)
+          .send({ error: 'An account with this email already exists. Please log in instead.' });
+      }
 
-      // Upsert person + client_user in a transaction so partial state doesn't leak.
+      const passwordHash = await bcrypt.hash(password, 10);
+
       const { person, clientUser } = await fastify.db.$transaction(async (tx) => {
-        let person = existingPerson;
-        if (person) {
-          const hasClientUser = person.clientUsers.some((c) => c.clientId === client.id);
-          if (hasClientUser) {
-            throw Object.assign(new Error('An account with this email already exists for this organization'), {
-              statusCode: 409,
-            });
-          }
-          person = await tx.person.update({
-            where: { id: person.id },
-            data: {
-              passwordHash: person.passwordHash ?? passwordHash,
-              ...(person.name ? {} : { name: name.trim() }),
-            },
-            include: { clientUsers: true },
-          });
-        } else {
-          person = await tx.person.create({
-            data: {
-              name: name.trim(),
-              email,
-              emailLower,
-              passwordHash,
-            },
-            include: { clientUsers: true },
-          });
-        }
+        const person = await tx.person.create({
+          data: {
+            name: name.trim(),
+            email,
+            emailLower,
+            passwordHash,
+          },
+        });
 
         const clientUser = await tx.clientUser.create({
           data: {
@@ -312,16 +329,27 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
       });
       const refreshToken = await issueRefreshToken(person.id, clientUser.id);
 
-      const me: PortalMeResponse = {
-        personId: person.id,
-        clientUserId: clientUser.id,
-        email: person.email,
-        name: person.name,
-        userType: clientUser.userType,
-        clientId: client.id,
-        isPrimary: clientUser.isPrimary,
+      const resolved: ResolvedPortalUser = {
+        person: {
+          id: person.id,
+          name: person.name,
+          email: person.email,
+          passwordHash: person.passwordHash,
+          isActive: person.isActive,
+        },
+        clientUser: {
+          id: clientUser.id,
+          clientId: clientUser.clientId,
+          userType: clientUser.userType,
+          isPrimary: clientUser.isPrimary,
+        },
+        client: { name: client.name, shortCode: client.shortCode },
       };
-      const response: PortalLoginResponse = { accessToken, refreshToken, user: me };
+      const response: PortalLoginResponse = {
+        accessToken,
+        refreshToken,
+        user: buildPortalMeShim(resolved),
+      };
       return response;
     },
   );
@@ -335,23 +363,43 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
       return reply.code(401).send({ error: 'Portal authentication required' });
     }
 
+    // Explicit Person select — don't use `include: { person: true }` which
+    // would expose passwordHash and emailLower on the /me response.
     const cu = await fastify.db.clientUser.findUnique({
       where: { id: portalUser.clientUserId },
-      include: { person: true, client: { select: { name: true, shortCode: true } } },
+      select: {
+        id: true,
+        clientId: true,
+        userType: true,
+        isPrimary: true,
+        person: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            isActive: true,
+          },
+        },
+        client: { select: { name: true, shortCode: true } },
+      },
     });
 
     if (!cu || !cu.person.isActive) {
       return reply.code(401).send({ error: 'User not found or inactive' });
     }
 
-    const response: PortalMeResponse = {
+    // Same BC shim as login — expose both `personId` and legacy `id`, plus
+    // the `client` object. Wave 2C drops the shim.
+    const response: PortalMeResponse & { id: string; client: { name: string; shortCode: string } } = {
       personId: cu.person.id,
+      id: cu.person.id,
       clientUserId: cu.id,
       email: cu.person.email,
       name: cu.person.name,
       userType: cu.userType,
       clientId: cu.clientId,
       isPrimary: cu.isPrimary,
+      client: cu.client,
     };
     return response;
   });

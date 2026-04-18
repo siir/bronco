@@ -40,9 +40,18 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
   }
 
   async function buildAuthMe(personId: string): Promise<AuthMeResponse | null> {
+    // Explicit select — `buildAuthMe` powers GET /api/auth/me and ships its
+    // return value to the caller. Never pull `passwordHash` or `emailLower`
+    // into scope here.
     const person = await fastify.db.person.findUnique({
       where: { id: personId },
-      include: { operator: true },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        isActive: true,
+        operator: true,
+      },
     });
     if (!person || !person.isActive || !person.operator) return null;
     const op = person.operator;
@@ -227,7 +236,11 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
 
       const emailLower = email?.toLowerCase();
       if (emailLower) {
-        const existing = await fastify.db.person.findUnique({ where: { emailLower } });
+        // Only need the id for the conflict check — don't pull the hash.
+        const existing = await fastify.db.person.findUnique({
+          where: { emailLower },
+          select: { id: true },
+        });
         if (existing && existing.id !== authUser.personId) {
           return reply.code(409).send({ error: 'Email is already in use' });
         }
@@ -239,7 +252,14 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
           ...(name && { name: name.trim() }),
           ...(email && { email, emailLower: email.toLowerCase() }),
         },
-        include: { operator: true },
+        // Explicit select — this row is mapped directly into the response;
+        // keep passwordHash/emailLower out of scope.
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          operator: true,
+        },
       });
 
       return {

@@ -28,7 +28,10 @@ export async function portalUserRoutes(fastify: FastifyInstance): Promise<void> 
 
     const clientUsers = await fastify.db.clientUser.findMany({
       where: { clientId: portalUser.clientId },
-      include: { person: true },
+      // Explicit Person select — never expose passwordHash/emailLower.
+      include: {
+        person: { select: { id: true, name: true, email: true, isActive: true } },
+      },
       orderBy: { person: { name: 'asc' } },
     });
 
@@ -79,10 +82,15 @@ export async function portalUserRoutes(fastify: FastifyInstance): Promise<void> 
           if (hasClientUser) {
             throw Object.assign(new Error('A user with this email already exists'), { statusCode: 409 });
           }
+          // Always use the caller-supplied password on re-add. Previously
+          // `person.passwordHash ?? passwordHash` preserved a stale hash from
+          // an earlier account incarnation, which meant a deleted-then-re-
+          // added portal user could log in with their old password without
+          // the admin knowing.
           person = await tx.person.update({
             where: { id: person.id },
             data: {
-              passwordHash: person.passwordHash ?? passwordHash,
+              passwordHash,
               name: name.trim(),
               isActive: true,
             },
@@ -134,7 +142,9 @@ export async function portalUserRoutes(fastify: FastifyInstance): Promise<void> 
 
       const cu = await fastify.db.clientUser.findFirst({
         where: { personId: id, clientId: portalUser.clientId },
-        include: { person: true },
+        include: {
+          person: { select: { id: true, name: true, email: true, isActive: true } },
+        },
       });
       if (!cu) return reply.code(404).send({ error: 'User not found' });
 
@@ -203,6 +213,21 @@ export async function portalUserRoutes(fastify: FastifyInstance): Promise<void> 
           where: { personId: id, accessType: 'CLIENT_USER', revokedAt: null },
           data: { revokedAt: new Date() },
         });
+
+        // If the Person has no remaining ClientUser anywhere AND no Operator
+        // record, they now have no way to authenticate — but their stored
+        // passwordHash would survive and could be reused if an admin ever
+        // re-adds them. Null it out so revocation actually revokes.
+        const remaining = await tx.person.findUnique({
+          where: { id },
+          include: {
+            operator: { select: { id: true } },
+            _count: { select: { clientUsers: true } },
+          },
+        });
+        if (remaining && !remaining.operator && remaining._count.clientUsers === 0) {
+          await tx.person.update({ where: { id }, data: { passwordHash: null } });
+        }
       });
 
       return { message: 'Portal access revoked' };

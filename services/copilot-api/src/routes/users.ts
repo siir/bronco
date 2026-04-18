@@ -104,7 +104,11 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
    */
   fastify.get('/api/users', async () => {
     const operators = await fastify.db.operator.findMany({
-      include: { person: true },
+      // Explicit Person select — don't pull `passwordHash` or `emailLower`
+      // into memory on list queries.
+      include: {
+        person: { select: { id: true, name: true, email: true, isActive: true, createdAt: true } },
+      },
       orderBy: { person: { name: 'asc' } },
     });
 
