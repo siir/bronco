@@ -4,6 +4,45 @@ import type { ServerDeps } from '../server.js';
 
 export function registerClientTools(server: McpServer, { db }: ServerDeps): void {
   server.tool(
+    'search_clients',
+    'Search clients by name or short code. Returns a lightweight projection for UI pickers.',
+    {
+      q: z.string().min(2).describe('Search query (name or short code). Must be at least 2 characters.'),
+      limit: z.number().int().min(1).max(50).optional().describe('Max results to return (default 20)'),
+    },
+    async (params) => {
+      const { q, limit = 20 } = params;
+      const qLower = q.toLowerCase();
+
+      const results = await db.client.findMany({
+        where: {
+          isInternal: false,
+          OR: [
+            { name: { contains: q, mode: 'insensitive' as const } },
+            { shortCode: { contains: q, mode: 'insensitive' as const } },
+          ],
+        },
+        select: {
+          id: true,
+          name: true,
+          shortCode: true,
+          isActive: true,
+        },
+        take: limit * 2,
+      });
+
+      results.sort((a, b) => {
+        const aStarts = a.name.toLowerCase().startsWith(qLower) ? 0 : 1;
+        const bStarts = b.name.toLowerCase().startsWith(qLower) ? 0 : 1;
+        if (aStarts !== bStarts) return aStarts - bStarts;
+        return a.name.localeCompare(b.name);
+      });
+
+      return { content: [{ type: 'text', text: JSON.stringify(results.slice(0, limit), null, 2) }] };
+    },
+  );
+
+  server.tool(
     'list_clients',
     'List all clients with system count and ticket count.',
     {},

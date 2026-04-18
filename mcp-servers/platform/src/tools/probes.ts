@@ -4,6 +4,58 @@ import type { ServerDeps } from '../server.js';
 
 export function registerProbeTools(server: McpServer, { db, probeQueue }: ServerDeps): void {
   server.tool(
+    'search_scheduled_probes',
+    'Search scheduled probes by name, description, or client. Returns a lightweight projection for UI pickers.',
+    {
+      q: z.string().min(2).describe('Search query (name, description, or client). Must be at least 2 characters.'),
+      limit: z.number().int().min(1).max(50).optional().describe('Max results to return (default 20)'),
+    },
+    async (params) => {
+      const { q, limit = 20 } = params;
+      const qLower = q.toLowerCase();
+
+      const results = await db.scheduledProbe.findMany({
+        where: {
+          OR: [
+            { name: { contains: q, mode: 'insensitive' as const } },
+            { description: { contains: q, mode: 'insensitive' as const } },
+            { client: { name: { contains: q, mode: 'insensitive' as const } } },
+            { client: { shortCode: { contains: q, mode: 'insensitive' as const } } },
+          ],
+        },
+        select: {
+          id: true,
+          name: true,
+          clientId: true,
+          toolName: true,
+          isActive: true,
+          client: { select: { name: true, shortCode: true } },
+        },
+        take: limit,
+        orderBy: { name: 'asc' },
+      });
+
+      results.sort((a, b) => {
+        const aStarts = a.name.toLowerCase().startsWith(qLower) ? 0 : 1;
+        const bStarts = b.name.toLowerCase().startsWith(qLower) ? 0 : 1;
+        return aStarts - bStarts;
+      });
+
+      const result = results.slice(0, limit).map(p => ({
+        id: p.id,
+        name: p.name,
+        clientId: p.clientId,
+        clientName: p.client.name,
+        clientShortCode: p.client.shortCode,
+        toolName: p.toolName,
+        isActive: p.isActive,
+      }));
+
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    },
+  );
+
+  server.tool(
     'list_probes',
     'List scheduled probes with last run info. Optionally filter by client.',
     {

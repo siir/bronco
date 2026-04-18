@@ -11,17 +11,17 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
-import { debounceTime, distinctUntilChanged, forkJoin, of, Subject, switchMap } from 'rxjs';
-import { catchError, map, takeUntil } from 'rxjs/operators';
+import { debounceTime, distinctUntilChanged, of, Subject, switchMap } from 'rxjs';
+import { catchError } from 'rxjs/operators';
 import { DialogComponent } from './dialog.component.js';
 import { IconComponent } from './icon.component.js';
 import type { IconName } from './icon-registry.js';
 import { CommandPaletteService } from '../../core/services/command-palette.service.js';
 import { AuthService } from '../../core/services/auth.service.js';
-import { ClientService, type Client } from '../../core/services/client.service.js';
-import { ScheduledProbeService, type ScheduledProbe } from '../../core/services/scheduled-probe.service.js';
-import { UserService, type ControlPanelUser } from '../../core/services/user.service.js';
-import { PersonService, type Person } from '../../core/services/person.service.js';
+import { ClientService, type ClientSearchResult } from '../../core/services/client.service.js';
+import { ScheduledProbeService, type ProbeSearchResult } from '../../core/services/scheduled-probe.service.js';
+import { UserService, type UserSearchResult } from '../../core/services/user.service.js';
+import { PersonService, type PersonSearchResult } from '../../core/services/person.service.js';
 import { TicketService, type TicketSearchResult } from '../../core/services/ticket.service.js';
 import { ThemeService } from '../../core/services/theme.service.js';
 import { ToastService } from '../../core/services/toast.service.js';
@@ -273,14 +273,32 @@ export class CommandPaletteComponent {
   private readonly destroyRef = inject(DestroyRef);
 
   private readonly searchInputRef = viewChild<ElementRef<HTMLInputElement>>('searchInput');
-  private readonly cancelLoad$ = new Subject<void>();
   private readonly ticketSearch$ = new Subject<string>();
+  private readonly clientSearch$ = new Subject<string>();
+  private readonly probeSearch$ = new Subject<string>();
+  private readonly userSearch$ = new Subject<string>();
+  private readonly personSearch$ = new Subject<string>();
+  private readonly isScoped = computed(() => {
+    const user = this.auth.currentUser();
+    return user?.isPortalOpsUser === true && !!user?.clientId;
+  });
 
   readonly query = signal('');
   readonly items = signal<PaletteItem[]>([]);
   readonly ticketItems = signal<PaletteItem[]>([]);
-  readonly loading = signal(false);
+  readonly clientItems = signal<PaletteItem[]>([]);
+  readonly probeItems = signal<PaletteItem[]>([]);
+  readonly userItems = signal<PaletteItem[]>([]);
+  readonly personItems = signal<PaletteItem[]>([]);
   readonly ticketsLoading = signal(false);
+  readonly clientsLoading = signal(false);
+  readonly probesLoading = signal(false);
+  readonly usersLoading = signal(false);
+  readonly peopleLoading = signal(false);
+  readonly loading = computed(() =>
+    this.ticketsLoading() || this.clientsLoading() || this.probesLoading() ||
+    this.usersLoading() || this.peopleLoading()
+  );
   readonly selectedIndex = signal(0);
 
   readonly filteredItems = computed(() => {
@@ -305,12 +323,26 @@ export class CommandPaletteComponent {
       itemMap.set(item.section, bucket);
     }
 
-    // Ticket items are pre-filtered server-side; merge them separately.
+    // Server-side search sections — merge results independently of filteredItems().
+    const clients = this.clientItems();
+    const isClientsLoading = this.clientsLoading();
+    if (clients.length > 0 || isClientsLoading) itemMap.set('clients', clients);
+
     const tickets = this.ticketItems();
     const isTicketsLoading = this.ticketsLoading();
-    if (tickets.length > 0 || isTicketsLoading) {
-      itemMap.set('tickets', tickets);
-    }
+    if (tickets.length > 0 || isTicketsLoading) itemMap.set('tickets', tickets);
+
+    const probes = this.probeItems();
+    const isProbesLoading = this.probesLoading();
+    if (probes.length > 0 || isProbesLoading) itemMap.set('probes', probes);
+
+    const users = this.userItems();
+    const isUsersLoading = this.usersLoading();
+    if (users.length > 0 || isUsersLoading) itemMap.set('users', users);
+
+    const people = this.personItems();
+    const isPeopleLoading = this.peopleLoading();
+    if (people.length > 0 || isPeopleLoading) itemMap.set('people', people);
 
     return SECTION_ORDER
       .filter(s => itemMap.has(s))
@@ -318,7 +350,11 @@ export class CommandPaletteComponent {
         section: s,
         label: SECTION_LABELS[s],
         items: itemMap.get(s)!,
-        loading: s === 'tickets' && isTicketsLoading,
+        loading: (s === 'clients' && isClientsLoading)
+               || (s === 'tickets' && isTicketsLoading)
+               || (s === 'probes' && isProbesLoading)
+               || (s === 'users' && isUsersLoading)
+               || (s === 'people' && isPeopleLoading),
       }));
   });
 
@@ -335,13 +371,19 @@ export class CommandPaletteComponent {
     // Palette open/close lifecycle: fetch data on open, reset on close.
     effect((onCleanup) => {
       if (!this.paletteService.isOpen()) {
-        this.cancelLoad$.next();
         untracked(() => {
           this.query.set('');
           this.items.set([]);
           this.ticketItems.set([]);
-          this.loading.set(false);
+          this.clientItems.set([]);
+          this.probeItems.set([]);
+          this.userItems.set([]);
+          this.personItems.set([]);
           this.ticketsLoading.set(false);
+          this.clientsLoading.set(false);
+          this.probesLoading.set(false);
+          this.usersLoading.set(false);
+          this.peopleLoading.set(false);
           this.selectedIndex.set(0);
         });
         return;
@@ -362,10 +404,16 @@ export class CommandPaletteComponent {
       untracked(() => this.selectedIndex.set(0));
     });
 
-    // Drive the debounced ticket search from the query signal.
+    // Fan out the query to all server-side search streams.
     effect(() => {
       const q = this.query().trim();
-      untracked(() => this.ticketSearch$.next(q));
+      untracked(() => {
+        this.ticketSearch$.next(q);
+        this.clientSearch$.next(q);
+        this.probeSearch$.next(q);
+        this.userSearch$.next(q);
+        this.personSearch$.next(q);
+      });
     });
 
     this.ticketSearch$
@@ -398,7 +446,126 @@ export class CommandPaletteComponent {
         })));
       });
 
-    this.destroyRef.onDestroy(() => this.cancelLoad$.complete());
+    this.clientSearch$
+      .pipe(
+        debounceTime(200),
+        distinctUntilChanged(),
+        switchMap(q => {
+          if (q.length < 2) {
+            this.clientsLoading.set(false);
+            this.clientItems.set([]);
+            return of([] as ClientSearchResult[]);
+          }
+          this.clientsLoading.set(true);
+          return this.clientService.searchClients(q, 20).pipe(
+            catchError(() => of([] as ClientSearchResult[])),
+          );
+        }),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe(results => {
+        this.clientsLoading.set(false);
+        this.clientItems.set(results.map(c => ({
+          id: `client:${c.id}`,
+          label: c.name,
+          secondary: c.shortCode,
+          icon: 'building' as IconName,
+          route: ['/clients', c.id] as const,
+          section: 'clients' as const,
+          searchText: `${c.name} ${c.shortCode}`.toLowerCase(),
+        })));
+      });
+
+    this.probeSearch$
+      .pipe(
+        debounceTime(200),
+        distinctUntilChanged(),
+        switchMap(q => {
+          if (q.length < 2) {
+            this.probesLoading.set(false);
+            this.probeItems.set([]);
+            return of([] as ProbeSearchResult[]);
+          }
+          this.probesLoading.set(true);
+          return this.probeService.searchProbes(q, 20).pipe(
+            catchError(() => of([] as ProbeSearchResult[])),
+          );
+        }),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe(results => {
+        this.probesLoading.set(false);
+        this.probeItems.set(results.map(p => ({
+          id: `probe:${p.id}`,
+          label: p.name,
+          secondary: p.clientName,
+          icon: 'clock' as IconName,
+          route: ['/scheduled-probes', p.id, 'runs'] as const,
+          section: 'probes' as const,
+          searchText: `${p.name} ${p.clientName}`.toLowerCase(),
+        })));
+      });
+
+    this.userSearch$
+      .pipe(
+        debounceTime(200),
+        distinctUntilChanged(),
+        switchMap(q => {
+          if (untracked(() => this.isScoped()) || q.length < 2) {
+            this.usersLoading.set(false);
+            this.userItems.set([]);
+            return of([] as UserSearchResult[]);
+          }
+          this.usersLoading.set(true);
+          return this.userService.searchUsers(q, 20).pipe(
+            catchError(() => of([] as UserSearchResult[])),
+          );
+        }),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe(results => {
+        this.usersLoading.set(false);
+        this.userItems.set(results.map(u => ({
+          id: `user:${u.id}`,
+          label: u.name,
+          secondary: u.email,
+          icon: 'user' as IconName,
+          route: ['/users'] as const,
+          queryParams: { edit: u.id },
+          section: 'users' as const,
+          searchText: `${u.name} ${u.email} ${u.role}`.toLowerCase(),
+        })));
+      });
+
+    this.personSearch$
+      .pipe(
+        debounceTime(200),
+        distinctUntilChanged(),
+        switchMap(q => {
+          if (q.length < 2) {
+            this.peopleLoading.set(false);
+            this.personItems.set([]);
+            return of([] as PersonSearchResult[]);
+          }
+          this.peopleLoading.set(true);
+          return this.personService.searchPeople(q, 20).pipe(
+            catchError(() => of([] as PersonSearchResult[])),
+          );
+        }),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe(results => {
+        this.peopleLoading.set(false);
+        this.personItems.set(results.map(p => ({
+          id: `person:${p.id}`,
+          label: p.name,
+          secondary: p.clientName,
+          icon: 'user' as IconName,
+          route: ['/clients', p.clientId] as const,
+          section: 'people' as const,
+          searchText: `${p.name} ${p.email} ${p.clientName}`.toLowerCase(),
+        })));
+      });
   }
 
   onOpenChange(open: boolean): void {
@@ -453,170 +620,77 @@ export class CommandPaletteComponent {
 
   private loadItems(): void {
     const user = this.auth.currentUser();
-    const isScoped = user?.isPortalOpsUser === true && !!user.clientId;
-    const clientId = user?.clientId ?? null;
+    const isScoped = user?.isPortalOpsUser === true && !!user?.clientId;
 
-    this.loading.set(true);
+    const newItems: PaletteItem[] = [];
 
-    const clients$ = isScoped && clientId
-      ? this.clientService.getClient(clientId).pipe(map(c => [c] as Client[]))
-      : this.clientService.getClients();
-
-    const probes$ = this.probeService.getProbes(
-      isScoped && clientId ? { clientId } : undefined,
-    );
-
-    // Scoped ops users cannot access /users (operator accounts).
-    const users$ = isScoped
-      ? of([] as ControlPanelUser[])
-      : this.userService.getUsers();
-
-    // PersonService.getPeople requires a clientId. For full operators without a
-    // client scope, the people section is omitted. A dedicated all-people search
-    // endpoint would be needed to support it (tracked for Phase B).
-    const people$ = clientId
-      ? this.personService.getPeople(clientId)
-      : of([] as Person[]);
-
-    forkJoin({
-      clients: clients$.pipe(catchError(() => of([] as Client[]))),
-      probes: probes$.pipe(catchError(() => of([] as ScheduledProbe[]))),
-      users: users$.pipe(catchError(() => of([] as ControlPanelUser[]))),
-      people: people$.pipe(catchError(() => of([] as Person[]))),
-    })
-      .pipe(
-        takeUntil(this.cancelLoad$),
-        takeUntilDestroyed(this.destroyRef),
-      )
-      .subscribe({
-        next: ({ clients, probes, users, people }) => {
-          const newItems: PaletteItem[] = [];
-
-          for (const c of clients) {
-            newItems.push({
-              id: `client:${c.id}`,
-              label: c.name,
-              secondary: c.shortCode,
-              icon: 'building',
-              route: ['/clients', c.id],
-              section: 'clients',
-              searchText: `${c.name} ${c.shortCode}`.toLowerCase(),
-            });
-          }
-
-          for (const p of probes) {
-            newItems.push({
-              id: `probe:${p.id}`,
-              label: p.name,
-              secondary: p.client?.name,
-              icon: 'clock',
-              route: ['/scheduled-probes', p.id, 'runs'],
-              section: 'probes',
-              searchText: `${p.name} ${p.client?.name ?? ''}`.toLowerCase(),
-            });
-          }
-
-          for (const u of users) {
-            newItems.push({
-              id: `user:${u.id}`,
-              label: u.name,
-              // Email disambiguates multiple users with the same display name —
-              // role (ADMIN / OPERATOR) doesn't.
-              secondary: u.email,
-              icon: 'user',
-              route: ['/users'],
-              // user-list reads ?edit=<id> and auto-opens the edit dialog.
-              queryParams: { edit: u.id },
-              section: 'users',
-              searchText: `${u.name} ${u.email} ${u.role}`.toLowerCase(),
-            });
-          }
-
-          for (const p of people) {
-            newItems.push({
-              id: `person:${p.id}`,
-              label: p.name,
-              secondary: p.client?.name,
-              icon: 'user',
-              route: ['/clients', p.clientId],
-              section: 'people',
-              searchText: `${p.name} ${p.email} ${p.client?.name ?? ''}`.toLowerCase(),
-            });
-          }
-
-          // Commands — static actions; Create commands hidden for scoped users.
-          if (!isScoped) {
-            newItems.push({
-              id: 'cmd:create-ticket',
-              label: 'Create Ticket',
-              icon: 'add',
-              route: ['/tickets'],
-              queryParams: { create: '1' },
-              section: 'commands',
-              searchText: 'create ticket',
-            });
-            newItems.push({
-              id: 'cmd:create-client',
-              label: 'Create Client',
-              icon: 'add',
-              route: ['/clients'],
-              queryParams: { create: '1' },
-              section: 'commands',
-              searchText: 'create client',
-            });
-            newItems.push({
-              id: 'cmd:create-probe',
-              label: 'Create Scheduled Probe',
-              icon: 'add',
-              route: ['/scheduled-probes'],
-              queryParams: { create: '1' },
-              section: 'commands',
-              searchText: 'create scheduled probe',
-            });
-          }
-
-          newItems.push({
-            id: 'cmd:switch-theme',
-            label: 'Switch Theme',
-            icon: 'sparkles',
-            action: () => {
-              const next = this.theme.cycleToNext();
-              this.toast.info(`Theme: ${next.name}`);
-            },
-            section: 'commands',
-            searchText: 'switch theme',
-          });
-
-          newItems.push({
-            id: 'cmd:logout',
-            label: 'Logout',
-            icon: 'close',
-            action: () => this.auth.logout(),
-            section: 'commands',
-            searchText: 'logout',
-          });
-
-          const navRoutes = isScoped
-            ? ALL_NAV_ROUTES.filter(r => isScopedOpsAllowedPath(r.route))
-            : ALL_NAV_ROUTES;
-
-          for (const r of navRoutes) {
-            newItems.push({
-              id: `nav:${r.route}`,
-              label: `Go to ${r.label}`,
-              icon: r.icon,
-              route: [r.route],
-              section: 'navigate',
-              searchText: `go to ${r.label}`.toLowerCase(),
-            });
-          }
-
-          this.items.set(newItems);
-          this.loading.set(false);
-        },
-        error: () => {
-          this.loading.set(false);
-        },
+    // Commands — static actions; Create commands hidden for scoped users.
+    if (!isScoped) {
+      newItems.push({
+        id: 'cmd:create-ticket',
+        label: 'Create Ticket',
+        icon: 'add',
+        route: ['/tickets'],
+        queryParams: { create: '1' },
+        section: 'commands',
+        searchText: 'create ticket',
       });
+      newItems.push({
+        id: 'cmd:create-client',
+        label: 'Create Client',
+        icon: 'add',
+        route: ['/clients'],
+        queryParams: { create: '1' },
+        section: 'commands',
+        searchText: 'create client',
+      });
+      newItems.push({
+        id: 'cmd:create-probe',
+        label: 'Create Scheduled Probe',
+        icon: 'add',
+        route: ['/scheduled-probes'],
+        queryParams: { create: '1' },
+        section: 'commands',
+        searchText: 'create scheduled probe',
+      });
+    }
+
+    newItems.push({
+      id: 'cmd:switch-theme',
+      label: 'Switch Theme',
+      icon: 'sparkles',
+      action: () => {
+        const next = this.theme.cycleToNext();
+        this.toast.info(`Theme: ${next.name}`);
+      },
+      section: 'commands',
+      searchText: 'switch theme',
+    });
+
+    newItems.push({
+      id: 'cmd:logout',
+      label: 'Logout',
+      icon: 'close',
+      action: () => this.auth.logout(),
+      section: 'commands',
+      searchText: 'logout',
+    });
+
+    const navRoutes = isScoped
+      ? ALL_NAV_ROUTES.filter(r => isScopedOpsAllowedPath(r.route))
+      : ALL_NAV_ROUTES;
+
+    for (const r of navRoutes) {
+      newItems.push({
+        id: `nav:${r.route}`,
+        label: `Go to ${r.label}`,
+        icon: r.icon,
+        route: [r.route],
+        section: 'navigate',
+        searchText: `go to ${r.label}`.toLowerCase(),
+      });
+    }
+
+    this.items.set(newItems);
   }
 }

@@ -13,11 +13,13 @@ import { registerClientMemoryTools } from './client-memory.js';
 import { registerSettingsTools } from './settings.js';
 import { registerSystemStatusTools } from './system-status.js';
 import { registerSlackConversationTools } from './slack-conversations.js';
+import { registerUserTools } from './users.js';
 
 export function registerAllTools(server: McpServer, deps: ServerDeps): void {
   registerTicketTools(server, deps);
   registerPeopleTools(server, deps);
   registerClientTools(server, deps);
+  registerUserTools(server, deps);
   registerSystemTools(server, deps);
   registerProbeTools(server, deps);
   registerIssueJobTools(server, deps);

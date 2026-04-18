@@ -37,4 +37,16 @@ export class UserService {
   resetPassword(id: string, password: string): Observable<{ message: string }> {
     return this.api.post<{ message: string }>(`/users/${id}/reset-password`, { password });
   }
+
+  searchUsers(q: string, limit = 20): Observable<UserSearchResult[]> {
+    return this.api.get<UserSearchResult[]>('/search/users', { q, limit });
+  }
+}
+
+export interface UserSearchResult {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  isActive: boolean;
 }

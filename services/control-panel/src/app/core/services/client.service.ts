@@ -81,4 +81,15 @@ export class ClientService {
   updateClient(id: string, data: Partial<Client>): Observable<Client> {
     return this.api.patch<Client>(`/clients/${id}`, data);
   }
+
+  searchClients(q: string, limit = 20): Observable<ClientSearchResult[]> {
+    return this.api.get<ClientSearchResult[]>('/search/clients', { q, limit });
+  }
+}
+
+export interface ClientSearchResult {
+  id: string;
+  name: string;
+  shortCode: string;
+  isActive: boolean;
 }

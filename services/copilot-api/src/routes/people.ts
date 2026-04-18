@@ -49,6 +49,78 @@ function canManagePeople(request: FastifyRequest): boolean {
 
 export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
   /**
+   * GET /api/search/people
+   * Lightweight search for the command palette. Mirrors scope branching from GET /api/people.
+   */
+  fastify.get<{ Querystring: { q?: string; limit?: string } }>(
+    '/api/search/people',
+    async (request) => {
+      const rawQ = (request.query.q ?? '').trim();
+      if (!rawQ) return fastify.httpErrors.badRequest('q is required');
+      if (rawQ.length < 2) return fastify.httpErrors.badRequest('q must be at least 2 characters');
+
+      const rawLimit = request.query.limit ?? '20';
+      const limit = Math.trunc(Number(rawLimit));
+      if (!Number.isFinite(limit) || limit < 1 || limit > 50) {
+        return fastify.httpErrors.badRequest('limit must be between 1 and 50');
+      }
+
+      const scope = await resolveClientScope(request, (operatorId) =>
+        getOperatorClientIds(fastify.db, operatorId),
+      );
+
+      let scopedClientIdFilter: string | { in: string[] } | undefined;
+      if (scope.type === 'assigned') {
+        if (scope.clientIds.length === 0) return [];
+        scopedClientIdFilter = { in: scope.clientIds };
+      } else if (scope.type === 'single') {
+        scopedClientIdFilter = scope.clientId;
+      }
+
+      const results = await fastify.db.person.findMany({
+        where: {
+          ...(scopedClientIdFilter !== undefined && { clientId: scopedClientIdFilter }),
+          OR: [
+            { name: { contains: rawQ, mode: 'insensitive' } },
+            { email: { contains: rawQ, mode: 'insensitive' } },
+            { client: { name: { contains: rawQ, mode: 'insensitive' } } },
+            { client: { shortCode: { contains: rawQ, mode: 'insensitive' } } },
+          ],
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          clientId: true,
+          role: true,
+          isActive: true,
+          client: { select: { name: true, shortCode: true } },
+        },
+        take: limit,
+        orderBy: { name: 'asc' },
+      });
+
+      const qLower = rawQ.toLowerCase();
+      results.sort((a, b) => {
+        const aStarts = a.name.toLowerCase().startsWith(qLower) ? 0 : 1;
+        const bStarts = b.name.toLowerCase().startsWith(qLower) ? 0 : 1;
+        return aStarts - bStarts;
+      });
+
+      return results.slice(0, limit).map(p => ({
+        id: p.id,
+        name: p.name,
+        email: p.email,
+        clientId: p.clientId,
+        clientName: p.client.name,
+        clientShortCode: p.client.shortCode,
+        role: p.role,
+        isActive: p.isActive,
+      }));
+    },
+  );
+
+  /**
    * GET /api/people?clientId=X
    * List people for a client, ordered by name.
    */

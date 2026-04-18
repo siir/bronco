@@ -4,6 +4,60 @@ import type { ServerDeps } from '../server.js';
 
 export function registerPeopleTools(server: McpServer, { db }: ServerDeps): void {
   server.tool(
+    'search_people',
+    'Search people (unified contacts + portal users) by name, email, or client. Returns a lightweight projection for UI pickers.',
+    {
+      q: z.string().min(2).describe('Search query (name, email, or client). Must be at least 2 characters.'),
+      limit: z.number().int().min(1).max(50).optional().describe('Max results to return (default 20)'),
+    },
+    async (params) => {
+      const { q, limit = 20 } = params;
+      const qLower = q.toLowerCase();
+
+      const results = await db.person.findMany({
+        where: {
+          OR: [
+            { name: { contains: q, mode: 'insensitive' as const } },
+            { email: { contains: q, mode: 'insensitive' as const } },
+            { client: { name: { contains: q, mode: 'insensitive' as const } } },
+            { client: { shortCode: { contains: q, mode: 'insensitive' as const } } },
+          ],
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          clientId: true,
+          role: true,
+          isActive: true,
+          client: { select: { name: true, shortCode: true } },
+        },
+        take: limit,
+        orderBy: { name: 'asc' },
+      });
+
+      results.sort((a, b) => {
+        const aStarts = a.name.toLowerCase().startsWith(qLower) ? 0 : 1;
+        const bStarts = b.name.toLowerCase().startsWith(qLower) ? 0 : 1;
+        return aStarts - bStarts;
+      });
+
+      const result = results.slice(0, limit).map(p => ({
+        id: p.id,
+        name: p.name,
+        email: p.email,
+        clientId: p.clientId,
+        clientName: p.client.name,
+        clientShortCode: p.client.shortCode,
+        role: p.role,
+        isActive: p.isActive,
+      }));
+
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    },
+  );
+
+  server.tool(
     'list_people',
     'List people (unified contacts + portal users), optionally filtered by client.',
     {
