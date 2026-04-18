@@ -1,4 +1,4 @@
-import { Component, DestroyRef, inject, OnInit, signal, input } from '@angular/core';
+import { Component, DestroyRef, effect, inject, OnInit, signal, input, untracked } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { TabGroupComponent, TabComponent } from '../../shared/components/index.js';
@@ -115,6 +115,28 @@ export class ClientDetailComponent implements OnInit {
   client = signal<Client | null>(null);
   selectedTab = signal(0);
 
+  constructor() {
+    // Re-fetch whenever the :id route param changes. Without this, navigating
+    // from /clients/A to /clients/B via the command palette (or any intra-
+    // component router navigation) reuses the component instance and the
+    // displayed client stays stale.
+    //
+    // Clearing client() to null first tears down the whole tab subtree via
+    // the `@if (client(); as c)` guard in the template. When the new client
+    // resolves, every tab component is reconstructed with the new clientId
+    // input — fixes the 9 tabs that only fetch their data in ngOnInit and
+    // would otherwise display the previous client's systems/people/repos/etc.
+    // The brief "Loading…" flash is acceptable and makes the switch legible.
+    effect(() => {
+      const cid = this.id();
+      if (!cid) return;
+      untracked(() => {
+        this.client.set(null);
+        this.load(cid);
+      });
+    });
+  }
+
   ngOnInit(): void {
     const tabParam = this.route.snapshot.queryParamMap.get('tab');
     if (tabParam !== null) {
@@ -129,7 +151,6 @@ export class ClientDetailComponent implements OnInit {
         }
       }
     }
-    this.load();
   }
 
   onTabChange(index: number): void {
@@ -138,8 +159,7 @@ export class ClientDetailComponent implements OnInit {
     this.router.navigate([], { queryParams: { tab: slug }, queryParamsHandling: 'merge', replaceUrl: true });
   }
 
-  load(): void {
-    const cid = this.id();
+  load(cid: string = this.id()): void {
     this.clientService.getClient(cid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(c => this.client.set(c));
   }
 

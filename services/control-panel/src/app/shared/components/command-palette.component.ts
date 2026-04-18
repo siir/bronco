@@ -29,6 +29,8 @@ interface PaletteItem {
   secondary?: string;
   icon: IconName;
   route: readonly string[];
+  /** Optional query params applied when the item is activated. */
+  queryParams?: Record<string, string>;
   section: PaletteSection;
   searchText: string;
 }
@@ -350,7 +352,7 @@ export class CommandPaletteComponent {
   }
 
   activate(item: PaletteItem): void {
-    this.router.navigate([...item.route]);
+    this.router.navigate([...item.route], item.queryParams ? { queryParams: item.queryParams } : undefined);
     this.paletteService.close();
   }
 
@@ -423,9 +425,13 @@ export class CommandPaletteComponent {
             newItems.push({
               id: `user:${u.id}`,
               label: u.name,
-              secondary: u.role,
+              // Email disambiguates multiple users with the same display name —
+              // role (ADMIN / OPERATOR) doesn't.
+              secondary: u.email,
               icon: 'user',
               route: ['/users'],
+              // user-list reads ?edit=<id> and auto-opens the edit dialog.
+              queryParams: { edit: u.id },
               section: 'users',
               searchText: `${u.name} ${u.email} ${u.role}`.toLowerCase(),
             });
