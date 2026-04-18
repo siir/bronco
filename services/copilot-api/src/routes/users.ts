@@ -232,7 +232,11 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
       where: { id },
       include: { operator: true },
     });
-    if (!target) {
+    // Guard: /api/users is the control-panel-operator admin surface. A Person
+    // without an Operator extension is a portal-only contact and belongs to
+    // /api/people instead. Without this check an admin could mutate arbitrary
+    // Persons (including portal contacts) by ID.
+    if (!target || !target.operator) {
       return reply.code(404).send({ error: 'User not found' });
     }
 
@@ -301,8 +305,13 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'Cannot deactivate your own account' });
       }
 
-      const target = await fastify.db.person.findUnique({ where: { id } });
-      if (!target) return fastify.httpErrors.notFound('User not found');
+      // Same guard as PATCH: reject Persons without an Operator extension.
+      // /api/users is the operator admin surface only.
+      const target = await fastify.db.person.findUnique({
+        where: { id },
+        include: { operator: true },
+      });
+      if (!target || !target.operator) return fastify.httpErrors.notFound('User not found');
 
       await fastify.db.person.update({ where: { id }, data: { isActive: false } });
       return { message: 'User deactivated' };
@@ -321,8 +330,13 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'Password must be at least 8 characters' });
       }
 
-      const target = await fastify.db.person.findUnique({ where: { id } });
-      if (!target) {
+      // Same guard as PATCH/DELETE: only reset passwords for Persons who are
+      // control-panel operators. Portal contacts use /api/people.
+      const target = await fastify.db.person.findUnique({
+        where: { id },
+        include: { operator: true },
+      });
+      if (!target || !target.operator) {
         return reply.code(404).send({ error: 'User not found' });
       }
 

@@ -117,7 +117,11 @@ export async function operatorRoutes(fastify: FastifyInstance): Promise<void> {
       const person = existingPerson
         ? await tx.person.update({
             where: { id: existingPerson.id },
-            data: { name: name.trim() },
+            // Reactivate on promotion — Person.isActive is the master auth
+            // switch, so a previously deactivated Person must be flipped back
+            // on when they're granted an Operator record. Matches the
+            // /api/users promotion flow.
+            data: { name: name.trim(), isActive: true },
           })
         : await tx.person.create({
             data: { email, emailLower, name: name.trim() },

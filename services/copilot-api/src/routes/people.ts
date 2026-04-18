@@ -143,7 +143,18 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
           lastLoginAt: true,
           createdAt: true,
           updatedAt: true,
-          person: { select: { id: true, name: true, email: true, phone: true, isActive: true } },
+          person: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              phone: true,
+              isActive: true,
+              // Select the hash to derive `hasPortalAccess` from presence;
+              // never return the value itself to the API consumer.
+              passwordHash: true,
+            },
+          },
           client: { select: { name: true, shortCode: true } },
         },
         orderBy: { person: { name: 'asc' } },
@@ -158,7 +169,10 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
         role: null,
         slackUserId: null,
         isPrimary: cu.isPrimary,
-        hasPortalAccess: true,
+        // A ClientUser row without a Person.passwordHash is "invited but not
+        // credentialed" — can't actually log into the portal yet. Derive the
+        // flag from presence so the UI doesn't lie.
+        hasPortalAccess: cu.person.passwordHash !== null,
         hasOpsAccess: false,
         userType: cu.userType,
         isActive: cu.person.isActive,
@@ -175,12 +189,34 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
    * Wave 1 shim. Returns the first ClientUser row for the person.
    */
   fastify.get<{ Params: { id: string } }>('/api/people/:id', async (request, reply) => {
+    // Deterministic order: primary first, then oldest. Without this a Person
+    // linked to multiple clients could return a nondeterministic ClientUser
+    // row and trip the scope check below (or surface the wrong client).
     const cu = await fastify.db.clientUser.findFirst({
       where: { personId: request.params.id },
-      include: {
-        person: true,
+      select: {
+        id: true,
+        clientId: true,
+        userType: true,
+        isPrimary: true,
+        lastLoginAt: true,
+        createdAt: true,
+        updatedAt: true,
+        // Explicit Person projection — don't expose passwordHash or emailLower
+        // to API consumers; use passwordHash only to derive hasPortalAccess.
+        person: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            isActive: true,
+            passwordHash: true,
+          },
+        },
         client: { select: { name: true, shortCode: true } },
       },
+      orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
     });
     if (!cu) return fastify.httpErrors.notFound('Person not found');
     if (!(await assertClientInScope(fastify, request, cu.clientId))) {
@@ -195,7 +231,7 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
       role: null,
       slackUserId: null,
       isPrimary: cu.isPrimary,
-      hasPortalAccess: true,
+      hasPortalAccess: cu.person.passwordHash !== null,
       hasOpsAccess: false,
       userType: cu.userType,
       isActive: cu.person.isActive,

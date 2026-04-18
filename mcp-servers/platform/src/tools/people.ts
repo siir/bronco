@@ -71,9 +71,29 @@ export function registerPeopleTools(server: McpServer, { db }: ServerDeps): void
       clientId: z.string().uuid().optional().describe('Filter by client ID'),
     },
     async (params) => {
+      // Explicit select — never spread Person directly. `passwordHash` and
+      // `emailLower` must not leak to MCP tool callers.
       const clientUsers = await db.clientUser.findMany({
         where: params.clientId ? { clientId: params.clientId } : {},
-        include: { person: true, client: { select: { name: true } } },
+        select: {
+          id: true,
+          clientId: true,
+          userType: true,
+          isPrimary: true,
+          lastLoginAt: true,
+          createdAt: true,
+          updatedAt: true,
+          person: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              phone: true,
+              isActive: true,
+            },
+          },
+          client: { select: { name: true } },
+        },
         orderBy: { person: { name: 'asc' } },
       });
 
