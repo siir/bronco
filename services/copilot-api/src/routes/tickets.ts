@@ -1,11 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import type { Queue } from 'bullmq';
 import type { AIRouter } from '@bronco/ai-provider';
-import { ensureClientUser, Prisma } from '@bronco/db';
+import { Prisma } from '@bronco/db';
 import { TicketStatus, TicketCategory, TicketEventType, Priority, TicketSource, TaskType, isClosedStatus, AnalysisStatus, SufficiencyStatus, LogLevel } from '@bronco/shared-types';
 import { getSelfAnalysisConfig } from '@bronco/shared-utils';
 import type { TicketCreatedJob, IngestionJob } from '@bronco/shared-types';
-import { resolveClientScope, getOperatorClientIds, scopeToWhere } from '../plugins/client-scope.js';
+import { resolveClientScope, scopeToWhere } from '../plugins/client-scope.js';
 
 interface TicketRouteOpts {
   logSummarizeQueue?: Queue;
@@ -94,9 +94,7 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
       }
 
       // Resolve caller's client scope (platform admin → all, scoped operator → assigned, person → single)
-      const scope = await resolveClientScope(request, (operatorId) =>
-        getOperatorClientIds(fastify.db, operatorId),
-      );
+      const scope = await resolveClientScope(request);
       let scopedClientIdFilter: string | { in: string[] } | undefined;
       if (scope.type === 'assigned') {
         // No assigned clients → empty result set
@@ -156,9 +154,7 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
         return fastify.httpErrors.badRequest('limit must be between 1 and 50');
       }
 
-      const scope = await resolveClientScope(request, (operatorId) =>
-        getOperatorClientIds(fastify.db, operatorId),
-      );
+      const scope = await resolveClientScope(request);
       if (scope.type === 'assigned' && scope.clientIds.length === 0) return [];
 
       const clientWhere = scopeToWhere(scope);
@@ -376,22 +372,6 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
         backoff: { type: 'exponential', delay: 30_000 },
       });
 
-      // Auto-provision a CLIENT user account for the requester.
-      // TODO: #219 Wave 2A — `ensureClientUser` is a no-op in the unified model.
-      if (requesterId) {
-        const person = await fastify.db.person.findUnique({
-          where: { id: requesterId },
-          select: { email: true, name: true },
-        });
-        if (person) {
-          try {
-            await ensureClientUser(fastify.db, { ...person, clientId });
-          } catch (error) {
-            fastify.log.error({ err: error }, 'Failed to auto-provision CLIENT user');
-          }
-        }
-      }
-
       reply.code(202);
       return { queued: true, source: job.source, clientId };
     }
@@ -447,22 +427,6 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
         attempts: 4,
         backoff: { type: 'exponential', delay: 30_000 },
       });
-    }
-
-    // Auto-provision a CLIENT user account for the requester.
-    // TODO: #219 Wave 2A — `ensureClientUser` is a no-op in the unified model.
-    if (requesterId) {
-      const person = await fastify.db.person.findUnique({
-        where: { id: requesterId },
-        select: { email: true, name: true },
-      });
-      if (person) {
-        try {
-          await ensureClientUser(fastify.db, { ...person, clientId });
-        } catch (error) {
-          fastify.log.error({ err: error }, 'Failed to auto-provision CLIENT user');
-        }
-      }
     }
 
     reply.code(201);

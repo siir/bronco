@@ -299,7 +299,7 @@ export async function notifyPlanGenerated(opts: {
         logger.info({ issueJobId }, 'Plan email notification dispatched via notifyOperators');
 
         // If the client is configured for operator-mode notifications, also notify
-        // its own ops people (userType ADMIN/OPERATOR with hasOpsAccess).
+        // its own ops people (Operators scoped to the client via Operator.clientId).
         try {
           const job = await db.issueJob.findUnique({
             where: { id: issueJobId },
