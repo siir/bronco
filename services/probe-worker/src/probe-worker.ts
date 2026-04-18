@@ -706,10 +706,18 @@ async function createTicketFromProbe(
   const operatorEmail = (probe.actionConfig as Record<string, unknown> | null)?.['operatorEmail'];
   if (typeof operatorEmail === 'string' && operatorEmail.trim()) {
     const trimmedOperatorEmail = operatorEmail.trim();
+    // Scheduled probes are configured by operators, so `operatorEmail` is
+    // typically a platform or client-scoped Operator (not a client portal
+    // user). Match either via Operator (the common case) OR via ClientUser
+    // linked to this probe's clientId (supports client-side requesters too).
     const person = await db.person.findFirst({
       where: {
         email: { equals: trimmedOperatorEmail, mode: 'insensitive' },
-        clientUsers: { some: { clientId: probe.clientId } },
+        isActive: true,
+        OR: [
+          { operator: { isNot: null } },
+          { clientUsers: { some: { clientId: probe.clientId } } },
+        ],
       },
       select: { id: true },
     });

@@ -65,6 +65,10 @@ export interface PortalJwtPayload {
   sub: string;
   clientUserId: string;
   email: string;
+  /** Display name snapshot at token issuance; portal UIs render this without
+   *  re-querying Person. Stale if the user renames themselves between login
+   *  and token refresh, which is acceptable until the token rotates. */
+  name: string;
   clientId: string;
   userType: ClientUserType;
   type: 'portal_access';

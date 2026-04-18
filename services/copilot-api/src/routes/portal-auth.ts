@@ -17,7 +17,7 @@ const ACCESS_TOKEN_EXPIRY = '15m';
 const REFRESH_TOKEN_EXPIRY = '7d';
 const REFRESH_TOKEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 
-function signPortalAccessToken(secret: string, payload: PortalJwtPayload & { name: string }): string {
+function signPortalAccessToken(secret: string, payload: PortalJwtPayload): string {
   return jwt.sign(payload, secret, { expiresIn: ACCESS_TOKEN_EXPIRY });
 }
 

@@ -314,13 +314,24 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     if (category && !VALID_CATEGORIES.has(category)) return fastify.httpErrors.badRequest(`Invalid category: ${category}`);
 
     if (requesterId) {
-      // TODO: #219 Wave 2A — validate requester-client association via ClientUser.
-      const requesterPerson = await fastify.db.person.findUnique({
-        where: { id: requesterId },
+      // Tenant validation: the requester must be linked to the target
+      // client via a ClientUser row. Without this check a caller could
+      // attach a follower from another tenant (or a random Person ID) to
+      // the new ticket. Platform operators pass through because they can
+      // legitimately create tickets on behalf of any client; they're
+      // authorized at the route level via requireOpsAccess upstream.
+      const requesterPerson = await fastify.db.person.findFirst({
+        where: {
+          id: requesterId,
+          OR: [
+            { clientUsers: { some: { clientId } } },
+            { operator: { isNot: null } },
+          ],
+        },
         select: { id: true },
       });
       if (!requesterPerson) {
-        return fastify.httpErrors.badRequest(`requesterId ${requesterId} not found`);
+        return fastify.httpErrors.badRequest(`requesterId ${requesterId} is not associated with client ${clientId}`);
       }
     }
 

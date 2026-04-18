@@ -94,12 +94,12 @@ export async function registerRoutes(fastify: FastifyInstance, opts: RouteOpts):
     await scoped.register(pendingActionRoutes);
   });
 
-  // Admin-only control panel routes — require ADMIN or STANDARD operator JWT.
-  // Portal users cannot access these.
-  const controlPanelGuard = requireRole(OperatorRole.ADMIN, OperatorRole.STANDARD);
+  // Operator control panel routes — accessible to authenticated ADMIN or
+  // STANDARD operators. Portal users cannot access these.
+  const operatorControlPanelGuard = requireRole(OperatorRole.ADMIN, OperatorRole.STANDARD);
 
   await fastify.register(async (scoped) => {
-    scoped.addHook('preHandler', controlPanelGuard);
+    scoped.addHook('preHandler', operatorControlPanelGuard);
 
     await scoped.register(systemRoutes);
     await scoped.register(repoRoutes);

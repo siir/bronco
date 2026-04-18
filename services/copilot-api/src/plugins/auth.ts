@@ -86,7 +86,7 @@ export const authPlugin = fp(async (fastify, opts: AuthPluginOpts) => {
     // Portal routes verify against the portal secret.
     if (request.url.startsWith('/api/portal/')) {
       try {
-        const payload = jwt.verify(token, opts.portalJwtSecret) as PortalJwtPayload & { name?: string };
+        const payload = jwt.verify(token, opts.portalJwtSecret) as PortalJwtPayload;
         if (payload.type !== 'portal_access') {
           reply.code(401).send({ error: 'Invalid token type' });
           return;
@@ -95,7 +95,7 @@ export const authPlugin = fp(async (fastify, opts: AuthPluginOpts) => {
           personId: payload.sub,
           clientUserId: payload.clientUserId,
           email: payload.email,
-          name: payload.name ?? '',
+          name: payload.name,
           clientId: payload.clientId,
           userType: payload.userType,
         };

@@ -100,7 +100,30 @@ export async function clientRoutes(fastify: FastifyInstance): Promise<void> {
     const client = await fastify.db.client.findUnique({
       where: { id: request.params.id },
       include: {
-        clientUsers: { include: { person: true } },
+        // Explicit projection — never spread Person directly. `passwordHash`
+        // and `emailLower` on Person are sensitive and must not leak to API
+        // consumers. Wave 2C will migrate the frontend to a proper ClientUser
+        // DTO; until then this stays on the safe-field allowlist.
+        clientUsers: {
+          select: {
+            id: true,
+            clientId: true,
+            userType: true,
+            isPrimary: true,
+            lastLoginAt: true,
+            createdAt: true,
+            updatedAt: true,
+            person: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                phone: true,
+                isActive: true,
+              },
+            },
+          },
+        },
         systems: true,
         _count: {
           select: {

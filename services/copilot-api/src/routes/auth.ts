@@ -5,7 +5,6 @@ import jwt from 'jsonwebtoken';
 import {
   AccessType,
   CONTROL_PANEL_ROLES,
-  OperatorRole,
   type AuthLoginResponse,
   type AuthMeResponse,
   type OperatorJwtPayload,
@@ -321,7 +320,4 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
       return { message: 'Password changed successfully' };
     },
   );
-
-  // Silence unused-import warning when Wave 2A doesn't pull in OperatorRole directly.
-  void OperatorRole;
 }

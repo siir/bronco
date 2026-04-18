@@ -175,7 +175,10 @@ Respond with ONLY one word: ACTIONABLE or NOISE`,
       include: {
         clientUsers: {
           include: { client: { select: { id: true, name: true } } },
-          orderBy: { createdAt: 'asc' },
+          // Prefer the primary-contact row, then oldest — matches the portal
+          // login resolution rule. Without this a Person linked to multiple
+          // tenants could route email to the wrong client.
+          orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
           take: 1,
         },
       },
