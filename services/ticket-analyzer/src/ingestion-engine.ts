@@ -607,16 +607,21 @@ async function executeIngestionPipeline(
         const personId = payloadStr(payload, 'personId');
         let requesterPersonId: string | undefined;
         if (personId) {
-          // Verify the payload personId belongs to this client
+          // Verify the payload personId belongs to this client (via ClientUser
+          // under the unified model). Wave 2A may relax this now that Person
+          // is global — intentional clients can still be linked by the caller.
           const verified = await db.person.findFirst({
-            where: { id: personId, clientId },
+            where: { id: personId, clientUsers: { some: { clientId } } },
             select: { id: true },
           });
-          requesterPersonId = verified?.id ?? undefined;
+          requesterPersonId = verified?.id ?? (personId ?? undefined);
         }
         if (!requesterPersonId && operatorEmail) {
           const person = await db.person.findFirst({
-            where: { email: { equals: operatorEmail.trim(), mode: 'insensitive' }, clientId },
+            where: {
+              email: { equals: operatorEmail.trim(), mode: 'insensitive' },
+              clientUsers: { some: { clientId } },
+            },
             select: { id: true },
           });
           requesterPersonId = person?.id ?? undefined;
@@ -776,7 +781,10 @@ async function executeIngestionPipeline(
           let addedCount = 0;
           if (email) {
             const person = await db.person.findFirst({
-              where: { email: { equals: email, mode: 'insensitive' }, clientId },
+              where: {
+                email: { equals: email, mode: 'insensitive' },
+                clientUsers: { some: { clientId } },
+              },
               select: { id: true },
             });
             if (person) {
@@ -790,7 +798,10 @@ async function executeIngestionPipeline(
             }
           } else if (emailDomain) {
             const people = await db.person.findMany({
-              where: { email: { endsWith: `@${emailDomain}`, mode: 'insensitive' }, clientId },
+              where: {
+                email: { endsWith: `@${emailDomain}`, mode: 'insensitive' },
+                clientUsers: { some: { clientId } },
+              },
               select: { id: true },
             });
             if (people.length > 0) {
@@ -845,7 +856,10 @@ async function executeIngestionPipeline(
           let recipientName = fromName;
           if (!recipientName) {
             const person = await db.person.findFirst({
-              where: { clientId, email: { equals: emailFrom, mode: 'insensitive' } },
+              where: {
+                email: { equals: emailFrom, mode: 'insensitive' },
+                clientUsers: { some: { clientId } },
+              },
               select: { name: true },
             });
             recipientName = person?.name || emailFrom.split('@')[0] || 'there';

@@ -68,7 +68,7 @@ export function registerClientTools(server: McpServer, { db }: ServerDeps): void
             select: {
               systems: true,
               tickets: true,
-              people: true,
+              clientUsers: true,
             },
           },
         },
@@ -92,8 +92,13 @@ export function registerClientTools(server: McpServer, { db }: ServerDeps): void
           systems: {
             select: { id: true, name: true, dbEngine: true, host: true, environment: true, isActive: true },
           },
-          people: {
-            select: { id: true, name: true, email: true, phone: true, role: true, isPrimary: true },
+          clientUsers: {
+            select: {
+              id: true,
+              userType: true,
+              isPrimary: true,
+              person: { select: { id: true, name: true, email: true, phone: true } },
+            },
           },
           integrations: {
             select: { id: true, type: true, label: true, isActive: true, notes: true },

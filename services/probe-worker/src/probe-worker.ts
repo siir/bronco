@@ -707,7 +707,10 @@ async function createTicketFromProbe(
   if (typeof operatorEmail === 'string' && operatorEmail.trim()) {
     const trimmedOperatorEmail = operatorEmail.trim();
     const person = await db.person.findFirst({
-      where: { email: { equals: trimmedOperatorEmail, mode: 'insensitive' }, clientId: probe.clientId },
+      where: {
+        email: { equals: trimmedOperatorEmail, mode: 'insensitive' },
+        clientUsers: { some: { clientId: probe.clientId } },
+      },
       select: { id: true },
     });
     requesterPersonId = person?.id ?? undefined;

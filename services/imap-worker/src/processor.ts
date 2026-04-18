@@ -167,16 +167,32 @@ Respond with ONLY one word: ACTIONABLE or NOISE`,
     }
 
     // --- Person / client resolution ---
+    // Under the unified identity model a Person is global — pick the first
+    // ClientUser row to route the ticket. Wave 2A may refine the selection
+    // logic (e.g. most-recent client, explicit portal clientId).
     const person = await db.person.findFirst({
       where: { email: { equals: fromAddress, mode: 'insensitive' } },
-      include: { client: true },
+      include: {
+        clientUsers: {
+          include: { client: { select: { id: true, name: true } } },
+          orderBy: { createdAt: 'asc' },
+          take: 1,
+        },
+      },
     });
+    const personClientId = person?.clientUsers[0]?.clientId ?? null;
+    const personClientName = person?.clientUsers[0]?.client.name ?? null;
 
-    appLog.info(person ? `Sender matched to person: ${person.name} (client: ${person.client.name})` : `No person match for sender: ${fromAddress}`, { from: fromAddress, personId: person?.id, clientId: person?.clientId });
+    appLog.info(
+      person
+        ? `Sender matched to person: ${person.name}${personClientName ? ` (client: ${personClientName})` : ' (no client linkage yet)'}`
+        : `No person match for sender: ${fromAddress}`,
+      { from: fromAddress, personId: person?.id, clientId: personClientId },
+    );
 
     // Domain-based routing
     let domainClient: { id: string } | null = null;
-    if (!person) {
+    if (!person || !personClientId) {
       const domain = fromAddress.split('@')[1]?.toLowerCase();
       if (domain) {
         domainClient = await db.client.findFirst({
@@ -191,15 +207,16 @@ Respond with ONLY one word: ACTIONABLE or NOISE`,
       }
     }
 
-    logClientId = person?.clientId ?? domainClient?.id ?? null;
+    logClientId = personClientId ?? domainClient?.id ?? null;
 
-    // Auto-provision CLIENT user
-    if (person) {
+    // Auto-provision CLIENT user (no-op under #219 Wave 1; scheduled for
+    // rework in Wave 2A against the new ClientUser model).
+    if (person && personClientId) {
       try {
         await ensureClientUser(db, {
           email: person.email,
           name: person.name,
-          clientId: person.clientId,
+          clientId: personClientId,
         });
       } catch (error) {
         appLog.error('Failed to auto-provision CLIENT user', { err: error, email: person.email });
@@ -207,7 +224,7 @@ Respond with ONLY one word: ACTIONABLE or NOISE`,
     }
 
     // --- Resolve client ID (fall back to _unknown) ---
-    const clientId = person?.clientId ?? domainClient?.id ?? (
+    const clientId = personClientId ?? domainClient?.id ?? (
       await db.client.upsert({
         where: { shortCode: '_unknown' },
         create: { name: 'Unknown', shortCode: '_unknown' },

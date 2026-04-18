@@ -13,6 +13,50 @@ export interface OperatorRecord {
   slackUserId: string | null;
 }
 
+/**
+ * Prisma-typed operators findMany loader used by {@link getActiveOperatorRecords}.
+ * Declared as a structural interface so any service with a PrismaClient can
+ * pass it in without a direct dependency on @bronco/db.
+ */
+export interface ActiveOperatorsLoader {
+  operator: {
+    findMany(args: {
+      where: { person: { isActive: true } };
+      include: { person: { select: { email: true; name: true } } };
+    }): Promise<
+      Array<{
+        id: string;
+        notifyEmail: boolean;
+        notifySlack: boolean;
+        slackUserId: string | null;
+        person: { email: string; name: string };
+      }>
+    >;
+  };
+}
+
+/**
+ * Load active Operators and project them into {@link OperatorRecord} shape.
+ * Bridge helper for #219 Wave 1 — prior callers queried `operator.isActive`
+ * directly; the unified schema moved `isActive`/`email`/`name` to Person.
+ * TODO(#219 Wave 2A): consider inlining at each call site or replacing with a
+ * Prisma extension.
+ */
+export async function getActiveOperatorRecords(db: ActiveOperatorsLoader): Promise<OperatorRecord[]> {
+  const rows = await db.operator.findMany({
+    where: { person: { isActive: true } },
+    include: { person: { select: { email: true, name: true } } },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    email: r.person.email,
+    name: r.person.name,
+    notifyEmail: r.notifyEmail,
+    notifySlack: r.notifySlack,
+    slackUserId: r.slackUserId,
+  }));
+}
+
 export interface SlackSender {
   sendDM(slackUserId: string, text: string, blocks?: unknown[]): Promise<void>;
   sendDMWithTs?(slackUserId: string, text: string, blocks?: unknown[]): Promise<SlackMessageResult>;

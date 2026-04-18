@@ -8,7 +8,7 @@ import type { PrismaClient } from '@bronco/db';
 import type { TicketCategory, Priority, TicketStatus, TicketSource, AnalysisJob } from '@bronco/shared-types';
 import { AIRouter } from '@bronco/ai-provider';
 import { TaskType, RouteStepType, isClosedStatus, AnalysisStatus, SufficiencyStatus, SufficiencyConfidence, NotificationMode } from '@bronco/shared-types';
-import { createLogger, AppLogger, createPrismaLogWriter, decrypt, looksEncrypted, MCP_TOOL_TIMEOUT_MS, mcpUrl, callMcpToolViaSdk, notifyOperators as notifyOperatorsFn, notifyClientOperators as notifyClientOperatorsFn, getSelfAnalysisConfig } from '@bronco/shared-utils';
+import { createLogger, AppLogger, createPrismaLogWriter, decrypt, looksEncrypted, MCP_TOOL_TIMEOUT_MS, mcpUrl, callMcpToolViaSdk, notifyOperators as notifyOperatorsFn, notifyClientOperators as notifyClientOperatorsFn, getActiveOperatorRecords, getSelfAnalysisConfig } from '@bronco/shared-utils';
 import type { AIToolDefinition, AIMessage, AIToolUseBlock, AITextBlock, AIToolResponse, AIToolResultBlock } from '@bronco/shared-types';
 import type { Mailer, ReplyOptions } from '@bronco/shared-utils';
 import { executeRecommendations } from './recommendation-executor.js';
@@ -557,11 +557,12 @@ async function resolveRecipientName(
   emailFrom: string,
   clientId?: string | null,
 ): Promise<string> {
-  // 1. Check if there's a person record with a name (scoped to client to prevent cross-tenant leakage)
+  // 1. Check if there's a person record with a name (scoped to the client via
+  // ClientUser when provided to prevent cross-tenant leakage).
   const person = await db.person.findFirst({
     where: {
       email: { equals: emailFrom, mode: 'insensitive' },
-      ...(clientId ? { clientId } : {}),
+      ...(clientId ? { clientUsers: { some: { clientId } } } : {}),
     },
     select: { name: true },
   });
@@ -4169,7 +4170,7 @@ async function executeRoutePipeline(
             const ticket = ticketId ? await db.ticket.findUnique({ where: { id: ticketId }, select: { assignedOperatorId: true } }) : null;
             const notified = await notifyOperatorsFn(
               mailer,
-              () => db.operator.findMany({ where: { isActive: true } }),
+              () => getActiveOperatorRecords(db),
               {
                 subject: notifySubject,
                 body: notifyBody,
@@ -4190,20 +4191,21 @@ async function executeRoutePipeline(
                 const sent = await notifyClientOperatorsFn(
                   mailer,
                   async (clientId) => {
-                    const rows = await db.person.findMany({
-                      where: {
-                        clientId,
-                        userType: { in: ['OPERATOR', 'ADMIN'] },
-                        isActive: true,
-                        hasOpsAccess: true,
+                    // #219 Wave 1 — client "ops people" are Operators scoped to the client.
+                    const rows = await db.operator.findMany({
+                      where: { clientId, person: { isActive: true } },
+                      select: {
+                        id: true,
+                        role: true,
+                        slackUserId: true,
+                        person: { select: { email: true, name: true } },
                       },
-                      select: { id: true, email: true, name: true, userType: true, slackUserId: true },
                     });
                     return rows.map((r) => ({
                       id: r.id,
-                      email: r.email,
-                      name: r.name,
-                      userType: r.userType ?? 'USER',
+                      email: r.person.email,
+                      name: r.person.name,
+                      userType: r.role,
                       slackUserId: r.slackUserId,
                     }));
                   },
@@ -4261,7 +4263,10 @@ async function executeRoutePipeline(
 
         if (typeof rawEmail === 'string' && rawEmail.trim()) {
           const person = await db.person.findFirst({
-            where: { email: { equals: rawEmail.trim(), mode: 'insensitive' }, clientId: ctx.clientId },
+            where: {
+              email: { equals: rawEmail.trim(), mode: 'insensitive' },
+              clientUsers: { some: { clientId: ctx.clientId } },
+            },
             select: { id: true },
           });
           if (person) {
@@ -4271,7 +4276,10 @@ async function executeRoutePipeline(
           }
         } else if (typeof rawDomain === 'string' && rawDomain.trim()) {
           const domainPeople = await db.person.findMany({
-            where: { email: { endsWith: `@${rawDomain.trim().toLowerCase()}`, mode: 'insensitive' }, clientId: ctx.clientId },
+            where: {
+              email: { endsWith: `@${rawDomain.trim().toLowerCase()}`, mode: 'insensitive' },
+              clientUsers: { some: { clientId: ctx.clientId } },
+            },
             select: { id: true },
           });
           if (domainPeople.length > 0) {

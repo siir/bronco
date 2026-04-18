@@ -1,7 +1,7 @@
 import type { PrismaClient } from '@bronco/db';
 import { NotificationMode } from '@bronco/shared-types';
 import type { ResolutionPlan } from '@bronco/shared-types';
-import { Mailer, SlackClient, createLogger, decrypt, looksEncrypted, notifyOperators, notifyClientOperators } from '@bronco/shared-utils';
+import { Mailer, SlackClient, createLogger, decrypt, looksEncrypted, notifyOperators, notifyClientOperators, getActiveOperatorRecords } from '@bronco/shared-utils';
 import type { SlackMessageResult, SlackSender } from '@bronco/shared-utils';
 
 const logger = createLogger('issue-resolver:notify');
@@ -218,7 +218,7 @@ async function sendSlackPlanNotification(opts: {
 
   // Send to operators with notifySlack=true
   const operators = await db.operator.findMany({
-    where: { isActive: true, notifySlack: true },
+    where: { notifySlack: true, person: { isActive: true } },
     select: { id: true, slackUserId: true },
   });
 
@@ -287,7 +287,7 @@ export async function notifyPlanGenerated(opts: {
 
         await notifyOperators(
           mailer,
-          () => db.operator.findMany({ where: { isActive: true } }),
+          () => getActiveOperatorRecords(db),
           {
             subject,
             body,
@@ -318,20 +318,23 @@ export async function notifyPlanGenerated(opts: {
             await notifyClientOperators(
               mailer,
               async (cid) => {
-                const rows = await db.person.findMany({
-                  where: {
-                    clientId: cid,
-                    userType: { in: ['OPERATOR', 'ADMIN'] },
-                    isActive: true,
-                    hasOpsAccess: true,
+                // Client "ops people" in the new model = Operators scoped to the
+                // client (Operator.clientId === cid). Wave 2B may broaden this
+                // to also include ClientUser admins when the product decides.
+                const rows = await db.operator.findMany({
+                  where: { clientId: cid, person: { isActive: true } },
+                  select: {
+                    id: true,
+                    role: true,
+                    slackUserId: true,
+                    person: { select: { email: true, name: true } },
                   },
-                  select: { id: true, email: true, name: true, userType: true, slackUserId: true },
                 });
                 return rows.map((r) => ({
                   id: r.id,
-                  email: r.email,
-                  name: r.name,
-                  userType: r.userType ?? 'USER',
+                  email: r.person.email,
+                  name: r.person.name,
+                  userType: r.role,
                   slackUserId: r.slackUserId,
                 }));
               },

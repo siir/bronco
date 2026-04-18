@@ -3,6 +3,10 @@ import bcrypt from 'bcryptjs';
 import { ClientUserType } from '@bronco/shared-types';
 import type { PortalUser } from '../plugins/auth.js';
 
+// TODO: #219 Wave 2A — full portal-user admin CRUD against the unified
+// Person + ClientUser model. Wave 1 reuses the existing endpoints with a
+// minimal rewrite so the portal's "manage users" tab keeps working.
+
 function requirePortalAdmin(request: { portalUser?: PortalUser }): PortalUser {
   if (!request.portalUser) {
     const err = Object.assign(new Error('Portal authentication required'), { statusCode: 401 });
@@ -18,168 +22,165 @@ function requirePortalAdmin(request: { portalUser?: PortalUser }): PortalUser {
 export async function portalUserRoutes(fastify: FastifyInstance): Promise<void> {
   /**
    * GET /api/portal/users
-   * List all portal users for this client (ADMIN only).
    */
   fastify.get('/api/portal/users', async (request) => {
     const portalUser = requirePortalAdmin(request);
 
-    const users = await fastify.db.person.findMany({
-      where: { clientId: portalUser.clientId, hasPortalAccess: true },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        userType: true,
-        isActive: true,
-        lastLoginAt: true,
-        createdAt: true,
-      },
-      orderBy: { name: 'asc' },
+    const clientUsers = await fastify.db.clientUser.findMany({
+      where: { clientId: portalUser.clientId },
+      include: { person: true },
+      orderBy: { person: { name: 'asc' } },
     });
 
-    return users;
+    return clientUsers.map((cu) => ({
+      id: cu.person.id,
+      email: cu.person.email,
+      name: cu.person.name,
+      userType: cu.userType,
+      isActive: cu.person.isActive,
+      lastLoginAt: cu.lastLoginAt,
+      createdAt: cu.createdAt,
+    }));
   });
 
   /**
    * POST /api/portal/users
-   * Create or grant portal access to a person (ADMIN only).
    */
   fastify.post<{ Body: { email: string; password: string; name: string; userType?: string } }>(
     '/api/portal/users',
     async (request, reply) => {
       const portalUser = requirePortalAdmin(request);
-      const { email: rawEmail, password, name, userType } = request.body;
+      const { email: rawEmail, password, name, userType } = request.body ?? {};
 
       if (!rawEmail || !password || !name) {
         return reply.code(400).send({ error: 'Email, password, and name are required' });
       }
-
-      const email = rawEmail.trim().toLowerCase();
-
       if (password.length < 8) {
         return reply.code(400).send({ error: 'Password must be at least 8 characters' });
       }
-
       if (userType && userType !== ClientUserType.ADMIN && userType !== ClientUserType.USER) {
         return reply.code(400).send({ error: 'Invalid userType. Must be ADMIN or USER' });
       }
 
+      const email = rawEmail.trim();
+      const emailLower = email.toLowerCase();
       const resolvedUserType = userType === ClientUserType.ADMIN ? ClientUserType.ADMIN : ClientUserType.USER;
       const passwordHash = await bcrypt.hash(password, 10);
 
-      const existing = await fastify.db.person.findUnique({
-        where: { clientId_email: { clientId: portalUser.clientId, email } },
+      const existingPerson = await fastify.db.person.findUnique({
+        where: { emailLower },
+        include: { clientUsers: true },
       });
 
-      let user;
-      if (existing) {
-        if (existing.hasPortalAccess) {
-          return reply.code(409).send({ error: 'A user with this email already exists' });
+      const result = await fastify.db.$transaction(async (tx) => {
+        let person = existingPerson;
+        if (person) {
+          const hasClientUser = person.clientUsers.some((c) => c.clientId === portalUser.clientId);
+          if (hasClientUser) {
+            throw Object.assign(new Error('A user with this email already exists'), { statusCode: 409 });
+          }
+          person = await tx.person.update({
+            where: { id: person.id },
+            data: {
+              passwordHash: person.passwordHash ?? passwordHash,
+              name: name.trim(),
+              isActive: true,
+            },
+            include: { clientUsers: true },
+          });
+        } else {
+          person = await tx.person.create({
+            data: { name: name.trim(), email, emailLower, passwordHash },
+            include: { clientUsers: true },
+          });
         }
-        // Upgrade existing contact to portal user
-        user = await fastify.db.person.update({
-          where: { id: existing.id },
+
+        const cu = await tx.clientUser.create({
           data: {
-            name: name.trim(),
-            passwordHash,
-            hasPortalAccess: true,
-            userType: resolvedUserType,
-            isActive: true,
-          },
-          select: {
-            id: true,
-            email: true,
-            name: true,
-            userType: true,
-            isActive: true,
-            lastLoginAt: true,
-            createdAt: true,
-          },
-        });
-      } else {
-        user = await fastify.db.person.create({
-          data: {
-            email,
-            passwordHash,
-            name: name.trim(),
+            personId: person.id,
             clientId: portalUser.clientId,
             userType: resolvedUserType,
-            hasPortalAccess: true,
-          },
-          select: {
-            id: true,
-            email: true,
-            name: true,
-            userType: true,
-            isActive: true,
-            lastLoginAt: true,
-            createdAt: true,
           },
         });
-      }
 
-      return reply.code(201).send(user);
+        return { person, cu };
+      });
+
+      return reply.code(201).send({
+        id: result.person.id,
+        email: result.person.email,
+        name: result.person.name,
+        userType: result.cu.userType,
+        isActive: result.person.isActive,
+        lastLoginAt: result.cu.lastLoginAt,
+        createdAt: result.cu.createdAt,
+      });
     },
   );
 
   /**
    * PATCH /api/portal/users/:id
-   * Update a portal user (ADMIN only).
    */
   fastify.patch<{ Params: { id: string }; Body: { name?: string; email?: string; userType?: string; isActive?: boolean } }>(
     '/api/portal/users/:id',
     async (request, reply) => {
       const portalUser = requirePortalAdmin(request);
       const { id } = request.params;
-      const { name, email: rawEmail, userType, isActive } = request.body;
+      const { name, email: rawEmail, userType, isActive } = request.body ?? {};
 
       if (userType && userType !== ClientUserType.ADMIN && userType !== ClientUserType.USER) {
         return reply.code(400).send({ error: 'Invalid userType. Must be ADMIN or USER' });
       }
 
-      // Verify user belongs to same client and has portal access
-      const target = await fastify.db.person.findUnique({ where: { id } });
-      if (!target || target.clientId !== portalUser.clientId || !target.hasPortalAccess) {
-        return reply.code(404).send({ error: 'User not found' });
-      }
+      const cu = await fastify.db.clientUser.findFirst({
+        where: { personId: id, clientId: portalUser.clientId },
+        include: { person: true },
+      });
+      if (!cu) return reply.code(404).send({ error: 'User not found' });
 
-      const email = rawEmail?.trim().toLowerCase();
-      if (email && email !== target.email) {
-        const existing = await fastify.db.person.findUnique({
-          where: { clientId_email: { clientId: portalUser.clientId, email } },
-        });
+      const email = rawEmail?.trim();
+      const emailLower = email?.toLowerCase();
+      if (emailLower && emailLower !== cu.person.email.toLowerCase()) {
+        const existing = await fastify.db.person.findUnique({ where: { emailLower } });
         if (existing && existing.id !== id) {
           return reply.code(409).send({ error: 'Email is already in use' });
         }
       }
 
-      const updated = await fastify.db.person.update({
-        where: { id },
-        data: {
-          ...(name && { name: name.trim() }),
-          ...(email && { email }),
-          ...(userType && { userType: userType as 'ADMIN' | 'USER' }),
-          ...(isActive !== undefined && { isActive }),
-        },
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          userType: true,
-          isActive: true,
-          lastLoginAt: true,
-          createdAt: true,
-        },
+      const updated = await fastify.db.$transaction(async (tx) => {
+        const person = await tx.person.update({
+          where: { id },
+          data: {
+            ...(name && { name: name.trim() }),
+            ...(email && { email, emailLower: email.toLowerCase() }),
+            ...(isActive !== undefined && { isActive }),
+          },
+        });
+
+        const nextCu = userType
+          ? await tx.clientUser.update({
+              where: { id: cu.id },
+              data: { userType: userType as ClientUserType },
+            })
+          : cu;
+
+        return { person, cu: nextCu };
       });
 
-      return updated;
+      return {
+        id: updated.person.id,
+        email: updated.person.email,
+        name: updated.person.name,
+        userType: updated.cu.userType,
+        isActive: updated.person.isActive,
+        lastLoginAt: updated.cu.lastLoginAt,
+        createdAt: updated.cu.createdAt,
+      };
     },
   );
 
   /**
    * DELETE /api/portal/users/:id
-   * Revoke portal access (ADMIN only). Clears hasPortalAccess, passwordHash, userType, and
-   * revokes all refresh tokens. The underlying Person record is retained for ticket history.
    */
   fastify.delete<{ Params: { id: string } }>(
     '/api/portal/users/:id',
@@ -187,31 +188,21 @@ export async function portalUserRoutes(fastify: FastifyInstance): Promise<void> 
       const portalUser = requirePortalAdmin(request);
       const { id } = request.params;
 
-      // Cannot revoke your own access
-      if (id === portalUser.id) {
+      if (id === portalUser.personId) {
         return reply.code(400).send({ error: 'Cannot revoke your own portal access' });
       }
 
-      const target = await fastify.db.person.findUnique({ where: { id } });
-      if (!target || target.clientId !== portalUser.clientId || !target.hasPortalAccess) {
-        return reply.code(404).send({ error: 'User not found' });
-      }
-
-      // Revoke all active refresh tokens
-      await fastify.db.personRefreshToken.updateMany({
-        where: { personId: id, revokedAt: null },
-        data: { revokedAt: new Date() },
+      const cu = await fastify.db.clientUser.findFirst({
+        where: { personId: id, clientId: portalUser.clientId },
       });
+      if (!cu) return reply.code(404).send({ error: 'User not found' });
 
-      // Clear portal access fields
-      await fastify.db.person.update({
-        where: { id },
-        data: {
-          hasPortalAccess: false,
-          passwordHash: null,
-          userType: null,
-          isActive: false,
-        },
+      await fastify.db.$transaction(async (tx) => {
+        await tx.clientUser.delete({ where: { id: cu.id } });
+        await tx.personRefreshToken.updateMany({
+          where: { personId: id, accessType: 'CLIENT_USER', revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
       });
 
       return { message: 'Portal access revoked' };

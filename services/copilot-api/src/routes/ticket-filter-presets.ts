@@ -14,17 +14,17 @@ function isPrismaError(err: unknown, code: string): boolean {
   return err instanceof Error && 'code' in err && (err as { code: string }).code === code;
 }
 
-function requireUser(fastify: FastifyInstance, request: FastifyRequest): string {
+function requireOperator(fastify: FastifyInstance, request: FastifyRequest): string {
   if (!request.user) throw fastify.httpErrors.unauthorized('Authentication required');
-  return request.user.id;
+  return request.user.operatorId;
 }
 
 export async function ticketFilterPresetRoutes(fastify: FastifyInstance): Promise<void> {
-  // List all presets for the authenticated user
+  // List all presets for the authenticated operator
   fastify.get('/api/ticket-filter-presets', async (request) => {
-    const userId = requireUser(fastify, request);
+    const operatorId = requireOperator(fastify, request);
     return fastify.db.ticketFilterPreset.findMany({
-      where: { userId },
+      where: { operatorId },
       orderBy: { name: 'asc' },
     });
   });
@@ -37,7 +37,7 @@ export async function ticketFilterPresetRoutes(fastify: FastifyInstance): Promis
       if (!parsed.success) {
         return reply.status(400).send({ error: parsed.error.errors[0]?.message ?? 'Invalid body' });
       }
-      const userId = requireUser(fastify, request);
+      const operatorId = requireOperator(fastify, request);
       const { name, statusFilter, categoryFilter, clientIdFilter, priorityFilter, isDefault } = parsed.data;
 
       try {
@@ -45,14 +45,14 @@ export async function ticketFilterPresetRoutes(fastify: FastifyInstance): Promis
           // If setting as default, clear other defaults first
           if (isDefault) {
             await tx.ticketFilterPreset.updateMany({
-              where: { userId, isDefault: true },
+              where: { operatorId, isDefault: true },
               data: { isDefault: false },
             });
           }
 
           return tx.ticketFilterPreset.create({
             data: {
-              userId,
+              operatorId,
               name,
               statusFilter: statusFilter ?? null,
               categoryFilter: categoryFilter ?? null,
@@ -76,11 +76,11 @@ export async function ticketFilterPresetRoutes(fastify: FastifyInstance): Promis
   fastify.patch<{ Params: { id: string }; Body: Partial<z.input<typeof bodySchema>> }>(
     '/api/ticket-filter-presets/:id',
     async (request, reply) => {
-      const userId = requireUser(fastify, request);
+      const operatorId = requireOperator(fastify, request);
       const existing = await fastify.db.ticketFilterPreset.findUnique({
         where: { id: request.params.id },
       });
-      if (!existing || existing.userId !== userId) {
+      if (!existing || existing.operatorId !== operatorId) {
         return reply.status(404).send({ error: 'Preset not found' });
       }
 
@@ -94,7 +94,7 @@ export async function ticketFilterPresetRoutes(fastify: FastifyInstance): Promis
         const updated = await fastify.db.$transaction(async (tx) => {
           if (isDefault) {
             await tx.ticketFilterPreset.updateMany({
-              where: { userId, isDefault: true, id: { not: existing.id } },
+              where: { operatorId, isDefault: true, id: { not: existing.id } },
               data: { isDefault: false },
             });
           }
@@ -125,11 +125,11 @@ export async function ticketFilterPresetRoutes(fastify: FastifyInstance): Promis
   fastify.delete<{ Params: { id: string } }>(
     '/api/ticket-filter-presets/:id',
     async (request, reply) => {
-      const userId = requireUser(fastify, request);
+      const operatorId = requireOperator(fastify, request);
       const existing = await fastify.db.ticketFilterPreset.findUnique({
         where: { id: request.params.id },
       });
-      if (!existing || existing.userId !== userId) {
+      if (!existing || existing.operatorId !== operatorId) {
         return reply.status(404).send({ error: 'Preset not found' });
       }
 

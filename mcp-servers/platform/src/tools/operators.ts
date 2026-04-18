@@ -2,6 +2,10 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { ServerDeps } from '../server.js';
 
+// TODO: #219 Wave 2B — rework against the unified Person + Operator model.
+// Wave 1 keeps the MCP surface working by joining Operator → Person for
+// the identity fields (name/email/isActive) and accepting name updates on
+// Person transparently.
 export function registerOperatorTools(server: McpServer, { db }: ServerDeps): void {
   server.tool(
     'list_operators',
@@ -9,20 +13,22 @@ export function registerOperatorTools(server: McpServer, { db }: ServerDeps): vo
     {},
     async () => {
       const operators = await db.operator.findMany({
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          isActive: true,
-          notifyEmail: true,
-          notifySlack: true,
-          slackUserId: true,
-          createdAt: true,
-        },
-        orderBy: { name: 'asc' },
+        include: { person: { select: { email: true, name: true, isActive: true } } },
+        orderBy: { person: { name: 'asc' } },
       });
-
-      return { content: [{ type: 'text', text: JSON.stringify(operators, null, 2) }] };
+      const out = operators.map((op) => ({
+        id: op.id,
+        email: op.person.email,
+        name: op.person.name,
+        isActive: op.person.isActive,
+        notifyEmail: op.notifyEmail,
+        notifySlack: op.notifySlack,
+        slackUserId: op.slackUserId,
+        role: op.role,
+        clientId: op.clientId,
+        createdAt: op.createdAt,
+      }));
+      return { content: [{ type: 'text', text: JSON.stringify(out, null, 2) }] };
     },
   );
 
@@ -37,15 +43,39 @@ export function registerOperatorTools(server: McpServer, { db }: ServerDeps): vo
       notifySlack: z.boolean().optional().describe('Enable Slack notifications'),
     },
     async (params) => {
-      const { operatorId, ...fields } = params;
-      const data: Record<string, unknown> = {};
-      if (fields.name !== undefined) data.name = fields.name;
-      if (fields.slackUserId !== undefined) data.slackUserId = fields.slackUserId;
-      if (fields.notifyEmail !== undefined) data.notifyEmail = fields.notifyEmail;
-      if (fields.notifySlack !== undefined) data.notifySlack = fields.notifySlack;
+      const { operatorId, name, slackUserId, notifyEmail, notifySlack } = params;
 
-      const operator = await db.operator.update({ where: { id: operatorId }, data });
-      return { content: [{ type: 'text', text: JSON.stringify(operator, null, 2) }] };
+      const result = await db.$transaction(async (tx) => {
+        const target = await tx.operator.findUnique({ where: { id: operatorId } });
+        if (!target) throw new Error(`Operator ${operatorId} not found`);
+
+        if (name !== undefined) {
+          await tx.person.update({ where: { id: target.personId }, data: { name } });
+        }
+
+        return tx.operator.update({
+          where: { id: operatorId },
+          data: {
+            ...(slackUserId !== undefined && { slackUserId }),
+            ...(notifyEmail !== undefined && { notifyEmail }),
+            ...(notifySlack !== undefined && { notifySlack }),
+          },
+          include: { person: { select: { email: true, name: true, isActive: true } } },
+        });
+      });
+
+      const out = {
+        id: result.id,
+        email: result.person.email,
+        name: result.person.name,
+        isActive: result.person.isActive,
+        notifyEmail: result.notifyEmail,
+        notifySlack: result.notifySlack,
+        slackUserId: result.slackUserId,
+        role: result.role,
+        clientId: result.clientId,
+      };
+      return { content: [{ type: 'text', text: JSON.stringify(out, null, 2) }] };
     },
   );
 }

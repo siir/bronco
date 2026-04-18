@@ -314,12 +314,13 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     if (category && !VALID_CATEGORIES.has(category)) return fastify.httpErrors.badRequest(`Invalid category: ${category}`);
 
     if (requesterId) {
+      // TODO: #219 Wave 2A — validate requester-client association via ClientUser.
       const requesterPerson = await fastify.db.person.findUnique({
         where: { id: requesterId },
-        select: { clientId: true },
+        select: { id: true },
       });
-      if (!requesterPerson || requesterPerson.clientId !== clientId) {
-        return fastify.httpErrors.badRequest(`requesterId does not belong to client ${clientId}`);
+      if (!requesterPerson) {
+        return fastify.httpErrors.badRequest(`requesterId ${requesterId} not found`);
       }
     }
 
@@ -354,15 +355,16 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
         backoff: { type: 'exponential', delay: 30_000 },
       });
 
-      // Auto-provision a CLIENT user account for the requester
+      // Auto-provision a CLIENT user account for the requester.
+      // TODO: #219 Wave 2A — `ensureClientUser` is a no-op in the unified model.
       if (requesterId) {
         const person = await fastify.db.person.findUnique({
           where: { id: requesterId },
-          select: { email: true, name: true, clientId: true },
+          select: { email: true, name: true },
         });
         if (person) {
           try {
-            await ensureClientUser(fastify.db, person);
+            await ensureClientUser(fastify.db, { ...person, clientId });
           } catch (error) {
             fastify.log.error({ err: error }, 'Failed to auto-provision CLIENT user');
           }
@@ -426,15 +428,16 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
       });
     }
 
-    // Auto-provision a CLIENT user account for the requester
+    // Auto-provision a CLIENT user account for the requester.
+    // TODO: #219 Wave 2A — `ensureClientUser` is a no-op in the unified model.
     if (requesterId) {
       const person = await fastify.db.person.findUnique({
         where: { id: requesterId },
-        select: { email: true, name: true, clientId: true },
+        select: { email: true, name: true },
       });
       if (person) {
         try {
-          await ensureClientUser(fastify.db, person);
+          await ensureClientUser(fastify.db, { ...person, clientId });
         } catch (error) {
           fastify.log.error({ err: error }, 'Failed to auto-provision CLIENT user');
         }
@@ -504,10 +507,13 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
       }
       let resolvedOperatorName: string | null = null;
       if (assignedOperatorId !== undefined && assignedOperatorId !== null) {
-        const operator = await fastify.db.operator.findUnique({ where: { id: assignedOperatorId }, select: { id: true, isActive: true, name: true } });
+        const operator = await fastify.db.operator.findUnique({
+          where: { id: assignedOperatorId },
+          select: { id: true, person: { select: { name: true, isActive: true } } },
+        });
         if (!operator) return fastify.httpErrors.badRequest('Referenced operator not found');
-        if (!operator.isActive) return fastify.httpErrors.badRequest('Cannot assign to an inactive operator');
-        resolvedOperatorName = operator.name;
+        if (!operator.person.isActive) return fastify.httpErrors.badRequest('Cannot assign to an inactive operator');
+        resolvedOperatorName = operator.person.name;
       }
 
       const ticket = await fastify.db.ticket.update({

@@ -430,11 +430,13 @@ async function runAlertCheck(opts: OperationalAlertOpts): Promise<void> {
 
   const operator = await db.operator.findUnique({
     where: { id: config.recipientOperatorId },
+    include: { person: { select: { email: true } } },
   });
   if (!operator) {
     logger.warn({ recipientOperatorId: config.recipientOperatorId }, 'Recipient operator not found — skipping alerts');
     return;
   }
+  const operatorEmail = operator.person.email;
 
   // Create mailer from System Settings SMTP config
   const mailer = await createMailerFromSmtpSettings(db, encryptionKey);
@@ -447,12 +449,12 @@ async function runAlertCheck(opts: OperationalAlertOpts): Promise<void> {
     for (const alert of alertsToSend) {
       try {
         await mailer.send({
-          to: operator.email,
+          to: operatorEmail,
           subject: alert.subject,
           body: alert.body,
         });
         markAlertSent(alert.key);
-        logger.info({ alertKey: alert.key, to: operator.email }, 'Operational alert sent');
+        logger.info({ alertKey: alert.key, to: operatorEmail }, 'Operational alert sent');
       } catch (err) {
         logger.error({ err, alertKey: alert.key }, 'Failed to send operational alert email');
       }
