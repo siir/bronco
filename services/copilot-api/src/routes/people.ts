@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import bcrypt from 'bcryptjs';
-import { ClientUserType } from '@bronco/shared-types';
+import { ClientUserType, OperatorRole } from '@bronco/shared-types';
+import type { AuthUser } from '../plugins/auth.js';
 import { resolveClientScope } from '../plugins/client-scope.js';
 
 /** Explicit Person projection — never expose passwordHash/emailLower to API consumers. */
@@ -55,6 +56,62 @@ async function assertClientInScope(
   if (scope.type === 'all') return true;
   if (scope.type === 'assigned') return scope.clientIds.includes(clientId);
   return scope.clientId === clientId;
+}
+
+/**
+ * Can the caller mutate the global state (Person fields, passwordHash) of
+ * the target Person?
+ *
+ * Under the unified identity model, Person is global — mutations made via
+ * this route propagate to every ClientUser association the Person has and
+ * to their Operator record if any. Without this guard, a client-scoped
+ * STANDARD operator could, by Person ID, reset the password of a platform
+ * admin (if that admin has any ClientUser in the caller's scope) or of any
+ * contact at a tenant the caller doesn't own.
+ *
+ * Rules:
+ * - Platform ADMIN (authUser.role === ADMIN, clientId === null): allowed.
+ *   Platform admins are the canonical owners of global identity.
+ * - Everyone else: the target Person must have NO Operator extension record,
+ *   AND every ClientUser of the Person must be within the caller's scope.
+ *   That way the caller can only mutate Persons whose entire access surface
+ *   is already under the caller's control.
+ *
+ * Returns true if the mutation is allowed, false otherwise.
+ */
+async function assertPersonMutationScope(
+  request: FastifyRequest,
+  personId: string,
+): Promise<boolean> {
+  const authUser = request.user as AuthUser | undefined;
+  // Platform ADMIN — tenant-agnostic ownership of Person identity.
+  if (authUser && authUser.role === OperatorRole.ADMIN && authUser.clientId === null) {
+    return true;
+  }
+
+  const person = await request.server.db.person.findUnique({
+    where: { id: personId },
+    select: {
+      operator: { select: { id: true } },
+      clientUsers: { select: { clientId: true } },
+    },
+  });
+  if (!person) return false; // 404-ish — not found is not a scope error but caller handles the second check
+  // If the Person has an Operator extension, only platform ADMIN (handled
+  // above) may mutate. Operators must not be demoted/reset via this surface
+  // by anyone with a lesser credential.
+  if (person.operator) return false;
+
+  const scope = await resolveClientScope(request);
+  if (scope.type === 'all') return true;
+  const scopedClientIds: Set<string> =
+    scope.type === 'assigned'
+      ? new Set(scope.clientIds)
+      : new Set([scope.clientId]);
+
+  // Every ClientUser must be within the caller's scope. If even one is not,
+  // the mutation would propagate into a tenant the caller doesn't control.
+  return person.clientUsers.every((cu) => scopedClientIds.has(cu.clientId));
 }
 
 export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
@@ -394,6 +451,18 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
       return reply.code(403).send({ error: 'Forbidden: client not in scope' });
     }
 
+    // Global Person mutation gate — tier above the client-scope check. This
+    // route mutates Person fields (name, email, isActive, passwordHash) that
+    // propagate across every tenant the Person is linked to. A caller with
+    // only partial scope over the Person must not be allowed to rewrite
+    // identity that also affects tenants outside their control. Platform
+    // ADMIN + full-scope operators pass; everyone else gets 403.
+    if (!(await assertPersonMutationScope(request, id))) {
+      return reply
+        .code(403)
+        .send({ error: 'Forbidden: cannot mutate a Person whose access extends beyond your scope' });
+    }
+
     const email = rawEmail?.trim();
     const emailLower = email?.toLowerCase();
     if (emailLower) {
@@ -524,6 +593,17 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
 
       if (!(await assertClientInScope(request, cu.clientId))) {
         return reply.code(403).send({ error: 'Forbidden: client not in scope' });
+      }
+
+      // Global Person mutation gate — passwordHash is a global credential
+      // that authenticates the Person across every tenant AND (if they have
+      // one) their Operator session. A client-scoped caller must not be
+      // able to reset the password of a Person whose access extends beyond
+      // their scope, because that password change would propagate.
+      if (!(await assertPersonMutationScope(request, id))) {
+        return reply
+          .code(403)
+          .send({ error: 'Forbidden: cannot reset password for a Person whose access extends beyond your scope' });
       }
 
       const passwordHash = await bcrypt.hash(password, 10);

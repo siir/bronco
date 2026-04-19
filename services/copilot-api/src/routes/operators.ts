@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { OperatorRole } from '@bronco/shared-types';
+import type { AuthUser } from '../plugins/auth.js';
 
 interface OperatorResponse {
   id: string;
@@ -47,6 +48,27 @@ function flatten(op: {
 }
 
 export async function operatorRoutes(fastify: FastifyInstance): Promise<void> {
+  /**
+   * Require platform ADMIN for all operator-management routes.
+   *
+   * The registration group in routes/index.ts gates this at
+   * `requireRole(ADMIN, STANDARD)` — which is too permissive here.
+   * Operator CRUD is privilege-granting: a STANDARD operator who can create
+   * or PATCH operator rows can promote themselves to ADMIN, which is a full
+   * control-plane takeover. We apply an additional internal gate so only
+   * ADMIN can reach any handler on this router.
+   *
+   * Service-to-service (API-key) callers have no `request.user` and fall
+   * through — they're trusted by the outer plugin.
+   */
+  fastify.addHook('preHandler', async (request, reply) => {
+    const authUser = request.user as AuthUser | undefined;
+    if (!authUser) return; // API-key authenticated; outer plugin trusted it.
+    if (authUser.role !== OperatorRole.ADMIN) {
+      return reply.code(403).send({ error: 'Only admins can manage operators' });
+    }
+  });
+
   /**
    * GET /api/operators
    */
