@@ -318,7 +318,7 @@ export class UserListComponent implements OnInit {
   openMenuRow = signal<ControlPanelUser | null>(null);
   menuTriggerEl: HTMLElement | null = null;
 
-  currentUserId = () => this.authService.currentUser()?.id;
+  currentUserId = () => this.authService.currentUser()?.personId;
 
   trackById = (item: ControlPanelUser) => item.id;
 

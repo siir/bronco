@@ -12,7 +12,7 @@ import { AuthService } from './core/services/auth.service.js';
 const defaultRedirect: RedirectFunction = () => {
   const auth = inject(AuthService);
   const user = auth.currentUser();
-  if (user?.isPortalOpsUser && user.clientId) {
+  if (user?.clientId) {
     return `/clients/${user.clientId}`;
   }
   return '/dashboard';

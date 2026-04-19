@@ -899,7 +899,7 @@ export class SettingsComponent implements OnInit {
     this.usersLoading.set(true);
     this.userSvc.getUsers().subscribe({
       next: (users) => {
-        const filtered = users.filter(u => u.isActive && (u.role === 'ADMIN' || u.role === 'OPERATOR'));
+        const filtered = users.filter(u => u.isActive && (u.role === 'ADMIN' || u.role === 'STANDARD'));
         this.adminUsers.set(filtered);
         this.superAdminOptions.set([
           { value: '', label: '-- None --' },

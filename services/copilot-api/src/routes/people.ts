@@ -150,9 +150,6 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
               email: true,
               phone: true,
               isActive: true,
-              // Select the hash to derive `hasPortalAccess` from presence;
-              // never return the value itself to the API consumer.
-              passwordHash: true,
             },
           },
           client: { select: { name: true, shortCode: true } },
@@ -169,11 +166,6 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
         role: null,
         slackUserId: null,
         isPrimary: cu.isPrimary,
-        // A ClientUser row without a Person.passwordHash is "invited but not
-        // credentialed" — can't actually log into the portal yet. Derive the
-        // flag from presence so the UI doesn't lie.
-        hasPortalAccess: cu.person.passwordHash !== null,
-        hasOpsAccess: false,
         userType: cu.userType,
         isActive: cu.person.isActive,
         lastLoginAt: cu.lastLoginAt,
@@ -202,8 +194,6 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
         lastLoginAt: true,
         createdAt: true,
         updatedAt: true,
-        // Explicit Person projection — don't expose passwordHash or emailLower
-        // to API consumers; use passwordHash only to derive hasPortalAccess.
         person: {
           select: {
             id: true,
@@ -211,7 +201,6 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
             email: true,
             phone: true,
             isActive: true,
-            passwordHash: true,
           },
         },
         client: { select: { name: true, shortCode: true } },
@@ -231,8 +220,6 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
       role: null,
       slackUserId: null,
       isPrimary: cu.isPrimary,
-      hasPortalAccess: cu.person.passwordHash !== null,
-      hasOpsAccess: false,
       userType: cu.userType,
       isActive: cu.person.isActive,
       lastLoginAt: cu.lastLoginAt,

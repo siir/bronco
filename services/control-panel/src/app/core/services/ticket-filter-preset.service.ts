@@ -4,7 +4,7 @@ import { ApiService } from './api.service.js';
 
 export interface TicketFilterPreset {
   id: string;
-  userId: string;
+  operatorId: string;
   name: string;
   statusFilter: string | null;
   categoryFilter: string | null;
