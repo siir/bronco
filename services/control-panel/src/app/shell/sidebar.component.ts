@@ -51,7 +51,7 @@ import { IconComponent } from '../shared/components/icon.component.js';
           }
         }
 
-        <button class="theme-indicator" (click)="themeDialogOpen.set(true)">
+        <button type="button" class="theme-indicator" (click)="themeDialogOpen.set(true)">
           <span class="theme-dot" [style.background]="themeService.currentTheme().accentColor"></span>
           <span>{{ themeService.currentTheme().name }}</span>
         </button>
@@ -66,6 +66,7 @@ import { IconComponent } from '../shared/components/icon.component.js';
       <div class="theme-grid">
         @for (theme of themeService.themes; track theme.id) {
           <button
+            type="button"
             class="theme-card"
             [class.theme-card-active]="theme.id === themeService.currentTheme().id"
             [attr.aria-pressed]="theme.id === themeService.currentTheme().id"
