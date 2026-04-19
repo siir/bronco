@@ -56,7 +56,7 @@ export function registerIssueJobTools(server: McpServer, { db, issueResolveQueue
         include: {
           ticket: { select: { id: true, ticketNumber: true, subject: true, description: true } },
           repo: { select: { id: true, name: true, repoUrl: true, defaultBranch: true } },
-          approvedByOperator: { select: { id: true, name: true } },
+          approvedByOperator: { select: { id: true, person: { select: { name: true } } } },
         },
       });
 
@@ -160,9 +160,9 @@ export function registerIssueJobTools(server: McpServer, { db, issueResolveQueue
       if (params.operatorId) {
         const operator = await db.operator.findUnique({
           where: { id: params.operatorId },
-          select: { id: true, isActive: true },
+          select: { id: true, person: { select: { isActive: true } } },
         });
-        if (!operator || !operator.isActive) {
+        if (!operator || !operator.person.isActive) {
           throw new Error('operatorId is invalid or refers to an inactive operator');
         }
         approvedByOperatorId = operator.id;

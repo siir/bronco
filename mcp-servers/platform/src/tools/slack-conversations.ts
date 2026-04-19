@@ -50,7 +50,7 @@ export function registerSlackConversationTools(server: McpServer, { db }: Server
           totalOutputTokens: true,
           createdAt: true,
           updatedAt: true,
-          operator: { select: { id: true, name: true } },
+          operator: { select: { id: true, person: { select: { name: true } } } },
           client: { select: { id: true, name: true, shortCode: true } },
         },
       });
@@ -69,7 +69,7 @@ export function registerSlackConversationTools(server: McpServer, { db }: Server
       const conversation = await db.slackConversationLog.findUnique({
         where: { id: params.id },
         include: {
-          operator: { select: { id: true, name: true } },
+          operator: { select: { id: true, person: { select: { name: true } } } },
           client: { select: { id: true, name: true, shortCode: true } },
         },
       });

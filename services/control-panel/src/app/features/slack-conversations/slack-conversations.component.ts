@@ -67,7 +67,7 @@ import { ToastService } from '../../core/services/toast.service.js';
 
         <app-data-column key="operator" header="Operator" [sortable]="false" mobilePriority="primary">
           <ng-template #cell let-row>
-            {{ row.operator.name }}
+            {{ row.operator?.person?.name ?? '—' }}
           </ng-template>
         </app-data-column>
 
@@ -126,7 +126,7 @@ import { ToastService } from '../../core/services/toast.service.js';
               <div class="chat-container">
                 @for (msg of detail()!.messages; track $index) {
                   <div class="chat-msg" [class.user-msg]="msg.role === 'user'" [class.assistant-msg]="msg.role === 'assistant'">
-                    <div class="msg-role">{{ msg.role === 'user' ? detail()!.operator.name : 'Hugo' }}</div>
+                    <div class="msg-role">{{ msg.role === 'user' ? (detail()!.operator?.person?.name ?? 'Operator') : 'Hugo' }}</div>
                     <div class="msg-content">{{ msg.content }}</div>
                     <div class="msg-time">{{ formatTime(msg.timestamp) }}</div>
                   </div>

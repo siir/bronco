@@ -430,6 +430,7 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
 
     const operator = await fastify.db.operator.findUnique({
       where: { id: alertConfig.recipientOperatorId },
+      include: { person: { select: { email: true } } },
     });
 
     if (!operator) {
@@ -448,7 +449,7 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
 
     try {
       await mailer.send({
-        to: operator.email,
+        to: operator.person.email,
         subject: '[Bronco Alert] Test notification',
         body: [
           'This is a test alert from Bronco operational monitoring.',
@@ -459,7 +460,7 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
           'To configure alerts: Control Panel → Notifications → Operational Alerts.',
         ].join('\n'),
       });
-      return { success: true, message: `Test alert sent to ${operator.email}` };
+      return { success: true, message: `Test alert sent to ${operator.person.email}` };
     } catch (err) {
       logger.error({ err }, 'Test alert email failed');
       return { success: false, error: err instanceof Error ? err.message : 'Failed to send test email' };
@@ -915,11 +916,17 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
       return fastify.httpErrors.badRequest('userId must be a non-empty string or null');
     }
 
-    const user = await fastify.db.user.findUnique({ where: { id: userId } });
-    if (!user) return fastify.httpErrors.notFound('User not found');
-    if (!user.isActive) return fastify.httpErrors.badRequest('Super admin must be an active user');
-    if (user.role !== 'ADMIN' && user.role !== 'OPERATOR') {
-      return fastify.httpErrors.badRequest('Super admin must be an ADMIN or OPERATOR user');
+    // `userId` here is a Person.id — super admin is designated on the unified
+    // Person identity. The person must have an Operator extension (control
+    // panel access) and be active. #219 Wave 2A may rename this endpoint.
+    const person = await fastify.db.person.findUnique({
+      where: { id: userId },
+      include: { operator: true },
+    });
+    if (!person) return fastify.httpErrors.notFound('User not found');
+    if (!person.isActive) return fastify.httpErrors.badRequest('Super admin must be an active user');
+    if (!person.operator) {
+      return fastify.httpErrors.badRequest('Super admin must be an operator');
     }
 
     await fastify.db.appSetting.upsert({

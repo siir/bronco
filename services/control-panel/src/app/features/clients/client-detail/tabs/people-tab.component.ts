@@ -50,20 +50,16 @@ import { PersonDialogComponent } from '../../../people/person-dialog.component.j
         </app-data-column>
         <app-data-column key="access" header="Access" [sortable]="false" width="130px">
           <ng-template #cell let-p>
-            <span class="chip" [class.chip-admin]="accessLabel(p) === 'Ops Admin' || accessLabel(p) === 'Portal Admin'" [class.chip-operator]="accessLabel(p) === 'Ops Operator' || accessLabel(p) === 'Portal Operator'" [class.chip-user]="accessLabel(p) === 'Portal User' || accessLabel(p) === 'Contact'">
+            <span class="chip" [class.chip-admin]="accessLabel(p) === 'Portal Admin'" [class.chip-user]="accessLabel(p) === 'Portal User' || accessLabel(p) === 'Contact'">
               {{ accessLabel(p) }}
             </span>
           </ng-template>
         </app-data-column>
         <app-data-column key="status" header="Status" [sortable]="false" width="110px">
           <ng-template #cell let-p>
-            @if (p.hasPortalAccess) {
-              <span class="chip" [class.chip-active]="p.isActive" [class.chip-inactive]="!p.isActive">
-                {{ p.isActive ? 'Active' : 'Inactive' }}
-              </span>
-            } @else {
-              <span class="muted">-</span>
-            }
+            <span class="chip" [class.chip-active]="p.isActive" [class.chip-inactive]="!p.isActive">
+              {{ p.isActive ? 'Active' : 'Inactive' }}
+            </span>
           </ng-template>
         </app-data-column>
         <app-data-column key="actions" header="" [sortable]="false" width="100px">
@@ -170,18 +166,9 @@ export class ClientPeopleTabComponent implements OnInit {
 
   trackById = (p: Person): string => p.id;
 
-  accessLabel(p: Person): 'Ops Admin' | 'Ops Operator' | 'Portal Admin' | 'Portal Operator' | 'Portal User' | 'Contact' {
-    // Ops access takes precedence. ADMIN → Ops Admin; anything else (OPERATOR, USER, null)
-    // defensively falls through to Ops Operator as the lowest ops tier.
-    if (p.hasOpsAccess) {
-      return p.userType === 'ADMIN' ? 'Ops Admin' : 'Ops Operator';
-    }
-    // Portal access without ops access: ADMIN → Portal Admin, OPERATOR → Portal Operator, USER/null → Portal User.
-    if (p.hasPortalAccess) {
-      if (p.userType === 'ADMIN') return 'Portal Admin';
-      if (p.userType === 'OPERATOR') return 'Portal Operator';
-      return 'Portal User';
-    }
+  accessLabel(p: Person): 'Portal Admin' | 'Portal User' | 'Contact' {
+    if (p.userType === 'ADMIN') return 'Portal Admin';
+    if (p.userType === 'USER') return 'Portal User';
     return 'Contact';
   }
 
@@ -211,9 +198,7 @@ export class ClientPeopleTabComponent implements OnInit {
   }
 
   deletePerson(person: Person): void {
-    const message = person.hasPortalAccess
-      ? `Deactivate ${person.name}? They will lose portal access.`
-      : `Delete ${person.name}? This cannot be undone. If they are a follower on tickets, deletion will fail.`;
+    const message = `Delete ${person.name}? This cannot be undone. If they are a follower on tickets, deletion will fail.`;
     if (!confirm(message)) return;
     this.personService.deletePerson(person.id)
       .pipe(takeUntilDestroyed(this.destroyRef))

@@ -1,17 +1,5 @@
 import type { FastifyRequest } from 'fastify';
-import type { PrismaClient } from '@bronco/db';
-
-/**
- * Look up the list of client IDs assigned to a scoped operator. Centralised
- * here so it isn't duplicated across every route file that calls resolveClientScope.
- */
-export async function getOperatorClientIds(db: PrismaClient, operatorId: string): Promise<string[]> {
-  const rows = await db.operatorClient.findMany({
-    where: { operatorId },
-    select: { clientId: true },
-  });
-  return rows.map((r) => r.clientId);
-}
+import { OperatorRole } from '@bronco/shared-types';
 
 export type ClientScope =
   | { type: 'all' }
@@ -21,38 +9,31 @@ export type ClientScope =
 /**
  * Resolve which clients the current caller can access.
  *
- * - Platform admin (User with role === 'ADMIN') → all clients
- * - Scoped operator (User with role === 'OPERATOR') → assigned clients via OperatorClient
- * - Person with hasOpsAccess or portal user → their own client
- *
- * The optional `getOperatorClientIds` resolver looks up assigned clients for a
- * scoped operator. If omitted, scoped operators fall back to "all clients" so
- * routes that don't yet support scoping continue to work.
+ * - Operator with `clientId === null` and `role === ADMIN` → all clients.
+ * - Operator with `clientId === null` and `role === STANDARD` → OperatorClient-assigned list.
+ * - Operator with `clientId !== null` → single-client scope (client-scoped operator).
+ * - Portal user → single-client scope (their own client).
+ * - API-key (no user, no portal user) → full access.
  */
-export async function resolveClientScope(
-  request: FastifyRequest,
-  getOperatorClientIds?: (operatorId: string) => Promise<string[]>,
-): Promise<ClientScope> {
-  // Operator (control panel user)
+export async function resolveClientScope(request: FastifyRequest): Promise<ClientScope> {
   if (request.user) {
-    if (request.user.role === 'ADMIN') return { type: 'all' };
-
-    // Scoped operator — look up assigned clients
-    if (getOperatorClientIds) {
-      const clientIds = await getOperatorClientIds(request.user.id);
-      return { type: 'assigned', clientIds };
+    if (request.user.clientId) {
+      return { type: 'single', clientId: request.user.clientId };
     }
-    // No resolver provided — fall back to full access
-    return { type: 'all' };
+    if (request.user.role === OperatorRole.ADMIN) {
+      return { type: 'all' };
+    }
+    const rows = await request.server.db.operatorClient.findMany({
+      where: { operatorId: request.user.operatorId },
+      select: { clientId: true },
+    });
+    return { type: 'assigned', clientIds: rows.map((r) => r.clientId) };
   }
 
-  // Person with ops access OR portal user — single-client scope
   if (request.portalUser) {
     return { type: 'single', clientId: request.portalUser.clientId };
   }
 
-  // API-key authenticated requests have neither user nor portalUser.
-  // They are trusted service-to-service callers with full access.
   return { type: 'all' };
 }
 

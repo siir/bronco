@@ -348,7 +348,7 @@ export class SidebarComponent {
    */
   readonly scopedClientLink = computed(() => {
     const user = this.authService.currentUser();
-    if (!user?.isPortalOpsUser || !user.clientId) return null;
+    if (!user?.clientId) return null;
     return ['/clients', user.clientId];
   });
 

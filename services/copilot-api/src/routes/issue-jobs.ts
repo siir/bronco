@@ -176,12 +176,15 @@ export async function issueJobRoutes(fastify: FastifyInstance, opts: IssueJobRou
     let approvedByOperatorId: string | null = null;
 
     if (operatorId) {
-      const operator = await fastify.db.operator.findUnique({ where: { id: operatorId }, select: { id: true, name: true, isActive: true } });
-      if (!operator || !operator.isActive) {
+      const operator = await fastify.db.operator.findUnique({
+        where: { id: operatorId },
+        select: { id: true, person: { select: { name: true, isActive: true } } },
+      });
+      if (!operator || !operator.person.isActive) {
         return fastify.httpErrors.badRequest('operatorId is invalid or refers to an inactive operator');
       }
       approvedByOperatorId = operator.id;
-      approvedBy = operator.name;
+      approvedBy = operator.person.name;
     }
 
     // Atomic transition out of AWAITING_APPROVAL to prevent duplicate approvals

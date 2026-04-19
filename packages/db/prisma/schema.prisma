@@ -7,45 +7,96 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// --- Users (control panel & client portal accounts) ---
+// --- People (unified identity — one record per human) ---
 
-model User {
-  id              String   @id @default(uuid()) @db.Uuid
-  email           String   @unique
-  passwordHash    String   @map("password_hash")
+model Person {
+  id              String    @id @default(uuid()) @db.Uuid
   name            String
-  role            UserRole @default(OPERATOR)
-  clientId        String?  @map("client_id") @db.Uuid
-  isActive        Boolean  @default(true) @map("is_active")
-  lastLoginAt     DateTime? @map("last_login_at")
-  themePreference String   @default("apple") @map("theme_preference")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  email           String
+  emailLower      String    @map("email_lower")
+  phone           String?
+  passwordHash    String?   @map("password_hash")
+  isActive        Boolean   @default(true) @map("is_active")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
-  client               Client?              @relation(fields: [clientId], references: [id])
-  refreshTokens        RefreshToken[]
-  filterPresets        TicketFilterPreset[]
+  operator        Operator?
+  clientUsers     ClientUser[]
+  refreshTokens   PersonRefreshToken[]
+  ticketFollowers TicketFollower[]
 
-  @@map("users")
+  @@unique([emailLower])
+  @@index([email])
+  @@map("people")
 }
 
-model RefreshToken {
-  id        String    @id @default(uuid()) @db.Uuid
-  jti       String    @unique @db.Uuid
-  userId    String    @map("user_id") @db.Uuid
-  expiresAt DateTime  @map("expires_at")
-  revokedAt DateTime? @map("revoked_at")
-  createdAt DateTime  @default(now()) @map("created_at")
+model PersonRefreshToken {
+  id         String     @id @default(uuid()) @db.Uuid
+  jti        String     @unique @db.Uuid
+  personId   String     @map("person_id") @db.Uuid
+  accessType AccessType @map("access_type")
+  expiresAt  DateTime   @map("expires_at")
+  revokedAt  DateTime?  @map("revoked_at")
+  createdAt  DateTime   @default(now()) @map("created_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  person Person @relation(fields: [personId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
-  @@map("refresh_tokens")
+  @@index([personId])
+  @@map("person_refresh_tokens")
+}
+
+// --- Operators (control panel access; platform or client-scoped) ---
+
+model Operator {
+  id              String       @id @default(uuid()) @db.Uuid
+  personId        String       @unique @map("person_id") @db.Uuid
+  clientId        String?      @map("client_id") @db.Uuid
+  role            OperatorRole @default(STANDARD)
+  themePreference String       @default("apple") @map("theme_preference")
+  notifyEmail     Boolean      @default(true) @map("notify_email")
+  notifySlack     Boolean      @default(false) @map("notify_slack")
+  slackUserId     String?      @map("slack_user_id")
+  lastLoginAt     DateTime?    @map("last_login_at")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  person             Person                 @relation(fields: [personId], references: [id], onDelete: Cascade)
+  client             Client?                @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  assignedTickets    Ticket[]
+  approvedJobs       IssueJob[]             @relation("ApprovedByOperator")
+  slackConversations SlackConversationLog[]
+  assignedClients    OperatorClient[]
+  filterPresets      TicketFilterPreset[]
+
+  @@index([personId])
+  @@index([clientId])
+  @@map("operators")
+}
+
+// --- ClientUsers (ticket portal access per client) ---
+
+model ClientUser {
+  id          String         @id @default(uuid()) @db.Uuid
+  personId    String         @map("person_id") @db.Uuid
+  clientId    String         @map("client_id") @db.Uuid
+  userType    ClientUserType @default(USER) @map("user_type")
+  isPrimary   Boolean        @default(false) @map("is_primary")
+  lastLoginAt DateTime?      @map("last_login_at")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  person Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([personId, clientId])
+  @@index([personId])
+  @@index([clientId])
+  @@map("client_users")
 }
 
 model TicketFilterPreset {
   id             String   @id @default(uuid()) @db.Uuid
-  userId         String   @map("user_id") @db.Uuid
+  operatorId     String   @map("operator_id") @db.Uuid
   name           String
   statusFilter   String?  @map("status_filter")
   categoryFilter String?  @map("category_filter")
@@ -55,76 +106,11 @@ model TicketFilterPreset {
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  operator Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, name])
-  @@index([userId])
+  @@unique([operatorId, name])
+  @@index([operatorId])
   @@map("ticket_filter_presets")
-}
-
-// --- People (unified contact + portal user per client) ---
-
-model Person {
-  id              String    @id @default(uuid()) @db.Uuid
-  clientId        String    @map("client_id") @db.Uuid
-  name            String
-  email           String
-  phone           String?
-  role            String?
-  slackUserId     String?   @map("slack_user_id")
-  isPrimary       Boolean   @default(false) @map("is_primary")
-  passwordHash    String?   @map("password_hash")
-  userType        ClientUserType? @map("user_type")
-  hasPortalAccess Boolean   @default(false) @map("has_portal_access")
-  hasOpsAccess    Boolean   @default(false) @map("has_ops_access")
-  lastLoginAt     DateTime? @map("last_login_at")
-  isActive        Boolean   @default(true) @map("is_active")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
-
-  client          Client    @relation(fields: [clientId], references: [id])
-  refreshTokens   PersonRefreshToken[]
-  ticketFollowers TicketFollower[]
-
-  @@unique([clientId, email])
-  @@index([clientId])
-  @@map("people")
-}
-
-model PersonRefreshToken {
-  id        String    @id @default(uuid()) @db.Uuid
-  jti       String    @unique @db.Uuid
-  personId  String    @map("person_id") @db.Uuid
-  expiresAt DateTime  @map("expires_at")
-  revokedAt DateTime? @map("revoked_at")
-  createdAt DateTime  @default(now()) @map("created_at")
-
-  person Person @relation(fields: [personId], references: [id], onDelete: Cascade)
-
-  @@index([personId])
-  @@map("person_refresh_tokens")
-}
-
-// --- Operators (multi-operator identity and notification preferences) ---
-
-model Operator {
-  id           String   @id @default(uuid()) @db.Uuid
-  email        String   @unique
-  name         String
-  isActive     Boolean  @default(true) @map("is_active")
-  isAdmin      Boolean  @default(false) @map("is_admin")
-  notifyEmail  Boolean  @default(true) @map("notify_email")
-  notifySlack  Boolean  @default(false) @map("notify_slack")
-  slackUserId  String?  @map("slack_user_id")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-
-  assignedTickets    Ticket[]
-  approvedJobs       IssueJob[] @relation("ApprovedByOperator")
-  slackConversations SlackConversationLog[]
-  assignedClients    OperatorClient[]
-
-  @@map("operators")
 }
 
 model OperatorClient {
@@ -165,13 +151,13 @@ model Client {
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
-  people       Person[]
+  clientUsers  ClientUser[]
+  operators    Operator[]
   systems      System[]
   tickets      Ticket[]
   codeRepos    CodeRepo[]
   repositories Repository[]
   integrations    ClientIntegration[]
-  users           User[]
   promptOverrides PromptOverride[]
   aiModelConfigs  AiModelConfig[]
   systemAnalyses  SystemAnalysis[]
@@ -1089,17 +1075,22 @@ enum IntegrationType {
   @@map("integration_type")
 }
 
-enum UserRole {
+enum OperatorRole {
   ADMIN
-  OPERATOR
-  CLIENT
+  STANDARD
 
-  @@map("user_role")
+  @@map("operator_role")
+}
+
+enum AccessType {
+  OPERATOR
+  CLIENT_USER
+
+  @@map("access_type")
 }
 
 enum ClientUserType {
   ADMIN
-  OPERATOR
   USER
 
   @@map("client_user_type")
