@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { simpleParser } from 'mailparser';
 import type { Job, Queue } from 'bullmq';
-import { type PrismaClient, ensureClientUser } from '@bronco/db';
+import { type PrismaClient } from '@bronco/db';
 import { TaskType, EmailClassification, EmailProcessingStatus, TicketSource } from '@bronco/shared-types';
 import type { IngestionJob, EmailIngestionPayload } from '@bronco/shared-types';
 import type { AIRouter } from '@bronco/ai-provider';
@@ -211,20 +211,6 @@ Respond with ONLY one word: ACTIONABLE or NOISE`,
     }
 
     logClientId = personClientId ?? domainClient?.id ?? null;
-
-    // Auto-provision CLIENT user (no-op under #219 Wave 1; scheduled for
-    // rework in Wave 2A against the new ClientUser model).
-    if (person && personClientId) {
-      try {
-        await ensureClientUser(db, {
-          email: person.email,
-          name: person.name,
-          clientId: personClientId,
-        });
-      } catch (error) {
-        appLog.error('Failed to auto-provision CLIENT user', { err: error, email: person.email });
-      }
-    }
 
     // --- Resolve client ID (fall back to _unknown) ---
     const clientId = personClientId ?? domainClient?.id ?? (
