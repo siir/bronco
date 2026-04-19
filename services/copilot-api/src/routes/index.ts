@@ -2,9 +2,9 @@ import type { FastifyInstance } from 'fastify';
 import type { Queue } from 'bullmq';
 import type { AIRouter, ClientMemoryResolver, ModelConfigResolver, ProviderConfigResolver } from '@bronco/ai-provider';
 import type { TicketCreatedJob, IngestionJob } from '@bronco/shared-types';
-import { UserRole } from '@bronco/shared-types';
+import { OperatorRole } from '@bronco/shared-types';
 import type { Config } from '../config.js';
-import { requireRole, requireOpsAccess } from '../plugins/auth.js';
+import { requireRole } from '../plugins/auth.js';
 import { healthRoutes } from './health.js';
 import { clientRoutes } from './clients.js';
 import { peopleRoutes } from './people.js';
@@ -77,9 +77,10 @@ export async function registerRoutes(fastify: FastifyInstance, opts: RouteOpts):
   await fastify.register(portalTicketRoutes, { config: opts.config, ticketCreatedQueue: opts.ticketCreatedQueue, ingestQueue: opts.ingestQueue });
   await fastify.register(portalUserRoutes);
 
-  // Client-scoped control panel routes — accessible to operators AND portal
-  // users with hasOpsAccess (client-scoped ops people).
-  const opsAccessGuard = requireOpsAccess(UserRole.ADMIN, UserRole.OPERATOR);
+  // Client-scoped control panel routes — accessible to any authenticated
+  // operator (platform or client-scoped). Portal users are rejected by
+  // requireRole; client-scoped ops access is modeled via Operator.clientId.
+  const opsAccessGuard = requireRole(OperatorRole.ADMIN, OperatorRole.STANDARD);
 
   await fastify.register(async (scoped) => {
     scoped.addHook('preHandler', opsAccessGuard);
@@ -93,12 +94,12 @@ export async function registerRoutes(fastify: FastifyInstance, opts: RouteOpts):
     await scoped.register(pendingActionRoutes);
   });
 
-  // Admin-only control panel routes — require ADMIN or OPERATOR JWT.
-  // Portal users (even with hasOpsAccess) cannot access these.
-  const controlPanelGuard = requireRole(UserRole.ADMIN, UserRole.OPERATOR);
+  // Operator control panel routes — accessible to authenticated ADMIN or
+  // STANDARD operators. Portal users cannot access these.
+  const operatorControlPanelGuard = requireRole(OperatorRole.ADMIN, OperatorRole.STANDARD);
 
   await fastify.register(async (scoped) => {
-    scoped.addHook('preHandler', controlPanelGuard);
+    scoped.addHook('preHandler', operatorControlPanelGuard);
 
     await scoped.register(systemRoutes);
     await scoped.register(repoRoutes);

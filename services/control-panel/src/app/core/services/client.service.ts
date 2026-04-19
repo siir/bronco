@@ -28,7 +28,7 @@ export interface Client {
     integrations: number;
     clientMemories: number;
     environments: number;
-    people: number;
+    clientUsers: number;
     invoices: number;
   };
   people?: Person[];

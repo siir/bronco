@@ -12,7 +12,7 @@ export interface SlackConversationSummary {
   totalOutputTokens: number | null;
   createdAt: string;
   updatedAt: string;
-  operator: { id: string; name: string };
+  operator: { id: string; person: { name: string } } | null;
   client: { id: string; name: string; shortCode: string } | null;
 }
 

@@ -1,56 +1,123 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import bcrypt from 'bcryptjs';
-import { z } from 'zod';
-import { resolveClientScope, getOperatorClientIds } from '../plugins/client-scope.js';
+import { ClientUserType, OperatorRole } from '@bronco/shared-types';
+import type { AuthUser } from '../plugins/auth.js';
+import { resolveClientScope } from '../plugins/client-scope.js';
 
-const emailSchema = z.string().email('Invalid email format');
+/** Explicit Person projection — never expose passwordHash/emailLower to API consumers. */
+const PERSON_SELECT = {
+  id: true,
+  name: true,
+  email: true,
+  phone: true,
+  isActive: true,
+  passwordHash: true,
+} as const;
 
-const ALLOWED_USER_TYPES = new Set(['ADMIN', 'OPERATOR', 'USER']);
-const OPS_USER_TYPES = new Set(['ADMIN', 'OPERATOR']);
+const CLIENT_SELECT = { name: true, shortCode: true } as const;
 
-function isPrismaError(err: unknown, code: string): boolean {
-  return err instanceof Error && 'code' in err && (err as { code: string }).code === code;
+/** Map a ClientUser+Person row to the wire shape the frontend expects. */
+function formatPerson(cu: {
+  id: string;
+  clientId: string;
+  userType: ClientUserType;
+  isPrimary: boolean;
+  lastLoginAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  person: { id: string; name: string; email: string; phone: string | null; isActive: boolean; passwordHash: string | null };
+  client: { name: string; shortCode: string };
+}) {
+  return {
+    id: cu.person.id,
+    clientId: cu.clientId,
+    name: cu.person.name,
+    email: cu.person.email,
+    phone: cu.person.phone,
+    role: null,
+    slackUserId: null,
+    isPrimary: cu.isPrimary,
+    hasPortalAccess: cu.person.passwordHash !== null,
+    hasOpsAccess: false, // Wave 1 BC shim — Wave 2C removes this field
+    userType: cu.userType,
+    isActive: cu.person.isActive,
+    lastLoginAt: cu.lastLoginAt,
+    createdAt: cu.createdAt,
+    updatedAt: cu.updatedAt,
+    client: cu.client,
+  };
 }
 
-/**
- * Determine whether the caller is allowed to access people for the given client.
- * Resolves the caller's client scope and checks whether `clientId` is within it.
- * Returns `{ allowed: true }` when access is permitted, `{ allowed: false }` otherwise.
- */
-async function checkClientAccess(
-  fastify: FastifyInstance,
+async function assertClientInScope(
   request: FastifyRequest,
-  clientId: string | undefined,
-): Promise<{ allowed: boolean }> {
-  const scope = await resolveClientScope(request, (operatorId) =>
-    getOperatorClientIds(fastify.db, operatorId),
-  );
-  if (scope.type === 'all') return { allowed: true };
-  if (scope.type === 'assigned') {
-    if (!clientId) return { allowed: false };
-    return { allowed: scope.clientIds.includes(clientId) };
-  }
-  // single
-  if (!clientId) return { allowed: false };
-  return { allowed: clientId === scope.clientId };
+  clientId: string,
+): Promise<boolean> {
+  const scope = await resolveClientScope(request);
+  if (scope.type === 'all') return true;
+  if (scope.type === 'assigned') return scope.clientIds.includes(clientId);
+  return scope.clientId === clientId;
 }
 
 /**
- * Check whether the caller is allowed to mutate people for the given client.
- * Client OPERATOR people are read-only — only ADMIN people (and Operators) can manage.
+ * Can the caller mutate the global state (Person fields, passwordHash) of
+ * the target Person?
+ *
+ * Under the unified identity model, Person is global — mutations made via
+ * this route propagate to every ClientUser association the Person has and
+ * to their Operator record if any. Without this guard, a client-scoped
+ * STANDARD operator could, by Person ID, reset the password of a platform
+ * admin (if that admin has any ClientUser in the caller's scope) or of any
+ * contact at a tenant the caller doesn't own.
+ *
+ * Rules:
+ * - Platform ADMIN (authUser.role === ADMIN, clientId === null): allowed.
+ *   Platform admins are the canonical owners of global identity.
+ * - Everyone else: the target Person must have NO Operator extension record,
+ *   AND every ClientUser of the Person must be within the caller's scope.
+ *   That way the caller can only mutate Persons whose entire access surface
+ *   is already under the caller's control.
+ *
+ * Returns true if the mutation is allowed, false otherwise.
  */
-function canManagePeople(request: FastifyRequest): boolean {
-  if (request.user) return true; // Any operator (platform admin or scoped) can manage
-  if (request.portalUser) {
-    return request.portalUser.hasOpsAccess && request.portalUser.userType === 'ADMIN';
+async function assertPersonMutationScope(
+  request: FastifyRequest,
+  personId: string,
+): Promise<boolean> {
+  const authUser = request.user as AuthUser | undefined;
+  // Platform ADMIN — tenant-agnostic ownership of Person identity.
+  if (authUser && authUser.role === OperatorRole.ADMIN && authUser.clientId === null) {
+    return true;
   }
-  return false;
+
+  const person = await request.server.db.person.findUnique({
+    where: { id: personId },
+    select: {
+      operator: { select: { id: true } },
+      clientUsers: { select: { clientId: true } },
+    },
+  });
+  if (!person) return false; // 404-ish — not found is not a scope error but caller handles the second check
+  // If the Person has an Operator extension, only platform ADMIN (handled
+  // above) may mutate. Operators must not be demoted/reset via this surface
+  // by anyone with a lesser credential.
+  if (person.operator) return false;
+
+  const scope = await resolveClientScope(request);
+  if (scope.type === 'all') return true;
+  const scopedClientIds: Set<string> =
+    scope.type === 'assigned'
+      ? new Set(scope.clientIds)
+      : new Set([scope.clientId]);
+
+  // Every ClientUser must be within the caller's scope. If even one is not,
+  // the mutation would propagate into a tenant the caller doesn't control.
+  return person.clientUsers.every((cu) => scopedClientIds.has(cu.clientId));
 }
 
 export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
   /**
    * GET /api/search/people
-   * Lightweight search for the command palette. Mirrors scope branching from GET /api/people.
+   * Lightweight search for the command palette.
    */
   fastify.get<{ Querystring: { q?: string; limit?: string } }>(
     '/api/search/people',
@@ -65,127 +132,111 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
         return fastify.httpErrors.badRequest('limit must be between 1 and 50');
       }
 
-      const scope = await resolveClientScope(request, (operatorId) =>
-        getOperatorClientIds(fastify.db, operatorId),
-      );
+      const scope = await resolveClientScope(request);
 
-      let scopedClientIdFilter: string | { in: string[] } | undefined;
+      let clientIdFilter: string | { in: string[] } | undefined;
       if (scope.type === 'assigned') {
         if (scope.clientIds.length === 0) return [];
-        scopedClientIdFilter = { in: scope.clientIds };
+        clientIdFilter = { in: scope.clientIds };
       } else if (scope.type === 'single') {
-        scopedClientIdFilter = scope.clientId;
+        clientIdFilter = scope.clientId;
       }
 
-      const results = await fastify.db.person.findMany({
+      const results = await fastify.db.clientUser.findMany({
         where: {
-          ...(scopedClientIdFilter !== undefined && { clientId: scopedClientIdFilter }),
-          OR: [
-            { name: { contains: rawQ, mode: 'insensitive' } },
-            { email: { contains: rawQ, mode: 'insensitive' } },
-            { client: { name: { contains: rawQ, mode: 'insensitive' } } },
-            { client: { shortCode: { contains: rawQ, mode: 'insensitive' } } },
-          ],
+          ...(clientIdFilter !== undefined && { clientId: clientIdFilter }),
+          person: {
+            OR: [
+              { name: { contains: rawQ, mode: 'insensitive' } },
+              { email: { contains: rawQ, mode: 'insensitive' } },
+            ],
+          },
         },
         select: {
           id: true,
-          name: true,
-          email: true,
           clientId: true,
-          role: true,
-          isActive: true,
+          userType: true,
+          isPrimary: true,
+          person: { select: { id: true, name: true, email: true, isActive: true } },
           client: { select: { name: true, shortCode: true } },
         },
         take: limit,
-        orderBy: { name: 'asc' },
+        orderBy: { person: { name: 'asc' } },
       });
 
       const qLower = rawQ.toLowerCase();
       results.sort((a, b) => {
-        const aEmailExact = a.email.toLowerCase() === qLower ? 0 : 1;
-        const bEmailExact = b.email.toLowerCase() === qLower ? 0 : 1;
-        if (aEmailExact !== bEmailExact) return aEmailExact - bEmailExact;
-
-        const aStarts = a.name.toLowerCase().startsWith(qLower) ? 0 : 1;
-        const bStarts = b.name.toLowerCase().startsWith(qLower) ? 0 : 1;
+        const aEmail = a.person.email.toLowerCase() === qLower ? 0 : 1;
+        const bEmail = b.person.email.toLowerCase() === qLower ? 0 : 1;
+        if (aEmail !== bEmail) return aEmail - bEmail;
+        const aStarts = a.person.name.toLowerCase().startsWith(qLower) ? 0 : 1;
+        const bStarts = b.person.name.toLowerCase().startsWith(qLower) ? 0 : 1;
         if (aStarts !== bStarts) return aStarts - bStarts;
-
-        const nameCompare = a.name.localeCompare(b.name);
-        if (nameCompare !== 0) return nameCompare;
-
-        return a.email.localeCompare(b.email);
+        return a.person.name.localeCompare(b.person.name);
       });
 
-      return results.slice(0, limit).map(p => ({
-        id: p.id,
-        name: p.name,
-        email: p.email,
-        clientId: p.clientId,
-        clientName: p.client.name,
-        clientShortCode: p.client.shortCode,
-        role: p.role,
-        isActive: p.isActive,
+      return results.slice(0, limit).map((r) => ({
+        id: r.person.id,
+        name: r.person.name,
+        email: r.person.email,
+        clientId: r.clientId,
+        clientName: r.client.name,
+        clientShortCode: r.client.shortCode,
+        role: null,
+        isActive: r.person.isActive,
       }));
     },
   );
 
   /**
    * GET /api/people?clientId=X
-   * List people for a client, ordered by name.
+   * Lists ClientUser rows joined to Person, optionally filtered by client.
    */
   fastify.get<{ Querystring: { clientId?: string } }>(
     '/api/people',
     async (request, reply) => {
       const { clientId } = request.query;
+      const scope = await resolveClientScope(request);
 
-      // Resolve scope and apply filtering
-      const scope = await resolveClientScope(request, (operatorId) =>
-        getOperatorClientIds(fastify.db, operatorId),
-      );
-      let scopedClientIdFilter: string | { in: string[] } | undefined;
+      let clientIdFilter: string | { in: string[] } | undefined;
       if (scope.type === 'assigned') {
         if (scope.clientIds.length === 0) return [];
         if (clientId) {
           if (!scope.clientIds.includes(clientId)) {
             return reply.code(403).send({ error: 'Forbidden: client not in scope' });
           }
-          scopedClientIdFilter = clientId;
+          clientIdFilter = clientId;
         } else {
-          scopedClientIdFilter = { in: scope.clientIds };
+          clientIdFilter = { in: scope.clientIds };
         }
       } else if (scope.type === 'single') {
         if (clientId && clientId !== scope.clientId) {
           return reply.code(403).send({ error: 'Forbidden: client not in scope' });
         }
-        scopedClientIdFilter = scope.clientId;
+        clientIdFilter = scope.clientId;
       } else if (clientId) {
-        scopedClientIdFilter = clientId;
+        clientIdFilter = clientId;
       }
 
-      return fastify.db.person.findMany({
+      const rows = await fastify.db.clientUser.findMany({
         where: {
-          ...(scopedClientIdFilter !== undefined && { clientId: scopedClientIdFilter }),
+          ...(clientIdFilter !== undefined && { clientId: clientIdFilter }),
         },
         select: {
           id: true,
           clientId: true,
-          name: true,
-          email: true,
-          phone: true,
-          role: true,
-          slackUserId: true,
-          isPrimary: true,
-          hasPortalAccess: true,
-          hasOpsAccess: true,
           userType: true,
-          isActive: true,
+          isPrimary: true,
           lastLoginAt: true,
           createdAt: true,
           updatedAt: true,
-          client: { select: { name: true, shortCode: true } },
+          person: { select: PERSON_SELECT },
+          client: { select: CLIENT_SELECT },
         },
-        orderBy: { name: 'asc' },
+        orderBy: { person: { name: 'asc' } },
       });
+
+      return rows.map(formatPerson);
     },
   );
 
@@ -193,360 +244,370 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
    * GET /api/people/:id
    */
   fastify.get<{ Params: { id: string } }>('/api/people/:id', async (request, reply) => {
-    const person = await fastify.db.person.findUnique({
-      where: { id: request.params.id },
+    const cu = await fastify.db.clientUser.findFirst({
+      where: { personId: request.params.id },
       select: {
         id: true,
         clientId: true,
-        name: true,
-        email: true,
-        phone: true,
-        role: true,
-        slackUserId: true,
-        isPrimary: true,
-        hasPortalAccess: true,
-        hasOpsAccess: true,
         userType: true,
-        isActive: true,
+        isPrimary: true,
         lastLoginAt: true,
         createdAt: true,
         updatedAt: true,
-        client: { select: { name: true, shortCode: true } },
+        person: { select: PERSON_SELECT },
+        client: { select: CLIENT_SELECT },
       },
+      orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
     });
-    if (!person) return fastify.httpErrors.notFound('Person not found');
-    const access = await checkClientAccess(fastify, request, person.clientId);
-    if (!access.allowed) {
+    if (!cu) return fastify.httpErrors.notFound('Person not found');
+    if (!(await assertClientInScope(request, cu.clientId))) {
       return reply.code(403).send({ error: 'Forbidden: client not in scope' });
     }
-    return person;
+    return formatPerson(cu);
   });
 
   /**
    * POST /api/people
-   * Create a person — either a contact-only or a portal user.
+   * Create a contact (Person + ClientUser). Optionally set a portal password.
    */
   fastify.post<{
     Body: {
       clientId: string;
       name: string;
       email: string;
-      phone?: string;
-      role?: string;
-      slackUserId?: string;
-      isPrimary?: boolean;
-      hasPortalAccess?: boolean;
-      hasOpsAccess?: boolean;
+      phone?: string | null;
       password?: string;
+      hasPortalAccess?: boolean;
+      isPrimary?: boolean;
       userType?: string;
+      isActive?: boolean;
     };
   }>('/api/people', async (request, reply) => {
-    const { clientId, name, email: rawEmail, phone, role, slackUserId, isPrimary, hasPortalAccess, hasOpsAccess, password, userType } = request.body;
+    const {
+      clientId,
+      name,
+      email: rawEmail,
+      phone,
+      password,
+      hasPortalAccess,
+      isPrimary,
+      userType,
+      isActive,
+    } = request.body ?? {};
 
     if (!clientId || !name || !rawEmail) {
       return reply.code(400).send({ error: 'clientId, name, and email are required' });
     }
 
-    if (!canManagePeople(request)) {
-      return reply.code(403).send({ error: 'Forbidden: insufficient role to manage people' });
-    }
-
-    const access = await checkClientAccess(fastify, request, clientId);
-    if (!access.allowed) {
+    if (!(await assertClientInScope(request, clientId))) {
       return reply.code(403).send({ error: 'Forbidden: client not in scope' });
     }
 
-    const parsed = emailSchema.safeParse(rawEmail);
-    if (!parsed.success) {
-      return fastify.httpErrors.badRequest(parsed.error.issues[0].message);
-    }
-    const email = rawEmail.trim().toLowerCase();
-
-    if (userType && !ALLOWED_USER_TYPES.has(userType)) {
-      return reply.code(400).send({ error: 'Invalid userType. Must be ADMIN, OPERATOR, or USER' });
+    if (password !== undefined && password.length < 8) {
+      return reply.code(400).send({ error: 'Password must be at least 8 characters' });
     }
 
-    if (hasPortalAccess) {
-      if (!password) {
-        return reply.code(400).send({ error: 'password is required when hasPortalAccess is true' });
-      }
-      if (password.length < 8) {
-        return reply.code(400).send({ error: 'Password must be at least 8 characters' });
-      }
-    }
+    const resolvedUserType = userType === ClientUserType.ADMIN ? ClientUserType.ADMIN : ClientUserType.USER;
 
-    // Ops access requires portal access (so the person can log in) and an
-    // ADMIN or OPERATOR userType.
-    if (hasOpsAccess) {
-      if (!hasPortalAccess) {
-        return reply.code(400).send({ error: 'hasOpsAccess requires hasPortalAccess to be true' });
-      }
-      if (!password) {
-        return reply.code(400).send({ error: 'password is required when hasOpsAccess is true' });
-      }
-      if (!userType || !OPS_USER_TYPES.has(userType)) {
-        return reply.code(400).send({ error: 'hasOpsAccess requires userType to be ADMIN or OPERATOR' });
+    const email = rawEmail.trim();
+    const emailLower = email.toLowerCase();
+
+    const existingPerson = await fastify.db.person.findUnique({
+      where: { emailLower },
+      include: { clientUsers: { select: { clientId: true } } },
+    });
+
+    if (existingPerson) {
+      const alreadyLinked = existingPerson.clientUsers.some((c) => c.clientId === clientId);
+      if (alreadyLinked) {
+        return reply.code(409).send({ error: 'A person with this email is already linked to this client' });
       }
     }
 
-    // Verify client exists
-    const client = await fastify.db.client.findUnique({ where: { id: clientId } });
-    if (!client) {
-      return reply.code(404).send({ error: 'Client not found' });
-    }
+    const shouldSetPassword = (hasPortalAccess === true || !!password) && !!password;
+    const passwordHash = shouldSetPassword ? await bcrypt.hash(password!, 10) : undefined;
 
-    const passwordHash = hasPortalAccess && password ? await bcrypt.hash(password, 10) : null;
-    const resolvedUserType =
-      hasPortalAccess || hasOpsAccess
-        ? ((userType ?? (hasOpsAccess ? 'OPERATOR' : 'USER')) as 'ADMIN' | 'OPERATOR' | 'USER')
-        : undefined;
+    const result = await fastify.db.$transaction(async (tx) => {
+      const person = existingPerson
+        ? await tx.person.update({
+            where: { id: existingPerson.id },
+            data: {
+              name: name.trim(),
+              ...(isActive !== undefined && { isActive }),
+              ...(passwordHash !== undefined && { passwordHash }),
+            },
+          })
+        : await tx.person.create({
+            data: {
+              name: name.trim(),
+              email,
+              emailLower,
+              phone: phone ?? null,
+              ...(isActive !== undefined && { isActive }),
+              ...(passwordHash !== undefined && { passwordHash }),
+            },
+          });
 
-    try {
-      const person = await fastify.db.person.create({
+      const cu = await tx.clientUser.create({
         data: {
+          personId: person.id,
           clientId,
-          name: name.trim(),
-          email,
-          phone: phone ?? null,
-          role: role ?? null,
-          slackUserId: slackUserId ?? null,
+          userType: resolvedUserType,
           isPrimary: isPrimary ?? false,
-          hasPortalAccess: hasPortalAccess ?? false,
-          hasOpsAccess: hasOpsAccess ?? false,
-          ...(passwordHash ? { passwordHash } : {}),
-          ...(resolvedUserType !== undefined ? { userType: resolvedUserType } : {}),
         },
         select: {
           id: true,
           clientId: true,
-          name: true,
-          email: true,
-          phone: true,
-          role: true,
-          slackUserId: true,
-          isPrimary: true,
-          hasPortalAccess: true,
-          hasOpsAccess: true,
           userType: true,
-          isActive: true,
+          isPrimary: true,
           lastLoginAt: true,
           createdAt: true,
           updatedAt: true,
+          person: { select: PERSON_SELECT },
+          client: { select: CLIENT_SELECT },
         },
       });
 
-      reply.code(201);
-      return person;
-    } catch (err) {
-      if (isPrismaError(err, 'P2002')) {
-        return reply.code(409).send({ error: 'A person with this email already exists for this client' });
-      }
-      throw err;
-    }
+      return cu;
+    });
+
+    return reply.code(201).send(formatPerson(result));
   });
 
   /**
    * PATCH /api/people/:id
+   * Update a person's details (Person fields + ClientUser fields).
+   * `id` is the Person.id.
    */
   fastify.patch<{
     Params: { id: string };
     Body: {
+      clientId?: string;
       name?: string;
       email?: string;
       phone?: string | null;
-      role?: string | null;
-      slackUserId?: string | null;
-      isPrimary?: boolean;
-      hasPortalAccess?: boolean;
-      hasOpsAccess?: boolean;
       password?: string;
+      hasPortalAccess?: boolean;
+      isPrimary?: boolean;
       userType?: string;
       isActive?: boolean;
     };
   }>('/api/people/:id', async (request, reply) => {
     const { id } = request.params;
-    const { name, email: rawEmail, phone, role, slackUserId, isPrimary, hasPortalAccess, hasOpsAccess, password, userType, isActive } = request.body;
+    const {
+      clientId: bodyClientId,
+      name,
+      email: rawEmail,
+      phone,
+      password,
+      isPrimary,
+      userType,
+      isActive,
+    } = request.body ?? {};
 
-    if (!canManagePeople(request)) {
-      return reply.code(403).send({ error: 'Forbidden: insufficient role to manage people' });
+    if (password !== undefined && password.length < 8) {
+      return reply.code(400).send({ error: 'Password must be at least 8 characters' });
     }
 
-    if (userType && !ALLOWED_USER_TYPES.has(userType)) {
-      return reply.code(400).send({ error: 'Invalid userType. Must be ADMIN, OPERATOR, or USER' });
-    }
+    // Find the ClientUser for this person — prefer the one from bodyClientId, else the primary
+    const cuWhere = bodyClientId
+      ? { personId: id, clientId: bodyClientId }
+      : undefined;
 
-    const target = await fastify.db.person.findUnique({ where: { id } });
-    if (!target) {
-      return reply.code(404).send({ error: 'Person not found' });
-    }
+    const cu = cuWhere
+      ? await fastify.db.clientUser.findFirst({
+          where: cuWhere,
+          select: {
+            id: true,
+            clientId: true,
+            userType: true,
+            isPrimary: true,
+            lastLoginAt: true,
+            createdAt: true,
+            updatedAt: true,
+            person: { select: PERSON_SELECT },
+            client: { select: CLIENT_SELECT },
+          },
+        })
+      : await fastify.db.clientUser.findFirst({
+          where: { personId: id },
+          select: {
+            id: true,
+            clientId: true,
+            userType: true,
+            isPrimary: true,
+            lastLoginAt: true,
+            createdAt: true,
+            updatedAt: true,
+            person: { select: PERSON_SELECT },
+            client: { select: CLIENT_SELECT },
+          },
+          orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+        });
 
-    const access = await checkClientAccess(fastify, request, target.clientId);
-    if (!access.allowed) {
+    if (!cu) return reply.code(404).send({ error: 'Person not found' });
+
+    if (!(await assertClientInScope(request, cu.clientId))) {
       return reply.code(403).send({ error: 'Forbidden: client not in scope' });
     }
 
-    // Enabling portal access requires a password to be set — otherwise the person cannot log in.
-    // To set/change a password on an existing portal user, use POST /api/people/:id/reset-password.
-    if (hasPortalAccess === true && !target.hasPortalAccess) {
-      if (!password || password.length < 8) {
-        return reply.code(400).send({ error: 'password (minimum 8 characters) is required when enabling portal access' });
-      }
+    // Global Person mutation gate — tier above the client-scope check. This
+    // route mutates Person fields (name, email, isActive, passwordHash) that
+    // propagate across every tenant the Person is linked to. A caller with
+    // only partial scope over the Person must not be allowed to rewrite
+    // identity that also affects tenants outside their control. Platform
+    // ADMIN + full-scope operators pass; everyone else gets 403.
+    if (!(await assertPersonMutationScope(request, id))) {
+      return reply
+        .code(403)
+        .send({ error: 'Forbidden: cannot mutate a Person whose access extends beyond your scope' });
     }
 
-    // Enabling ops access requires portal access (so the person can log in) and
-    // an ADMIN or OPERATOR userType.
-    if (hasOpsAccess === true) {
-      const effectiveHasPortal = hasPortalAccess ?? target.hasPortalAccess;
-      if (!effectiveHasPortal) {
-        return reply.code(400).send({ error: 'hasOpsAccess requires hasPortalAccess to be true' });
-      }
-      if (!target.passwordHash && !password) {
-        return reply.code(400).send({ error: 'hasOpsAccess requires the person to have a password — set one via password field or POST /api/people/:id/reset-password' });
-      }
-      const effectiveUserType = userType ?? target.userType ?? null;
-      if (!effectiveUserType || !OPS_USER_TYPES.has(effectiveUserType)) {
-        return reply.code(400).send({ error: 'hasOpsAccess requires userType to be ADMIN or OPERATOR' });
-      }
-    }
-
-    const email = rawEmail?.trim().toLowerCase();
-    if (email !== undefined) {
-      const parsed = emailSchema.safeParse(email);
-      if (!parsed.success) {
-        return fastify.httpErrors.badRequest(parsed.error.issues[0].message);
-      }
-      const existing = await fastify.db.person.findFirst({ where: { clientId: target.clientId, email } });
+    const email = rawEmail?.trim();
+    const emailLower = email?.toLowerCase();
+    if (emailLower) {
+      const existing = await fastify.db.person.findUnique({ where: { emailLower } });
       if (existing && existing.id !== id) {
-        return reply.code(409).send({ error: 'Email is already in use for this client' });
+        return reply.code(409).send({ error: 'Email is already in use by another person' });
       }
     }
 
-    const newPasswordHash =
-      hasPortalAccess === true && !target.hasPortalAccess && password
-        ? await bcrypt.hash(password, 10)
-        : undefined;
+    const passwordHash = password ? await bcrypt.hash(password, 10) : undefined;
 
-    try {
-      return await fastify.db.person.update({
+    const resolvedUserType =
+      userType === ClientUserType.ADMIN
+        ? ClientUserType.ADMIN
+        : userType === ClientUserType.USER
+          ? ClientUserType.USER
+          : undefined;
+
+    const updated = await fastify.db.$transaction(async (tx) => {
+      await tx.person.update({
         where: { id },
         data: {
-          ...(name !== undefined && { name: name.trim() }),
-          ...(email !== undefined && { email }),
+          ...(name && { name: name.trim() }),
+          ...(email && { email, emailLower: email.toLowerCase() }),
           ...(phone !== undefined && { phone }),
-          ...(role !== undefined && { role }),
-          ...(slackUserId !== undefined && { slackUserId }),
-          ...(isPrimary !== undefined && { isPrimary }),
-          ...(hasPortalAccess !== undefined && { hasPortalAccess }),
-          ...(hasOpsAccess !== undefined && { hasOpsAccess }),
-          ...(newPasswordHash && { passwordHash: newPasswordHash }),
-          ...(userType !== undefined && { userType: userType as 'ADMIN' | 'OPERATOR' | 'USER' }),
           ...(isActive !== undefined && { isActive }),
+          ...(passwordHash !== undefined && { passwordHash }),
+        },
+      });
+
+      return tx.clientUser.update({
+        where: { id: cu.id },
+        data: {
+          ...(resolvedUserType !== undefined && { userType: resolvedUserType }),
+          ...(isPrimary !== undefined && { isPrimary }),
         },
         select: {
           id: true,
           clientId: true,
-          name: true,
-          email: true,
-          phone: true,
-          role: true,
-          slackUserId: true,
-          isPrimary: true,
-          hasPortalAccess: true,
-          hasOpsAccess: true,
           userType: true,
-          isActive: true,
+          isPrimary: true,
           lastLoginAt: true,
           createdAt: true,
           updatedAt: true,
+          person: { select: PERSON_SELECT },
+          client: { select: CLIENT_SELECT },
         },
       });
-    } catch (err) {
-      if (isPrismaError(err, 'P2025')) {
-        return fastify.httpErrors.notFound('Person not found');
-      }
-      throw err;
-    }
+    });
+
+    return formatPerson(updated);
   });
 
   /**
    * DELETE /api/people/:id
-   * Deactivate portal users; hard-delete contact-only people.
+   * Revoke a person's access to a client (removes the ClientUser record).
+   * `id` is the Person.id. Optional `?clientId=X` scopes which link to remove.
    */
-  fastify.delete<{ Params: { id: string } }>('/api/people/:id', async (request, reply) => {
-    if (!canManagePeople(request)) {
-      return reply.code(403).send({ error: 'Forbidden: insufficient role to manage people' });
-    }
-    const target = await fastify.db.person.findUnique({ where: { id: request.params.id } });
-    if (!target) {
-      return reply.code(404).send({ error: 'Person not found' });
-    }
-    const access = await checkClientAccess(fastify, request, target.clientId);
-    if (!access.allowed) {
-      return reply.code(403).send({ error: 'Forbidden: client not in scope' });
-    }
+  fastify.delete<{ Params: { id: string }; Querystring: { clientId?: string } }>(
+    '/api/people/:id',
+    async (request, reply) => {
+      const { id } = request.params;
+      const { clientId: queryClientId } = request.query;
 
-    // Soft delete: portal users get deactivated so they retain historical ticket links
-    if (target.hasPortalAccess) {
-      await fastify.db.person.update({
-        where: { id: request.params.id },
-        data: { isActive: false },
-      });
-      return { message: 'Person deactivated' };
-    }
+      // Resolve the ClientUser to remove
+      const cu = queryClientId
+        ? await fastify.db.clientUser.findFirst({
+            where: { personId: id, clientId: queryClientId },
+          })
+        : await fastify.db.clientUser.findFirst({
+            where: { personId: id },
+            orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+          });
 
-    // Hard delete: contact-only people
-    try {
-      await fastify.db.person.delete({
-        where: { id: request.params.id },
+      if (!cu) return reply.code(404).send({ error: 'Person not found' });
+
+      if (!(await assertClientInScope(request, cu.clientId))) {
+        return reply.code(403).send({ error: 'Forbidden: client not in scope' });
+      }
+
+      await fastify.db.$transaction(async (tx) => {
+        await tx.clientUser.delete({ where: { id: cu.id } });
+
+        // Revoke active portal tokens for this client scope
+        await tx.personRefreshToken.updateMany({
+          where: { personId: id, accessType: 'CLIENT_USER', revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+
+        // If Person has no remaining ClientUser AND no Operator, null the passwordHash
+        // so they cannot log in even if re-added later with stale credentials.
+        const remaining = await tx.person.findUnique({
+          where: { id },
+          include: {
+            operator: { select: { id: true } },
+            _count: { select: { clientUsers: true } },
+          },
+        });
+        if (remaining && !remaining.operator && remaining._count.clientUsers === 0) {
+          await tx.person.update({ where: { id }, data: { passwordHash: null } });
+        }
       });
-      reply.code(204);
-    } catch (err) {
-      if (isPrismaError(err, 'P2025')) {
-        return fastify.httpErrors.notFound('Person not found');
-      }
-      // P2003: foreign key constraint violation — person is referenced by ticket followers
-      if (isPrismaError(err, 'P2003')) {
-        return fastify.httpErrors.conflict('Cannot delete person — they are a follower on one or more tickets. Remove them from tickets first.');
-      }
-      throw err;
-    }
-  });
+
+      return { message: 'Person removed from client' };
+    },
+  );
 
   /**
    * POST /api/people/:id/reset-password
-   * Reset a portal user's password.
+   * Reset a portal user's password. `id` is the Person.id.
    */
   fastify.post<{ Params: { id: string }; Body: { password: string } }>(
     '/api/people/:id/reset-password',
     async (request, reply) => {
       const { id } = request.params;
-      const { password } = request.body;
-
-      if (!canManagePeople(request)) {
-        return reply.code(403).send({ error: 'Forbidden: insufficient role to manage people' });
-      }
+      const { password } = request.body ?? {};
       if (!password || password.length < 8) {
         return reply.code(400).send({ error: 'Password must be at least 8 characters' });
       }
 
-      const target = await fastify.db.person.findUnique({ where: { id } });
-      if (!target) {
-        return reply.code(404).send({ error: 'Person not found' });
-      }
-      const access = await checkClientAccess(fastify, request, target.clientId);
-      if (!access.allowed) {
+      // Scope check: the person must have a ClientUser in the caller's scope
+      const cu = await fastify.db.clientUser.findFirst({
+        where: { personId: id },
+        select: { clientId: true },
+        orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+      });
+      if (!cu) return reply.code(404).send({ error: 'Person not found' });
+
+      if (!(await assertClientInScope(request, cu.clientId))) {
         return reply.code(403).send({ error: 'Forbidden: client not in scope' });
       }
-      if (!target.hasPortalAccess) {
-        return reply.code(400).send({ error: 'Person does not have portal access' });
+
+      // Global Person mutation gate — passwordHash is a global credential
+      // that authenticates the Person across every tenant AND (if they have
+      // one) their Operator session. A client-scoped caller must not be
+      // able to reset the password of a Person whose access extends beyond
+      // their scope, because that password change would propagate.
+      if (!(await assertPersonMutationScope(request, id))) {
+        return reply
+          .code(403)
+          .send({ error: 'Forbidden: cannot reset password for a Person whose access extends beyond your scope' });
       }
 
       const passwordHash = await bcrypt.hash(password, 10);
-      await fastify.db.person.update({
-        where: { id },
-        data: { passwordHash },
-      });
-
+      await fastify.db.person.update({ where: { id }, data: { passwordHash } });
       return { message: 'Password reset successfully' };
     },
   );

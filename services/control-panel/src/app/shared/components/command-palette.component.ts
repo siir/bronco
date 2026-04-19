@@ -250,7 +250,7 @@ export class CommandPaletteComponent {
   private readonly personSearch$ = new Subject<string>();
   private readonly isScoped = computed(() => {
     const user = this.auth.currentUser();
-    return user?.isPortalOpsUser === true && !!user?.clientId;
+    return !!user?.clientId;
   });
 
   readonly query = signal('');
@@ -590,7 +590,7 @@ export class CommandPaletteComponent {
 
   private loadItems(): void {
     const user = this.auth.currentUser();
-    const isScoped = user?.isPortalOpsUser === true && !!user?.clientId;
+    const isScoped = !!user?.clientId;
 
     const newItems: PaletteItem[] = [];
 

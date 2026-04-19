@@ -83,14 +83,17 @@ export async function notifyClientContactDM(
   const entry = opts.clientSlackManager.getClientEntry(clientId);
   if (!entry) return;
 
-  const person = await opts.db.person.findUnique({
-    where: { id: contactId },
+  // TODO: #219 Wave 2 — Person no longer carries slackUserId in the unified
+  // model. Resolve via Operator extension for now; Wave 2 may add a per-user
+  // Slack field on ClientUser for non-operator client contacts.
+  const operator = await opts.db.operator.findFirst({
+    where: { personId: contactId, slackUserId: { not: null } },
     select: { slackUserId: true },
   });
-  if (!person?.slackUserId) return;
+  if (!operator?.slackUserId) return;
 
   try {
-    await entry.client.sendDM(person.slackUserId, message);
+    await entry.client.sendDM(operator.slackUserId, message);
     logger.info({ clientId, contactId }, 'Client contact DM sent');
   } catch (err) {
     logger.warn({ err, clientId, contactId }, 'Failed to send client contact DM');

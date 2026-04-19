@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { simpleParser } from 'mailparser';
 import type { Job, Queue } from 'bullmq';
-import { type PrismaClient, ensureClientUser } from '@bronco/db';
+import { type PrismaClient } from '@bronco/db';
 import { TaskType, EmailClassification, EmailProcessingStatus, TicketSource } from '@bronco/shared-types';
 import type { IngestionJob, EmailIngestionPayload } from '@bronco/shared-types';
 import type { AIRouter } from '@bronco/ai-provider';
@@ -167,16 +167,35 @@ Respond with ONLY one word: ACTIONABLE or NOISE`,
     }
 
     // --- Person / client resolution ---
+    // Under the unified identity model a Person is global — pick the first
+    // ClientUser row to route the ticket. Wave 2A may refine the selection
+    // logic (e.g. most-recent client, explicit portal clientId).
     const person = await db.person.findFirst({
       where: { email: { equals: fromAddress, mode: 'insensitive' } },
-      include: { client: true },
+      include: {
+        clientUsers: {
+          include: { client: { select: { id: true, name: true } } },
+          // Prefer the primary-contact row, then oldest — matches the portal
+          // login resolution rule. Without this a Person linked to multiple
+          // tenants could route email to the wrong client.
+          orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+          take: 1,
+        },
+      },
     });
+    const personClientId = person?.clientUsers[0]?.clientId ?? null;
+    const personClientName = person?.clientUsers[0]?.client.name ?? null;
 
-    appLog.info(person ? `Sender matched to person: ${person.name} (client: ${person.client.name})` : `No person match for sender: ${fromAddress}`, { from: fromAddress, personId: person?.id, clientId: person?.clientId });
+    appLog.info(
+      person
+        ? `Sender matched to person: ${person.name}${personClientName ? ` (client: ${personClientName})` : ' (no client linkage yet)'}`
+        : `No person match for sender: ${fromAddress}`,
+      { from: fromAddress, personId: person?.id, clientId: personClientId },
+    );
 
     // Domain-based routing
     let domainClient: { id: string } | null = null;
-    if (!person) {
+    if (!person || !personClientId) {
       const domain = fromAddress.split('@')[1]?.toLowerCase();
       if (domain) {
         domainClient = await db.client.findFirst({
@@ -191,23 +210,10 @@ Respond with ONLY one word: ACTIONABLE or NOISE`,
       }
     }
 
-    logClientId = person?.clientId ?? domainClient?.id ?? null;
-
-    // Auto-provision CLIENT user
-    if (person) {
-      try {
-        await ensureClientUser(db, {
-          email: person.email,
-          name: person.name,
-          clientId: person.clientId,
-        });
-      } catch (error) {
-        appLog.error('Failed to auto-provision CLIENT user', { err: error, email: person.email });
-      }
-    }
+    logClientId = personClientId ?? domainClient?.id ?? null;
 
     // --- Resolve client ID (fall back to _unknown) ---
-    const clientId = person?.clientId ?? domainClient?.id ?? (
+    const clientId = personClientId ?? domainClient?.id ?? (
       await db.client.upsert({
         where: { shortCode: '_unknown' },
         create: { name: 'Unknown', shortCode: '_unknown' },

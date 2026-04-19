@@ -10,32 +10,36 @@ loadEnv({ path: resolve(import.meta.dirname, '../../../.env') });
 const prisma = new PrismaClient();
 
 async function main() {
-  // Create default admin user (password: changeme — change immediately in production)
+  // Create default admin person + operator (password: changeme — change
+  // immediately in production). The Person holds the credential; the Operator
+  // extension record grants control-panel access with ADMIN role.
+  const adminEmail = 'admin@bronco.dev';
+  const adminEmailLower = adminEmail.toLowerCase();
   const adminPasswordHash = await bcrypt.hash('changeme', 12);
-  const adminUser = await prisma.user.upsert({
-    where: { email: 'admin@bronco.dev' },
-    update: {},
+
+  const adminPerson = await prisma.person.upsert({
+    where: { emailLower: adminEmailLower },
+    update: { passwordHash: adminPasswordHash },
     create: {
-      email: 'admin@bronco.dev',
-      passwordHash: adminPasswordHash,
+      email: adminEmail,
+      emailLower: adminEmailLower,
       name: 'Admin',
-      role: 'ADMIN',
+      passwordHash: adminPasswordHash,
     },
   });
-  console.log('Seeded admin user:', adminUser.email);
+  console.log('Seeded admin person:', adminPerson.email);
 
-  // Create default operator (mirrors the admin user for single-operator deployments)
   const defaultOperator = await prisma.operator.upsert({
-    where: { email: 'admin@bronco.dev' },
+    where: { personId: adminPerson.id },
     update: {},
     create: {
-      email: 'admin@bronco.dev',
-      name: 'Admin',
+      personId: adminPerson.id,
+      role: 'ADMIN',
       notifyEmail: true,
       notifySlack: false,
     },
   });
-  console.log('Seeded default operator:', defaultOperator.email);
+  console.log('Seeded default operator for person:', adminPerson.email, '(op id:', defaultOperator.id, ')');
 
   // Create a sample client for development
   const client = await prisma.client.upsert({
@@ -50,16 +54,28 @@ async function main() {
 
   console.log('Seeded client:', client.name);
 
-  // Create a sample person
+  // Create a sample person (contact — no portal access, no Operator extension)
+  const demoEmail = 'demo@example.com';
   const person = await prisma.person.upsert({
     where: { id: '00000000-0000-0000-0000-000000000001' },
     update: {},
     create: {
       id: '00000000-0000-0000-0000-000000000001',
-      clientId: client.id,
       name: 'Demo User',
-      email: 'demo@example.com',
-      role: 'Architect',
+      email: demoEmail,
+      emailLower: demoEmail.toLowerCase(),
+    },
+  });
+
+  // Mark the demo person as the primary contact for the demo client via a
+  // ClientUser extension row (primary-contact lives on ClientUser now).
+  await prisma.clientUser.upsert({
+    where: { personId_clientId: { personId: person.id, clientId: client.id } },
+    update: { isPrimary: true },
+    create: {
+      personId: person.id,
+      clientId: client.id,
+      userType: 'USER',
       isPrimary: true,
     },
   });

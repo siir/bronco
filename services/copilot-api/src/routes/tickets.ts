@@ -1,11 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import type { Queue } from 'bullmq';
 import type { AIRouter } from '@bronco/ai-provider';
-import { ensureClientUser, Prisma } from '@bronco/db';
+import { Prisma } from '@bronco/db';
 import { TicketStatus, TicketCategory, TicketEventType, Priority, TicketSource, TaskType, isClosedStatus, AnalysisStatus, SufficiencyStatus, LogLevel } from '@bronco/shared-types';
 import { getSelfAnalysisConfig } from '@bronco/shared-utils';
 import type { TicketCreatedJob, IngestionJob } from '@bronco/shared-types';
-import { resolveClientScope, getOperatorClientIds, scopeToWhere } from '../plugins/client-scope.js';
+import { resolveClientScope, scopeToWhere } from '../plugins/client-scope.js';
 
 interface TicketRouteOpts {
   logSummarizeQueue?: Queue;
@@ -94,9 +94,7 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
       }
 
       // Resolve caller's client scope (platform admin → all, scoped operator → assigned, person → single)
-      const scope = await resolveClientScope(request, (operatorId) =>
-        getOperatorClientIds(fastify.db, operatorId),
-      );
+      const scope = await resolveClientScope(request);
       let scopedClientIdFilter: string | { in: string[] } | undefined;
       if (scope.type === 'assigned') {
         // No assigned clients → empty result set
@@ -156,9 +154,7 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
         return fastify.httpErrors.badRequest('limit must be between 1 and 50');
       }
 
-      const scope = await resolveClientScope(request, (operatorId) =>
-        getOperatorClientIds(fastify.db, operatorId),
-      );
+      const scope = await resolveClientScope(request);
       if (scope.type === 'assigned' && scope.clientIds.length === 0) return [];
 
       const clientWhere = scopeToWhere(scope);
@@ -283,7 +279,16 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
       include: {
         client: true,
         system: true,
-        followers: { include: { person: true }, orderBy: { createdAt: 'asc' } },
+        followers: {
+          // Explicit Person select — never spread `person`. `passwordHash`
+          // and `emailLower` must not leak via the ticket detail response.
+          include: {
+            person: {
+              select: { id: true, name: true, email: true, phone: true, isActive: true },
+            },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
         events: { orderBy: { createdAt: 'asc' } },
         artifacts: true,
       },
@@ -314,12 +319,25 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     if (category && !VALID_CATEGORIES.has(category)) return fastify.httpErrors.badRequest(`Invalid category: ${category}`);
 
     if (requesterId) {
-      const requesterPerson = await fastify.db.person.findUnique({
-        where: { id: requesterId },
-        select: { clientId: true },
+      // Tenant validation: the requester must be linked to the target
+      // client via a ClientUser row, OR be a platform operator
+      // (Operator.clientId === null), OR be a client-scoped operator
+      // pinned to THIS client. A STANDARD operator scoped to a DIFFERENT
+      // client is not a valid requester here — they can't legitimately
+      // author a ticket on behalf of a tenant they don't serve.
+      const requesterPerson = await fastify.db.person.findFirst({
+        where: {
+          id: requesterId,
+          OR: [
+            { clientUsers: { some: { clientId } } },
+            { operator: { clientId: null } },
+            { operator: { clientId } },
+          ],
+        },
+        select: { id: true },
       });
-      if (!requesterPerson || requesterPerson.clientId !== clientId) {
-        return fastify.httpErrors.badRequest(`requesterId does not belong to client ${clientId}`);
+      if (!requesterPerson) {
+        return fastify.httpErrors.badRequest(`requesterId ${requesterId} is not associated with client ${clientId}`);
       }
     }
 
@@ -353,21 +371,6 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
         attempts: 4,
         backoff: { type: 'exponential', delay: 30_000 },
       });
-
-      // Auto-provision a CLIENT user account for the requester
-      if (requesterId) {
-        const person = await fastify.db.person.findUnique({
-          where: { id: requesterId },
-          select: { email: true, name: true, clientId: true },
-        });
-        if (person) {
-          try {
-            await ensureClientUser(fastify.db, person);
-          } catch (error) {
-            fastify.log.error({ err: error }, 'Failed to auto-provision CLIENT user');
-          }
-        }
-      }
 
       reply.code(202);
       return { queued: true, source: job.source, clientId };
@@ -424,21 +427,6 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
         attempts: 4,
         backoff: { type: 'exponential', delay: 30_000 },
       });
-    }
-
-    // Auto-provision a CLIENT user account for the requester
-    if (requesterId) {
-      const person = await fastify.db.person.findUnique({
-        where: { id: requesterId },
-        select: { email: true, name: true, clientId: true },
-      });
-      if (person) {
-        try {
-          await ensureClientUser(fastify.db, person);
-        } catch (error) {
-          fastify.log.error({ err: error }, 'Failed to auto-provision CLIENT user');
-        }
-      }
     }
 
     reply.code(201);
@@ -504,10 +492,13 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
       }
       let resolvedOperatorName: string | null = null;
       if (assignedOperatorId !== undefined && assignedOperatorId !== null) {
-        const operator = await fastify.db.operator.findUnique({ where: { id: assignedOperatorId }, select: { id: true, isActive: true, name: true } });
+        const operator = await fastify.db.operator.findUnique({
+          where: { id: assignedOperatorId },
+          select: { id: true, person: { select: { name: true, isActive: true } } },
+        });
         if (!operator) return fastify.httpErrors.badRequest('Referenced operator not found');
-        if (!operator.isActive) return fastify.httpErrors.badRequest('Cannot assign to an inactive operator');
-        resolvedOperatorName = operator.name;
+        if (!operator.person.isActive) return fastify.httpErrors.badRequest('Cannot assign to an inactive operator');
+        resolvedOperatorName = operator.person.name;
       }
 
       const ticket = await fastify.db.ticket.update({

@@ -321,7 +321,7 @@ const STATUS_MAP: Record<string, 'open' | 'in_progress' | 'analyzing' | 'resolve
               </div>
               <div class="field-row">
                 <span class="field-label">People</span>
-                <span class="field-value">{{ c._count?.people ?? 0 }}</span>
+                <span class="field-value">{{ c._count?.clientUsers ?? 0 }}</span>
               </div>
               <div class="field-row">
                 <span class="field-label">Invoices</span>
