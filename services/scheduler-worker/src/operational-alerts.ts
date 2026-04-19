@@ -430,10 +430,20 @@ async function runAlertCheck(opts: OperationalAlertOpts): Promise<void> {
 
   const operator = await db.operator.findUnique({
     where: { id: config.recipientOperatorId },
-    include: { person: { select: { email: true } } },
+    include: { person: { select: { email: true, isActive: true } } },
   });
   if (!operator) {
     logger.warn({ recipientOperatorId: config.recipientOperatorId }, 'Recipient operator not found — skipping alerts');
+    return;
+  }
+  // Person.isActive is the master auth/notification switch under the unified
+  // model. Skip sending to a deactivated Person's email — the account no
+  // longer has access and shouldn't be receiving operational alerts.
+  if (!operator.person.isActive) {
+    logger.warn(
+      { recipientOperatorId: config.recipientOperatorId, operatorEmail: operator.person.email },
+      'Recipient operator Person is inactive — skipping alerts',
+    );
     return;
   }
   const operatorEmail = operator.person.email;
