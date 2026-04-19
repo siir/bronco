@@ -249,7 +249,7 @@ export function registerPeopleTools(server: McpServer, { db }: ServerDeps): void
 
         let clientUser = null;
         if (clientId && (userType !== undefined || isPrimary !== undefined)) {
-          const cu = await db.clientUser.findUnique({
+          const cu = await tx.clientUser.findUnique({
             where: { personId_clientId: { personId, clientId } },
           });
           if (cu) {
