@@ -3,9 +3,6 @@ import bcrypt from 'bcryptjs';
 import { ClientUserType } from '@bronco/shared-types';
 import type { PortalUser } from '../plugins/auth.js';
 
-// TODO: #219 Wave 2A — full portal-user admin CRUD against the unified
-// Person + ClientUser model. Wave 1 reuses the existing endpoints with a
-// minimal rewrite so the portal's "manage users" tab keeps working.
 
 function requirePortalAdmin(request: { portalUser?: PortalUser }): PortalUser {
   if (!request.portalUser) {

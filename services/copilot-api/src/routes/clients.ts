@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { AiMode } from '@bronco/shared-types';
-import { resolveClientScope, scopeToWhere, getOperatorClientIds } from '../plugins/client-scope.js';
+import { resolveClientScope, scopeToWhere } from '../plugins/client-scope.js';
 
 const VALID_AI_MODES = new Set<string>(Object.values(AiMode));
 
@@ -32,9 +32,7 @@ export async function clientRoutes(fastify: FastifyInstance): Promise<void> {
         return fastify.httpErrors.badRequest('limit must be between 1 and 50');
       }
 
-      const scope = await resolveClientScope(request, (operatorId) =>
-        getOperatorClientIds(fastify.db, operatorId),
-      );
+      const scope = await resolveClientScope(request);
       if (scope.type === 'assigned' && scope.clientIds.length === 0) return [];
 
       // Translate clientId scope to id filter (clients are queried by their own id).
@@ -81,9 +79,7 @@ export async function clientRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   fastify.get('/api/clients', async (request) => {
-    const scope = await resolveClientScope(request, (operatorId) =>
-      getOperatorClientIds(fastify.db, operatorId),
-    );
+    const scope = await resolveClientScope(request);
 
     // Apply scope filter — translate clientId to client.id for direct client queries
     const scopeWhere = scopeToWhere(scope);

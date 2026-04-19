@@ -1,9 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-
-// TODO: #219 Wave 2A — operators CRUD against the unified Person + Operator
-// model. Wave 1 keeps this endpoint working by joining Operator rows to
-// their Person and flattening `email`/`name`/`isActive`/`isAdmin` fields
-// into the response shape the frontend still expects.
+import { OperatorRole } from '@bronco/shared-types';
 
 interface OperatorResponse {
   id: string;
@@ -150,13 +146,15 @@ export async function operatorRoutes(fastify: FastifyInstance): Promise<void> {
       name?: string;
       email?: string;
       isActive?: boolean;
+      role?: string;
+      clientId?: string | null;
       notifyEmail?: boolean;
       notifySlack?: boolean;
       slackUserId?: string | null;
     };
   }>('/api/operators/:id', async (request, reply) => {
     const { id } = request.params;
-    const { name, email: rawEmail, isActive, notifyEmail, notifySlack, slackUserId } = request.body ?? {};
+    const { name, email: rawEmail, isActive, role, clientId, notifyEmail, notifySlack, slackUserId } = request.body ?? {};
 
     const target = await fastify.db.operator.findUnique({
       where: { id },
@@ -164,6 +162,10 @@ export async function operatorRoutes(fastify: FastifyInstance): Promise<void> {
     });
     if (!target) {
       return reply.code(404).send({ error: 'Operator not found' });
+    }
+
+    if (role !== undefined && role !== OperatorRole.ADMIN && role !== OperatorRole.STANDARD) {
+      return reply.code(400).send({ error: `Invalid role. Must be ADMIN or STANDARD` });
     }
 
     const email = rawEmail?.trim();
@@ -182,6 +184,10 @@ export async function operatorRoutes(fastify: FastifyInstance): Promise<void> {
           : null
         : undefined;
 
+    // clientId: undefined means "don't change"; null means "clear to platform-wide"
+    const clientIdUpdate =
+      clientId !== undefined ? (clientId === null ? { clientId: null } : { clientId }) : {};
+
     const updated = await fastify.db.$transaction(async (tx) => {
       await tx.person.update({
         where: { id: target.personId },
@@ -195,6 +201,8 @@ export async function operatorRoutes(fastify: FastifyInstance): Promise<void> {
       return tx.operator.update({
         where: { id },
         data: {
+          ...(role !== undefined && { role: role as OperatorRole }),
+          ...clientIdUpdate,
           ...(notifyEmail !== undefined && { notifyEmail }),
           ...(notifySlack !== undefined && { notifySlack }),
           ...(trimmedSlackUserId !== undefined && { slackUserId: trimmedSlackUserId }),

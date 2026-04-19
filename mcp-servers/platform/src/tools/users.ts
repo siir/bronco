@@ -2,10 +2,9 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { ServerDeps } from '../server.js';
 
-// TODO: #219 Wave 2B — refresh this tool for the unified Person + Operator
-// model. Wave 1 rewrites the query against Person joined to Operator so the
-// command palette keeps working; Wave 2B may rename the tool to
-// `search_operators`.
+// #219 Wave 2B — search_users operates on Operator joined to Person.
+// Tool name kept as `search_users` for backward compat; Wave 2C migrates consumers.
+// Role is returned from Operator.role directly (STANDARD | ADMIN) — no legacy slug mapping.
 export function registerUserTools(server: McpServer, { db }: ServerDeps): void {
   server.tool(
     'search_users',
@@ -41,7 +40,7 @@ export function registerUserTools(server: McpServer, { db }: ServerDeps): void {
         id: p.id,
         name: p.name,
         email: p.email,
-        role: p.operator?.role ?? 'STANDARD',
+        role: p.operator!.role,
         isActive: p.isActive,
       }));
 

@@ -37,10 +37,6 @@ export interface ActiveOperatorsLoader {
 
 /**
  * Load active Operators and project them into {@link OperatorRecord} shape.
- * Bridge helper for #219 Wave 1 — prior callers queried `operator.isActive`
- * directly; the unified schema moved `isActive`/`email`/`name` to Person.
- * TODO(#219 Wave 2A): consider inlining at each call site or replacing with a
- * Prisma extension.
  */
 export async function getActiveOperatorRecords(db: ActiveOperatorsLoader): Promise<OperatorRecord[]> {
   const rows = await db.operator.findMany({

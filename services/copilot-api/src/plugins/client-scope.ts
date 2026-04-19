@@ -1,18 +1,5 @@
 import type { FastifyRequest } from 'fastify';
-import type { PrismaClient } from '@bronco/db';
 import { OperatorRole } from '@bronco/shared-types';
-
-/**
- * Look up the list of client IDs assigned to a scoped operator. Centralised
- * here so it isn't duplicated across every route file that calls resolveClientScope.
- */
-export async function getOperatorClientIds(db: PrismaClient, operatorId: string): Promise<string[]> {
-  const rows = await db.operatorClient.findMany({
-    where: { operatorId },
-    select: { clientId: true },
-  });
-  return rows.map((r) => r.clientId);
-}
 
 export type ClientScope =
   | { type: 'all' }
@@ -27,15 +14,8 @@ export type ClientScope =
  * - Operator with `clientId !== null` → single-client scope (client-scoped operator).
  * - Portal user → single-client scope (their own client).
  * - API-key (no user, no portal user) → full access.
- *
- * `getOperatorClientIds` is kept as an optional second argument to minimise
- * churn across callers in Wave 1. TODO(#219 Wave 2A): drop the second arg and
- * resolve the mapping internally against the Prisma client.
  */
-export async function resolveClientScope(
-  request: FastifyRequest,
-  getOperatorClientIds?: (operatorId: string) => Promise<string[]>,
-): Promise<ClientScope> {
+export async function resolveClientScope(request: FastifyRequest): Promise<ClientScope> {
   if (request.user) {
     if (request.user.clientId) {
       return { type: 'single', clientId: request.user.clientId };
@@ -43,11 +23,11 @@ export async function resolveClientScope(
     if (request.user.role === OperatorRole.ADMIN) {
       return { type: 'all' };
     }
-    if (getOperatorClientIds) {
-      const clientIds = await getOperatorClientIds(request.user.operatorId);
-      return { type: 'assigned', clientIds };
-    }
-    return { type: 'all' };
+    const rows = await request.server.db.operatorClient.findMany({
+      where: { operatorId: request.user.operatorId },
+      select: { clientId: true },
+    });
+    return { type: 'assigned', clientIds: rows.map((r) => r.clientId) };
   }
 
   if (request.portalUser) {

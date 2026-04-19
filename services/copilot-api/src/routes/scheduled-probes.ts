@@ -6,7 +6,7 @@ import cronParser from 'cron-parser';
 const { parseExpression } = cronParser;
 import { ProbeAction, TicketCategory, IntegrationType, BUILTIN_PROBE_TOOL_NAMES, BUILTIN_PROBE_TOOLS } from '@bronco/shared-types';
 import { buildUtcCron } from '@bronco/shared-utils';
-import { resolveClientScope, scopeToWhere, getOperatorClientIds } from '../plugins/client-scope.js';
+import { resolveClientScope, scopeToWhere } from '../plugins/client-scope.js';
 
 const VALID_ACTIONS = new Set(Object.values(ProbeAction));
 const VALID_CATEGORIES = new Set(Object.values(TicketCategory));
@@ -111,9 +111,7 @@ export async function scheduledProbeRoutes(
         return fastify.httpErrors.badRequest('limit must be between 1 and 50');
       }
 
-      const scope = await resolveClientScope(request, (operatorId) =>
-        getOperatorClientIds(fastify.db, operatorId),
-      );
+      const scope = await resolveClientScope(request);
       if (scope.type === 'assigned' && scope.clientIds.length === 0) return [];
 
       const clientWhere = scopeToWhere(scope);

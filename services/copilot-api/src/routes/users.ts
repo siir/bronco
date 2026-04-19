@@ -4,10 +4,6 @@ import { OperatorRole } from '@bronco/shared-types';
 import type { AuthUser } from '../plugins/auth.js';
 import { createLogger } from '@bronco/shared-utils';
 
-// TODO: #219 Wave 2A — rewrite as operators.ts (the URL path `/api/users`
-// stays for Wave 1 to minimise frontend churn; Wave 2A decides whether to
-// rename). Handlers below are updated just enough to keep the build green
-// and basic CRUD working against the unified Person + Operator model.
 
 const logger = createLogger('users');
 
