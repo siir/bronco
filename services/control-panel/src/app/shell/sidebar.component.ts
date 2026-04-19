@@ -1,4 +1,4 @@
-import { Component, computed, inject } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { AuthService } from '../core/services/auth.service.js';
@@ -9,11 +9,13 @@ import { FailedJobsService } from '../core/services/failed-jobs.service.js';
 import { APP_CONSTANTS } from '../core/config/app-constants.js';
 import { NAV_ROUTES, NAV_SECTIONS, NAV_SECTION_LABELS, type NavRoute, type NavSection } from '../core/nav/nav-routes.js';
 import { isScopedOpsAllowedPath } from '../core/guards/scoped-ops-allowlist.js';
+import { DialogComponent } from '../shared/components/dialog.component.js';
+import { IconComponent } from '../shared/components/icon.component.js';
 
 @Component({
   selector: 'app-sidebar',
   standalone: true,
-  imports: [RouterLink, RouterLinkActive],
+  imports: [RouterLink, RouterLinkActive, DialogComponent, IconComponent],
   template: `
     <nav class="sidebar">
       <div class="brand">
@@ -49,16 +51,42 @@ import { isScopedOpsAllowedPath } from '../core/guards/scoped-ops-allowlist.js';
           }
         }
 
-        <a routerLink="/profile" class="theme-indicator">
+        <button type="button" class="theme-indicator" (click)="themeDialogOpen.set(true)">
           <span class="theme-dot" [style.background]="themeService.currentTheme().accentColor"></span>
           <span>{{ themeService.currentTheme().name }}</span>
-        </a>
+        </button>
       </div>
 
       <div class="sidebar-footer">
         <span class="version-label">Project {{ projectName }} {{ version() }}</span>
       </div>
     </nav>
+
+    <app-dialog title="Theme" [open]="themeDialogOpen()" (openChange)="themeDialogOpen.set($event)" maxWidth="640px">
+      <div class="theme-grid">
+        @for (theme of themeService.themes; track theme.id) {
+          <button
+            type="button"
+            class="theme-card"
+            [class.theme-card-active]="theme.id === themeService.currentTheme().id"
+            [attr.aria-pressed]="theme.id === themeService.currentTheme().id"
+            (click)="themeService.setTheme(theme.id)">
+            <div class="theme-card-preview" [class.theme-card-dark]="theme.isDark">
+              <span class="theme-swatch" [style.background]="theme.accentColor"></span>
+            </div>
+            <div class="theme-card-info">
+              <span class="theme-card-name">{{ theme.name }}</span>
+              <span class="theme-card-desc">{{ theme.description }}</span>
+            </div>
+            @if (theme.id === themeService.currentTheme().id) {
+              <span class="theme-check">
+                <app-icon name="check" size="sm" />
+              </span>
+            }
+          </button>
+        }
+      </div>
+    </app-dialog>
   `,
   styles: [`
     .sidebar {
@@ -159,6 +187,10 @@ import { isScopedOpsAllowedPath } from '../core/guards/scoped-ops-allowlist.js';
       color: var(--text-tertiary);
       text-decoration: none;
       cursor: pointer;
+      background: none;
+      border: none;
+      font-family: var(--font-primary);
+      width: 100%;
       transition: color 120ms ease;
     }
     .theme-indicator:hover {
@@ -215,11 +247,88 @@ import { isScopedOpsAllowedPath } from '../core/guards/scoped-ops-allowlist.js';
         padding: 8px 16px 12px;
       }
     }
+
+    .theme-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+    .theme-card {
+      position: relative;
+      background: var(--bg-page);
+      border: 2px solid var(--border-light);
+      border-radius: var(--radius-md);
+      padding: 0;
+      cursor: pointer;
+      text-align: left;
+      font-family: var(--font-primary);
+      overflow: hidden;
+      transition: border-color 150ms ease, box-shadow 150ms ease;
+    }
+    .theme-card:hover {
+      border-color: var(--border-medium);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    }
+    .theme-card-active {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent);
+    }
+    .theme-card-active:hover {
+      border-color: var(--accent);
+    }
+    .theme-card-preview {
+      height: 48px;
+      background: #f5f5f7;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-bottom: 1px solid var(--border-light);
+    }
+    .theme-card-preview.theme-card-dark {
+      background: #1a1a1a;
+    }
+    .theme-swatch {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    }
+    .theme-card-info {
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .theme-card-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .theme-card-desc {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      line-height: 1.3;
+    }
+    .theme-check {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: var(--text-on-accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
   `],
 })
 export class SidebarComponent {
   readonly authService = inject(AuthService);
   readonly themeService = inject(ThemeService);
+  readonly themeDialogOpen = signal(false);
   private readonly versionService = inject(VersionService);
   private readonly ticketService = inject(TicketService);
   private readonly failedJobsService = inject(FailedJobsService);
