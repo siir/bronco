@@ -84,30 +84,15 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
     };
   }
 
-  // Wave 1 BC shim: the ticket-portal frontend reads `user.id` and
-  // `user.client.{name, shortCode}` from the login/register responses.
-  // The canonical PortalMeResponse dropped those fields in favor of
-  // `personId` + a separate `clientId`. Wave 2C migrates the frontend;
-  // until then we ship both shapes from this endpoint.
-  type PortalMeResponseShim = PortalMeResponse & {
-    id: string;
-    client: { name: string; shortCode: string };
-  };
-
-  function buildPortalMeShim(resolved: ResolvedPortalUser): PortalMeResponseShim {
+  function buildPortalMe(resolved: ResolvedPortalUser): PortalMeResponse {
     return {
       personId: resolved.person.id,
-      id: resolved.person.id,
       clientUserId: resolved.clientUser.id,
       email: resolved.person.email,
       name: resolved.person.name,
       userType: resolved.clientUser.userType,
       clientId: resolved.clientUser.clientId,
       isPrimary: resolved.clientUser.isPrimary,
-      client: {
-        name: resolved.client.name,
-        shortCode: resolved.client.shortCode,
-      },
     };
   }
 
@@ -116,7 +101,7 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
     accessToken: string,
     refreshToken: string,
   ): PortalLoginResponse {
-    return { accessToken, refreshToken, user: buildPortalMeShim(resolved) };
+    return { accessToken, refreshToken, user: buildPortalMe(resolved) };
   }
 
   /**
@@ -348,7 +333,7 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
       const response: PortalLoginResponse = {
         accessToken,
         refreshToken,
-        user: buildPortalMeShim(resolved),
+        user: buildPortalMe(resolved),
       };
       return response;
     },
@@ -388,18 +373,14 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
       return reply.code(401).send({ error: 'User not found or inactive' });
     }
 
-    // Same BC shim as login — expose both `personId` and legacy `id`, plus
-    // the `client` object. Wave 2C drops the shim.
-    const response: PortalMeResponse & { id: string; client: { name: string; shortCode: string } } = {
+    const response: PortalMeResponse = {
       personId: cu.person.id,
-      id: cu.person.id,
       clientUserId: cu.id,
       email: cu.person.email,
       name: cu.person.name,
       userType: cu.userType,
       clientId: cu.clientId,
       isPrimary: cu.isPrimary,
-      client: cu.client,
     };
     return response;
   });

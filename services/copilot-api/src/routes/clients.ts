@@ -143,13 +143,9 @@ export async function clientRoutes(fastify: FastifyInstance): Promise<void> {
       _sum: { totalBilledCostUsd: true },
     });
 
-    // Surface `_count.people` alongside `_count.clientUsers` so the control
-    // panel (which still reads `_count.people`) keeps working until Wave 2C
-    // migrates the frontend. Same number; just two keys.
     return {
       ...client,
       invoicedTotalUsd: invoiceAgg._sum.totalBilledCostUsd ?? 0,
-      _count: { ...client._count, people: client._count.clientUsers },
     };
   });
 

@@ -24,7 +24,7 @@ import { FormFieldComponent, TextInputComponent, SelectComponent, ToggleSwitchCo
       <app-form-field label="Role">
         <app-select [value]="role" [options]="roleOptions" (valueChange)="role = $event" />
       </app-form-field>
-      @if (role === 'OPERATOR' || role === 'ADMIN') {
+      @if (role === 'STANDARD' || role === 'ADMIN') {
         <app-form-field label="Slack User ID" hint="Click user profile in Slack → More → Copy member ID">
           <app-text-input [value]="slackUserId" placeholder="U0123456789" (valueChange)="slackUserId = $event" />
         </app-form-field>
@@ -62,14 +62,14 @@ export class UserDialogComponent {
   name = '';
   email = '';
   password = '';
-  role: string = 'OPERATOR';
+  role: string = 'STANDARD';
   slackUserId = '';
   isActive = true;
   isSelf = false;
 
   roleOptions = [
     { value: 'ADMIN', label: 'Admin' },
-    { value: 'OPERATOR', label: 'Operator' },
+    { value: 'STANDARD', label: 'Standard' },
   ];
 
   constructor() {
@@ -92,7 +92,7 @@ export class UserDialogComponent {
         } else {
           this.name = '';
           this.email = '';
-          this.role = 'OPERATOR';
+          this.role = 'STANDARD';
           this.slackUserId = '';
           this.isActive = true;
           this.isSelf = false;
