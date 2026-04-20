@@ -10,10 +10,14 @@ import type {
   AIToolUseBlock,
 } from '@bronco/shared-types';
 import {
+  buildTruncatedPreview,
   executeAgenticToolCall,
+  getToolResultMaxTokens,
   parseSufficiencyEvaluation,
   saveMcpToolArtifact,
+  shouldTruncate,
   SUFFICIENCY_EVAL_INSTRUCTIONS,
+  TRUNCATION_SYSTEM_PROMPT_SNIPPET,
   type AnalysisDeps,
   type AnalysisPipelineContext,
   type AnalysisResult,
@@ -53,6 +57,7 @@ export async function runFlatAnalysis(
   const stepConfig = step.config as { systemPromptOverride?: string } | null;
 
   const defaultMaxTokens = await deps.loadDefaultMaxTokens?.() ?? undefined;
+  const toolResultMaxTokens = await getToolResultMaxTokens(db);
 
   // Build system prompt with all available context
   const systemParts: string[] = [];
@@ -105,6 +110,7 @@ export async function runFlatAnalysis(
   if (dbContext) systemParts.push('', '## Previously Gathered DB Context', dbContext);
   if (stepConfig?.systemPromptOverride) systemParts.push('', stepConfig.systemPromptOverride);
   systemParts.push(SUFFICIENCY_EVAL_INSTRUCTIONS);
+  systemParts.push(TRUNCATION_SYSTEM_PROMPT_SNIPPET);
 
   const agenticSystemPrompt = systemParts.join('\n');
 
@@ -198,27 +204,31 @@ export async function runFlatAnalysis(
       const start = Date.now();
       const result = await executeAgenticToolCall(toolUse, mcpIntegrations, repoIdByPrefix, clientId, ticketId);
       const elapsed = Date.now() - start;
+
+      const fullResult = result.result;
+      const fullSizeChars = fullResult.length;
+      const agenticArtifactId = artifactStoragePath && !result.isError ? randomUUID() : undefined;
+      const truncated = !result.isError && !!agenticArtifactId && shouldTruncate(fullResult, toolResultMaxTokens);
+      const contentForModel = truncated && agenticArtifactId
+        ? buildTruncatedPreview(fullResult, agenticArtifactId)
+        : fullResult;
+
       toolCallLog.push({
         tool: toolUse.name,
         system: (toolUse.input as Record<string, unknown>)?.system_name as string | undefined,
         input: toolUse.input,
-        output: result.result.slice(0, 500), // truncate for metadata
+        output: fullResult.slice(0, 500), // truncate for metadata
         durationMs: elapsed,
       });
       toolResults.push({
         type: 'tool_result',
         tool_use_id: toolUse.id,
-        content: result.result,
+        content: contentForModel,
         ...(result.isError ? { is_error: true } : {}),
       });
-      const agenticArtifactId = artifactStoragePath && !result.isError ? randomUUID() : undefined;
       if (artifactStoragePath && !result.isError) {
-        void saveMcpToolArtifact(db, ticketId, toolUse.name, result.result, artifactStoragePath, agenticArtifactId).catch(error => {
-          logger.warn({
-            err: error,
-            ticketId,
-            toolName: toolUse.name,
-          }, 'Failed to persist MCP tool artifact');
+        void saveMcpToolArtifact(db, ticketId, toolUse.name, fullResult, artifactStoragePath, agenticArtifactId).catch(error => {
+          logger.warn({ err: error, ticketId, toolName: toolUse.name }, 'Failed to persist MCP tool artifact');
         });
       }
       appLog.info(
@@ -229,8 +239,10 @@ export async function runFlatAnalysis(
           durationMs: elapsed,
           iteration: i + 1,
           params: toolUse.input ? JSON.stringify(toolUse.input).slice(0, 1000) : null,
-          resultPreview: result.result?.slice(0, 2000) ?? null,
+          resultPreview: fullResult?.slice(0, 2000) ?? null,
           isError: result.isError ?? false,
+          truncated,
+          fullSizeChars,
           parentLogId: aiCallId,
           parentLogType: 'ai',
           ...(agenticArtifactId ? { artifactId: agenticArtifactId } : {}),
