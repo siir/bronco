@@ -133,7 +133,7 @@ async function executeOrchestratedSubTask(
 
         for (const toolUse of toolUseBlocks) {
           const start = Date.now();
-          const result = await executeAgenticToolCall(toolUse, mcpIntegrations, repoIdByPrefix, clientId);
+          const result = await executeAgenticToolCall(toolUse, mcpIntegrations, repoIdByPrefix, clientId, ticketId);
           const elapsed = Date.now() - start;
           passToolCalls.push({
             tool: toolUse.name,

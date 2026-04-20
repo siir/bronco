@@ -101,6 +101,76 @@ export const SUFFICIENCY_EVAL_INSTRUCTIONS = [
 ].join('\n');
 
 // ---------------------------------------------------------------------------
+// Tool-result truncation scaffold
+// ---------------------------------------------------------------------------
+
+/**
+ * Read the `analysis-tool-result-max-tokens` AppSetting. Returns the clamped
+ * threshold in tokens. Default 4000 when unset; clamped to [500, 32000].
+ */
+export async function getToolResultMaxTokens(db: PrismaClient): Promise<number> {
+  const setting = await db.appSetting.findUnique({ where: { key: 'analysis-tool-result-max-tokens' } });
+  const value = setting?.value as { maxTokens?: unknown } | null;
+  const raw = value?.maxTokens;
+  let threshold = 4000;
+  if (raw !== undefined && raw !== null) {
+    const coerced = Number(raw);
+    if (Number.isFinite(coerced)) {
+      threshold = Math.min(32000, Math.max(500, Math.trunc(coerced)));
+    }
+  }
+  return threshold;
+}
+
+/**
+ * Cheap token-count heuristic: ~4 chars per token. Accurate enough for a
+ * truncation gate — precise counting is not required.
+ *
+ * Returns false for content under 2000 chars regardless of threshold (preview
+ * would be larger than original).
+ */
+export function shouldTruncate(content: string, thresholdTokens: number): boolean {
+  if (content.length < 2000) return false;
+  return Math.ceil(content.length / 4) >= thresholdTokens;
+}
+
+/**
+ * Build a head+tail preview of an oversized tool result with an artifact
+ * reference. Format is exact — the agent identifies truncation by the header
+ * line and the `artifactId:` marker.
+ */
+export function buildTruncatedPreview(content: string, artifactId: string): string {
+  const head = content.slice(0, 1500);
+  const tail = content.slice(-500);
+  return [
+    '[truncated — full output saved as artifact]',
+    `artifactId: ${artifactId}`,
+    `size: ${content.length} chars`,
+    '---',
+    head,
+    '',
+    '...',
+    '',
+    tail,
+  ].join('\n');
+}
+
+/**
+ * System-prompt snippet advising the agent on how to recognize and paginate
+ * truncated tool results. Exported for #301/#302 to append to their system
+ * prompts — not wired in this session.
+ */
+export const TRUNCATION_SYSTEM_PROMPT_SNIPPET = [
+  '',
+  'Some tool results may be truncated to control token usage. Truncated results',
+  'include a header line "[truncated — full output saved as artifact]" followed',
+  'by an `artifactId:` value. If the truncated preview is insufficient for your',
+  'analysis, call `platform__read_tool_result_artifact(artifactId, ...)` to fetch',
+  'more — supply `offset` + `limit` to page through, or `grep` to search for',
+  'specific patterns.',
+].join('\n');
+
+// ---------------------------------------------------------------------------
 // Agentic tool builder / executor
 // ---------------------------------------------------------------------------
 
@@ -122,6 +192,7 @@ export async function buildAgenticTools(
   clientId: string,
   encryptionKey: string,
   mcpRepoUrl: string,
+  mcpPlatformUrl: string,
   apiKey?: string,
   mcpAuthToken?: string,
 ): Promise<{
@@ -241,6 +312,32 @@ export async function buildAgenticTools(
     }
   }
 
+  // Register platform MCP server for read_tool_result_artifact
+  const platformAuth = mcpAuthToken || apiKey;
+  const platformAuthHeader = mcpAuthToken ? 'bearer' : 'x-api-key';
+  mcpIntegrations.set('platform', {
+    label: 'mcp-platform',
+    url: mcpPlatformUrl,
+    mcpPath: '/mcp',
+    apiKey: platformAuth,
+    authHeader: platformAuthHeader,
+  });
+
+  tools.push({
+    name: 'platform__read_tool_result_artifact',
+    description: 'Read a truncated tool-result artifact referenced by artifactId. Use when a prior tool result was truncated and you need to inspect more of it. Supports paging (offset + limit) and grep (regex search).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        artifactId: { type: 'string', description: 'The artifact ID from a prior truncated tool result' },
+        offset: { type: 'number', description: 'Character offset to start reading from (default 0)' },
+        limit: { type: 'number', description: 'Max chars to return (default 4000, max 16000)' },
+        grep: { type: 'string', description: 'Regex pattern to search for. When provided, offset/limit are ignored.' },
+      },
+      required: ['artifactId'],
+    },
+  });
+
   return { tools, mcpIntegrations, repoIdByPrefix };
 }
 
@@ -253,6 +350,7 @@ export async function executeAgenticToolCall(
   mcpIntegrations: Map<string, McpIntegrationInfo>,
   repoIdByPrefix: Map<string, string>,
   clientId?: string,
+  ticketId?: string,
 ): Promise<{ toolUseId: string; result: string; isError: boolean }> {
   const { id: toolUseId, name, input } = toolCall;
 
@@ -271,6 +369,7 @@ export async function executeAgenticToolCall(
 
     // For repo_exec, inject the baked-in repoId and clientId for defense-in-depth
     // For list_repos, inject clientId to prevent cross-client repo enumeration
+    // For read_tool_result_artifact, inject ticketId as the auth scope (overwrite any agent-supplied value)
     let toolInput = input;
     if (actualToolName === 'repo_exec') {
       const repoId = repoIdByPrefix.get(prefix);
@@ -279,6 +378,8 @@ export async function executeAgenticToolCall(
       }
     } else if (actualToolName === 'list_repos' && clientId) {
       toolInput = { ...input, clientId };
+    } else if (actualToolName === 'read_tool_result_artifact' && ticketId) {
+      toolInput = { ...input, ticketId };
     }
 
     const result = await callMcpToolViaSdk(
@@ -657,6 +758,7 @@ export interface AnalysisDeps {
   appLog: AppLogger;
   encryptionKey: string;
   mcpRepoUrl: string;
+  mcpPlatformUrl: string;
   apiKey?: string;
   mcpAuthToken?: string;
   artifactStoragePath?: string;

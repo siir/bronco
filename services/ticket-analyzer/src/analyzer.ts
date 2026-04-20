@@ -236,6 +236,8 @@ export interface AnalyzerDeps {
   encryptionKey: string;
   /** MCP repo server URL for code repository access via mcp-repo. */
   mcpRepoUrl: string;
+  /** MCP platform server URL for platform operations via mcp-platform. */
+  mcpPlatformUrl: string;
   /** API key for authenticating to mcp-repo (x-api-key header). */
   apiKey?: string;
   /** MCP auth token for authenticating to mcp-repo (Bearer header, takes precedence over apiKey). */
@@ -2071,7 +2073,7 @@ async function executeRoutePipeline(
 
         // Build tool definitions from MCP integrations and mcp-repo
         const { tools: agenticTools, mcpIntegrations, repoIdByPrefix } = await buildAgenticTools(
-          db, ticket.clientId, deps.encryptionKey, deps.mcpRepoUrl, deps.apiKey, deps.mcpAuthToken,
+          db, ticket.clientId, deps.encryptionKey, deps.mcpRepoUrl, deps.mcpPlatformUrl, deps.apiKey, deps.mcpAuthToken,
         );
 
         if (agenticTools.length === 0) {
@@ -2086,6 +2088,7 @@ async function executeRoutePipeline(
           db, ai, appLog,
           encryptionKey: deps.encryptionKey,
           mcpRepoUrl: deps.mcpRepoUrl,
+          mcpPlatformUrl: deps.mcpPlatformUrl,
           apiKey: deps.apiKey,
           mcpAuthToken: deps.mcpAuthToken,
           artifactStoragePath: deps.artifactStoragePath,

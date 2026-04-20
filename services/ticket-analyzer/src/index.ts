@@ -89,6 +89,7 @@ async function main(): Promise<void> {
     repoWorkspacePath: config.REPO_WORKSPACE_PATH,
     encryptionKey: config.ENCRYPTION_KEY,
     mcpRepoUrl: config.MCP_REPO_URL,
+    mcpPlatformUrl: config.MCP_PLATFORM_URL,
     apiKey: config.API_KEY,
     mcpAuthToken: config.MCP_AUTH_TOKEN,
     selfAnalysisQueue,
