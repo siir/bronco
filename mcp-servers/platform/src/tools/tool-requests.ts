@@ -143,11 +143,38 @@ export function registerToolRequestTools(server: McpServer, { db, config }: Serv
     },
     async (params) => {
       try {
-        const url = `${config.COPILOT_API_URL}/api/tool-requests/dedupe-analyses`;
+        const copilotApiUrl = config.COPILOT_API_URL;
+        if (!copilotApiUrl) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: 'ERROR: COPILOT_API_URL is required to call /api/tool-requests/dedupe-analyses',
+              },
+            ],
+          };
+        }
+
+        const apiKey = config.API_KEY;
+        if (!apiKey) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: 'ERROR: API_KEY is required to call /api/tool-requests/dedupe-analyses',
+              },
+            ],
+          };
+        }
+
+        // URL constructor tolerates a trailing slash on COPILOT_API_URL.
+        const url = new URL('/api/tool-requests/dedupe-analyses', copilotApiUrl);
         const res = await fetch(url, {
           method: 'POST',
           headers: {
-            'x-api-key': config.API_KEY ?? '',
+            'x-api-key': apiKey,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({ clientId: params.clientId }),
