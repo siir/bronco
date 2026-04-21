@@ -631,7 +631,7 @@ interface ConvTreeNode {
             }
           </app-tab>
           <app-tab label="Analysis Trace">
-            <app-analysis-trace [ticketId]="id()" [events]="events()" />
+            <app-analysis-trace [ticketId]="id()" [events]="events()" (viewRawLogs)="openRawLogsTab()" />
           </app-tab>
           <app-tab label="Log Digest">
             <app-ticket-detail-log-digest
@@ -1251,6 +1251,13 @@ export class TicketDetailComponent implements OnInit {
     if (view === 'conversation') {
       this.loadConversationEntries();
     }
+  }
+
+  /** Switch to the Logs tab + Raw Logs sub-view from the Analysis Trace deep-tree banner. */
+  openRawLogsTab(): void {
+    const idx = this.tabsInOrder().indexOf('Logs');
+    if (idx >= 0) this.selectedTabIndex.set(idx);
+    this.setLogsView('raw');
   }
 
   private toSlug(label: string): string {

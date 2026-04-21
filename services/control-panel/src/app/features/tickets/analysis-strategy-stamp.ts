@@ -36,7 +36,7 @@ export function computeStrategyStamp(
     const n = meta['orchestrationIteration'];
     if (typeof n === 'number' && n > iterations) iterations = n;
   }
-  if (iterations === 0) {
+  if (iterations === 0 && aiEntries.length > 0) {
     // Fall back to distinct strategist calls (non-sub-task AI rows with parent-free lineage).
     const strategistCount = aiEntries.filter(e => {
       const meta = (e.conversationMetadata ?? {}) as Record<string, unknown>;
@@ -58,12 +58,15 @@ export function computeStrategyStamp(
     }
   }
 
-  // Strategy: prefer the strategist's conversationMetadata.strategy.
+  // Strategy: prefer the most recent root strategist's conversationMetadata.strategy.
+  // Unified logs arrive in chronological (oldest→newest) order, so pick the last match
+  // — this ensures multi-run tickets surface the latest run's strategy.
   let strategy: AnalysisStrategy = 'legacy';
-  const rootStrategist = aiEntries.find(e => {
+  const rootStrategists = aiEntries.filter(e => {
     const meta = (e.conversationMetadata ?? {}) as Record<string, unknown>;
     return !meta['isSubTask'] && !e.parentLogId;
-  }) ?? aiEntries[0];
+  });
+  const rootStrategist = rootStrategists[rootStrategists.length - 1] ?? aiEntries[aiEntries.length - 1];
   if (rootStrategist) {
     const meta = (rootStrategist.conversationMetadata ?? {}) as Record<string, unknown>;
     const s = meta['strategy'];

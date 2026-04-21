@@ -1,4 +1,4 @@
-import { Component, input, output, signal } from '@angular/core';
+import { Component, effect, input, output, signal } from '@angular/core';
 import { CommonModule, DatePipe, DecimalPipe } from '@angular/common';
 import { BroncoButtonComponent, IconComponent } from '../../../shared/components/index.js';
 import { AnalysisTraceToolPillComponent } from './analysis-trace-tool-pill.component.js';
@@ -155,6 +155,28 @@ export class AnalysisTraceNodeComponent {
   expand = output<TraceExpandEvent>();
 
   condensedExpanded = signal(false);
+
+  constructor() {
+    // Parent issues "collapse all" by incrementing `collapseAllToken`; react by
+    // collapsing the condensed subtree regardless of prior state. Same for expand.
+    // Using effects keeps the wiring declarative and covers nested nodes.
+    let prevCollapse = this.collapseAllToken();
+    effect(() => {
+      const v = this.collapseAllToken();
+      if (v !== prevCollapse) {
+        prevCollapse = v;
+        this.condensedExpanded.set(false);
+      }
+    });
+    let prevExpand = this.expandAllToken();
+    effect(() => {
+      const v = this.expandAllToken();
+      if (v !== prevExpand) {
+        prevExpand = v;
+        this.condensedExpanded.set(true);
+      }
+    });
+  }
 
   toggleCondensed(): void {
     this.condensedExpanded.update(v => !v);

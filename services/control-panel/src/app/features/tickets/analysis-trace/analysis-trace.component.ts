@@ -1,4 +1,4 @@
-import { Component, DestroyRef, inject, input, signal, computed, effect } from '@angular/core';
+import { Component, DestroyRef, inject, input, output, signal, computed, effect } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { BroncoButtonComponent, IconComponent } from '../../../shared/components/index.js';
@@ -8,6 +8,8 @@ import { AnalysisTraceExpandDialogComponent, type ExpandPayload } from './analys
 import { runMergePipeline, DEFAULT_MAX_DEPTH } from './analysis-trace.merge.js';
 import type { TraceFilters } from './analysis-trace.types.js';
 import { computeStrategyStamp, formatStrategyStamp } from '../analysis-strategy-stamp.js';
+
+const PAGE_SIZE = 400;
 
 @Component({
   selector: 'app-analysis-trace',
@@ -21,11 +23,11 @@ import { computeStrategyStamp, formatStrategyStamp } from '../analysis-strategy-
       </div>
 
       <!-- Filters -->
-      <div class="filter-bar">
-        <button type="button" class="chip" [class.chip-active]="filters().showAi" (click)="toggle('showAi')">AI calls</button>
-        <button type="button" class="chip" [class.chip-active]="filters().showAppLogs" (click)="toggle('showAppLogs')">App logs</button>
-        <button type="button" class="chip" [class.chip-active]="filters().showToolCalls" (click)="toggle('showToolCalls')">Tool calls</button>
-        <button type="button" class="chip" [class.chip-active]="filters().errorsOnly" (click)="toggle('errorsOnly')">Errors only</button>
+      <div class="filter-bar" role="group" aria-label="Trace filters">
+        <button type="button" class="chip" [class.chip-active]="filters().showAi" [attr.aria-pressed]="filters().showAi" (click)="toggle('showAi')">AI calls</button>
+        <button type="button" class="chip" [class.chip-active]="filters().showAppLogs" [attr.aria-pressed]="filters().showAppLogs" (click)="toggle('showAppLogs')">App logs</button>
+        <button type="button" class="chip" [class.chip-active]="filters().showToolCalls" [attr.aria-pressed]="filters().showToolCalls" (click)="toggle('showToolCalls')">Tool calls</button>
+        <button type="button" class="chip" [class.chip-active]="filters().errorsOnly" [attr.aria-pressed]="filters().errorsOnly" (click)="toggle('errorsOnly')">Errors only</button>
         <span class="filter-spacer"></span>
         <app-bronco-button variant="ghost" size="sm" (click)="collapseAll()">Collapse all</app-bronco-button>
         <app-bronco-button variant="ghost" size="sm" (click)="expandAll()">Expand all</app-bronco-button>
@@ -38,7 +40,13 @@ import { computeStrategyStamp, formatStrategyStamp } from '../analysis-strategy-
       @if (maxDepthObserved() > DEFAULT_MAX_DEPTH) {
         <div class="depth-banner">
           <app-icon name="chevron-down" size="xs" />
-          Deep analysis tree detected ({{ maxDepthObserved() }} levels). Some rendering may be condensed.
+          <span class="depth-banner-text">
+            Deep analysis tree detected ({{ maxDepthObserved() }} levels). Some rendering may be condensed.
+          </span>
+          <button type="button" class="depth-banner-link" (click)="viewRawLogs.emit()">
+            View chronological Raw Logs
+            <app-icon name="chevron-right" size="xs" />
+          </button>
         </div>
       }
 
@@ -90,6 +98,14 @@ import { computeStrategyStamp, formatStrategyStamp } from '../analysis-strategy-
       background: var(--color-warning-subtle); color: var(--color-warning);
       font-size: 12px;
     }
+    .depth-banner-text { flex: 1; }
+    .depth-banner-link {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: transparent; border: 1px solid var(--color-warning);
+      color: var(--color-warning); padding: 2px 8px; border-radius: 4px;
+      font-size: 12px; cursor: pointer;
+    }
+    .depth-banner-link:hover { background: var(--color-warning); color: var(--text-on-accent); }
     .trace-list { display: flex; flex-direction: column; gap: 2px; }
     .empty { color: var(--text-tertiary); font-style: italic; font-size: 13px; }
     .indeterminate-bar { height: 2px; background: var(--bg-muted); overflow: hidden; }
@@ -103,6 +119,9 @@ export class AnalysisTraceComponent {
   ticketId = input.required<string>();
   /** Parent-provided ticket events (used for strategy fallback). Optional. */
   events = input<TicketEvent[]>([]);
+
+  /** Emitted when the operator clicks "View chronological Raw Logs" on the deep-tree banner. */
+  viewRawLogs = output<void>();
 
   private ticketService = inject(TicketService);
   private destroyRef = inject(DestroyRef);
@@ -139,12 +158,30 @@ export class AnalysisTraceComponent {
 
   private load(ticketId: string): void {
     this.loading.set(true);
-    this.ticketService.getUnifiedLogs(ticketId, { limit: 400 })
+    // Unified logs are returned oldest→newest. For tickets with more than PAGE_SIZE
+    // entries, the first page would miss the latest analysis run (including its
+    // strategy stamp). Do an initial fetch to discover the total, then re-fetch the
+    // most-recent window if the ticket exceeds the page size.
+    this.ticketService.getUnifiedLogs(ticketId, { limit: PAGE_SIZE })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
-          this.entries.set(res.entries);
-          this.loading.set(false);
+          const total = typeof res.total === 'number' ? res.total : res.entries.length;
+          const recentOffset = Math.max(0, total - PAGE_SIZE);
+          if (recentOffset === 0 || res.entries.length >= total) {
+            this.entries.set(res.entries);
+            this.loading.set(false);
+            return;
+          }
+          this.ticketService.getUnifiedLogs(ticketId, { limit: PAGE_SIZE, offset: recentOffset })
+            .pipe(takeUntilDestroyed(this.destroyRef))
+            .subscribe({
+              next: (recentRes) => {
+                this.entries.set(recentRes.entries);
+                this.loading.set(false);
+              },
+              error: () => this.loading.set(false),
+            });
         },
         error: () => this.loading.set(false),
       });
