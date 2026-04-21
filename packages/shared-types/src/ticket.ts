@@ -58,6 +58,7 @@ export const TicketEventType = {
   ARTIFACT_ADDED: 'ARTIFACT_ADDED',
   SYSTEM_NOTE: 'SYSTEM_NOTE',
   CODE_CHANGE: 'CODE_CHANGE',
+  CHAT_MESSAGE: 'CHAT_MESSAGE',
 } as const;
 export type TicketEventType = (typeof TicketEventType)[keyof typeof TicketEventType];
 
@@ -183,4 +184,11 @@ export interface AnalysisJob {
   reanalysis?: boolean;
   /** The ticket event ID of the COMMENT/EMAIL_INBOUND that triggered re-analysis. */
   triggerEventId?: string;
+  /**
+   * Chat-driven re-analysis mode (from #312 Chat tab).
+   * Set when an operator reply through the Chat tab was classified as
+   * continue/refine/fresh_start. Threaded into `reanalysisCtx.mode` so
+   * flat + orchestrated strategies can branch their system prompt.
+   */
+  chatReanalysisMode?: 'continue' | 'refine' | 'fresh_start';
 }

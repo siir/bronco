@@ -5,7 +5,7 @@ import sensible from '@fastify/sensible';
 import multipart from '@fastify/multipart';
 import { createLogger, createQueue, AppLogger, createPrismaLogWriter, setGlobalLogWriter } from '@bronco/shared-utils';
 import type { Queue } from 'bullmq';
-import type { TicketCreatedJob, IngestionJob } from '@bronco/shared-types';
+import type { TicketCreatedJob, IngestionJob, AnalysisJob } from '@bronco/shared-types';
 import { createAIRouter, NoProviderImplementationError, InvalidModelError } from '@bronco/ai-provider';
 import type { Config } from './config.js';
 import { prismaPlugin } from './plugins/prisma.js';
@@ -31,7 +31,7 @@ export async function buildApp(config: Config) {
   // Additional Queue clients for queues owned by other services, used for cross-service
   // failed-job management (including retry/delete and other mutations)
   const emailIngestionQueue = createQueue('email-ingestion', config.REDIS_URL);
-  const ticketAnalysisQueue = createQueue('ticket-analysis', config.REDIS_URL);
+  const ticketAnalysisQueue = createQueue<AnalysisJob>('ticket-analysis', config.REDIS_URL);
   const devopsSyncQueue = createQueue('devops-sync', config.REDIS_URL);
 
   const promptRetentionQueue = createQueue('prompt-retention', config.REDIS_URL);
@@ -65,7 +65,7 @@ export async function buildApp(config: Config) {
 
   await app.register(authPlugin, { apiKey: config.API_KEY, jwtSecret: config.JWT_SECRET, portalJwtSecret: config.PORTAL_JWT_SECRET });
 
-  await registerRoutes(app, { config, issueResolveQueue, logSummarizeQueue, systemAnalysisQueue, clientLearningQueue, mcpDiscoveryQueue, probeQueue, ticketCreatedQueue, ingestQueue, queueMap, ai, clientMemoryResolver, modelConfigResolver, providerConfigResolver, onSlackIntegrationChange: () => { logger.info('Slack integration changed — slack-worker will pick up changes on next periodic refresh (every 5 minutes)'); } });
+  await registerRoutes(app, { config, issueResolveQueue, logSummarizeQueue, systemAnalysisQueue, clientLearningQueue, mcpDiscoveryQueue, probeQueue, ticketCreatedQueue, ticketAnalysisQueue, ingestQueue, queueMap, ai, clientMemoryResolver, modelConfigResolver, providerConfigResolver, onSlackIntegrationChange: () => { logger.info('Slack integration changed — slack-worker will pick up changes on next periodic refresh (every 5 minutes)'); } });
 
   // Wire up database log writer after Prisma is ready
   const logWriter = createPrismaLogWriter(app.db);

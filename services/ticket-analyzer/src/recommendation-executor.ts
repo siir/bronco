@@ -1,6 +1,6 @@
 import type { PrismaClient } from '@bronco/db';
 import type { Mailer } from '@bronco/shared-utils';
-import { createLogger, notifyOperators } from '@bronco/shared-utils';
+import { createLogger, notifyOperators, getActiveOperatorRecords } from '@bronco/shared-utils';
 import {
   AI_ACTION_TO_RECOMMENDATION,
   DEFAULT_ACTION_SAFETY_CONFIG,
@@ -292,7 +292,7 @@ async function notifyUnknownActionType(
   try {
     await notifyOperators(
       deps.mailer,
-      () => deps.db.operator.findMany({ where: { isActive: true } }),
+      () => getActiveOperatorRecords(deps.db),
       {
         subject: `[Bronco] Unknown AI action type: ${actionType}`,
         body: [

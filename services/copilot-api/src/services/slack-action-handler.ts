@@ -24,10 +24,11 @@ export interface SlackActionHandlerDeps {
  * Returns null if the user is not a registered/active operator.
  */
 async function resolveOperator(db: PrismaClient, slackUserId: string) {
-  return db.operator.findFirst({
-    where: { slackUserId, isActive: true },
-    select: { id: true, name: true, email: true },
+  const row = await db.operator.findFirst({
+    where: { slackUserId, person: { isActive: true } },
+    select: { id: true, person: { select: { name: true, email: true } } },
   });
+  return row ? { id: row.id, name: row.person.name, email: row.person.email } : null;
 }
 
 /**

@@ -203,6 +203,14 @@ const STEP_TYPE_INFO: RouteStepTypeInfo[] = [
     defaultTaskType: TaskType.DEEP_ANALYSIS,
     defaultPromptKey: null,
   },
+  {
+    type: RouteStepType.DETECT_TOOL_GAPS,
+    name: 'Detect Tool Gaps',
+    description: 'Scans the completed analysis for capability gaps the agent did not surface inline. Upserts detected gaps into the ToolRequest registry with source=POST_HOC_DETECTION. Typically placed at end of an analysis route.',
+    phase: 'analysis',
+    defaultTaskType: TaskType.DETECT_TOOL_GAPS,
+    defaultPromptKey: 'detect-tool-gaps.system',
+  },
 ];
 
 /** Map from step type → phase for mismatch detection. */

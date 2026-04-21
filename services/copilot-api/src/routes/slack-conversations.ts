@@ -47,7 +47,7 @@ export async function slackConversationRoutes(fastify: FastifyInstance): Promise
       where.createdAt = createdAt;
     }
 
-    const [items, total] = await Promise.all([
+    const [rows, total] = await Promise.all([
       fastify.db.slackConversationLog.findMany({
         where,
         orderBy: { updatedAt: 'desc' },
@@ -63,14 +63,14 @@ export async function slackConversationRoutes(fastify: FastifyInstance): Promise
           totalOutputTokens: true,
           createdAt: true,
           updatedAt: true,
-          operator: { select: { id: true, name: true } },
+          operator: { select: { id: true, person: { select: { name: true } } } },
           client: { select: { id: true, name: true, shortCode: true } },
         },
       }),
       fastify.db.slackConversationLog.count({ where }),
     ]);
 
-    return { items, total };
+    return { items: rows, total };
   });
 
   // --- Get conversation detail ---
@@ -80,7 +80,7 @@ export async function slackConversationRoutes(fastify: FastifyInstance): Promise
     const conversation = await fastify.db.slackConversationLog.findUnique({
       where: { id },
       include: {
-        operator: { select: { id: true, name: true } },
+        operator: { select: { id: true, person: { select: { name: true } } } },
         client: { select: { id: true, name: true, shortCode: true } },
       },
     });

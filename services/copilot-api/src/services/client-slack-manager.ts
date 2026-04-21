@@ -191,16 +191,25 @@ export class ClientSlackManager {
       });
 
       if (client?.allowSelfRegistration) {
-        // Auto-create person with Slack user info
+        // Auto-create person with Slack user info (with a ClientUser row so
+        // future lookups scope to this client). Person no longer carries a
+        // slackUserId column in the unified model.
         const userInfo = await this.fetchSlackUserInfo(entry.client, slackUserId);
         if (userInfo) {
-          const newPerson = await this.db.person.create({
-            data: {
-              clientId: entry.clientId,
-              name: userInfo.name,
-              email: userInfo.email || `${slackUserId}@slack.local`,
-              slackUserId,
-            },
+          const email = userInfo.email || `${slackUserId}@slack.local`;
+          const emailLower = email.toLowerCase();
+          const newPerson = await this.db.$transaction(async (tx) => {
+            const person = await tx.person.upsert({
+              where: { emailLower },
+              update: { name: userInfo.name },
+              create: { name: userInfo.name, email, emailLower },
+            });
+            await tx.clientUser.upsert({
+              where: { personId_clientId: { personId: person.id, clientId: entry.clientId } },
+              update: {},
+              create: { personId: person.id, clientId: entry.clientId, userType: 'USER' },
+            });
+            return person;
           });
           await this.enqueueSlackIngestion(entry, slackUserId, userInfo.name, channelId, text, newPerson.id);
           return;
@@ -310,10 +319,14 @@ export class ClientSlackManager {
 
   /** Resolve a Slack user ID to a Person record. */
   private async resolvePerson(clientId: string, slackUserId: string): Promise<{ id: string; name: string; email: string } | null> {
-    return this.db.person.findFirst({
-      where: { clientId, slackUserId },
-      select: { id: true, name: true, email: true },
+    // Person no longer stores slackUserId directly — resolve via Operator.
+    const op = await this.db.operator.findFirst({
+      where: { slackUserId, clientId },
+      select: {
+        person: { select: { id: true, name: true, email: true } },
+      },
     });
+    return op?.person ?? null;
   }
 
   /** Fetch Slack user info (name, email) from the workspace API. */

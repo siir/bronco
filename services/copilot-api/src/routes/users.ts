@@ -1,31 +1,40 @@
 import type { FastifyInstance } from 'fastify';
 import bcrypt from 'bcryptjs';
-import { UserRole } from '@bronco/shared-types';
+import { OperatorRole } from '@bronco/shared-types';
 import type { AuthUser } from '../plugins/auth.js';
 import { createLogger } from '@bronco/shared-utils';
 
+
 const logger = createLogger('users');
-const VALID_ROLES: string[] = [UserRole.ADMIN, UserRole.OPERATOR];
-const OPERATOR_ROLES = new Set<string>([UserRole.ADMIN, UserRole.OPERATOR]);
+
+type UserTypeSlug = 'ADMIN' | 'STANDARD';
+
+const VALID_ROLE_SLUGS: readonly UserTypeSlug[] = ['ADMIN', 'STANDARD'];
+
+function toOperatorRole(value: string): OperatorRole | null {
+  if (value === 'ADMIN') return OperatorRole.ADMIN;
+  // Accept the legacy "OPERATOR" slug as an alias for STANDARD so existing
+  // frontend code continues to work during Wave 2C migration.
+  if (value === 'STANDARD' || value === 'OPERATOR') return OperatorRole.STANDARD;
+  return null;
+}
 
 export async function userRoutes(fastify: FastifyInstance): Promise<void> {
   /**
-   * Require ADMIN role for all user management routes.
-   * Only admins can create, edit, or deactivate control panel users.
+   * Require ADMIN operator for all user management routes.
    */
   fastify.addHook('preHandler', async (request, reply) => {
     const authUser = request.user as AuthUser | undefined;
     if (!authUser) {
       return reply.code(401).send({ error: 'Authentication required' });
     }
-    if (authUser.role !== UserRole.ADMIN) {
+    if (authUser.role !== OperatorRole.ADMIN) {
       return reply.code(403).send({ error: 'Only admins can manage users' });
     }
   });
 
   /**
    * GET /api/search/users
-   * Lightweight search for the command palette. Admin gate inherited from preHandler.
    */
   fastify.get<{ Querystring: { q?: string; limit?: string } }>(
     '/api/search/users',
@@ -40,8 +49,9 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
         return fastify.httpErrors.badRequest('limit must be between 1 and 50');
       }
 
-      const results = await fastify.db.user.findMany({
+      const people = await fastify.db.person.findMany({
         where: {
+          operator: { isNot: null },
           OR: [
             { name: { contains: rawQ, mode: 'insensitive' } },
             { email: { contains: rawQ, mode: 'insensitive' } },
@@ -51,22 +61,23 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
           id: true,
           name: true,
           email: true,
-          role: true,
           isActive: true,
+          operator: { select: { id: true, role: true } },
         },
         take: limit,
         orderBy: { name: 'asc' },
       });
 
       const qLower = rawQ.toLowerCase();
-      const getRank = (user: { name: string; email: string }): number => {
-        const nameLower = user.name.toLowerCase();
-        const emailLower = user.email.toLowerCase();
+      const getRank = (u: { name: string; email: string }): number => {
+        const nameLower = u.name.toLowerCase();
+        const emailLower = u.email.toLowerCase();
         if (emailLower === qLower) return 0;
         if (nameLower.startsWith(qLower) || emailLower.startsWith(qLower)) return 1;
         return 2;
       };
-      results.sort((a, b) => {
+
+      people.sort((a, b) => {
         const rankDiff = getRank(a) - getRank(b);
         if (rankDiff !== 0) return rankDiff;
         const nameDiff = a.name.localeCompare(b.name);
@@ -74,261 +85,263 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
         return a.email.localeCompare(b.email);
       });
 
-      return results.slice(0, limit);
+      return people.slice(0, limit).map((p) => ({
+        id: p.id,
+        name: p.name,
+        email: p.email,
+        role: p.operator?.role ?? OperatorRole.STANDARD,
+        isActive: p.isActive,
+      }));
     },
   );
 
   /**
    * GET /api/users
-   * List all control panel users. Includes slackUserId from matching Operator record.
    */
   fastify.get('/api/users', async () => {
-    const users = await fastify.db.user.findMany({
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        clientId: true,
-        isActive: true,
-        lastLoginAt: true,
-        createdAt: true,
+    const operators = await fastify.db.operator.findMany({
+      // Explicit Person select — don't pull `passwordHash` or `emailLower`
+      // into memory on list queries.
+      include: {
+        person: { select: { id: true, name: true, email: true, isActive: true, createdAt: true } },
       },
-      orderBy: { name: 'asc' },
+      orderBy: { person: { name: 'asc' } },
     });
 
-    // Bulk-load Operator records for ADMIN/OPERATOR users to attach slackUserId
-    const operatorEmails = users
-      .filter((u) => OPERATOR_ROLES.has(u.role))
-      .map((u) => u.email);
-
-    const operators = operatorEmails.length > 0
-      ? await fastify.db.operator.findMany({
-          where: { email: { in: operatorEmails } },
-          select: { email: true, slackUserId: true },
-        })
-      : [];
-
-    const slackMap = new Map(operators.map((o) => [o.email, o.slackUserId]));
-
-    return users.map((u) => ({
-      ...u,
-      slackUserId: OPERATOR_ROLES.has(u.role) ? (slackMap.get(u.email) ?? null) : undefined,
+    return operators.map((op) => ({
+      id: op.person.id,
+      email: op.person.email,
+      name: op.person.name,
+      role: op.role,
+      clientId: op.clientId,
+      isActive: op.person.isActive,
+      lastLoginAt: op.lastLoginAt,
+      createdAt: op.person.createdAt,
+      slackUserId: op.slackUserId,
     }));
   });
 
   /**
    * POST /api/users
-   * Create a new control panel user. Auto-creates Operator record when role is ADMIN/OPERATOR.
    */
-  fastify.post<{ Body: { email: string; password: string; name: string; role?: string; slackUserId?: string } }>(
-    '/api/users',
-    async (request, reply) => {
-      const { email: rawEmail, password, name, role, slackUserId } = request.body;
+  fastify.post<{
+    Body: { email: string; password: string; name: string; role?: string; slackUserId?: string };
+  }>('/api/users', async (request, reply) => {
+    const { email: rawEmail, password, name, role, slackUserId } = request.body ?? {};
+    if (!rawEmail || !password || !name) {
+      return reply.code(400).send({ error: 'Email, password, and name are required' });
+    }
+    if (password.length < 8) {
+      return reply.code(400).send({ error: 'Password must be at least 8 characters' });
+    }
 
-      if (!rawEmail || !password || !name) {
-        return reply.code(400).send({ error: 'Email, password, and name are required' });
-      }
+    const resolvedRole = toOperatorRole(role ?? OperatorRole.STANDARD);
+    if (!resolvedRole) {
+      return reply
+        .code(400)
+        .send({ error: `Invalid role. Must be one of: ${VALID_ROLE_SLUGS.join(', ')}` });
+    }
 
-      const email = rawEmail.trim().toLowerCase();
+    const email = rawEmail.trim();
+    const emailLower = email.toLowerCase();
 
-      if (password.length < 8) {
-        return reply.code(400).send({ error: 'Password must be at least 8 characters' });
-      }
+    const existing = await fastify.db.person.findUnique({
+      where: { emailLower },
+      include: { operator: true },
+    });
+    if (existing?.operator) {
+      return reply.code(409).send({ error: 'A user with this email already exists' });
+    }
 
-      if (role && !VALID_ROLES.includes(role)) {
-        return reply.code(400).send({ error: `Invalid role. Must be one of: ${VALID_ROLES.join(', ')}` });
-      }
+    const passwordHash = await bcrypt.hash(password, 10);
+    const trimmedSlackUserId = slackUserId?.trim() || null;
 
-      const existing = await fastify.db.user.findUnique({ where: { email } });
-      if (existing) {
-        return reply.code(409).send({ error: 'A user with this email already exists' });
-      }
+    try {
+      const person = await fastify.db.$transaction(async (tx) => {
+        const person = existing
+          ? await tx.person.update({
+              where: { id: existing.id },
+              // Reactivate the Person on operator promotion — a previously
+              // deactivated contact being given control-panel access must be
+              // able to log in, and Person.isActive is the master switch.
+              data: { passwordHash, name: name.trim(), isActive: true },
+            })
+          : await tx.person.create({
+              data: { name: name.trim(), email, emailLower, passwordHash },
+            });
 
-      const passwordHash = await bcrypt.hash(password, 10);
-      const effectiveRole = (role as UserRole) ?? UserRole.OPERATOR;
-      const user = await fastify.db.user.create({
-        data: {
-          email,
-          passwordHash,
-          name: name.trim(),
-          role: effectiveRole,
-        },
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          role: true,
-          clientId: true,
-          isActive: true,
-          lastLoginAt: true,
-          createdAt: true,
-        },
+        await tx.operator.create({
+          data: {
+            personId: person.id,
+            role: resolvedRole,
+            slackUserId: trimmedSlackUserId,
+          },
+        });
+
+        return person;
       });
 
-      // Auto-sync Operator record for ADMIN/OPERATOR roles
-      let operatorSlackUserId: string | null = null;
-      if (OPERATOR_ROLES.has(effectiveRole)) {
-        const trimmedSlackUserId = slackUserId?.trim() || null;
-        try {
-          const existingOp = await fastify.db.operator.findUnique({ where: { email } });
-          if (existingOp) {
-            if (trimmedSlackUserId !== null) {
-              await fastify.db.operator.update({ where: { email }, data: { slackUserId: trimmedSlackUserId } });
-            }
-            operatorSlackUserId = trimmedSlackUserId ?? existingOp.slackUserId;
-          } else {
-            const op = await fastify.db.operator.create({
-              data: { email, name: name.trim(), slackUserId: trimmedSlackUserId },
-            });
-            operatorSlackUserId = op.slackUserId;
-          }
-        } catch (err) {
-          logger.warn({ err, email }, 'Failed to sync Operator record on user create');
-        }
-      }
+      const created = await fastify.db.person.findUnique({
+        where: { id: person.id },
+        include: { operator: true },
+      });
 
-      return reply.code(201).send({ ...user, slackUserId: operatorSlackUserId });
-    },
-  );
+      return reply.code(201).send({
+        id: created!.id,
+        email: created!.email,
+        name: created!.name,
+        role: created!.operator?.role,
+        clientId: created!.operator?.clientId ?? null,
+        isActive: created!.isActive,
+        lastLoginAt: created!.operator?.lastLoginAt ?? null,
+        createdAt: created!.createdAt,
+        slackUserId: created!.operator?.slackUserId ?? null,
+      });
+    } catch (err) {
+      logger.warn({ err, email }, 'Failed to create user');
+      throw err;
+    }
+  });
 
   /**
    * PATCH /api/users/:id
-   * Update a control panel user. Syncs slackUserId to Operator record when provided.
    */
-  fastify.patch<{ Params: { id: string }; Body: { name?: string; email?: string; role?: string; isActive?: boolean; slackUserId?: string } }>(
-    '/api/users/:id',
-    async (request, reply) => {
-      const { id } = request.params;
-      const { name, email: rawEmail, role, isActive, slackUserId } = request.body;
+  fastify.patch<{
+    Params: { id: string };
+    Body: { name?: string; email?: string; role?: string; isActive?: boolean; slackUserId?: string };
+  }>('/api/users/:id', async (request, reply) => {
+    const { id } = request.params;
+    const { name, email: rawEmail, role, isActive, slackUserId } = request.body ?? {};
 
-      if (role && !VALID_ROLES.includes(role)) {
-        return reply.code(400).send({ error: `Invalid role. Must be one of: ${VALID_ROLES.join(', ')}` });
-      }
+    const resolvedRole = role !== undefined ? toOperatorRole(role) : undefined;
+    if (role !== undefined && !resolvedRole) {
+      return reply
+        .code(400)
+        .send({ error: `Invalid role. Must be one of: ${VALID_ROLE_SLUGS.join(', ')}` });
+    }
 
-      const authUser = request.user as AuthUser;
-      if (isActive === false && authUser.id === id) {
-        return reply.code(400).send({ error: 'Cannot deactivate your own account' });
-      }
-      if (role && role !== UserRole.ADMIN && authUser.id === id) {
-        return reply.code(400).send({ error: 'Cannot demote your own account' });
-      }
+    const authUser = request.user as AuthUser;
+    if (isActive === false && authUser.personId === id) {
+      return reply.code(400).send({ error: 'Cannot deactivate your own account' });
+    }
+    if (resolvedRole && resolvedRole !== OperatorRole.ADMIN && authUser.personId === id) {
+      return reply.code(400).send({ error: 'Cannot demote your own account' });
+    }
 
-      const target = await fastify.db.user.findUnique({ where: { id } });
-      if (!target) {
-        return reply.code(404).send({ error: 'User not found' });
-      }
+    const target = await fastify.db.person.findUnique({
+      where: { id },
+      include: { operator: true },
+    });
+    // Guard: /api/users is the control-panel-operator admin surface. A Person
+    // without an Operator extension is a portal-only contact and belongs to
+    // /api/people instead. Without this check an admin could mutate arbitrary
+    // Persons (including portal contacts) by ID.
+    if (!target || !target.operator) {
+      return reply.code(404).send({ error: 'User not found' });
+    }
 
-      const email = rawEmail?.trim().toLowerCase();
-      if (email) {
-        const existing = await fastify.db.user.findUnique({ where: { email } });
-        if (existing && existing.id !== id) {
-          return reply.code(409).send({ error: 'Email is already in use' });
-        }
+    const email = rawEmail?.trim();
+    const emailLower = email?.toLowerCase();
+    if (emailLower) {
+      const existing = await fastify.db.person.findUnique({ where: { emailLower } });
+      if (existing && existing.id !== id) {
+        return reply.code(409).send({ error: 'Email is already in use' });
       }
+    }
 
-      const updated = await fastify.db.user.update({
+    const trimmedSlackUserId =
+      slackUserId !== undefined ? (slackUserId.trim() || null) : undefined;
+
+    const updated = await fastify.db.$transaction(async (tx) => {
+      const person = await tx.person.update({
         where: { id },
         data: {
           ...(name && { name: name.trim() }),
-          ...(email && { email }),
-          ...(role && { role: role as UserRole }),
+          ...(email && { email, emailLower: email.toLowerCase() }),
           ...(isActive !== undefined && { isActive }),
-        },
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          role: true,
-          clientId: true,
-          isActive: true,
-          lastLoginAt: true,
-          createdAt: true,
         },
       });
 
-      // Sync slackUserId to Operator record
-      let operatorSlackUserId: string | null | undefined;
-      const effectiveRole = updated.role as string;
-      if (OPERATOR_ROLES.has(effectiveRole)) {
-        const operatorEmail = updated.email;
-        try {
-          const existingOp = await fastify.db.operator.findUnique({ where: { email: operatorEmail } });
-          if (slackUserId !== undefined) {
-            const trimmedSlackUserId = slackUserId.trim() || null;
-            if (existingOp) {
-              await fastify.db.operator.update({ where: { email: operatorEmail }, data: { slackUserId: trimmedSlackUserId } });
-              operatorSlackUserId = trimmedSlackUserId;
-            } else {
-              const op = await fastify.db.operator.create({
-                data: { email: operatorEmail, name: updated.name, slackUserId: trimmedSlackUserId },
-              });
-              operatorSlackUserId = op.slackUserId;
-            }
-          } else {
-            operatorSlackUserId = existingOp?.slackUserId ?? null;
-          }
-        } catch (err) {
-          logger.warn({ err, email: operatorEmail }, 'Failed to sync Operator record on user update');
-        }
+      if (target.operator) {
+        await tx.operator.update({
+          where: { id: target.operator.id },
+          data: {
+            ...(resolvedRole && { role: resolvedRole }),
+            ...(trimmedSlackUserId !== undefined && { slackUserId: trimmedSlackUserId }),
+          },
+        });
       }
 
-      return { ...updated, ...(operatorSlackUserId !== undefined && { slackUserId: operatorSlackUserId }) };
-    },
-  );
+      return person;
+    });
+
+    const reloaded = await fastify.db.person.findUnique({
+      where: { id: updated.id },
+      include: { operator: true },
+    });
+
+    return {
+      id: reloaded!.id,
+      email: reloaded!.email,
+      name: reloaded!.name,
+      role: reloaded!.operator?.role ?? OperatorRole.STANDARD,
+      clientId: reloaded!.operator?.clientId ?? null,
+      isActive: reloaded!.isActive,
+      lastLoginAt: reloaded!.operator?.lastLoginAt ?? null,
+      createdAt: reloaded!.createdAt,
+      slackUserId: reloaded!.operator?.slackUserId ?? null,
+    };
+  });
 
   /**
    * DELETE /api/users/:id
-   * Deactivate a control panel user.
    */
   fastify.delete<{ Params: { id: string } }>(
     '/api/users/:id',
     async (request, reply) => {
       const { id } = request.params;
-
-      // Prevent self-deactivation
       const authUser = request.user as AuthUser | undefined;
-      if (authUser && authUser.id === id) {
+      if (authUser && authUser.personId === id) {
         return reply.code(400).send({ error: 'Cannot deactivate your own account' });
       }
 
-      const target = await fastify.db.user.findUnique({ where: { id } });
-      if (!target) return fastify.httpErrors.notFound('User not found');
-
-      await fastify.db.user.update({
+      // Same guard as PATCH: reject Persons without an Operator extension.
+      // /api/users is the operator admin surface only.
+      const target = await fastify.db.person.findUnique({
         where: { id },
-        data: { isActive: false },
+        include: { operator: true },
       });
+      if (!target || !target.operator) return fastify.httpErrors.notFound('User not found');
 
+      await fastify.db.person.update({ where: { id }, data: { isActive: false } });
       return { message: 'User deactivated' };
     },
   );
 
   /**
    * POST /api/users/:id/reset-password
-   * Reset a control panel user's password.
    */
   fastify.post<{ Params: { id: string }; Body: { password: string } }>(
     '/api/users/:id/reset-password',
     async (request, reply) => {
       const { id } = request.params;
-      const { password } = request.body;
-
+      const { password } = request.body ?? {};
       if (!password || password.length < 8) {
         return reply.code(400).send({ error: 'Password must be at least 8 characters' });
       }
 
-      const target = await fastify.db.user.findUnique({ where: { id } });
-      if (!target) {
+      // Same guard as PATCH/DELETE: only reset passwords for Persons who are
+      // control-panel operators. Portal contacts use /api/people.
+      const target = await fastify.db.person.findUnique({
+        where: { id },
+        include: { operator: true },
+      });
+      if (!target || !target.operator) {
         return reply.code(404).send({ error: 'User not found' });
       }
 
       const passwordHash = await bcrypt.hash(password, 10);
-      await fastify.db.user.update({
-        where: { id },
-        data: { passwordHash },
-      });
-
+      await fastify.db.person.update({ where: { id }, data: { passwordHash } });
       return { message: 'Password reset successfully' };
     },
   );

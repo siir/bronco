@@ -1,10 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import type { Queue } from 'bullmq';
 import type { AIRouter, ClientMemoryResolver, ModelConfigResolver, ProviderConfigResolver } from '@bronco/ai-provider';
-import type { TicketCreatedJob, IngestionJob } from '@bronco/shared-types';
-import { UserRole } from '@bronco/shared-types';
+import type { TicketCreatedJob, IngestionJob, AnalysisJob } from '@bronco/shared-types';
+import { OperatorRole } from '@bronco/shared-types';
 import type { Config } from '../config.js';
-import { requireRole, requireOpsAccess } from '../plugins/auth.js';
+import { requireRole } from '../plugins/auth.js';
 import { healthRoutes } from './health.js';
 import { clientRoutes } from './clients.js';
 import { peopleRoutes } from './people.js';
@@ -48,6 +48,8 @@ import { operatorRoutes } from './operators.js';
 import { notificationPreferenceRoutes } from './notification-preferences.js';
 import { pendingActionRoutes } from './pending-actions.js';
 import { slackConversationRoutes } from './slack-conversations.js';
+import { toolRequestRoutes } from './tool-requests.js';
+import { knowledgeDocRoutes } from './knowledge-doc.js';
 
 interface RouteOpts {
   config: Config;
@@ -58,6 +60,7 @@ interface RouteOpts {
   mcpDiscoveryQueue: Queue;
   probeQueue: Queue;
   ticketCreatedQueue: Queue<TicketCreatedJob>;
+  ticketAnalysisQueue: Queue<AnalysisJob>;
   ingestQueue: Queue<IngestionJob>;
   queueMap: Map<string, Queue>;
   ai: AIRouter;
@@ -77,28 +80,30 @@ export async function registerRoutes(fastify: FastifyInstance, opts: RouteOpts):
   await fastify.register(portalTicketRoutes, { config: opts.config, ticketCreatedQueue: opts.ticketCreatedQueue, ingestQueue: opts.ingestQueue });
   await fastify.register(portalUserRoutes);
 
-  // Client-scoped control panel routes — accessible to operators AND portal
-  // users with hasOpsAccess (client-scoped ops people).
-  const opsAccessGuard = requireOpsAccess(UserRole.ADMIN, UserRole.OPERATOR);
+  // Client-scoped control panel routes — accessible to any authenticated
+  // operator (platform or client-scoped). Portal users are rejected by
+  // requireRole; client-scoped ops access is modeled via Operator.clientId.
+  const opsAccessGuard = requireRole(OperatorRole.ADMIN, OperatorRole.STANDARD);
 
   await fastify.register(async (scoped) => {
     scoped.addHook('preHandler', opsAccessGuard);
 
     await scoped.register(clientRoutes);
     await scoped.register(peopleRoutes);
-    await scoped.register(ticketRoutes, { logSummarizeQueue: opts.logSummarizeQueue, systemAnalysisQueue: opts.systemAnalysisQueue, clientLearningQueue: opts.clientLearningQueue, ticketCreatedQueue: opts.ticketCreatedQueue, ingestQueue: opts.ingestQueue, ai: opts.ai });
+    await scoped.register(ticketRoutes, { logSummarizeQueue: opts.logSummarizeQueue, systemAnalysisQueue: opts.systemAnalysisQueue, clientLearningQueue: opts.clientLearningQueue, ticketCreatedQueue: opts.ticketCreatedQueue, ticketAnalysisQueue: opts.ticketAnalysisQueue, ingestQueue: opts.ingestQueue, ai: opts.ai });
+    await scoped.register(knowledgeDocRoutes);
     await scoped.register(artifactRoutes, { config: opts.config });
     await scoped.register(aiUsageRoutes, { ai: opts.ai });
     await scoped.register(ticketFilterPresetRoutes);
     await scoped.register(pendingActionRoutes);
   });
 
-  // Admin-only control panel routes — require ADMIN or OPERATOR JWT.
-  // Portal users (even with hasOpsAccess) cannot access these.
-  const controlPanelGuard = requireRole(UserRole.ADMIN, UserRole.OPERATOR);
+  // Operator control panel routes — accessible to authenticated ADMIN or
+  // STANDARD operators. Portal users cannot access these.
+  const operatorControlPanelGuard = requireRole(OperatorRole.ADMIN, OperatorRole.STANDARD);
 
   await fastify.register(async (scoped) => {
-    scoped.addHook('preHandler', controlPanelGuard);
+    scoped.addHook('preHandler', operatorControlPanelGuard);
 
     await scoped.register(systemRoutes);
     await scoped.register(repoRoutes);
@@ -131,5 +136,22 @@ export async function registerRoutes(fastify: FastifyInstance, opts: RouteOpts):
     await scoped.register(operatorRoutes);
     await scoped.register(notificationPreferenceRoutes);
     await scoped.register(slackConversationRoutes);
+  });
+
+  // Admin-only routes — restricted to platform ADMIN operators. Client-scoped
+  // operators and STANDARD operators are rejected.
+  const adminOnlyGuard = requireRole(OperatorRole.ADMIN);
+
+  await fastify.register(async (scoped) => {
+    scoped.addHook('preHandler', adminOnlyGuard);
+
+    await scoped.register(toolRequestRoutes, {
+      ai: opts.ai,
+      encryptionKey: opts.config.ENCRYPTION_KEY,
+      mcpPlatformUrl: opts.config.MCP_PLATFORM_URL,
+      mcpRepoUrl: opts.config.MCP_REPO_URL,
+      mcpDatabaseUrl: opts.config.MCP_DATABASE_URL,
+      platformApiKey: opts.config.API_KEY,
+    });
   });
 }

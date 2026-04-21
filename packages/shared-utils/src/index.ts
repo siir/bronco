@@ -13,7 +13,7 @@ export { buildUtcCron } from './cron-tz.js';
 export type { BuildUtcCronOpts } from './cron-tz.js';
 export { Mailer } from './mailer.js';
 export type { SmtpConfig, ReplyOptions } from './mailer.js';
-export { notifyOperators, notifyClientOperators } from './notify-operators.js';
+export { notifyOperators, notifyClientOperators, getActiveOperatorRecords } from './notify-operators.js';
 export type {
   OperatorRecord,
   NotifyOperatorsOpts,
@@ -30,3 +30,23 @@ export { getSelfAnalysisConfig } from './self-analysis-config.js';
 export type { SelfAnalysisConfig } from './self-analysis-config.js';
 export { SlackClient } from './slack-client.js';
 export type { SlackClientOpts, SlackMessageResult, SlackBlockAction, SlackThreadMessage, SlackMentionEvent, SlackDirectMessageEvent, BlockActionHandler, ThreadMessageHandler, MentionHandler, DirectMessageHandler } from './slack-client.js';
+export { registerToolRequest, normalizeRequestedName } from './tool-request-registry.js';
+export type { RegisterToolRequestInput, RegisterToolRequestResult } from './tool-request-registry.js';
+export { createToolRequestGithubIssue, buildToolRequestIssueBody, ToolRequestNotFoundError, ToolRequestNotEligibleError } from './tool-request-github.js';
+export type { CreateGithubIssueInput, CreateGithubIssueResult } from './tool-request-github.js';
+export { withTicketLock } from './advisory-lock.js';
+export type { PrismaTx } from './advisory-lock.js';
+export {
+  initEmptyKnowledgeDoc,
+  slugify,
+  splitIntoSections,
+  composeSections,
+  buildToc,
+  readSection,
+  updateSection,
+  addSubsection,
+  loadKnowledgeDoc,
+  KnowledgeDocError,
+  REQUIRED_SECTION_KEYS,
+} from './knowledge-doc.js';
+export type { KdSection, KdReadSectionResult } from './knowledge-doc.js';

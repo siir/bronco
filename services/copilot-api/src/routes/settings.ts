@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify';
-import { TicketStatus, TicketCategory, DEFAULT_OPERATIONAL_ALERT_CONFIG, DEFAULT_ACTION_SAFETY_CONFIG } from '@bronco/shared-types';
+import { TicketStatus, TicketCategory, DEFAULT_OPERATIONAL_ALERT_CONFIG, DEFAULT_ACTION_SAFETY_CONFIG, OperatorRole } from '@bronco/shared-types';
 import type { OperationalAlertConfig, ActionSafetyConfig, ActionSafetyLevel } from '@bronco/shared-types';
 import { Mailer, createLogger, decrypt, encrypt, loadSmtpFromDb, looksEncrypted } from '@bronco/shared-utils';
 import { z } from 'zod';
+import { requireRole } from '../plugins/auth.js';
 
 const settingsLogger = createLogger('settings');
 
@@ -43,6 +44,8 @@ const SETTINGS_KEY_PROMPT_RETENTION = 'system-config-prompt-retention';
 const SETTINGS_KEY_ACTION_SAFETY = 'system-config-action-safety';
 const SETTINGS_KEY_ANALYSIS_STRATEGY = 'system-config-analysis-strategy';
 const SETTINGS_KEY_SELF_ANALYSIS = 'self_analysis_config';
+const SETTINGS_KEY_TOOL_REQUEST_RATE_LIMIT = 'tool-request-rate-limit-per-run';
+const SETTINGS_KEY_TOOL_REQUESTS_DEFAULT_REPO = 'tool-requests-github-default-repo';
 
 const REDACTED = '••••••••';
 
@@ -430,6 +433,7 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
 
     const operator = await fastify.db.operator.findUnique({
       where: { id: alertConfig.recipientOperatorId },
+      include: { person: { select: { email: true } } },
     });
 
     if (!operator) {
@@ -448,7 +452,7 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
 
     try {
       await mailer.send({
-        to: operator.email,
+        to: operator.person.email,
         subject: '[Bronco Alert] Test notification',
         body: [
           'This is a test alert from Bronco operational monitoring.',
@@ -459,7 +463,7 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
           'To configure alerts: Control Panel → Notifications → Operational Alerts.',
         ].join('\n'),
       });
-      return { success: true, message: `Test alert sent to ${operator.email}` };
+      return { success: true, message: `Test alert sent to ${operator.person.email}` };
     } catch (err) {
       logger.error({ err }, 'Test alert email failed');
       return { success: false, error: err instanceof Error ? err.message : 'Failed to send test email' };
@@ -883,6 +887,102 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     },
   );
 
+  // ─── Tool Request Rate Limit (ADMIN-only) ───
+
+  const toolRequestRateLimitSchema = z.object({
+    limit: z.number().int().min(1).max(100).default(5),
+  });
+
+  const DEFAULT_TOOL_REQUEST_RATE_LIMIT = { limit: 5 };
+
+  // These endpoints touch admin-only surface (Gap Requests triage + GitHub PAT usage),
+  // so gate them with ADMIN-only preHandlers instead of relying on the outer
+  // operatorControlPanelGuard which allows STANDARD operators as well.
+  const adminOnly = requireRole(OperatorRole.ADMIN);
+
+  // GET /api/settings/tool-request-rate-limit — max `request_tool` calls per analysis run
+  fastify.get(
+    '/api/settings/tool-request-rate-limit',
+    { preHandler: adminOnly },
+    async () => {
+      const row = await fastify.db.appSetting.findUnique({
+        where: { key: SETTINGS_KEY_TOOL_REQUEST_RATE_LIMIT },
+      });
+      if (!row) return DEFAULT_TOOL_REQUEST_RATE_LIMIT;
+      const parsed = toolRequestRateLimitSchema.safeParse(row.value);
+      return parsed.success ? parsed.data : DEFAULT_TOOL_REQUEST_RATE_LIMIT;
+    },
+  );
+
+  // PUT /api/settings/tool-request-rate-limit — update limit
+  fastify.put<{ Body: { limit?: number } }>(
+    '/api/settings/tool-request-rate-limit',
+    { preHandler: adminOnly },
+    async (request) => {
+      const parsed = toolRequestRateLimitSchema.safeParse(request.body);
+      if (!parsed.success) {
+        const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+        return fastify.httpErrors.badRequest(`Invalid tool request rate limit: ${issues}`);
+      }
+
+      const config = parsed.data;
+
+      const row = await fastify.db.appSetting.upsert({
+        where: { key: SETTINGS_KEY_TOOL_REQUEST_RATE_LIMIT },
+        update: { value: config as unknown as object },
+        create: { key: SETTINGS_KEY_TOOL_REQUEST_RATE_LIMIT, value: config as unknown as object },
+      });
+
+      return row.value as unknown as { limit: number };
+    },
+  );
+
+  // ─── Tool Requests: default GitHub repo (ADMIN-only) ───
+
+  const toolRequestsDefaultRepoSchema = z.object({
+    owner: z.string().trim().min(1),
+    name: z.string().trim().min(1),
+  });
+
+  type ToolRequestsDefaultRepo = z.output<typeof toolRequestsDefaultRepoSchema>;
+
+  // GET /api/settings/tool-requests-github-default-repo
+  fastify.get(
+    '/api/settings/tool-requests-github-default-repo',
+    { preHandler: adminOnly },
+    async () => {
+      const row = await fastify.db.appSetting.findUnique({
+        where: { key: SETTINGS_KEY_TOOL_REQUESTS_DEFAULT_REPO },
+      });
+      if (!row) return null;
+      const parsed = toolRequestsDefaultRepoSchema.safeParse(row.value);
+      return parsed.success ? parsed.data : null;
+    },
+  );
+
+  // PUT /api/settings/tool-requests-github-default-repo
+  fastify.put<{ Body: ToolRequestsDefaultRepo }>(
+    '/api/settings/tool-requests-github-default-repo',
+    { preHandler: adminOnly },
+    async (request) => {
+      const parsed = toolRequestsDefaultRepoSchema.safeParse(request.body);
+      if (!parsed.success) {
+        const msg = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+        return fastify.httpErrors.badRequest(`Invalid default repo config: ${msg}`);
+      }
+
+      const config = parsed.data;
+
+      const row = await fastify.db.appSetting.upsert({
+        where: { key: SETTINGS_KEY_TOOL_REQUESTS_DEFAULT_REPO },
+        update: { value: config as unknown as object },
+        create: { key: SETTINGS_KEY_TOOL_REQUESTS_DEFAULT_REPO, value: config as unknown as object },
+      });
+
+      return row.value as unknown as ToolRequestsDefaultRepo;
+    },
+  );
+
   // ─── Super Admin ───
 
   // GET /api/settings/super-admin — get the designated super admin user ID
@@ -915,11 +1015,17 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
       return fastify.httpErrors.badRequest('userId must be a non-empty string or null');
     }
 
-    const user = await fastify.db.user.findUnique({ where: { id: userId } });
-    if (!user) return fastify.httpErrors.notFound('User not found');
-    if (!user.isActive) return fastify.httpErrors.badRequest('Super admin must be an active user');
-    if (user.role !== 'ADMIN' && user.role !== 'OPERATOR') {
-      return fastify.httpErrors.badRequest('Super admin must be an ADMIN or OPERATOR user');
+    // `userId` here is a Person.id — super admin is designated on the unified
+    // Person identity. The person must have an Operator extension (control
+    // panel access) and be active. #219 Wave 2A may rename this endpoint.
+    const person = await fastify.db.person.findUnique({
+      where: { id: userId },
+      include: { operator: true },
+    });
+    if (!person) return fastify.httpErrors.notFound('User not found');
+    if (!person.isActive) return fastify.httpErrors.badRequest('Super admin must be an active user');
+    if (!person.operator) {
+      return fastify.httpErrors.badRequest('Super admin must be an operator');
     }
 
     await fastify.db.appSetting.upsert({
@@ -1014,6 +1120,98 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
 
     return parsed.data;
   });
+
+  // GET /api/settings/analysis-strategy/:ticketId — resolve effective strategy for a specific ticket.
+  // Mirrors the `findBestRoute` precedence inside
+  // services/ticket-analyzer/src/analyzer.ts `resolveTicketRoute`:
+  //   1. client+category, source-specific (matching ticket.source)
+  //   2. client+category, source=null
+  //   3. global (clientId=null)+category, source-specific
+  //   4. global+category, source=null
+  // Only the FIRST matching route is consulted (by sortOrder asc). If that
+  // route has an AGENTIC_ANALYSIS step with an `analysisStrategy` override,
+  // that value wins; otherwise we fall through to the global AppSetting.
+  // Used by the Chat tab (#312) to show configured-vs-actual strategy
+  // mismatches on run markers.
+  fastify.get<{ Params: { ticketId: string } }>(
+    '/api/settings/analysis-strategy/:ticketId',
+    async (request) => {
+      const ticket = await fastify.db.ticket.findUnique({
+        where: { id: request.params.ticketId },
+        select: { clientId: true, category: true, source: true },
+      });
+      if (!ticket) return fastify.httpErrors.notFound('Ticket not found');
+
+      const ticketClientId = ticket.clientId;
+      const ticketCategory = ticket.category;
+      const ticketSource = ticket.source;
+
+      const appSettingRow = await fastify.db.appSetting.findUnique({
+        where: { key: SETTINGS_KEY_ANALYSIS_STRATEGY },
+      });
+      const appConfig = (appSettingRow?.value ?? null) as { strategy?: string } | null;
+      const globalRaw = appConfig?.strategy ?? 'full_context';
+      const globalStrategy: 'flat' | 'orchestrated' = globalRaw === 'orchestrated' ? 'orchestrated' : 'flat';
+
+      let stepOverride: 'flat' | 'orchestrated' | null = null;
+      try {
+        const baseInclude = {
+          steps: {
+            where: { isActive: true, stepType: 'AGENTIC_ANALYSIS' as const },
+            orderBy: { stepOrder: 'asc' as const },
+          },
+        };
+
+        // Mirrors analyzer.ts findBestRoute: try source-specific first, then source=null.
+        async function findFirstActiveRoute(
+          baseWhere: Record<string, unknown>,
+        ) {
+          if (ticketCategory == null) return null;
+          if (ticketSource) {
+            const sourceRoute = await fastify.db.ticketRoute.findFirst({
+              where: { ...baseWhere, source: ticketSource, isActive: true, routeType: 'ANALYSIS' } as never,
+              include: baseInclude,
+              orderBy: { sortOrder: 'asc' },
+            });
+            if (sourceRoute) return sourceRoute;
+          }
+          const anySourceRoute = await fastify.db.ticketRoute.findFirst({
+            where: { ...baseWhere, source: null, isActive: true, routeType: 'ANALYSIS' } as never,
+            include: baseInclude,
+            orderBy: { sortOrder: 'asc' },
+          });
+          return anySourceRoute ?? null;
+        }
+
+        // 1. client+category, then 2. global+category.
+        let selectedRoute = ticketClientId && ticketCategory
+          ? await findFirstActiveRoute({ clientId: ticketClientId, category: ticketCategory as never })
+          : null;
+        if (!selectedRoute && ticketCategory) {
+          selectedRoute = await findFirstActiveRoute({ clientId: null, category: ticketCategory as never });
+        }
+
+        if (selectedRoute) {
+          for (const step of selectedRoute.steps ?? []) {
+            const cfg = step.config as { analysisStrategy?: string } | null;
+            if (cfg?.analysisStrategy) {
+              stepOverride = cfg.analysisStrategy === 'orchestrated' ? 'orchestrated' : 'flat';
+              break;
+            }
+          }
+        }
+      } catch (err) {
+        fastify.log.warn({ err, ticketId: request.params.ticketId }, 'Failed to resolve route-step analysis strategy override — falling back to global');
+      }
+
+      return {
+        ticketId: request.params.ticketId,
+        configured: stepOverride ?? globalStrategy,
+        globalStrategy,
+        stepOverride,
+      };
+    },
+  );
 
   // PUT /api/settings/analysis-strategy
   fastify.put<{ Body: Record<string, unknown> }>('/api/settings/analysis-strategy', async (request) => {

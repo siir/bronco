@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { AiMode } from '@bronco/shared-types';
-import { resolveClientScope, scopeToWhere, getOperatorClientIds } from '../plugins/client-scope.js';
+import { resolveClientScope, scopeToWhere } from '../plugins/client-scope.js';
 
 const VALID_AI_MODES = new Set<string>(Object.values(AiMode));
 
@@ -32,9 +32,7 @@ export async function clientRoutes(fastify: FastifyInstance): Promise<void> {
         return fastify.httpErrors.badRequest('limit must be between 1 and 50');
       }
 
-      const scope = await resolveClientScope(request, (operatorId) =>
-        getOperatorClientIds(fastify.db, operatorId),
-      );
+      const scope = await resolveClientScope(request);
       if (scope.type === 'assigned' && scope.clientIds.length === 0) return [];
 
       // Translate clientId scope to id filter (clients are queried by their own id).
@@ -81,9 +79,7 @@ export async function clientRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   fastify.get('/api/clients', async (request) => {
-    const scope = await resolveClientScope(request, (operatorId) =>
-      getOperatorClientIds(fastify.db, operatorId),
-    );
+    const scope = await resolveClientScope(request);
 
     // Apply scope filter — translate clientId to client.id for direct client queries
     const scopeWhere = scopeToWhere(scope);
@@ -100,7 +96,30 @@ export async function clientRoutes(fastify: FastifyInstance): Promise<void> {
     const client = await fastify.db.client.findUnique({
       where: { id: request.params.id },
       include: {
-        people: true,
+        // Explicit projection — never spread Person directly. `passwordHash`
+        // and `emailLower` on Person are sensitive and must not leak to API
+        // consumers. Wave 2C will migrate the frontend to a proper ClientUser
+        // DTO; until then this stays on the safe-field allowlist.
+        clientUsers: {
+          select: {
+            id: true,
+            clientId: true,
+            userType: true,
+            isPrimary: true,
+            lastLoginAt: true,
+            createdAt: true,
+            updatedAt: true,
+            person: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                phone: true,
+                isActive: true,
+              },
+            },
+          },
+        },
         systems: true,
         _count: {
           select: {
@@ -110,7 +129,7 @@ export async function clientRoutes(fastify: FastifyInstance): Promise<void> {
             integrations: true,
             clientMemories: true,
             environments: true,
-            people: true,
+            clientUsers: true,
             invoices: true,
           },
         },

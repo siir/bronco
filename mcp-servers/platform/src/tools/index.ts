@@ -14,6 +14,10 @@ import { registerSettingsTools } from './settings.js';
 import { registerSystemStatusTools } from './system-status.js';
 import { registerSlackConversationTools } from './slack-conversations.js';
 import { registerUserTools } from './users.js';
+import { registerArtifactTools } from './read-tool-result-artifact.js';
+import { registerRequestToolTool } from './request-tool.js';
+import { registerToolRequestTools } from './tool-requests.js';
+import { registerKnowledgeDocTools } from './knowledge-doc.js';
 
 export function registerAllTools(server: McpServer, deps: ServerDeps): void {
   registerTicketTools(server, deps);
@@ -30,4 +34,8 @@ export function registerAllTools(server: McpServer, deps: ServerDeps): void {
   registerSettingsTools(server, deps);
   registerSystemStatusTools(server, deps);
   registerSlackConversationTools(server, deps);
+  registerArtifactTools(server, deps);
+  registerRequestToolTool(server, deps);
+  registerToolRequestTools(server, deps);
+  registerKnowledgeDocTools(server, deps);
 }

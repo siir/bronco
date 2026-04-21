@@ -134,6 +134,15 @@ export interface PromptRetentionConfig {
   summaryRetentionDays: number;
 }
 
+export interface ToolRequestRateLimitConfig {
+  limit: number;
+}
+
+export interface ToolRequestsDefaultRepoConfig {
+  owner: string;
+  name: string;
+}
+
 export interface ActionSafetyConfig {
   actions: Record<string, 'auto' | 'approval'>;
 }
@@ -268,6 +277,29 @@ export class SettingsService {
   }
   savePromptRetention(config: PromptRetentionConfig): Observable<PromptRetentionConfig> {
     return this.api.put<PromptRetentionConfig>('/settings/prompt-retention', config);
+  }
+
+  // --- Tool Request Rate Limit ---
+  getToolRequestRateLimit(): Observable<ToolRequestRateLimitConfig> {
+    return this.api.get<ToolRequestRateLimitConfig>('/settings/tool-request-rate-limit');
+  }
+  saveToolRequestRateLimit(config: ToolRequestRateLimitConfig): Observable<ToolRequestRateLimitConfig> {
+    return this.api.put<ToolRequestRateLimitConfig>('/settings/tool-request-rate-limit', config);
+  }
+
+  // --- Tool Requests GitHub Default Repo ---
+  getToolRequestsDefaultRepo(): Observable<ToolRequestsDefaultRepoConfig | null> {
+    return this.api.get<ToolRequestsDefaultRepoConfig | null>(
+      '/settings/tool-requests-github-default-repo',
+    );
+  }
+  saveToolRequestsDefaultRepo(
+    config: ToolRequestsDefaultRepoConfig,
+  ): Observable<ToolRequestsDefaultRepoConfig> {
+    return this.api.put<ToolRequestsDefaultRepoConfig>(
+      '/settings/tool-requests-github-default-repo',
+      config,
+    );
   }
 
   // --- Action Safety ---

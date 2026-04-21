@@ -10,6 +10,7 @@ const configSchema = z.object({
   MCP_AUTH_TOKEN: z.string().optional(),
   COPILOT_API_URL: z.string().default('http://copilot-api:3000'),
   LOG_LEVEL: z.string().default('info'),
+  ARTIFACT_STORAGE_PATH: z.string().default('/mnt/qnap/artifacts'),
 });
 
 export type Config = z.output<typeof configSchema>;

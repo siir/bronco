@@ -56,23 +56,38 @@ const LOCAL_TASK_TYPES = new Set<string>([
 
 const DEFAULT_OLLAMA_MODEL = 'llama3.1:8b';
 const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-6';
+const DEFAULT_CLAUDE_HAIKU_MODEL = 'claude-haiku-4-5-20251001';
+
+/** Task types that default to Claude Haiku (cheap, fast) instead of Sonnet. */
+const CLAUDE_HAIKU_TASK_TYPES = new Set<string>([
+  TaskType.DETECT_TOOL_GAPS,
+]);
+
+function defaultProviderAndModel(taskType: string): { provider: AIProvider; model: string } {
+  if (LOCAL_TASK_TYPES.has(taskType)) {
+    return { provider: AIProvider.LOCAL, model: DEFAULT_OLLAMA_MODEL };
+  }
+  if (CLAUDE_HAIKU_TASK_TYPES.has(taskType)) {
+    return { provider: AIProvider.CLAUDE, model: DEFAULT_CLAUDE_HAIKU_MODEL };
+  }
+  return { provider: AIProvider.CLAUDE, model: DEFAULT_CLAUDE_MODEL };
+}
 
 /**
  * Returns the hardcoded defaults for all known task types.
  */
 export function getTaskTypeDefaults(): TaskTypeDefault[] {
-  return Object.values(TaskType).map((tt) => ({
-    taskType: tt,
-    provider: LOCAL_TASK_TYPES.has(tt) ? AIProvider.LOCAL : AIProvider.CLAUDE,
-    model: LOCAL_TASK_TYPES.has(tt) ? DEFAULT_OLLAMA_MODEL : DEFAULT_CLAUDE_MODEL,
-  }));
+  return Object.values(TaskType).map((tt) => {
+    const { provider, model } = defaultProviderAndModel(tt);
+    return { taskType: tt, provider, model };
+  });
 }
 
 function getDefaultConfig(taskType: string): ResolvedModelConfig {
-  const isLocal = LOCAL_TASK_TYPES.has(taskType);
+  const { provider, model } = defaultProviderAndModel(taskType);
   return {
-    provider: isLocal ? AIProvider.LOCAL : AIProvider.CLAUDE,
-    model: isLocal ? DEFAULT_OLLAMA_MODEL : DEFAULT_CLAUDE_MODEL,
+    provider,
+    model,
     maxTokens: null,
     source: 'DEFAULT',
   };

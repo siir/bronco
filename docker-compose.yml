@@ -109,12 +109,15 @@ services:
         condition: service_healthy
       mcp-repo:
         condition: service_healthy
+      mcp-platform:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgresql://bronco:${POSTGRES_PASSWORD_URLENCODED}@postgres:5432/bronco
       REDIS_URL: redis://redis:6379
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       MCP_DATABASE_URL: ${MCP_DATABASE_URL:-http://mcp-database:3100}
       MCP_REPO_URL: http://mcp-repo:3111
+      MCP_PLATFORM_URL: http://mcp-platform:3110
       REPO_WORKSPACE_PATH: /var/lib/ticket-analyzer/repos
       REPO_RETENTION_DAYS: ${REPO_RETENTION_DAYS:-14}
       ARTIFACT_STORAGE_PATH: ${ARTIFACT_STORAGE_PATH:-/mnt/qnap/artifacts}
@@ -341,6 +344,9 @@ services:
       COPILOT_API_URL: http://copilot-api:3000
       PORT: "3110"
       LOG_LEVEL: info
+      ARTIFACT_STORAGE_PATH: ${ARTIFACT_STORAGE_PATH:-/mnt/qnap/artifacts}
+    volumes:
+      - ${QNAP_MOUNT_PATH:-/mnt/qnap}:/mnt/qnap
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3110/health || exit 1"]
       interval: 30s

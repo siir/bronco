@@ -12,7 +12,7 @@ export const loginRedirectGuard: CanActivateFn = () => {
   const router = inject(Router);
   const user = auth.currentUser();
   if (!user) return true;
-  if (user.isPortalOpsUser && user.clientId) {
+  if (user.clientId) {
     return router.parseUrl(`/clients/${user.clientId}`);
   }
   return router.parseUrl('/dashboard');

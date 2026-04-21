@@ -1,9 +1,19 @@
 export const ClientUserType = {
   ADMIN: 'ADMIN',
-  OPERATOR: 'OPERATOR',
   USER: 'USER',
 } as const;
 export type ClientUserType = (typeof ClientUserType)[keyof typeof ClientUserType];
+
+export interface ClientUser {
+  id: string;
+  personId: string;
+  clientId: string;
+  userType: ClientUserType;
+  isPrimary: boolean;
+  lastLoginAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
 
 /** Common consumer email domains to exclude from domain-based client matching */
 export const CONSUMER_EMAIL_DOMAINS = [

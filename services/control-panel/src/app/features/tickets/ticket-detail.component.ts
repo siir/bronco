@@ -20,10 +20,13 @@ import {
   IconComponent,
 } from '../../shared/components/index.js';
 import { AiLogEntryComponent } from './ai-log-entry.component.js';
+import { AnalysisTraceComponent } from './analysis-trace/analysis-trace.component.js';
+import { computeStrategyStamp, formatStrategyStamp } from './analysis-strategy-stamp.js';
 import { TicketDetailSummaryComponent } from './ticket-detail-summary.component.js';
 import { TicketDetailResolutionComponent } from './ticket-detail-resolution.component.js';
 import { TicketDetailDetailsComponent } from './ticket-detail-details.component.js';
 import { TicketDetailKnowledgeComponent } from './ticket-detail-knowledge.component.js';
+import { ChatTabComponent } from './chat/chat-tab.component.js';
 import { TicketDetailLogDigestComponent } from './ticket-detail-log-digest.component.js';
 import { TicketDetailFlowComponent, type FlowNode } from './ticket-detail-flow.component.js';
 import { TicketDetailCostComponent } from './ticket-detail-cost.component.js';
@@ -67,11 +70,13 @@ interface ConvTreeNode {
     TextareaComponent,
     DialogComponent,
     AiLogEntryComponent,
+    AnalysisTraceComponent,
     AiHelpDialogComponent,
     TicketDetailSummaryComponent,
     TicketDetailResolutionComponent,
     TicketDetailDetailsComponent,
     TicketDetailKnowledgeComponent,
+    ChatTabComponent,
     TicketDetailLogDigestComponent,
     TicketDetailFlowComponent,
     TicketDetailCostComponent,
@@ -165,7 +170,9 @@ interface ConvTreeNode {
           @if (t.knowledgeDoc || editingKnowledgeDoc()) {
             <app-tab label="Knowledge">
               <app-ticket-detail-knowledge
+                [ticketId]="t.id"
                 [knowledgeDoc]="t.knowledgeDoc ?? null"
+                [sectionMeta]="t.knowledgeDocSectionMeta ?? null"
                 [editing]="editingKnowledgeDoc()"
                 (startEdit)="editingKnowledgeDoc.set(true)"
                 (cancelEdit)="editingKnowledgeDoc.set(false)"
@@ -173,6 +180,12 @@ interface ConvTreeNode {
                 (clear)="clearKnowledgeDoc()" />
             </app-tab>
           }
+          <app-tab label="Chat">
+            <app-chat-tab
+              [ticketId]="id()"
+              [events]="events()"
+              (viewInTrace)="openAnalysisTraceTab()" />
+          </app-tab>
           <app-tab [label]="logsTabLabel()">
             <div class="logs-view-toggle">
               <button class="view-btn" [class.view-active]="logsView() === 'conversation'" (click)="setLogsView('conversation')">Conversation</button>
@@ -180,6 +193,10 @@ interface ConvTreeNode {
             </div>
 
             @if (logsView() === 'raw') {
+            <!-- Strategy stamp strip (shared with Analysis Trace) -->
+            <div class="strategy-strip-inline">
+              <span class="strategy-badge strategy-{{ rawLogsStamp().strategy }}">{{ rawLogsStampText() }}</span>
+            </div>
             <!-- Cost summary card -->
             @if (costSummary(); as cs) {
               @if (cs.callCount > 0) {
@@ -623,6 +640,9 @@ interface ConvTreeNode {
             }
             }
           </app-tab>
+          <app-tab label="Analysis Trace">
+            <app-analysis-trace [ticketId]="id()" [events]="events()" (viewRawLogs)="openRawLogsTab()" />
+          </app-tab>
           <app-tab label="Log Digest">
             <app-ticket-detail-log-digest
               [summaries]="logSummaries()"
@@ -778,7 +798,9 @@ export class TicketDetailComponent implements OnInit {
     if (t?.summary) labels.push('Resolution Summary');
     labels.push('Details');
     if (t?.knowledgeDoc || this.editingKnowledgeDoc()) labels.push('Knowledge');
+    labels.push('Chat');
     labels.push('Logs');
+    labels.push('Analysis Trace');
     labels.push('Log Digest');
     labels.push('Artifacts');
     labels.push('Timeline');
@@ -790,6 +812,10 @@ export class TicketDetailComponent implements OnInit {
     const total = this.unifiedLogsTotal();
     return total > 0 ? `Logs (${total})` : 'Logs';
   });
+
+  /** Strategy stamp for the Raw Logs sub-view (reuses shared helper). */
+  rawLogsStamp = computed(() => computeStrategyStamp(this.unifiedLogs(), this.events()));
+  rawLogsStampText = computed(() => formatStrategyStamp(this.rawLogsStamp()));
 
   // Static select option lists
   readonly priorityOptions = [
@@ -1236,6 +1262,19 @@ export class TicketDetailComponent implements OnInit {
     if (view === 'conversation') {
       this.loadConversationEntries();
     }
+  }
+
+  /** Switch to the Logs tab + Raw Logs sub-view from the Analysis Trace deep-tree banner. */
+  openRawLogsTab(): void {
+    const idx = this.tabsInOrder().indexOf('Logs');
+    if (idx >= 0) this.selectedTabIndex.set(idx);
+    this.setLogsView('raw');
+  }
+
+  /** Switch to the Analysis Trace tab (used by Chat's "View in Analysis Trace" link). */
+  openAnalysisTraceTab(): void {
+    const idx = this.tabsInOrder().indexOf('Analysis Trace');
+    if (idx >= 0) this.onTabIndexChange(idx);
   }
 
   private toSlug(label: string): string {

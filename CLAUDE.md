@@ -9,7 +9,7 @@ AI-augmented database and software architecture operations platform. Single-oper
 - **Monorepo**: pnpm workspaces. Shared packages in `packages/`, services in `services/`, MCP servers in `mcp-servers/`.
 - **Control plane DB**: PostgreSQL (Prisma ORM). Schema at `packages/db/prisma/schema.prisma`.
 - **Client databases**: Azure SQL Managed Instances (primary, SQL cred auth), on-prem SQL Server (future clients). Connected via MCP database server (Node.js/Express) running on Hugo in Docker Compose. The MCP server reads system configs directly from the control plane Postgres `System` table and decrypts passwords using `ENCRYPTION_KEY`.
-- **MCP Platform Server**: Exposes all Bronco platform operations (tickets, clients, people, probes, AI usage, etc.) as MCP tools. Uses Prisma directly (no HTTP hop to copilot-api). Runs on Hugo in Docker Compose (port 3110).
+- **MCP Platform Server**: Exposes all Bronco platform operations (tickets, clients, people, probes, AI usage, etc.) as MCP tools. Uses Prisma directly (no HTTP hop to copilot-api). Exception: `run_tool_request_dedupe` proxies to copilot-api via HTTP because the dedupe logic depends on AIRouter and `mcp-discovery` which don't live in the mcp-platform dep graph. Runs on Hugo in Docker Compose (port 3110).
 - **AI routing**: Local Ollama for triage/categorize/summarize/extract; Claude API for deep analysis, code review, architecture review, bug analysis, schema review, feature analysis.
 - **Hugo** (control plane VM): Ubuntu 24.04 LTS on ESXi NUC. Runs copilot-api (Fastify), imap-worker, ticket-analyzer, devops-worker, issue-resolver, status-monitor, slack-worker, scheduler-worker, mcp-database, mcp-platform, mcp-repo, Postgres, Redis, Caddy, and cloudflared (Cloudflare Tunnel for public ingress at `itrack.siirial.com`) via Docker Compose.
 - **Mac mini (siiriaplex)**: Runs Ollama for local LLM inference.
@@ -143,6 +143,8 @@ System prompts for each task are registered in `packages/ai-provider/src/prompts
 - `GENERATE_RESOLUTION_PLAN` — Generate a resolution plan for operator review before code execution
 - `CUSTOM_AI_QUERY` — Flexible configurable AI query within a route pipeline (task type and model overridable per step)
 - `ANALYZE_APP_HEALTH` — Scheduled platform health analysis — ticket patterns, AI usage trends, error logs, and codebase review
+- `DETECT_TOOL_GAPS` — Post-hoc review of a completed analysis to detect capability gaps; upserts tool requests into the registry (default: Claude Haiku for cheap review)
+- `ANALYZE_TOOL_REQUESTS` — Admin-triggered dedupe agent: compares a client's PROPOSED/APPROVED tool requests against each other and against the live MCP tool catalog (platform + repo + database + per-client integrations) and writes `suggestedDuplicateOf*` / `suggestedImprovesExisting*` fields on rows (default: Claude Sonnet)
 
 ### Task Type Discipline (CRITICAL)
 
@@ -192,6 +194,32 @@ Per-client operational knowledge (playbooks, procedures, architectural guidance)
 | `packages/ai-provider/src/client-memory-resolver.ts` | Resolver with caching, category/tag filtering, markdown composition |
 | `services/copilot-api/src/routes/client-memory.ts` | CRUD API endpoints with validation and cache invalidation |
 
+## Knowledge Document
+
+Each ticket carries a structured "knowledge document" (`Ticket.knowledgeDoc`) that the analysis pipeline incrementally fills during investigation. As of the section-keyed restructure it is a templated markdown artifact — not an append-only blob — and agents edit it through the `kd_*` MCP tools rather than concatenating text.
+
+### Template
+
+The doc always contains nine top-level sections in this order: `Problem Statement`, `Environment`, `Evidence`, `Hypotheses`, `Root Cause`, `Recommended Fix`, `Risks`, `Open Questions`, `Run Log`. Subsections (`### …`) are only permitted under `Evidence`, `Hypotheses`, and `Open Questions`. Each section body is capped at 10 000 characters. Sidecar metadata (`Ticket.knowledgeDocSectionMeta`) stores per-section `length` / `lastUpdatedAt` / `updatedByRunId` so the control panel can render the TOC without re-parsing the markdown.
+
+### MCP tools (platform server)
+
+| Tool | Purpose |
+|------|---------|
+| `kd_read_toc` | Return the section tree for a ticket (titles, lengths, timestamps, subsections). |
+| `kd_read_section` | Read one section by `sectionKey` (top-level slug or `parent.childSlug`). |
+| `kd_update_section` | Replace or append content for a top-level section. |
+| `kd_add_subsection` | Add a `### <title>` child under `evidence` / `hypotheses` / `openQuestions`. |
+
+All four tools run inside `withTicketLock` (Postgres advisory transaction lock on `hashtext(ticketId)`) so concurrent agent calls and REST writes serialize per ticket. REST mirrors live at `/api/tickets/:id/knowledge-doc/{toc,section/:key,subsection}`.
+
+### Analysis pipeline integration
+
+- Flat and orchestrated analyzers append `KD_SYSTEM_PROMPT_SNIPPET` to their system prompts, nudging (not forcing) the agent to use `kd_*` tools during investigation.
+- End-of-run, `fallbackFillRequiredSections(db, ticketId, reason)` populates any empty required sections (`problemStatement`, `rootCause`, `recommendedFix`) with a marker so downstream composition never renders a blank analysis.
+- `composeFinalAnalysis(knowledgeDoc, sectionMeta, agentExecutiveSummary)` merges the agent's executive summary with Problem Statement / Root Cause / Recommended Fix / Risks pulled from the doc — that composed text is what lands in the `AI_ANALYSIS` ticket event and email.
+- After each iteration (and at run end) the orchestrator writes a `KnowledgeDocSnapshot` row capturing the doc + sidecar, so future iteration-diff views have ground truth per iteration.
+
 ## Ticket Route Step Types
 
 Ticket routes define configurable analysis pipelines executed when tickets are processed. Each route consists of ordered steps, each performing a specific processing function.
@@ -228,6 +256,7 @@ Ticket routes define configurable analysis pipelines executed when tickets are p
 | `SUGGEST_NEXT_STEPS` | Analysis | SUGGEST_NEXT_STEPS | Recommend actions |
 | `UPDATE_TICKET_SUMMARY` | Analysis | — | Finalize ticket summary |
 | `CUSTOM_AI_QUERY` | Analysis | CUSTOM_AI_QUERY | Configurable AI query with selectable context sources and optional fresh MCP/repo searches |
+| `DETECT_TOOL_GAPS` | Analysis | DETECT_TOOL_GAPS | Scans completed analysis for missing-tool gaps; upserts into ToolRequest registry via the shared registry helper. |
 | `NOTIFY_OPERATOR` | Dispatch | — | Send notification to operator |
 | `DISPATCH_TO_ROUTE` | Dispatch | — | Dispatch ticket to another route for further processing |
 | `ADD_FOLLOWER` | Dispatch | — | Add a follower to the ticket |
@@ -332,6 +361,11 @@ pnpm dev:portal           # Start ticket portal (Angular, port 4201)
 | `mcp-servers/database/src/connections/pool-manager.ts` | Connection factory with extensibility guide. |
 | `mcp-servers/database/src/tools/index.ts` | MCP tool registration (Zod schemas + handlers). |
 | `mcp-servers/platform/src/tools/index.ts` | MCP platform tool registration (all Bronco API operations). |
+| `mcp-servers/platform/src/tools/read-tool-result-artifact.ts` | Platform MCP tool for reading truncated tool-result artifacts (head/tail preview → full content via offset+limit or grep). |
+| `mcp-servers/platform/src/tools/knowledge-doc.ts` | Platform MCP `kd_*` tools (`kd_read_toc`, `kd_read_section`, `kd_update_section`, `kd_add_subsection`) — templated section-keyed edits on `Ticket.knowledgeDoc` + `knowledgeDocSectionMeta` sidecar, guarded by a per-ticket `pg_advisory_xact_lock`. |
+| `packages/shared-utils/src/knowledge-doc.ts` | Shared knowledge-doc core: 9-section template, parse/compose, slug-keyed read/update with 10k-char per-section cap; used by MCP tools, REST mirrors, and the analysis pipeline. |
+| `packages/shared-utils/src/advisory-lock.ts` | `withTicketLock(db, ticketId, fn)` — wraps a Prisma transaction with `pg_advisory_xact_lock(hashtext($1))` so kd_* writes from agents and REST endpoints can't race. |
+| `services/copilot-api/src/routes/knowledge-doc.ts` | REST mirrors for the four kd tools under `/api/tickets/:id/knowledge-doc/*` — used by the Knowledge tab to render the TOC + section bodies. |
 | `mcp-servers/database/src/security/query-validator.ts` | SQL keyword blocklist. |
 | `mcp-servers/database/src/security/audit-logger.ts` | Query audit logging (Pino structured JSON to stdout). |
 | `packages/ai-provider/src/router.ts` | AI task routing (dynamic provider/model resolution via ModelConfigResolver). |
@@ -363,6 +397,20 @@ pnpm dev:portal           # Start ticket portal (Angular, port 4201)
 | `mcp-servers/platform/src/tools/people.ts` | MCP people tools (list, get, create, update, delete). |
 | `services/copilot-api/src/routes/client-memory.ts` | Client memory CRUD endpoints with resolver cache invalidation. |
 | `services/copilot-api/src/routes/ticket-routes.ts` | Ticket route CRUD + step type registry for configurable analysis pipelines. |
+| `services/copilot-api/src/routes/tool-requests.ts` | Gap Requests CRUD API (admin-only): list/filter tool-request records, view rationale history, transition status (approve/reject/duplicate/implemented/reopen), delete. |
+| `packages/shared-utils/src/tool-request-registry.ts` | Dedup upsert helper for tool-request records keyed on `(clientId, requestedName)`; appends rationale rows without clobbering operator edits. |
+| `services/copilot-api/src/services/tool-request-dedupe.ts` | Admin-triggered dedupe agent: discovers MCP catalog per-client + shared, calls Claude via `ANALYZE_TOOL_REQUESTS`, persists `suggestedDuplicateOf*` / `suggestedImprovesExisting*` suggestions transactionally. |
+| `packages/shared-utils/src/tool-request-github.ts` | Shared GitHub-issue helper for tool requests: reads encrypted token from `system-config-github`, repo from `tool-requests-github-default-repo` AppSetting (or override), POSTs via GitHub REST v3, persists `githubIssueUrl` + `implementedInIssue` on the row. |
+| `mcp-servers/platform/src/tools/request-tool.ts` | MCP `request_tool` that analyzers call when they hit a capability gap; enforces the per-run rate limit from AppSetting `tool-request-rate-limit-per-run`. |
+| `mcp-servers/platform/src/tools/tool-requests.ts` | MCP CRUD tools for tool requests (list/get/update/delete) + `create_tool_request_github_issue` wrapper used by the platform surface. |
+| `services/control-panel/src/app/features/tool-requests/tool-request-list.component.ts` | Admin Tool Requests page: list + detail dialog with rationale history, linked tickets, status transition controls, client filter + Run Dedupe button, AI suggestion pills with Accept/Dismiss, and Create GitHub Issue flow for approved requests. |
+| `mcp-servers/repo/src/tools/search-code.ts` | Per-repo MCP `search_code` tool — grep across repo tree, broad default extension list with per-repo `CodeRepo.fileExtensions` override. |
+| `mcp-servers/repo/src/tools/read-file.ts` | Per-repo MCP `read_file` tool — read a single file by path with optional line-range slice. |
+| `mcp-servers/repo/src/tools/list-files.ts` | Per-repo MCP `list_files` tool — list files in a directory tree, extension-filtered. |
+| `mcp-servers/repo/src/tools/prepare-repo.ts` | Per-repo MCP `prepare_repo` tool — called in parallel by `GATHER_REPO_CONTEXT` to clone/pull active repos before analysis. |
+| `services/control-panel/src/app/features/tickets/chat/chat-tab.component.ts` | Chat tab: operator-facing conversation surface with intent-based re-analysis (`continue` / `refine` / `fresh_start`) classified via `CLASSIFY_INTENT` (see [#330](https://github.com/siir/bronco/issues/330) — should migrate to `CLASSIFY_CHAT_INTENT`). Posts `CHAT_MESSAGE` ticket events. |
+| `services/control-panel/src/app/features/tickets/analysis-trace/analysis-trace.component.ts` | Analysis Trace tab: three-pass merge (tree build → same-prompt merge → tool-call collapse) over `ai_usage_logs` with strategy stamp rendering and Raw Logs fallback for legacy data. |
+| `packages/shared-types/src/access-type.ts` | `AccessType` + `OperatorRole` (ADMIN / STANDARD) enums — foundation for scoped-ops access control and portal-user vs operator discrimination. Used by `resolveClientScope` in `services/copilot-api/src/plugins/client-scope.ts`. |
 | `services/copilot-api/src/routes/artifacts.ts` | MCP tool artifact storage and retrieval endpoints (`/api/artifacts`). |
 | `services/copilot-api/src/routes/release-notes.ts` | Release notes API: commit ingestion, AI summarization, GitHub backfill, service filtering. |
 | `services/copilot-api/src/routes/ingest.ts` | Ingestion API: queue endpoints for email/scheduled/manual payloads, plus `GET /api/ingest/runs` and `GET /api/ingest/runs/:id` for run history. |

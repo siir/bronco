@@ -51,7 +51,7 @@ export async function portalTicketRoutes(fastify: FastifyInstance, opts: PortalT
 
     // Check metadata portalCreatorId
     const meta = ticket.metadata as Record<string, unknown> | null;
-    if (meta?.['portalCreatorId'] === portalUser.id) return true;
+    if (meta?.['portalCreatorId'] === portalUser.personId) return true;
 
     // Check if user has commented on this ticket
     const commentCount = await fastify.db.ticketEvent.count({
@@ -101,7 +101,7 @@ export async function portalTicketRoutes(fastify: FastifyInstance, opts: PortalT
       if (portalUser.userType !== ClientUserType.ADMIN) {
         where['OR'] = [
           { followers: { some: { person: { email: portalUser.email } } } },
-          { metadata: { path: ['portalCreatorId'], equals: portalUser.id } },
+          { metadata: { path: ['portalCreatorId'], equals: portalUser.personId } },
           { events: { some: { actor: portalUser.email } } },
         ];
       }
@@ -136,7 +136,7 @@ export async function portalTicketRoutes(fastify: FastifyInstance, opts: PortalT
     if (portalUser.userType !== ClientUserType.ADMIN) {
       where['OR'] = [
         { followers: { some: { person: { email: portalUser.email } } } },
-        { metadata: { path: ['portalCreatorId'], equals: portalUser.id } },
+        { metadata: { path: ['portalCreatorId'], equals: portalUser.personId } },
         { events: { some: { actor: portalUser.email } } },
       ];
     }
@@ -214,20 +214,10 @@ export async function portalTicketRoutes(fastify: FastifyInstance, opts: PortalT
         }
       }
 
-      // Find or create a person for this portal user so we can pass the personId to the ingestion pipeline
-      let person = await fastify.db.person.findFirst({
-        where: { clientId: portalUser.clientId, email: { equals: portalUser.email, mode: 'insensitive' } },
-      });
-
-      if (!person) {
-        person = await fastify.db.person.create({
-          data: {
-            clientId: portalUser.clientId,
-            email: portalUser.email,
-            name: portalUser.name || portalUser.email.split('@')[0] || portalUser.email,
-          },
-        });
-      }
+      // The portal user's Person is already the canonical identity — reuse it
+      // directly instead of looking up / creating a per-client Person (the
+      // client-scoped Person model was removed by #219 Wave 1).
+      const person = { id: portalUser.personId };
 
       // --- Async mode: enqueue to ingestion pipeline ---
       if (opts.ingestQueue) {
@@ -238,7 +228,7 @@ export async function portalTicketRoutes(fastify: FastifyInstance, opts: PortalT
             subject: subject.trim(),
             description: description?.trim() || undefined,
             priority,
-            portalCreatorId: portalUser.id,
+            portalCreatorId: portalUser.personId,
             personId: person.id,
           },
         };
@@ -272,7 +262,7 @@ export async function portalTicketRoutes(fastify: FastifyInstance, opts: PortalT
               priority: (priority as Priority) ?? 'MEDIUM',
               source: 'MANUAL',
               ticketNumber: portalTicketNumber,
-              metadata: { portalCreatorId: portalUser.id },
+              metadata: { portalCreatorId: portalUser.personId },
               followers: {
                 create: { personId: person.id, followerType: 'REQUESTER' },
               },

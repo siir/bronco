@@ -28,7 +28,7 @@ import { ToastService } from '../../core/services/toast.service.js';
           </div>
           <div class="field">
             <span class="label">User ID</span>
-            <span class="mono">{{ user.id }}</span>
+            <span class="mono">{{ user.personId }}</span>
           </div>
         </app-card>
 

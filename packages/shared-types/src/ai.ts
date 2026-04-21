@@ -43,6 +43,10 @@ export const TaskType = {
   SELECT_ROUTE: 'SELECT_ROUTE',
   // Self-analysis (scheduled app health)
   ANALYZE_APP_HEALTH: 'ANALYZE_APP_HEALTH',
+  // Post-hoc capability-gap detection (Claude Haiku — cheap review)
+  DETECT_TOOL_GAPS: 'DETECT_TOOL_GAPS',
+  // Admin dedupe pass over pending ToolRequest rows (Claude Sonnet)
+  ANALYZE_TOOL_REQUESTS: 'ANALYZE_TOOL_REQUESTS',
 } as const;
 export type TaskType = (typeof TaskType)[keyof typeof TaskType];
 
@@ -111,6 +115,12 @@ export const TASK_APP_SCOPE: Record<TaskType, AppScope> = {
 
   // Self-analysis
   [TaskType.ANALYZE_APP_HEALTH]: AppScope.CORE,
+
+  // Post-hoc capability-gap detection
+  [TaskType.DETECT_TOOL_GAPS]: AppScope.CORE,
+
+  // Admin dedupe pass
+  [TaskType.ANALYZE_TOOL_REQUESTS]: AppScope.CORE,
 
 } satisfies Record<TaskType, AppScope>;
 

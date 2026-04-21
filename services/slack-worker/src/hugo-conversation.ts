@@ -396,10 +396,11 @@ export async function handleHugoConversation(
   }
 
   // 2. Resolve operator from Slack user
-  const operator = await db.operator.findFirst({
-    where: { slackUserId: userId, isActive: true },
-    select: { id: true, name: true },
+  const operatorRow = await db.operator.findFirst({
+    where: { slackUserId: userId, person: { isActive: true } },
+    select: { id: true, person: { select: { name: true } } },
   });
+  const operator = operatorRow ? { id: operatorRow.id, name: operatorRow.person.name } : null;
 
   if (!operator) {
     await slack.replyInThread(

@@ -6,7 +6,7 @@ export interface ControlPanelUser {
   id: string;
   email: string;
   name: string;
-  role: 'ADMIN' | 'OPERATOR' | 'CLIENT';
+  role: 'ADMIN' | 'STANDARD';
   clientId: string | null;
   isActive: boolean;
   lastLoginAt: string | null;

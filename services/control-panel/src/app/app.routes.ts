@@ -12,7 +12,7 @@ import { AuthService } from './core/services/auth.service.js';
 const defaultRedirect: RedirectFunction = () => {
   const auth = inject(AuthService);
   const user = auth.currentUser();
-  if (user?.isPortalOpsUser && user.clientId) {
+  if (user?.clientId) {
     return `/clients/${user.clientId}`;
   }
   return '/dashboard';
@@ -139,6 +139,11 @@ export const routes: Routes = [
         path: 'ticket-routes',
         canActivate: [scopedOpsGuard],
         loadComponent: () => import('./features/ticket-routes/ticket-route-list.component.js').then(m => m.TicketRouteListComponent),
+      },
+      {
+        path: 'tool-requests',
+        canActivate: [scopedOpsGuard],
+        loadComponent: () => import('./features/tool-requests/tool-request-list.component.js').then(m => m.ToolRequestListComponent),
       },
       {
         path: 'ingestion-jobs',

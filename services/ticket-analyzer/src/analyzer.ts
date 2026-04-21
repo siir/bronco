@@ -7,12 +7,24 @@ import { Prisma } from '@bronco/db';
 import type { PrismaClient } from '@bronco/db';
 import type { TicketCategory, Priority, TicketStatus, TicketSource, AnalysisJob } from '@bronco/shared-types';
 import { AIRouter } from '@bronco/ai-provider';
-import { TaskType, RouteStepType, isClosedStatus, AnalysisStatus, SufficiencyStatus, SufficiencyConfidence, NotificationMode } from '@bronco/shared-types';
-import { createLogger, AppLogger, createPrismaLogWriter, decrypt, looksEncrypted, MCP_TOOL_TIMEOUT_MS, mcpUrl, callMcpToolViaSdk, notifyOperators as notifyOperatorsFn, notifyClientOperators as notifyClientOperatorsFn, getSelfAnalysisConfig } from '@bronco/shared-utils';
-import type { AIToolDefinition, AIMessage, AIToolUseBlock, AITextBlock, AIToolResponse, AIToolResultBlock } from '@bronco/shared-types';
+import { TaskType, RouteStepType, isClosedStatus, AnalysisStatus, SufficiencyStatus, NotificationMode, ToolRequestRationaleSource } from '@bronco/shared-types';
+import { createLogger, AppLogger, createPrismaLogWriter, MCP_TOOL_TIMEOUT_MS, mcpUrl, callMcpToolViaSdk, notifyOperators as notifyOperatorsFn, notifyClientOperators as notifyClientOperatorsFn, getActiveOperatorRecords, getSelfAnalysisConfig, registerToolRequest } from '@bronco/shared-utils';
 import type { Mailer, ReplyOptions } from '@bronco/shared-utils';
 import { executeRecommendations } from './recommendation-executor.js';
 import type { ParsedAction } from './recommendation-executor.js';
+import {
+  buildAgenticTools,
+  DEFAULT_REPO_FILE_EXTENSIONS,
+  parseSufficiencyEvaluation,
+  resolveAnalysisStrategy,
+  SUFFICIENCY_EVAL_INSTRUCTIONS,
+  type AnalysisDeps,
+  type AnalysisPipelineContext,
+  type ReanalysisContext,
+  type SufficiencyEvaluation,
+} from './analysis/shared.js';
+import { runFlatAnalysis } from './analysis/flat.js';
+import { runOrchestratedAnalysis } from './analysis/orchestrated.js';
 
 const logger = createLogger('ticket-analyzer');
 export const appLog = new AppLogger('ticket-analyzer');
@@ -97,97 +109,6 @@ function parseNextStepsActions(ticketId: string, content: string): { actions: Pa
 
   return { actions, rawActions };
 }
-
-// ---------------------------------------------------------------------------
-// Sufficiency evaluation parsing
-// ---------------------------------------------------------------------------
-
-const SUFFICIENCY_DELIMITER = '---SUFFICIENCY---';
-
-interface SufficiencyEvaluation {
-  status: SufficiencyStatus;
-  questions: string[];
-  confidence: SufficiencyConfidence;
-  reason: string;
-}
-
-const VALID_SUFFICIENCY_STATUSES = new Set<string>(Object.values(SufficiencyStatus));
-const VALID_SUFFICIENCY_CONFIDENCES = new Set<string>(Object.values(SufficiencyConfidence));
-
-/**
- * Parse the structured sufficiency suffix from an analysis response.
- * Returns the clean analysis text (without the suffix) and the parsed evaluation.
- * If no suffix is found, defaults to SUFFICIENT to avoid blocking tickets.
- */
-function parseSufficiencyEvaluation(rawAnalysis: string): { analysis: string; evaluation: SufficiencyEvaluation } {
-  const delimIdx = rawAnalysis.lastIndexOf(SUFFICIENCY_DELIMITER);
-  if (delimIdx === -1) {
-    return {
-      analysis: rawAnalysis,
-      evaluation: { status: SufficiencyStatus.SUFFICIENT, questions: [], confidence: SufficiencyConfidence.MEDIUM, reason: 'No sufficiency evaluation provided — defaulting to SUFFICIENT' },
-    };
-  }
-
-  const analysis = rawAnalysis.slice(0, delimIdx).trimEnd();
-  const suffBlock = rawAnalysis.slice(delimIdx + SUFFICIENCY_DELIMITER.length).trim();
-
-  let status: SufficiencyStatus = SufficiencyStatus.SUFFICIENT;
-  let confidence: SufficiencyConfidence = SufficiencyConfidence.MEDIUM;
-  let reason = '';
-  const questions: string[] = [];
-
-  let inQuestions = false;
-  for (const line of suffBlock.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-
-    if (trimmed.startsWith('STATUS:')) {
-      const val = trimmed.slice('STATUS:'.length).trim();
-      if (VALID_SUFFICIENCY_STATUSES.has(val)) status = val as SufficiencyStatus;
-      inQuestions = false;
-    } else if (trimmed.startsWith('CONFIDENCE:')) {
-      const val = trimmed.slice('CONFIDENCE:'.length).trim();
-      if (VALID_SUFFICIENCY_CONFIDENCES.has(val)) confidence = val as SufficiencyConfidence;
-      inQuestions = false;
-    } else if (trimmed.startsWith('REASON:')) {
-      reason = trimmed.slice('REASON:'.length).trim();
-      inQuestions = false;
-    } else if (trimmed.startsWith('QUESTIONS:')) {
-      const inline = trimmed.slice('QUESTIONS:'.length).trim();
-      if (inline) questions.push(inline);
-      inQuestions = true;
-    } else if (inQuestions && (trimmed.startsWith('-') || trimmed.startsWith('*') || /^\d+[.)]/.test(trimmed))) {
-      questions.push(trimmed.replace(/^[-*]\s*|^\d+[.)]\s*/, ''));
-    }
-  }
-
-  return { analysis, evaluation: { status, questions, confidence, reason } };
-}
-
-/** Instructions appended to the agentic analysis system prompt for sufficiency evaluation. */
-const SUFFICIENCY_EVAL_INSTRUCTIONS = [
-  '',
-  '## Sufficiency Evaluation',
-  '',
-  'Before providing your final analysis, evaluate whether you have enough information to propose a resolution plan.',
-  'Consider: Do you understand the root cause? Do you have enough evidence? Are there gaps only the user can fill?',
-  '',
-  'After your analysis, include a structured suffix on new lines:',
-  '',
-  '```',
-  '---SUFFICIENCY---',
-  'STATUS: SUFFICIENT | NEEDS_USER_INPUT | INSUFFICIENT',
-  'QUESTIONS: [only if NEEDS_USER_INPUT — specific questions for the user, one per line starting with -]',
-  'CONFIDENCE: HIGH | MEDIUM | LOW',
-  'REASON: [brief explanation of why this status was chosen]',
-  '```',
-  '',
-  'Guidelines:',
-  '- SUFFICIENT: You have enough context from system sources to propose a concrete resolution plan.',
-  '- NEEDS_USER_INPUT: You have exhausted system sources (databases, code repos) but have specific questions only the user can answer. Ask targeted questions — not vague "can you tell me more?"',
-  '- INSUFFICIENT: You cannot determine what is needed — the ticket may be too vague or the systems are inaccessible. Flag for operator review.',
-  '- Always provide your best analysis regardless of sufficiency status.',
-].join('\n');
 
 // ---------------------------------------------------------------------------
 // Retry configuration for outbound emails
@@ -316,6 +237,8 @@ export interface AnalyzerDeps {
   encryptionKey: string;
   /** MCP repo server URL for code repository access via mcp-repo. */
   mcpRepoUrl: string;
+  /** MCP platform server URL for platform operations via mcp-platform. */
+  mcpPlatformUrl: string;
   /** API key for authenticating to mcp-repo (x-api-key header). */
   apiKey?: string;
   /** MCP auth token for authenticating to mcp-repo (Bearer header, takes precedence over apiKey). */
@@ -557,11 +480,12 @@ async function resolveRecipientName(
   emailFrom: string,
   clientId?: string | null,
 ): Promise<string> {
-  // 1. Check if there's a person record with a name (scoped to client to prevent cross-tenant leakage)
+  // 1. Check if there's a person record with a name (scoped to the client via
+  // ClientUser when provided to prevent cross-tenant leakage).
   const person = await db.person.findFirst({
     where: {
       email: { equals: emailFrom, mode: 'insensitive' },
-      ...(clientId ? { clientId } : {}),
+      ...(clientId ? { clientUsers: { some: { clientId } } } : {}),
     },
     select: { name: true },
   });
@@ -1528,809 +1452,11 @@ async function resolveTicketRoute(
 }
 
 // ---------------------------------------------------------------------------
-// Agentic Analysis — tool definition builder, executor, and loop
-// ---------------------------------------------------------------------------
-
-interface McpIntegrationInfo {
-  label: string;
-  url: string;
-  mcpPath?: string;
-  apiKey?: string;
-  authHeader?: string;
-}
-
-/**
- * Build Claude tool definitions from a client's active MCP_DATABASE integrations
- * and code repositories (via mcp-repo). MCP tool names are prefixed with the
- * integration label to disambiguate across servers (e.g. `prod-db__get_blocking_tree`).
- */
-async function buildAgenticTools(
-  db: PrismaClient,
-  clientId: string,
-  encryptionKey: string,
-  mcpRepoUrl: string,
-  apiKey?: string,
-  mcpAuthToken?: string,
-): Promise<{
-  tools: AIToolDefinition[];
-  mcpIntegrations: Map<string, McpIntegrationInfo>;
-  repoIdByPrefix: Map<string, string>;
-}> {
-  const tools: AIToolDefinition[] = [];
-  const mcpIntegrations = new Map<string, McpIntegrationInfo>();
-  const repoIdByPrefix = new Map<string, string>();
-
-  // Collect MCP_DATABASE integrations
-  const integrations = await db.clientIntegration.findMany({
-    where: { clientId, type: 'MCP_DATABASE', isActive: true },
-  });
-
-  for (const integ of integrations) {
-    const cfg = integ.config as Record<string, unknown>;
-    const meta = integ.metadata as Record<string, unknown> | null;
-    const url = typeof cfg['url'] === 'string' ? cfg['url'] : '';
-    if (!url) continue;
-
-    // Decrypt API key if present
-    let integApiKey: string | undefined;
-    if (typeof cfg['apiKey'] === 'string' && cfg['apiKey']) {
-      try {
-        integApiKey = looksEncrypted(cfg['apiKey'])
-          ? decrypt(cfg['apiKey'], encryptionKey)
-          : cfg['apiKey'];
-      } catch (err) {
-        logger.warn({ err, integrationId: integ.id }, 'Failed to decrypt MCP API key, skipping integration');
-        continue;
-      }
-    }
-
-    const authHeader = typeof cfg['authHeader'] === 'string' ? cfg['authHeader'] : 'bearer';
-    const labelSlug = integ.label.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
-    const prefix = `${labelSlug}-${integ.id.slice(0, 8)}`;
-
-    const mcpPath = typeof cfg['mcpPath'] === 'string' ? cfg['mcpPath'] : undefined;
-    mcpIntegrations.set(prefix, { label: integ.label, url, mcpPath, apiKey: integApiKey, authHeader });
-
-    // Read tool metadata — includes inputSchema from discovery
-    const disabledTools = new Set(
-      Array.isArray(cfg['disabledTools']) ? (cfg['disabledTools'] as string[]) : [],
-    );
-    const discoveredTools = Array.isArray(meta?.['tools']) ? meta['tools'] as Array<Record<string, unknown>> : [];
-    for (const t of discoveredTools) {
-      const name = typeof t['name'] === 'string' ? t['name'] : '';
-      if (!name || disabledTools.has(name)) continue;
-      const description = typeof t['description'] === 'string' ? t['description'] : '';
-      const inputSchema = (t['inputSchema'] as Record<string, unknown>) ?? { type: 'object', properties: {} };
-
-      tools.push({
-        name: `${prefix}__${name}`,
-        description: `[${integ.label}] ${description}`,
-        input_schema: inputSchema,
-      });
-    }
-  }
-
-  // Discover mcp-repo tools for client repositories
-  const repos = await db.codeRepo.findMany({ where: { clientId, isActive: true } });
-  if (repos.length > 0) {
-    // Resolve auth for mcp-repo — prefer MCP_AUTH_TOKEN, fall back to API_KEY
-    const repoAuth = mcpAuthToken || apiKey;
-    const repoAuthHeader = mcpAuthToken ? 'bearer' : 'x-api-key';
-
-    // Register shared mcp-repo integration for list_repos and repo_cleanup
-    mcpIntegrations.set('repo', { label: 'mcp-repo', url: mcpRepoUrl, mcpPath: '/mcp', apiKey: repoAuth, authHeader: repoAuthHeader });
-
-    tools.push({
-      name: 'repo__list_repos',
-      description: 'List available code repositories registered for this client.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          clientId: { type: 'string', description: 'Client ID to filter by' },
-        },
-        required: ['clientId'],
-      },
-    });
-
-    tools.push({
-      name: 'repo__repo_cleanup',
-      description: 'Release a session\'s repository worktrees to free disk space.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          sessionId: { type: 'string', description: 'The session ID to clean up' },
-        },
-        required: ['sessionId'],
-      },
-    });
-
-    // Register per-repo repo_exec tools with repoId baked in
-    for (const repo of repos) {
-      const prefix = `repo-${repo.name.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase()}-${repo.id.slice(0, 8)}`;
-      repoIdByPrefix.set(prefix, repo.id);
-
-      // Register this prefix to point at mcp-repo
-      mcpIntegrations.set(prefix, { label: `repo:${repo.name}`, url: mcpRepoUrl, mcpPath: '/mcp', apiKey: repoAuth, authHeader: repoAuthHeader });
-
-      // Build a modified input schema for repo_exec with repoId removed
-      tools.push({
-        name: `${prefix}__repo_exec`,
-        description: `[${repo.name}] ${repo.description || 'Code repository'}. Execute a read-only shell command in a sandboxed worktree. Allowed: grep, find, cat, head, tail, ls, tree, diff, stat. Pipes to grep/sed/awk/sort allowed.`,
-        input_schema: {
-          type: 'object',
-          properties: {
-            command: { type: 'string', description: 'The shell command to execute' },
-            sessionId: { type: 'string', description: 'Session ID for worktree reuse (auto-generated if omitted)' },
-          },
-          required: ['command'],
-        },
-      });
-    }
-  }
-
-  return { tools, mcpIntegrations, repoIdByPrefix };
-}
-
-/**
- * Execute a single tool call from the agentic loop.
- * Returns the tool result text and whether it was an error.
- */
-async function executeAgenticToolCall(
-  toolCall: AIToolUseBlock,
-  mcpIntegrations: Map<string, McpIntegrationInfo>,
-  repoIdByPrefix: Map<string, string>,
-  clientId?: string,
-): Promise<{ toolUseId: string; result: string; isError: boolean }> {
-  const { id: toolUseId, name, input } = toolCall;
-
-  try {
-    // MCP tool — parse prefix
-    const sepIndex = name.indexOf('__');
-    if (sepIndex === -1) {
-      return { toolUseId, result: `Unknown tool: ${name}`, isError: true };
-    }
-    const prefix = name.slice(0, sepIndex);
-    const actualToolName = name.slice(sepIndex + 2);
-    const integration = mcpIntegrations.get(prefix);
-    if (!integration) {
-      return { toolUseId, result: `No MCP integration found for prefix "${prefix}"`, isError: true };
-    }
-
-    // For repo_exec, inject the baked-in repoId and clientId for defense-in-depth
-    // For list_repos, inject clientId to prevent cross-client repo enumeration
-    let toolInput = input;
-    if (actualToolName === 'repo_exec') {
-      const repoId = repoIdByPrefix.get(prefix);
-      if (repoId) {
-        toolInput = { ...input, repoId, ...(clientId ? { clientId } : {}) };
-      }
-    } else if (actualToolName === 'list_repos' && clientId) {
-      toolInput = { ...input, clientId };
-    }
-
-    const result = await callMcpToolViaSdk(
-      integration.url,
-      integration.mcpPath,
-      actualToolName,
-      toolInput,
-      integration.apiKey,
-      integration.authHeader,
-    );
-    return { toolUseId, result, isError: false };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { toolUseId, result: `Tool error: ${msg}`, isError: true };
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Orchestrated analysis helpers
-// ---------------------------------------------------------------------------
-
-const ORCHESTRATED_SYSTEM_PROMPT = `You are an expert DBA and systems analyst conducting a structured investigation.
-
-You will investigate the issue step by step. On each iteration you receive:
-- The ticket context and any client-specific knowledge (first iteration only)
-- A "knowledge document" summarizing everything learned so far
-- A prompt directing what to investigate next
-
-Return a JSON object in a markdown code block with:
-{
-  "findings": "Markdown text summarizing what you've learned or concluded in this iteration",
-  "tasks": [
-    {
-      "prompt": "A focused prompt for a sub-task",
-      "tools": ["tool_name_1", "tool_name_2"],
-      "model": "haiku|sonnet|opus"
-    }
-  ],
-  "nextPrompt": "What should be investigated in the next iteration after these tasks complete",
-  "done": false
-}
-
-Guidelines for task assignment:
-- Use "haiku" for simple data gathering (fetching events, listing indexes, getting health stats)
-- Use "sonnet" for moderate analysis (pattern recognition, correlation checking)
-- Use "opus" for complex reasoning (root cause analysis, architecture decisions)
-- Keep tasks focused — each task should have a clear, specific goal
-- Maximum 5 tasks per iteration
-
-CRITICAL: In the "tools" array, use EXACT tool names from the Available Tools list provided in the prompt. Do not abbreviate, rename, or invent tool names. Copy-paste the full tool name including any prefix (e.g. "ap-dbadmin-e5834180__run_query", not "run_query" or "run_sql_query"). If no available tool fits the task, leave the tools array empty and describe what data you need in the prompt text so the model can request it conversationally.
-
-When you have enough information to provide a final analysis, set "done": true and include:
-{
-  "findings": "Final summary",
-  "tasks": [],
-  "nextPrompt": null,
-  "done": true,
-  "finalAnalysis": "Full detailed markdown analysis with root cause, evidence, recommendations..."
-}
-
-Include sufficiency evaluation in your final analysis using the ---SUFFICIENCY--- format.
-
-Prior analysis runs (if any) may be summarized or referenced for historical context. Focus your investigation on the current run. Reference prior findings if relevant but don't repeat work already done.
-
-Note: Full raw tool results from prior iterations are stored by the orchestrator but may not be included directly in this prompt. If you need to review specific historical or raw data, explicitly request it in a task prompt so it can be provided.`;
-
-interface StrategistPlan {
-  findings: string;
-  tasks: Array<{ prompt: string; tools: string[]; model: string }>;
-  nextPrompt: string | null;
-  done: boolean;
-  finalAnalysis?: string;
-  parseError?: string;
-}
-
-function parseStrategistResponse(content: string): StrategistPlan {
-  // Try to extract JSON from markdown code blocks first, then raw JSON
-  const codeBlockMatch = content.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-  const jsonStr = codeBlockMatch ? codeBlockMatch[1].trim() : content.trim();
-
-  try {
-    const parsed = JSON.parse(jsonStr) as Record<string, unknown>;
-    return {
-      findings: typeof parsed['findings'] === 'string' ? parsed['findings'] : '',
-      tasks: Array.isArray(parsed['tasks'])
-        ? (parsed['tasks'] as Array<Record<string, unknown>>).map(t => ({
-            prompt: typeof t['prompt'] === 'string' ? t['prompt'] : '',
-            tools: Array.isArray(t['tools']) ? (t['tools'] as string[]) : [],
-            model: typeof t['model'] === 'string' ? t['model'] : 'sonnet',
-          }))
-        : [],
-      nextPrompt: typeof parsed['nextPrompt'] === 'string' ? parsed['nextPrompt'] : null,
-      done: parsed['done'] === true,
-      finalAnalysis: typeof parsed['finalAnalysis'] === 'string' ? parsed['finalAnalysis'] : undefined,
-    };
-  } catch (error) {
-    logger.warn(
-      { err: error, contentPreview: content.slice(0, 500) },
-      'Failed to parse strategist JSON response; treating raw content as final analysis to avoid wasting iterations',
-    );
-    // Treat unparseable responses as done to avoid burning tokens on a retry loop.
-    // The raw content is surfaced as the final analysis so no work is lost.
-    const errMsg = error instanceof Error ? error.message : String(error);
-    return {
-      findings: content,
-      tasks: [],
-      nextPrompt: null,
-      done: true,
-      finalAnalysis: content,
-      parseError: errMsg,
-    };
-  }
-}
-
-function chunkArray<T>(arr: T[], size: number): T[][] {
-  const normalizedSize = Number.isFinite(size) ? Math.floor(size) : NaN;
-  if (!Number.isFinite(normalizedSize) || normalizedSize <= 0) {
-    throw new Error(`chunkArray size must be a positive integer, got: ${size}`);
-  }
-  const chunks: T[][] = [];
-  for (let i = 0; i < arr.length; i += normalizedSize) {
-    chunks.push(arr.slice(i, i + normalizedSize));
-  }
-  return chunks;
-}
-
-interface SubTaskResult {
-  content: string;
-  inputTokens: number;
-  outputTokens: number;
-  toolCalls: Array<{ tool: string; system?: string; input: Record<string, unknown>; output: string; durationMs: number }>;
-}
-
-/** Resolve the orchestrated model map from active Claude provider models.
- *  Maps short names (haiku/sonnet/opus) to the actual model IDs configured in the DB. */
-async function resolveOrchestratedModelMap(db: PrismaClient): Promise<Record<string, string>> {
-  const models = await db.aiProviderModel.findMany({
-    where: { isActive: true, provider: { provider: 'CLAUDE' } },
-    select: { model: true },
-    orderBy: [{ model: 'asc' }],
-  });
-  const matches: Record<'haiku' | 'sonnet' | 'opus', string[]> = {
-    haiku: [],
-    sonnet: [],
-    opus: [],
-  };
-  for (const { model } of models) {
-    const lower = model.toLowerCase();
-    if (lower.includes('haiku')) matches.haiku.push(model);
-    else if (lower.includes('sonnet')) matches.sonnet.push(model);
-    else if (lower.includes('opus')) matches.opus.push(model);
-  }
-  const map: Record<string, string> = {};
-  for (const shortName of ['haiku', 'sonnet', 'opus'] as const) {
-    const candidates = matches[shortName];
-    if (candidates.length === 0) continue;
-    if (candidates.length > 1) {
-      logger.warn(
-        { shortName, candidates },
-        'Multiple active Claude models matched orchestrated short name; using first from deterministic ordering',
-      );
-    }
-    map[shortName] = candidates[0];
-  }
-  return map;
-}
-
-// ---------------------------------------------------------------------------
-// Tool resolution: exact → base-name → substring → fuzzy
-// ---------------------------------------------------------------------------
-
-interface ToolResolution {
-  resolved: AIToolDefinition[];
-  fuzzy: Map<string, Array<{ tool: AIToolDefinition; score: number }>>;
-  unmatched: string[];
-}
-
-function resolveTaskTools(
-  requestedNames: string[],
-  availableTools: AIToolDefinition[],
-): ToolResolution {
-  const resolved: AIToolDefinition[] = [];
-  const fuzzy = new Map<string, Array<{ tool: AIToolDefinition; score: number }>>();
-  const unmatched: string[] = [];
-  const resolvedSet = new Set<string>();
-
-  // Normalize: trim whitespace and drop empty strings to prevent spurious substring matches
-  const normalizedNames = requestedNames.map(n => n.trim()).filter(n => n.length > 0);
-
-  for (const requested of normalizedNames) {
-    // 1. Exact match
-    const exact = availableTools.find(t => t.name === requested);
-    if (exact) {
-      if (!resolvedSet.has(exact.name)) {
-        resolved.push(exact);
-        resolvedSet.add(exact.name);
-      }
-      continue;
-    }
-
-    // 2. Base name exact (strip prefix before __) — only accept if unambiguous
-    const baseNameMatches = availableTools.filter(
-      t => (t.name.split('__').pop() ?? t.name) === requested,
-    );
-    if (baseNameMatches.length === 1) {
-      const [baseName] = baseNameMatches;
-      if (!resolvedSet.has(baseName.name)) {
-        resolved.push(baseName);
-        resolvedSet.add(baseName.name);
-      }
-      continue;
-    }
-    if (baseNameMatches.length > 1) {
-      // Ambiguous base name — surface as fuzzy candidates rather than auto-selecting
-      fuzzy.set(requested, baseNameMatches.slice(0, 3).map(tool => ({ tool, score: 1 })));
-      continue;
-    }
-
-    // 3. Substring match on base name only — only accept if unambiguous
-    const substringMatches = availableTools.filter(
-      t => (t.name.split('__').pop() ?? t.name).includes(requested),
-    );
-    if (substringMatches.length === 1) {
-      const [substring] = substringMatches;
-      if (!resolvedSet.has(substring.name)) {
-        resolved.push(substring);
-        resolvedSet.add(substring.name);
-      }
-      continue;
-    }
-    if (substringMatches.length > 1) {
-      // Ambiguous substring — fall through to fuzzy scoring
-    }
-
-    // 4. Fuzzy scoring
-    const requestedWords = new Set(requested.toLowerCase().split(/[_-]/));
-    const candidates: Array<{ tool: AIToolDefinition; score: number }> = [];
-
-    for (const tool of availableTools) {
-      const toolBase = (tool.name.split('__').pop() ?? tool.name).toLowerCase();
-      const toolWords = new Set(toolBase.split(/[_-]/));
-
-      // Jaccard similarity
-      const intersection = new Set([...requestedWords].filter(w => toolWords.has(w)));
-      const union = new Set([...requestedWords, ...toolWords]);
-      const jaccard = union.size > 0 ? intersection.size / union.size : 0;
-
-      // Description match
-      const descLower = (tool.description ?? '').toLowerCase();
-      const reqWordArr = [...requestedWords];
-      const descMatches = reqWordArr.filter(w => descLower.includes(w)).length;
-      const descScore = reqWordArr.length > 0 ? descMatches / reqWordArr.length : 0;
-
-      const score = jaccard * 0.7 + descScore * 0.3;
-      if (score >= 0.3) {
-        candidates.push({ tool, score });
-      }
-    }
-
-    if (candidates.length > 0) {
-      candidates.sort((a, b) => b.score - a.score);
-      fuzzy.set(requested, candidates.slice(0, 3));
-    } else {
-      unmatched.push(requested);
-    }
-  }
-
-  return { resolved, fuzzy, unmatched };
-}
-
-/**
- * Sanitize a string to be safe for use as a filename component.
- * Only allows alphanumerics, dots, hyphens, and underscores; replaces all
- * other characters (including path separators) with underscores and trims
- * to 64 characters to prevent path traversal or excessively long filenames.
- */
-function sanitizeFilenameSegment(value: string): string {
-  return value.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 64);
-}
-
-async function saveMcpToolArtifact(
-  db: PrismaClient,
-  ticketId: string,
-  toolName: string,
-  rawResult: string,
-  storagePath: string,
-  artifactId?: string,
-): Promise<void> {
-  try {
-    let isJson = false;
-    try { JSON.parse(rawResult); isJson = true; } catch { /* not JSON */ }
-    const mimeType = isJson ? 'application/json' : 'text/plain';
-    const ext = isJson ? 'json' : 'txt';
-    const safeToolName = sanitizeFilenameSegment(toolName || 'unknown');
-    const filename = `mcp-${safeToolName}-${Date.now()}-${randomUUID()}.${ext}`;
-    const resolvedStorage = resolve(storagePath);
-    const ticketDir = resolve(resolvedStorage, 'tickets', ticketId);
-    const rel = relative(resolvedStorage, ticketDir);
-    if (rel.startsWith('..') || rel === '') {
-      logger.warn({ ticketId, ticketDir, resolvedStorage }, 'MCP artifact path escaped storage root — skipping');
-      return;
-    }
-    const fullPath = join(ticketDir, filename);
-    await mkdir(ticketDir, { recursive: true });
-    await writeFile(fullPath, rawResult, 'utf-8');
-    const relativePath = `tickets/${ticketId}/${filename}`;
-    await db.artifact.create({
-      data: {
-        ...(artifactId ? { id: artifactId } : {}),
-        ticketId,
-        filename,
-        mimeType,
-        sizeBytes: Buffer.byteLength(rawResult, 'utf-8'),
-        storagePath: relativePath,
-        description: `Raw MCP tool output from agentic analysis (${toolName})`,
-      },
-    });
-    logger.info({ ticketId, filename }, 'MCP tool artifact saved');
-  } catch (err) {
-    logger.warn({ err, ticketId }, 'Failed to save MCP tool artifact — continuing');
-  }
-}
-
-// Signals indicating a sub-task result may be irrelevant (checked in first 500 chars)
-const IRRELEVANT_SIGNALS = [
-  'not relevant', 'unable to', 'cannot access', 'i cannot', "i don't have",
-  'wrong tool', 'unexpected result', 'does not apply', 'no data returned',
-  'tool returned an error',
-];
-
-async function executeOrchestratedSubTask(
-  deps: AnalyzerDeps,
-  ticketId: string,
-  clientId: string,
-  category: string,
-  clientContext: string,
-  environmentContext: string,
-  task: { prompt: string; tools: string[]; model: string },
-  agenticTools: AIToolDefinition[],
-  mcpIntegrations: Map<string, McpIntegrationInfo>,
-  repoIdByPrefix: Map<string, string>,
-  orchestration?: { id: string; iteration: number; parentLogId?: string },
-  modelMap?: Record<string, string>,
-): Promise<SubTaskResult> {
-  const { ai } = deps;
-  const map = modelMap ?? {};
-  const model = map[task.model] ?? map.sonnet ?? 'claude-sonnet-4-6';
-  const defaultMaxTokens = await deps.loadDefaultMaxTokens?.() ?? undefined;
-
-  const toolCalls: SubTaskResult['toolCalls'] = [];
-  let inputTokens = 0;
-  let outputTokens = 0;
-
-  // If client/environment context was already injected into the strategist prompt, skip AIRouter
-  // re-injection for sub-tasks to avoid duplicating it in every sub-task system prompt.
-  const skipClientMemory = !!clientContext;
-  const combinedContext = [clientContext, environmentContext].filter(Boolean).join('\n\n');
-  const subTaskSystemPrompt = combinedContext
-    ? `Execute the requested investigation step. Call the relevant tools, analyze the results, and return a structured summary of your findings.\n\n${combinedContext}`
-    : 'Execute the requested investigation step. Call the relevant tools, analyze the results, and return a structured summary of your findings.';
-
-  // Resolve tools using ranked matching (exact → base name → substring → fuzzy)
-  const resolution = task.tools.length > 0
-    ? resolveTaskTools(task.tools, agenticTools)
-    : { resolved: [] as AIToolDefinition[], fuzzy: new Map<string, Array<{ tool: AIToolDefinition; score: number }>>(), unmatched: [] as string[] };
-
-  // Build initial tool set: resolved + top fuzzy candidate per entry
-  const initialTools = [...resolution.resolved];
-  const initialToolNames = new Set(initialTools.map(t => t.name));
-  const fuzzyUsed = new Map<string, { tool: AIToolDefinition; score: number; candidateIndex: number }>();
-
-  for (const [reqName, candidates] of resolution.fuzzy) {
-    if (candidates.length > 0 && !initialToolNames.has(candidates[0].tool.name)) {
-      initialTools.push(candidates[0].tool);
-      initialToolNames.add(candidates[0].tool.name);
-      fuzzyUsed.set(reqName, { ...candidates[0], candidateIndex: 0 });
-    }
-  }
-
-  // If tools were requested but none matched at all, return early with guidance
-  if (task.tools.length > 0 && initialTools.length === 0) {
-    const MAX_TOOLS_IN_ERROR = 10;
-    const toolNames = agenticTools.map(t => t.name);
-    const availableList = toolNames.length > MAX_TOOLS_IN_ERROR
-      ? `${toolNames.slice(0, MAX_TOOLS_IN_ERROR).join(', ')} … (${toolNames.length - MAX_TOOLS_IN_ERROR} more)`
-      : toolNames.join(', ');
-    return {
-      content: `Tool resolution failed: requested [${task.tools.join(', ')}] but no matching tools found. Available tools: [${availableList}]. Use exact tool names from this list.`,
-      inputTokens: 0,
-      outputTokens: 0,
-      toolCalls: [],
-    };
-  }
-
-  /**
-   * Run a sub-task with the given tool set and return the result plus
-   * whether any "irrelevant" signals were detected.
-   */
-  async function runSubTaskPass(
-    tools: AIToolDefinition[],
-  ): Promise<{ result: SubTaskResult; seemsIrrelevant: boolean }> {
-    const passToolCalls: SubTaskResult['toolCalls'] = [];
-    let passInput = 0;
-    let passOutput = 0;
-    let hasToolError = false;
-
-    if (tools.length > 0) {
-      const subTaskLogId = randomUUID();
-      const orchCtx = orchestration
-        ? { orchestrationId: orchestration.id, orchestrationIteration: orchestration.iteration, isSubTask: true, logId: subTaskLogId, ...(orchestration.parentLogId ? { parentLogId: orchestration.parentLogId, parentLogType: 'ai' as const } : {}) }
-        : { logId: subTaskLogId };
-      const response = await ai.generateWithTools({
-        taskType: TaskType.DEEP_ANALYSIS,
-        context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, ...orchCtx },
-        messages: [{ role: 'user', content: task.prompt }],
-        tools,
-        systemPrompt: subTaskSystemPrompt,
-        providerOverride: 'CLAUDE',
-        modelOverride: model,
-        maxTokens: defaultMaxTokens ?? 4096,
-      });
-
-      passInput += response.usage?.inputTokens ?? 0;
-      passOutput += response.usage?.outputTokens ?? 0;
-
-      const toolUseBlocks = response.contentBlocks.filter(
-        (b): b is AIToolUseBlock => b.type === 'tool_use',
-      );
-
-      if (toolUseBlocks.length > 0) {
-        const toolResults: Array<{ type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }> = [];
-
-        for (const toolUse of toolUseBlocks) {
-          const start = Date.now();
-          const result = await executeAgenticToolCall(toolUse, mcpIntegrations, repoIdByPrefix, clientId);
-          const elapsed = Date.now() - start;
-          passToolCalls.push({
-            tool: toolUse.name,
-            system: (toolUse.input as Record<string, unknown>)?.system_name as string | undefined,
-            input: toolUse.input,
-            output: result.result.slice(0, 500),
-            durationMs: elapsed,
-          });
-          toolResults.push({
-            type: 'tool_result',
-            tool_use_id: toolUse.id,
-            content: result.result,
-            ...(result.isError ? { is_error: true } : {}),
-          });
-          const artifactId = deps.artifactStoragePath && !result.isError ? randomUUID() : undefined;
-          if (deps.artifactStoragePath && !result.isError) {
-            void saveMcpToolArtifact(deps.db, ticketId, toolUse.name, result.result, deps.artifactStoragePath, artifactId).catch(error => {
-              logger.warn({
-                err: error,
-                ticketId,
-                toolName: toolUse.name,
-              }, 'Failed to persist MCP tool artifact');
-            });
-          }
-          if (result.isError) hasToolError = true;
-          // Write AppLog for sub-task tool calls with lineage back to this sub-task's AI call
-          appLog.info(
-            `Sub-task tool call: ${toolUse.name} (${elapsed}ms)`,
-            {
-              ticketId,
-              tool: toolUse.name,
-              durationMs: elapsed,
-              params: toolUse.input ? JSON.stringify(toolUse.input).slice(0, 1000) : null,
-              resultPreview: result.result?.slice(0, 2000) ?? null,
-              isError: result.isError ?? false,
-              parentLogId: subTaskLogId,
-              parentLogType: 'ai',
-              ...(artifactId ? { artifactId } : {}),
-            },
-            ticketId,
-            'ticket',
-          );
-        }
-
-        const summaryLogId = randomUUID();
-        const summaryOrchCtx = orchestration
-          ? { orchestrationId: orchestration.id, orchestrationIteration: orchestration.iteration, isSubTask: true, logId: summaryLogId, parentLogId: subTaskLogId, parentLogType: 'ai' }
-          : { logId: summaryLogId, parentLogId: subTaskLogId, parentLogType: 'ai' };
-        const summaryResponse = await ai.generateWithTools({
-          taskType: TaskType.DEEP_ANALYSIS,
-          context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, ...summaryOrchCtx },
-          messages: [
-            { role: 'user', content: task.prompt },
-            { role: 'assistant', content: response.contentBlocks },
-            { role: 'user', content: toolResults as AIToolResultBlock[] },
-          ],
-          tools: [],
-          systemPrompt: 'Summarize the tool results into a structured finding. Do not call additional tools.',
-          providerOverride: 'CLAUDE',
-          modelOverride: model,
-          maxTokens: defaultMaxTokens ?? 4096,
-        });
-
-        passInput += summaryResponse.usage?.inputTokens ?? 0;
-        passOutput += summaryResponse.usage?.outputTokens ?? 0;
-
-        const summaryText = summaryResponse.contentBlocks
-          .filter((b): b is AITextBlock => b.type === 'text')
-          .map(b => b.text)
-          .join('\n');
-
-        const lowered = summaryText.slice(0, 500).toLowerCase();
-        const hasIrrelevantSignal = IRRELEVANT_SIGNALS.some(s => lowered.includes(s));
-
-        return {
-          result: { content: summaryText, inputTokens: passInput, outputTokens: passOutput, toolCalls: passToolCalls },
-          seemsIrrelevant: hasToolError || hasIrrelevantSignal,
-        };
-      }
-
-      // No tool calls — just text response
-      const textContent = response.contentBlocks
-        .filter((b): b is AITextBlock => b.type === 'text')
-        .map(b => b.text)
-        .join('\n');
-
-      const lowered = textContent.slice(0, 500).toLowerCase();
-      const hasIrrelevantSignal = IRRELEVANT_SIGNALS.some(s => lowered.includes(s));
-
-      return {
-        result: { content: textContent, inputTokens: passInput, outputTokens: passOutput, toolCalls: passToolCalls },
-        seemsIrrelevant: hasIrrelevantSignal,
-      };
-    }
-
-    // No tools — pure analysis
-    const pureLogId = randomUUID();
-    const orchCtx = orchestration
-      ? { orchestrationId: orchestration.id, orchestrationIteration: orchestration.iteration, isSubTask: true, logId: pureLogId, ...(orchestration.parentLogId ? { parentLogId: orchestration.parentLogId, parentLogType: 'ai' as const } : {}) }
-      : { logId: pureLogId };
-    const response = await ai.generate({
-      taskType: TaskType.DEEP_ANALYSIS,
-      context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, ...orchCtx },
-      prompt: task.prompt,
-      providerOverride: 'CLAUDE',
-      modelOverride: model,
-      maxTokens: 4096,
-    });
-
-    passInput += response.usage?.inputTokens ?? 0;
-    passOutput += response.usage?.outputTokens ?? 0;
-
-    return {
-      result: { content: response.content, inputTokens: passInput, outputTokens: passOutput, toolCalls: [] },
-      seemsIrrelevant: false,
-    };
-  }
-
-  // --- First pass ---
-  const firstPass = await runSubTaskPass(initialTools);
-  inputTokens += firstPass.result.inputTokens;
-  outputTokens += firstPass.result.outputTokens;
-  toolCalls.push(...firstPass.result.toolCalls);
-
-  // --- Retry with alternate fuzzy candidates if first pass seems irrelevant ---
-  if (firstPass.seemsIrrelevant && fuzzyUsed.size > 0) {
-    // Try swapping in next candidate for each fuzzy-matched tool; return first non-irrelevant result
-    let lastRetryResult: SubTaskResult | undefined;
-    let lastRetryScore = 0;
-
-    for (const [reqName, used] of fuzzyUsed) {
-      const candidates = resolution.fuzzy.get(reqName);
-      if (!candidates || candidates.length <= used.candidateIndex + 1) continue;
-
-      const nextCandidate = candidates[used.candidateIndex + 1];
-      const retryTools = initialTools
-        .filter(t => t.name !== used.tool.name)
-        .concat(nextCandidate.tool);
-
-      const retryPass = await runSubTaskPass(retryTools);
-      inputTokens += retryPass.result.inputTokens;
-      outputTokens += retryPass.result.outputTokens;
-      toolCalls.push(...retryPass.result.toolCalls);
-      lastRetryResult = retryPass.result;
-      lastRetryScore = nextCandidate.score;
-
-      if (!retryPass.seemsIrrelevant) {
-        return { content: retryPass.result.content, inputTokens, outputTokens, toolCalls };
-      }
-    }
-
-    if (lastRetryResult !== undefined) {
-      // All retries seemed irrelevant — use last retry result with warning
-      return {
-        content: `Warning: Tool match was uncertain (fuzzy match score: ${lastRetryScore.toFixed(2)}) — results may not be fully relevant.\n\n${lastRetryResult.content}`,
-        inputTokens,
-        outputTokens,
-        toolCalls,
-      };
-    }
-
-    // No alternate candidates available — return first pass with warning
-    const topScore = [...fuzzyUsed.values()].reduce((max, v) => Math.max(max, v.score), 0);
-    return {
-      content: `Warning: Tool match was uncertain (fuzzy match score: ${topScore.toFixed(2)}) — results may not be fully relevant.\n\n${firstPass.result.content}`,
-      inputTokens,
-      outputTokens,
-      toolCalls,
-    };
-  }
-
-  return { content: firstPass.result.content, inputTokens, outputTokens, toolCalls };
-}
-
-// ---------------------------------------------------------------------------
 // Route-driven pipeline execution
 // ---------------------------------------------------------------------------
 
 /** Maximum dispatch depth to guard against infinite route chaining loops. */
 const MAX_DISPATCH_DEPTH = 2;
-
-/** Context passed to the pipeline during re-analysis (reply-triggered). */
-interface ReanalysisContext {
-  /** Formatted markdown conversation history from all prior events. */
-  conversationHistory: string;
-  /** The raw reply text that triggered this re-analysis. */
-  triggerReplyText: string;
-  /** The ticket event ID that triggered this re-analysis (for metadata tracking). */
-  triggerEventId?: string;
-}
 
 /** Pre-populated state passed into a dispatched route to avoid redundant work. */
 interface PipelineInitialState {
@@ -2398,6 +1524,7 @@ async function executeRoutePipeline(
   let codeContext: string[] = [];
   let dbContext = '';
   let analysis = '';
+  let lastToolCallLog: Array<{ tool: string; system?: string; input: Record<string, unknown>; output: string; durationMs: number }> = [];
   const cleanups: Array<() => Promise<void>> = [];
 
   // Load ticket for current state
@@ -2730,8 +1857,9 @@ async function executeRoutePipeline(
 
       case RouteStepType.GATHER_REPO_CONTEXT: {
         if (!ticket) break;
+        const ticketClientId = ticket.clientId;
         // Query client repos via CodeRepo model
-        const clientRepos = await db.codeRepo.findMany({ where: { clientId: ticket.clientId, isActive: true } });
+        const clientRepos = await db.codeRepo.findMany({ where: { clientId: ticketClientId, isActive: true } });
         if (clientRepos.length === 0) break;
 
         const gatherSessionId = `gather-${ticketId}`;
@@ -2739,33 +1867,122 @@ async function executeRoutePipeline(
         const repoAuth = deps.mcpAuthToken || deps.apiKey;
         const repoAuthHeader = deps.mcpAuthToken ? 'bearer' : 'x-api-key';
 
+        // Pre-pull all repos in parallel so the per-repo search loop doesn't
+        // block serially on cold clones. `callMcpToolViaSdk` resolves on both
+        // success and MCP-level tool errors, so we also parse the JSON body
+        // to detect a { status: 'failed' } response and bump prePullFailed.
+        const prePullResults = await Promise.allSettled(
+          clientRepos.map(r =>
+            callMcpToolViaSdk(mcpRepoUrl, '/mcp', 'prepare_repo', { repoId: r.id, clientId: ticketClientId }, repoAuth, repoAuthHeader),
+          ),
+        );
+        let prePullSucceeded = 0;
+        let prePullFailed = 0;
+        prePullResults.forEach((r, idx) => {
+          const repoName = clientRepos[idx]?.name ?? '(unknown)';
+          if (r.status === 'rejected') {
+            prePullFailed++;
+            const errMsg = redactUrls(r.reason instanceof Error ? r.reason.message : String(r.reason));
+            appLog.warn(
+              `prepare_repo failed for ${repoName}: ${errMsg}`,
+              { ticketId, repo: repoName, err: r.reason },
+              ticketId, 'ticket',
+            );
+            return;
+          }
+          // Successful transport — still inspect the JSON body for tool-level failure.
+          let toolFailed = false;
+          let toolMessage = '';
+          try {
+            const parsed = JSON.parse(r.value) as { status?: string; message?: string };
+            if (parsed && parsed.status === 'failed') {
+              toolFailed = true;
+              toolMessage = typeof parsed.message === 'string' ? parsed.message : '';
+            }
+          } catch {
+            // Non-JSON body (shouldn't happen) — treat as opaque success.
+          }
+          if (toolFailed) {
+            prePullFailed++;
+            appLog.warn(
+              `prepare_repo reported failure for ${repoName}: ${redactUrls(toolMessage)}`,
+              { ticketId, repo: repoName, message: toolMessage },
+              ticketId, 'ticket',
+            );
+          } else {
+            prePullSucceeded++;
+          }
+        });
+
+        let grepErrors = 0;
+        let grepNoMatch = 0;
+
         for (const repo of clientRepos) {
           try {
-            const searchTerms = [
+            // Start with extracted-fact search terms, capped at 10.
+            let searchTerms = [
               ...(facts.keywords ?? []),
               ...(facts.filesMentioned ?? []),
               ...(facts.errorMessages?.map((e) => e.slice(0, 60)) ?? []),
-            ].slice(0, 5);
+            ].slice(0, 10);
+
+            // If we have fewer than 3 usable terms, back-fill from the email
+            // subject — split on whitespace, drop tokens < 3 chars or
+            // punctuation-only, take up to 5 extra terms.
+            if (searchTerms.length < 3) {
+              const subjectTokens = (emailSubject || '')
+                .split(/\s+/)
+                .map(t => t.trim())
+                .filter(t => t.length >= 3 && /[A-Za-z0-9]/.test(t))
+                .slice(0, 5);
+              searchTerms = [...searchTerms, ...subjectTokens].slice(0, 10);
+            }
+
+            const exts = (repo.fileExtensions && repo.fileExtensions.length > 0)
+              ? repo.fileExtensions
+              : [...DEFAULT_REPO_FILE_EXTENSIONS];
 
             const relevantFiles = new Set<string>();
             for (const rawTerm of searchTerms) {
               if (!rawTerm || rawTerm.replace(/[\x00-\x1f\x7f]/g, '').trim().length === 0) continue;
               const sanitized = rawTerm.replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200);
               try {
+                // Use `-e` so patterns beginning with `-` are not treated as grep options.
                 const grepResult = await callMcpToolViaSdk(
                   mcpRepoUrl, '/mcp', 'repo_exec',
-                  { repoId: repo.id, sessionId: gatherSessionId, clientId: ticket.clientId, command: `grep -rnil "${sanitized.replace(/"/g, '\\"')}" .` },
+                  { repoId: repo.id, sessionId: gatherSessionId, clientId: ticket.clientId, command: `grep -rnilI -e "${sanitized.replace(/"/g, '\\"')}" .` },
                   repoAuth, repoAuthHeader,
                 );
-                // Parse file paths from stdout (skip the [session:...] line)
-                const exts = ['.sql', '.cs', '.ts'];
-                for (const line of grepResult.split('\n')) {
-                  const trimmed = line.trim();
-                  if (trimmed && !trimmed.startsWith('[session:') && !trimmed.startsWith('[stderr]') && exts.some(e => trimmed.endsWith(e))) {
-                    relevantFiles.add(trimmed);
+                // `callMcpToolViaSdk` doesn't surface MCP-level isError. `repo_exec`
+                // emits distinct markers we can use to separate real errors from
+                // the "grep exited 1 with no output" no-match case.
+                if (grepResult.startsWith('Command rejected:') || grepResult.startsWith('Error:') || grepResult.includes('[stderr]')) {
+                  grepErrors++;
+                  appLog.warn(
+                    `search_code pre-gather error for ${repo.name}:${rawTerm}`,
+                    { ticketId, repo: repo.name, term: rawTerm, result: grepResult.slice(0, 500) },
+                    ticketId, 'ticket',
+                  );
+                } else {
+                  // Parse file paths from stdout (skip the [session:...] line)
+                  let matchedAny = false;
+                  for (const line of grepResult.split('\n')) {
+                    const trimmed = line.trim();
+                    if (trimmed && !trimmed.startsWith('[session:') && exts.some(e => trimmed.endsWith(e))) {
+                      relevantFiles.add(trimmed);
+                      matchedAny = true;
+                    }
                   }
+                  if (!matchedAny) grepNoMatch++;
                 }
-              } catch { /* grep found nothing */ }
+              } catch (err) {
+                grepErrors++;
+                appLog.warn(
+                  `search_code pre-gather failed for ${repo.name}:${rawTerm}: ${err instanceof Error ? err.message : String(err)}`,
+                  { ticketId, repo: repo.name, term: rawTerm },
+                  ticketId, 'ticket',
+                );
+              }
             }
             for (const f of facts.filesMentioned ?? []) {
               relevantFiles.add(f);
@@ -2807,11 +2024,31 @@ async function executeRoutePipeline(
           await callMcpToolViaSdk(mcpRepoUrl, '/mcp', 'repo_cleanup', { sessionId: gatherSessionId }, repoAuth, repoAuthHeader);
         } catch { /* best effort */ }
 
+        // If pre-gather produced nothing but we know repos exist and something
+        // failed, surface a notice so downstream analysis still nudges the
+        // agent to hit the per-repo tools directly.
+        if (codeContext.length === 0 && (grepErrors > 0 || prePullFailed > 0)) {
+          const repoList = clientRepos.map(r => r.name).join(', ');
+          const plural = clientRepos.length === 1 ? 'repository' : 'repositories';
+          codeContext.push(
+            `## Repository Status Notice\n\n${clientRepos.length} ${plural} registered for this client (${repoList}) but pre-search could not reach them this run. Use the \`<repo>__search_code\` and \`<repo>__read_file\` tools directly — the code is available, only the pre-gather failed.`,
+          );
+        }
+
         {
           const stepDuration = Date.now() - stepStart;
           appLog.info(
             `Repo context gathered: ${clientRepos.length} repos checked, ${codeContext.length} with results (${(stepDuration / 1000).toFixed(1)}s)`,
-            { ticketId, reposChecked: clientRepos.length, reposWithResults: codeContext.length, durationMs: stepDuration },
+            {
+              ticketId,
+              reposChecked: clientRepos.length,
+              reposWithResults: codeContext.length,
+              prePullSucceeded,
+              prePullFailed,
+              grepErrors,
+              grepNoMatch,
+              durationMs: stepDuration,
+            },
             ticketId, 'ticket',
           );
         }
@@ -2927,7 +2164,7 @@ async function executeRoutePipeline(
       }
 
       case RouteStepType.AGENTIC_ANALYSIS: {
-        const stepConfig = step.config as { maxIterations?: unknown; systemPromptOverride?: string; analysisStrategy?: string } | null;
+        const stepConfig = step.config as { maxIterations?: unknown } | null;
         let maxIterations = 10;
         if (stepConfig?.maxIterations !== undefined && stepConfig.maxIterations !== null) {
           const coerced = Number(stepConfig.maxIterations);
@@ -2947,8 +2184,8 @@ async function executeRoutePipeline(
         }
 
         // Build tool definitions from MCP integrations and mcp-repo
-        const { tools: agenticTools, mcpIntegrations, repoIdByPrefix } = await buildAgenticTools(
-          db, ticket.clientId, deps.encryptionKey, deps.mcpRepoUrl, deps.apiKey, deps.mcpAuthToken,
+        const { tools: agenticTools, mcpIntegrations, repoIdByPrefix, repos: agenticRepos } = await buildAgenticTools(
+          db, ticket.clientId, deps.encryptionKey, deps.mcpRepoUrl, deps.mcpPlatformUrl, deps.apiKey, deps.mcpAuthToken,
         );
 
         if (agenticTools.length === 0) {
@@ -2956,471 +2193,68 @@ async function executeRoutePipeline(
           break;
         }
 
-        // ── Strategy check: orchestrated vs full_context ──
-        const strategySetting = await db.appSetting.findUnique({ where: { key: 'system-config-analysis-strategy' } });
-        const strategyConfig = strategySetting?.value as { strategy?: string; maxParallelTasks?: number } | null;
-        const effectiveStrategy = stepConfig?.analysisStrategy ?? strategyConfig?.strategy ?? 'full_context';
+        const strategy = await resolveAnalysisStrategy(db, step);
+        const canRunOrchestrated = strategy === 'orchestrated';
 
-        if (effectiveStrategy === 'orchestrated' && !reanalysisCtx) {
-          // ── Orchestrated analysis loop ──
-          const rawMaxParallelTasks = strategyConfig?.maxParallelTasks;
-          let maxParallelTasks = 3;
-          if (rawMaxParallelTasks !== undefined && rawMaxParallelTasks !== null) {
-            const coerced = Number(rawMaxParallelTasks);
-            if (Number.isFinite(coerced)) {
-              maxParallelTasks = Math.min(10, Math.max(1, Math.trunc(coerced)));
-            }
-          }
-          const orchModelMap = await resolveOrchestratedModelMap(db);
-          const orchMaxIterations = maxIterations;
-          const existingDoc = ticket.knowledgeDoc ?? '';
-          const runTimestamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
-          const runNumber = (existingDoc.match(/## Analysis Run \d+/g) ?? []).length + 1;
+        const analysisDeps: AnalysisDeps = {
+          db, ai, appLog,
+          encryptionKey: deps.encryptionKey,
+          mcpRepoUrl: deps.mcpRepoUrl,
+          mcpPlatformUrl: deps.mcpPlatformUrl,
+          apiKey: deps.apiKey,
+          mcpAuthToken: deps.mcpAuthToken,
+          artifactStoragePath: deps.artifactStoragePath,
+          loadDefaultMaxTokens: deps.loadDefaultMaxTokens,
+        };
+        const analysisCtx: AnalysisPipelineContext = {
+          ticketId, clientId, category, priority, emailSubject, emailBody,
+          clientContext, environmentContext, codeContext, dbContext, facts, summary,
+        };
+        const toolCtx = { tools: agenticTools, mcpIntegrations, repoIdByPrefix, repos: agenticRepos };
 
-          const currentRunHeader = `## Analysis Run ${runNumber} — ${runTimestamp}\n`;
-          let knowledgeDoc = existingDoc
-            ? `${existingDoc}\n\n---\n\n${currentRunHeader}`
-            : currentRunHeader;
-          let orchNextPrompt = '';
-          let orchIterationsRun = 0;
-          let orchFinalAnalysis = '';
-          let orchTotalInputTokens = 0;
-          let orchTotalOutputTokens = 0;
-          const orchToolCallLog: Array<{ tool: string; system?: string; input: Record<string, unknown>; output: string; durationMs: number }> = [];
+        const result = canRunOrchestrated
+          ? await runOrchestratedAnalysis(analysisDeps, analysisCtx, step, toolCtx, { maxIterations, existingKnowledgeDoc: ticket.knowledgeDoc ?? '', reanalysisCtx })
+          : await runFlatAnalysis(analysisDeps, analysisCtx, step, toolCtx, { maxIterations, reanalysisCtx });
 
-          // Build the initial context for the strategist
-          const ticketContext = [
-            `## Ticket`,
-            `Subject: ${emailSubject}`,
-            `Category: ${category}`,
-            `Priority: ${priority}`,
-            '', emailBody,
-          ].join('\n');
-          const contextParts: string[] = [ticketContext];
-          if (summary) contextParts.push(`\n## Summary\n${summary}`);
-          if (clientContext) contextParts.push(`\n${clientContext}`);
-          if (environmentContext) contextParts.push(`\n${environmentContext}`);
-          if (facts.keywords?.length) contextParts.push(`\n## Key Terms\n${facts.keywords.join(', ')}`);
-          if (dbContext) contextParts.push(`\n## DB Context\n${dbContext}`);
-          if (codeContext.length > 0) contextParts.push(`\n## Code Context\n${codeContext.join('\n')}`);
+        analysis = result.analysis;
+        lastToolCallLog = result.toolCallLog;
+        ctx.sufficiencyEval = result.sufficiencyEval;
 
-          const availableToolNames = agenticTools.map(t => t.name);
-          const toolListSection = `\n## Available Tools\n${availableToolNames.join(', ')}`;
-          contextParts.push(toolListSection);
-
-          // Build truncated prior-run context for the strategist prompt (max 2000 chars)
-          let priorRunsContext = '';
-          if (existingDoc) {
-            priorRunsContext = existingDoc.length > 2000
-              ? `[Prior analysis truncated — full history available in the Knowledge tab]\n\n…${existingDoc.slice(-2000)}`
-              : existingDoc;
-          }
-
-          for (let i = 0; i < orchMaxIterations; i++) {
-            orchIterationsRun = i + 1;
-            const orchestrationId = randomUUID();
-            appLog.info(`Orchestrated analysis iteration ${i + 1}/${orchMaxIterations}`, { ticketId, iteration: i + 1, orchestrationId }, ticketId, 'ticket');
-
-            // Extract only the current run content (after the run header) for the strategist
-            const currentRunStart = knowledgeDoc.lastIndexOf(currentRunHeader);
-            const currentRunContent = currentRunStart >= 0
-              ? knowledgeDoc.slice(currentRunStart)
-              : knowledgeDoc;
-
-            let strategistPrompt: string;
-            if (i === 0) {
-              const priorNote = priorRunsContext
-                ? `\n\n## Prior Analysis Runs (for context)\n${priorRunsContext}\n\n---\n\n`
-                : '';
-              strategistPrompt = `Investigate this ticket. Here is the full context:\n\n${contextParts.join('\n')}${priorNote}`;
-            } else {
-              strategistPrompt = `Continue the investigation. Here is the knowledge document so far:\n\n${currentRunContent}\n\n## Next Investigation Step\n${orchNextPrompt}`;
-            }
-
-            const strategistLogId = randomUUID();
-            const strategistResponse = await ai.generate({
-              taskType: (step.taskTypeOverride ?? TaskType.DEEP_ANALYSIS) as TaskType,
-              context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!clientContext, orchestrationId, orchestrationIteration: i + 1, logId: strategistLogId },
-              prompt: strategistPrompt,
-              systemPrompt: ORCHESTRATED_SYSTEM_PROMPT,
-              providerOverride: 'CLAUDE',
-              modelOverride: 'claude-opus-4-6',
-              maxTokens: defaultMaxTokens ?? 4096,
-            });
-
-            orchTotalInputTokens += strategistResponse.usage?.inputTokens ?? 0;
-            orchTotalOutputTokens += strategistResponse.usage?.outputTokens ?? 0;
-
-            const plan = parseStrategistResponse(strategistResponse.content);
-
-            if (plan.parseError) {
-              appLog.error(
-                `Strategist JSON parse failed: ${plan.parseError}. Raw content used as final analysis.`,
-                { ticketId, iteration: i + 1, error: plan.parseError },
-                ticketId, 'ticket',
-              );
-            }
-
-            knowledgeDoc += `\n\n### Iteration ${i + 1}\n${plan.findings}`;
-
-            await db.ticket.update({ where: { id: ticketId }, data: { knowledgeDoc } });
-
-            appLog.info(
-              `Orchestrated iteration ${i + 1}: ${plan.tasks.length} tasks, done=${plan.done}`,
-              { ticketId, iteration: i + 1, taskCount: plan.tasks.length, done: plan.done },
-              ticketId, 'ticket',
-            );
-
-            if (plan.done) {
-              orchFinalAnalysis = plan.finalAnalysis ?? plan.findings;
-              break;
-            }
-
-            orchNextPrompt = plan.nextPrompt ?? '';
-
-            // Execute tasks in parallel batches
-            const taskBatches = chunkArray(plan.tasks, maxParallelTasks);
-            for (const batch of taskBatches) {
-              const results = await Promise.allSettled(
-                batch.map(task => executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, environmentContext, task, agenticTools, mcpIntegrations, repoIdByPrefix, { id: orchestrationId, iteration: i + 1, parentLogId: strategistLogId }, orchModelMap)),
-              );
-
-              for (let j = 0; j < results.length; j++) {
-                const result = results[j];
-                const task = batch[j];
-                if (result.status === 'fulfilled') {
-                  knowledgeDoc += `\n\n#### ${task.prompt}\n${result.value.content}`;
-                  orchTotalInputTokens += result.value.inputTokens;
-                  orchTotalOutputTokens += result.value.outputTokens;
-                  orchToolCallLog.push(...result.value.toolCalls);
-                } else {
-                  // Retry once on failure
-                  try {
-                    const retryResult = await executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, environmentContext, task, agenticTools, mcpIntegrations, repoIdByPrefix, { id: orchestrationId, iteration: i + 1, parentLogId: strategistLogId }, orchModelMap);
-                    knowledgeDoc += `\n\n#### ${task.prompt} (retry)\n${retryResult.content}`;
-                    orchTotalInputTokens += retryResult.inputTokens;
-                    orchTotalOutputTokens += retryResult.outputTokens;
-                    orchToolCallLog.push(...retryResult.toolCalls);
-                  } catch (retryErr) {
-                    knowledgeDoc += `\n\n#### ${task.prompt}\n*Failed: ${retryErr instanceof Error ? retryErr.message : String(retryErr)}*`;
-                    appLog.warn(`Orchestrated task failed after retry: ${task.prompt}`, { ticketId, task: task.prompt, err: retryErr }, ticketId, 'ticket');
-                  }
-                }
-              }
-
-              await db.ticket.update({ where: { id: ticketId }, data: { knowledgeDoc } });
-            }
-          }
-
-          if (!orchFinalAnalysis) {
-            orchFinalAnalysis = 'Orchestrated analysis reached maximum iterations without a final conclusion. Review the knowledge document for partial findings.';
-          }
-
-          // Parse sufficiency evaluation from the final analysis
-          const { analysis: cleanOrchAnalysis, evaluation: orchSufficiency } = parseSufficiencyEvaluation(orchFinalAnalysis);
-          analysis = cleanOrchAnalysis;
-          ctx.sufficiencyEval = orchSufficiency;
-
-          // Compute cost
-          const orchCostAgg = await db.aiUsageLog.aggregate({
-            where: { entityId: ticketId, entityType: 'ticket', createdAt: { gte: new Date(stepStart) } },
-            _sum: { costUsd: true },
-          });
-          const orchTotalCostUsd = orchCostAgg._sum.costUsd ?? 0;
-
-          // Store AI_ANALYSIS event
-          await db.ticketEvent.create({
-            data: {
-              ticketId,
-              eventType: 'AI_ANALYSIS',
-              content: analysis,
-              metadata: JSON.parse(JSON.stringify({
-                phase: 'orchestrated_analysis',
-                taskType: step.taskTypeOverride ?? TaskType.DEEP_ANALYSIS,
-                iterationsRun: orchIterationsRun,
-                toolCallCount: orchToolCallLog.length,
-                maxIterations: orchMaxIterations,
-                toolCalls: orchToolCallLog,
-                totalUsage: { inputTokens: orchTotalInputTokens, outputTokens: orchTotalOutputTokens },
-                totalCostUsd: orchTotalCostUsd,
-                routeId: route.id,
-                routeName: route.name,
-                sufficiencyStatus: orchSufficiency.status,
-                sufficiencyQuestions: orchSufficiency.questions,
-                sufficiencyConfidence: orchSufficiency.confidence,
-                sufficiencyReason: orchSufficiency.reason,
-              })),
-              actor: 'system:analyzer',
-            },
-          });
-
-          // Update ticket sufficiency status
-          const orchSuffUpdate: Prisma.TicketUpdateInput = { sufficiencyStatus: orchSufficiency.status };
-          if (orchSufficiency.status === SufficiencyStatus.NEEDS_USER_INPUT) {
-            orchSuffUpdate.status = 'WAITING';
-            orchSuffUpdate.resolvedAt = null;
-          }
-          await db.ticket.update({ where: { id: ticketId }, data: orchSuffUpdate });
-
-          {
-            const stepDuration = Date.now() - stepStart;
-            appLog.info(
-              `Orchestrated analysis complete: ${orchToolCallLog.length} tool calls, ${orchIterationsRun} iterations, sufficiency=${orchSufficiency.status} (${(stepDuration / 1000).toFixed(1)}s)`,
-              { ticketId, toolCalls: orchToolCallLog.length, iterations: orchIterationsRun, sufficiencyStatus: orchSufficiency.status, sufficiencyConfidence: orchSufficiency.confidence, durationMs: stepDuration },
-              ticketId, 'ticket',
-            );
-            totalToolCalls += orchToolCallLog.length;
-          }
-          stepsSucceeded++;
-          break;
-        }
-
-        // ── Full-context agentic loop (existing behavior) ──
-
-        // Build system prompt with all available context
-        const systemParts: string[] = [];
-
-        if (reanalysisCtx) {
-          // Re-analysis: conversation-aware system prompt
-          systemParts.push(
-            'You are an expert support engineer continuing an investigation on a ticket.',
-            'The user has replied to your previous analysis with new instructions or questions.',
-            'Follow their instructions. They may: ask you to investigate further, approve a fix (use the repo tools to make changes if applicable),',
-            'ask clarifying questions, or request the analysis be emailed to someone else.',
-            'Use the available tools as needed to fulfill the user\'s request.',
-            '',
-            `## Ticket`,
-            `Subject: ${emailSubject}`,
-            `Category: ${category}`,
-            `Priority: ${priority}`,
-            '',
-            '## Conversation History',
-            '',
-            reanalysisCtx.conversationHistory,
-          );
-        } else {
-          // Initial analysis: standard system prompt
-          systemParts.push(
-            'You are an expert support engineer investigating a ticket.',
-            'Use the available tools to gather information needed for a thorough analysis.',
-            'Query databases for health data, blocking, wait stats, and schema info.',
-            'Search and read code repositories for relevant source code.',
-            'When you have gathered enough information, provide your final analysis with:',
-            '1. **Root Cause**: What is likely causing this issue',
-            '2. **Evidence**: What tool results support your diagnosis',
-            '3. **Affected Components**: Which files/services/tables are involved',
-            '4. **Recommended Fix**: Step-by-step fix with code snippets where applicable',
-            '5. **Risk Assessment**: What could go wrong, what to test',
-            '',
-            `## Ticket`,
-            `Subject: ${emailSubject}`,
-            `Category: ${category}`,
-            `Priority: ${priority}`,
-            '', emailBody,
-          );
-        }
-
-        if (summary) systemParts.push('', `## Summary`, summary);
-        if (clientContext) systemParts.push('', clientContext);
-        if (environmentContext) systemParts.push('', environmentContext);
-        if (facts.keywords?.length) systemParts.push('', `## Key Terms`, facts.keywords.join(', '));
-        if (codeContext.length > 0) systemParts.push('', '## Previously Gathered Code Context', ...codeContext);
-        if (dbContext) systemParts.push('', '## Previously Gathered DB Context', dbContext);
-        if (stepConfig?.systemPromptOverride) systemParts.push('', stepConfig.systemPromptOverride);
-        systemParts.push(SUFFICIENCY_EVAL_INSTRUCTIONS);
-
-        const agenticSystemPrompt = systemParts.join('\n');
-
-        // Agentic loop — use the reply text as the user message during re-analysis
-        const initialUserMessage = reanalysisCtx
-          ? reanalysisCtx.triggerReplyText || 'The user replied to the previous analysis. Please review the conversation history and continue the investigation.'
-          : 'Investigate this ticket using the available tools. Query databases, search code, and read files as needed to understand the issue. When you have enough information, provide your final analysis.';
-        const messages: AIMessage[] = [
-          { role: 'user', content: initialUserMessage },
-        ];
-        const toolCallLog: Array<{ tool: string; system?: string; input: Record<string, unknown>; output: string; durationMs: number }> = [];
-        let totalInputTokens = 0;
-        let totalOutputTokens = 0;
-
-        let finalAnalysis = '';
-        let iterationsRun = 0;
-        let previousAiCallId: string | undefined;
-        for (let i = 0; i < maxIterations; i++) {
-          iterationsRun = i + 1;
-          const aiCallId = randomUUID();
-          appLog.info(`Agentic analysis iteration ${i + 1}/${maxIterations}`, { ticketId, iteration: i + 1 }, ticketId, 'ticket');
-
-          let response: AIToolResponse;
-          try {
-            response = await ai.generateWithTools({
-              taskType: (step.taskTypeOverride ?? TaskType.DEEP_ANALYSIS) as TaskType,
-              systemPrompt: agenticSystemPrompt,
-              tools: agenticTools,
-              messages,
-              context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!(clientContext || environmentContext), logId: aiCallId, ...(previousAiCallId ? { parentLogId: previousAiCallId, parentLogType: 'ai' as const } : {}) },
-              maxTokens: defaultMaxTokens ?? 4096,
-            });
-          } catch (error) {
-            if (error instanceof Error && /tool/i.test(error.message) && /support/i.test(error.message)) {
-              appLog.error(
-                'Agentic analysis skipped: AI provider does not support tool use',
-                { ticketId, iteration: i + 1, error: error.message },
-                ticketId,
-                'ticket',
-              );
-              finalAnalysis = '';
-              break;
-            }
-            throw error;
-          }
-
-          totalInputTokens += response.usage?.inputTokens ?? 0;
-          totalOutputTokens += response.usage?.outputTokens ?? 0;
-
-          // Append assistant response to conversation
-          messages.push({ role: 'assistant', content: response.contentBlocks });
-
-          if (response.stopReason !== 'tool_use') {
-            // Claude finished — extract final text
-            finalAnalysis = response.contentBlocks
-              .filter((b): b is AITextBlock => b.type === 'text')
-              .map((b) => b.text)
-              .join('\n');
-            break;
-          }
-
-          // Execute tool calls
-          const toolUseBlocks = response.contentBlocks.filter(
-            (b): b is AIToolUseBlock => b.type === 'tool_use',
-          );
-
-          // Log Claude's reasoning from the response (text blocks alongside tool_use)
-          const reasoningText = response.contentBlocks
-            .filter((b): b is AITextBlock => b.type === 'text')
-            .map((b) => b.text)
-            .join('\n')
-            .trim();
-
-          if (reasoningText) {
-            appLog.info(
-              `Agentic reasoning (iteration ${i + 1}): ${reasoningText.slice(0, 200)}`,
-              {
-                ticketId,
-                iteration: i + 1,
-                reasoning: reasoningText.slice(0, 2000),
-                toolsRequested: toolUseBlocks.map(t => t.name),
-              },
-              ticketId,
-              'ticket',
-            );
-          }
-
-          const toolResults: Array<{ type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }> = [];
-
-          for (const toolUse of toolUseBlocks) {
-            const start = Date.now();
-            const result = await executeAgenticToolCall(toolUse, mcpIntegrations, repoIdByPrefix, clientId);
-            const elapsed = Date.now() - start;
-            toolCallLog.push({
-              tool: toolUse.name,
-              system: (toolUse.input as Record<string, unknown>)?.system_name as string | undefined,
-              input: toolUse.input,
-              output: result.result.slice(0, 500), // truncate for metadata
-              durationMs: elapsed,
-            });
-            toolResults.push({
-              type: 'tool_result',
-              tool_use_id: toolUse.id,
-              content: result.result,
-              ...(result.isError ? { is_error: true } : {}),
-            });
-            const agenticArtifactId = deps.artifactStoragePath && !result.isError ? randomUUID() : undefined;
-            if (deps.artifactStoragePath && !result.isError) {
-              void saveMcpToolArtifact(deps.db, ticketId, toolUse.name, result.result, deps.artifactStoragePath, agenticArtifactId).catch(error => {
-                logger.warn({
-                  err: error,
-                  ticketId,
-                  toolName: toolUse.name,
-                }, 'Failed to persist MCP tool artifact');
-              });
-            }
-            appLog.info(
-              `Agentic tool call: ${toolUse.name} (${elapsed}ms)`,
-              {
-                ticketId,
-                tool: toolUse.name,
-                durationMs: elapsed,
-                iteration: i + 1,
-                params: toolUse.input ? JSON.stringify(toolUse.input).slice(0, 1000) : null,
-                resultPreview: result.result?.slice(0, 2000) ?? null,
-                isError: result.isError ?? false,
-                parentLogId: aiCallId,
-                parentLogType: 'ai',
-                ...(agenticArtifactId ? { artifactId: agenticArtifactId } : {}),
-              },
-              ticketId,
-              'ticket',
-            );
-          }
-
-          // Append tool results as user message
-          messages.push({ role: 'user', content: toolResults as AIToolResultBlock[] });
-          previousAiCallId = aiCallId;
-        }
-
-        if (!finalAnalysis) {
-          finalAnalysis = 'Agentic analysis reached maximum iterations without a final conclusion. Review the tool call log for partial findings.';
-        }
-
-        // Parse sufficiency evaluation from the analysis response
-        const { analysis: cleanAnalysis, evaluation: sufficiency } = parseSufficiencyEvaluation(finalAnalysis);
-        analysis = cleanAnalysis;
-
-        // Store sufficiency questions in pipeline context so DRAFT_FINDINGS_EMAIL can include them
-        ctx.sufficiencyEval = sufficiency;
-
-        // Compute total cost from AI usage logs for this specific analysis run
+        // Cost aggregation — both strategies use the same AI-usage-log window starting from stepStart.
         const costAgg = await db.aiUsageLog.aggregate({
-          where: {
-            entityId: ticketId,
-            entityType: 'ticket',
-            createdAt: { gte: new Date(stepStart) },
-          },
+          where: { entityId: ticketId, entityType: 'ticket', createdAt: { gte: new Date(stepStart) } },
           _sum: { costUsd: true },
         });
         const totalCostUsd = costAgg._sum.costUsd ?? 0;
 
-        // Store as AI_ANALYSIS event with tool call log and sufficiency in metadata
+        const phase = canRunOrchestrated ? 'orchestrated_analysis' : 'agentic_analysis';
         await db.ticketEvent.create({
           data: {
             ticketId,
             eventType: 'AI_ANALYSIS',
-            content: analysis,
+            content: result.analysis,
             metadata: JSON.parse(JSON.stringify({
-              phase: 'agentic_analysis',
+              phase,
               taskType: step.taskTypeOverride ?? TaskType.DEEP_ANALYSIS,
-              iterationsRun,
-              toolCallCount: toolCallLog.length,
+              iterationsRun: result.iterationsRun,
+              toolCallCount: result.toolCallLog.length,
               maxIterations,
-              toolCalls: toolCallLog,
-              totalUsage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
+              toolCalls: result.toolCallLog,
+              totalUsage: { inputTokens: result.totalInputTokens, outputTokens: result.totalOutputTokens },
               totalCostUsd,
               routeId: route.id,
               routeName: route.name,
-              sufficiencyStatus: sufficiency.status,
-              sufficiencyQuestions: sufficiency.questions,
-              sufficiencyConfidence: sufficiency.confidence,
-              sufficiencyReason: sufficiency.reason,
+              sufficiencyStatus: result.sufficiencyEval.status,
+              sufficiencyQuestions: result.sufficiencyEval.questions,
+              sufficiencyConfidence: result.sufficiencyEval.confidence,
+              sufficiencyReason: result.sufficiencyEval.reason,
             })),
             actor: 'system:analyzer',
           },
         });
 
-        // Update ticket sufficiency status
-        const suffTicketUpdate: Prisma.TicketUpdateInput = {
-          sufficiencyStatus: sufficiency.status,
-        };
-        if (sufficiency.status === SufficiencyStatus.NEEDS_USER_INPUT) {
+        const suffTicketUpdate: Prisma.TicketUpdateInput = { sufficiencyStatus: result.sufficiencyEval.status };
+        if (result.sufficiencyEval.status === SufficiencyStatus.NEEDS_USER_INPUT) {
           suffTicketUpdate.status = 'WAITING';
           suffTicketUpdate.resolvedAt = null;
         }
@@ -3428,13 +2262,14 @@ async function executeRoutePipeline(
 
         {
           const stepDuration = Date.now() - stepStart;
+          const label = canRunOrchestrated ? 'Orchestrated analysis' : 'Agentic analysis';
           appLog.info(
-            `Agentic analysis complete: ${toolCallLog.length} tool calls, ${iterationsRun} iterations, sufficiency=${sufficiency.status} (${(stepDuration / 1000).toFixed(1)}s)`,
-            { ticketId, toolCalls: toolCallLog.length, iterations: iterationsRun, sufficiencyStatus: sufficiency.status, sufficiencyConfidence: sufficiency.confidence, durationMs: stepDuration },
+            `${label} complete: ${result.toolCallLog.length} tool calls, ${result.iterationsRun} iterations, sufficiency=${result.sufficiencyEval.status} (${(stepDuration / 1000).toFixed(1)}s)`,
+            { ticketId, toolCalls: result.toolCallLog.length, iterations: result.iterationsRun, sufficiencyStatus: result.sufficiencyEval.status, sufficiencyConfidence: result.sufficiencyEval.confidence, durationMs: stepDuration },
             ticketId,
             'ticket',
           );
-          totalToolCalls += toolCallLog.length;
+          totalToolCalls += result.toolCallLog.length;
         }
         stepsSucceeded++;
         break;
@@ -4036,6 +2871,97 @@ async function executeRoutePipeline(
         break;
       }
 
+      case RouteStepType.DETECT_TOOL_GAPS: {
+        if (!analysis || analysis.trim().length === 0) {
+          appLog.info('DETECT_TOOL_GAPS skipped — no analysis text available', { ticketId }, ticketId, 'ticket');
+          stepsSkipped++;
+          break;
+        }
+
+        const toolsUsedSummary = lastToolCallLog.length === 0
+          ? 'no agentic tool use this run'
+          : (() => {
+              const counts = new Map<string, number>();
+              for (const c of lastToolCallLog) counts.set(c.tool, (counts.get(c.tool) ?? 0) + 1);
+              return Array.from(counts.entries()).map(([name, n]) => `- ${name} (${n}×)`).join('\n');
+            })();
+
+        const truncatedAnalysis = analysis.length > 6000 ? `${analysis.slice(0, 6000)}\n... [truncated]` : analysis;
+
+        const userPrompt = [
+          `Ticket: ${ticket?.subject ?? emailSubject}`,
+          `Category: ${category}`,
+          '',
+          'Tools used this run (with call counts):',
+          toolsUsedSummary,
+          '',
+          'Final analysis text:',
+          truncatedAnalysis,
+          '',
+          'Return the JSON array of gap requests.',
+        ].join('\n');
+
+        let detectResult;
+        try {
+          detectResult = await ai.generate({
+            taskType: TaskType.DETECT_TOOL_GAPS,
+            context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category },
+            prompt: userPrompt,
+            promptKey: 'detect-tool-gaps.system',
+          });
+        } catch (err) {
+          appLog.warn(`DETECT_TOOL_GAPS AI call failed: ${(err as Error).message}`, { ticketId }, ticketId, 'ticket');
+          stepsSkipped++;
+          break;
+        }
+
+        let gaps: Array<{ requestedName: string; displayTitle: string; description: string; rationale: string; suggestedInputs?: Record<string, unknown>; exampleUsage?: string }> = [];
+        try {
+          const raw = detectResult.content.trim();
+          const cleaned = raw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim();
+          const parsed = JSON.parse(cleaned);
+          if (Array.isArray(parsed)) gaps = parsed;
+        } catch (err) {
+          appLog.warn(`DETECT_TOOL_GAPS returned non-JSON output: ${(err as Error).message}`, { ticketId }, ticketId, 'ticket');
+          stepsSkipped++;
+          break;
+        }
+
+        let registered = 0;
+        for (const gap of gaps) {
+          if (!gap?.requestedName || !gap?.displayTitle || !gap?.description || !gap?.rationale) {
+            continue;
+          }
+          try {
+            await registerToolRequest(db, {
+              clientId,
+              ticketId,
+              requestedName: gap.requestedName,
+              displayTitle: gap.displayTitle,
+              description: gap.description,
+              rationale: gap.rationale,
+              suggestedInputs: gap.suggestedInputs,
+              exampleUsage: gap.exampleUsage,
+              source: ToolRequestRationaleSource.POST_HOC_DETECTION,
+            });
+            registered++;
+          } catch (err) {
+            appLog.warn(`DETECT_TOOL_GAPS: failed to register "${gap.requestedName}": ${(err as Error).message}`, { ticketId, requestedName: gap.requestedName }, ticketId, 'ticket');
+          }
+        }
+
+        {
+          const stepDuration = Date.now() - stepStart;
+          appLog.info(
+            `DETECT_TOOL_GAPS: found ${gaps.length} gap(s), registered ${registered} (${(stepDuration / 1000).toFixed(1)}s)`,
+            { ticketId, gapCount: gaps.length, registeredCount: registered, durationMs: stepDuration },
+            ticketId, 'ticket',
+          );
+        }
+        stepsSucceeded++;
+        break;
+      }
+
       case RouteStepType.CREATE_TICKET: {
         // CREATE_TICKET is an ingestion-only step. In analysis routes the ticket already
         // exists, so this is a no-op.
@@ -4169,7 +3095,7 @@ async function executeRoutePipeline(
             const ticket = ticketId ? await db.ticket.findUnique({ where: { id: ticketId }, select: { assignedOperatorId: true } }) : null;
             const notified = await notifyOperatorsFn(
               mailer,
-              () => db.operator.findMany({ where: { isActive: true } }),
+              () => getActiveOperatorRecords(db),
               {
                 subject: notifySubject,
                 body: notifyBody,
@@ -4190,20 +3116,21 @@ async function executeRoutePipeline(
                 const sent = await notifyClientOperatorsFn(
                   mailer,
                   async (clientId) => {
-                    const rows = await db.person.findMany({
-                      where: {
-                        clientId,
-                        userType: { in: ['OPERATOR', 'ADMIN'] },
-                        isActive: true,
-                        hasOpsAccess: true,
+                    // #219 Wave 1 — client "ops people" are Operators scoped to the client.
+                    const rows = await db.operator.findMany({
+                      where: { clientId, person: { isActive: true } },
+                      select: {
+                        id: true,
+                        role: true,
+                        slackUserId: true,
+                        person: { select: { email: true, name: true } },
                       },
-                      select: { id: true, email: true, name: true, userType: true, slackUserId: true },
                     });
                     return rows.map((r) => ({
                       id: r.id,
-                      email: r.email,
-                      name: r.name,
-                      userType: r.userType ?? 'USER',
+                      email: r.person.email,
+                      name: r.person.name,
+                      userType: r.role,
                       slackUserId: r.slackUserId,
                     }));
                   },
@@ -4261,7 +3188,10 @@ async function executeRoutePipeline(
 
         if (typeof rawEmail === 'string' && rawEmail.trim()) {
           const person = await db.person.findFirst({
-            where: { email: { equals: rawEmail.trim(), mode: 'insensitive' }, clientId: ctx.clientId },
+            where: {
+              email: { equals: rawEmail.trim(), mode: 'insensitive' },
+              clientUsers: { some: { clientId: ctx.clientId } },
+            },
             select: { id: true },
           });
           if (person) {
@@ -4271,7 +3201,10 @@ async function executeRoutePipeline(
           }
         } else if (typeof rawDomain === 'string' && rawDomain.trim()) {
           const domainPeople = await db.person.findMany({
-            where: { email: { endsWith: `@${rawDomain.trim().toLowerCase()}`, mode: 'insensitive' }, clientId: ctx.clientId },
+            where: {
+              email: { endsWith: `@${rawDomain.trim().toLowerCase()}`, mode: 'insensitive' },
+              clientUsers: { some: { clientId: ctx.clientId } },
+            },
             select: { id: true },
           });
           if (domainPeople.length > 0) {
@@ -4346,7 +3279,7 @@ async function loadConversationHistory(
   return db.ticketEvent.findMany({
     where: {
       ticketId,
-      eventType: { in: ['AI_ANALYSIS', 'COMMENT', 'EMAIL_OUTBOUND', 'AI_RECOMMENDATION', 'EMAIL_INBOUND'] },
+      eventType: { in: ['AI_ANALYSIS', 'COMMENT', 'EMAIL_OUTBOUND', 'AI_RECOMMENDATION', 'EMAIL_INBOUND', 'CHAT_MESSAGE'] },
     },
     orderBy: { createdAt: 'asc' },
     select: { eventType: true, content: true, metadata: true, actor: true, createdAt: true },
@@ -4368,6 +3301,7 @@ function formatConversationHistory(
         : e.eventType === 'AI_RECOMMENDATION' ? 'AI Recommendation'
         : e.eventType === 'EMAIL_OUTBOUND' ? 'Outbound Email'
         : e.eventType === 'EMAIL_INBOUND' ? 'Inbound Email'
+        : e.eventType === 'CHAT_MESSAGE' ? 'Operator Chat Reply'
         : e.eventType === 'COMMENT' ? 'Reply'
         : e.eventType;
     const content = (e.content ?? '').slice(0, 3000);
@@ -4396,7 +3330,7 @@ function formatConversationHistory(
 
 export function createAnalysisProcessor(deps: AnalyzerDeps) {
   return async function processAnalysis(job: Job<AnalysisJob>): Promise<void> {
-    const { ticketId, reanalysis, triggerEventId } = job.data;
+    const { ticketId, reanalysis, triggerEventId, chatReanalysisMode } = job.data;
 
     // Resolve ticket context from the DB instead of carrying it on the job payload
     const ctx = await loadAnalysisContext(deps.db, job.data);
@@ -4465,10 +3399,10 @@ export function createAnalysisProcessor(deps: AnalyzerDeps) {
           });
           triggerReplyText = triggerEvent?.content ?? '';
         }
-        // If no trigger event found, use the most recent inbound email/comment
+        // If no trigger event found, use the most recent inbound email, comment, or chat message
         if (!triggerReplyText) {
           const latestReply = conversationHistory
-            .filter((e) => e.eventType === 'EMAIL_INBOUND' || e.eventType === 'COMMENT')
+            .filter((e) => e.eventType === 'EMAIL_INBOUND' || e.eventType === 'COMMENT' || e.eventType === 'CHAT_MESSAGE')
             .pop();
           triggerReplyText = latestReply?.content ?? '';
         }
@@ -4476,6 +3410,10 @@ export function createAnalysisProcessor(deps: AnalyzerDeps) {
           conversationHistory: formatConversationHistory(conversationHistory),
           triggerReplyText,
           triggerEventId,
+          // Threaded from the Chat tab endpoint (#312). flat + orchestrated
+          // strategies already consume `reanalysisCtx.mode` to branch their
+          // system prompt between continue / refine / fresh_start.
+          ...(chatReanalysisMode && { mode: chatReanalysisMode }),
         };
 
         // Synthetic re-analysis route: UPDATE_ANALYSIS → DRAFT_FINDINGS_EMAIL
