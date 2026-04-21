@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { Queue } from 'bullmq';
 import type { AIRouter, ClientMemoryResolver, ModelConfigResolver, ProviderConfigResolver } from '@bronco/ai-provider';
-import type { TicketCreatedJob, IngestionJob } from '@bronco/shared-types';
+import type { TicketCreatedJob, IngestionJob, AnalysisJob } from '@bronco/shared-types';
 import { OperatorRole } from '@bronco/shared-types';
 import type { Config } from '../config.js';
 import { requireRole } from '../plugins/auth.js';
@@ -59,6 +59,7 @@ interface RouteOpts {
   mcpDiscoveryQueue: Queue;
   probeQueue: Queue;
   ticketCreatedQueue: Queue<TicketCreatedJob>;
+  ticketAnalysisQueue: Queue<AnalysisJob>;
   ingestQueue: Queue<IngestionJob>;
   queueMap: Map<string, Queue>;
   ai: AIRouter;
@@ -88,7 +89,7 @@ export async function registerRoutes(fastify: FastifyInstance, opts: RouteOpts):
 
     await scoped.register(clientRoutes);
     await scoped.register(peopleRoutes);
-    await scoped.register(ticketRoutes, { logSummarizeQueue: opts.logSummarizeQueue, systemAnalysisQueue: opts.systemAnalysisQueue, clientLearningQueue: opts.clientLearningQueue, ticketCreatedQueue: opts.ticketCreatedQueue, ingestQueue: opts.ingestQueue, ai: opts.ai });
+    await scoped.register(ticketRoutes, { logSummarizeQueue: opts.logSummarizeQueue, systemAnalysisQueue: opts.systemAnalysisQueue, clientLearningQueue: opts.clientLearningQueue, ticketCreatedQueue: opts.ticketCreatedQueue, ticketAnalysisQueue: opts.ticketAnalysisQueue, ingestQueue: opts.ingestQueue, ai: opts.ai });
     await scoped.register(artifactRoutes, { config: opts.config });
     await scoped.register(aiUsageRoutes, { ai: opts.ai });
     await scoped.register(ticketFilterPresetRoutes);

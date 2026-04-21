@@ -4,7 +4,7 @@ import type { AIRouter } from '@bronco/ai-provider';
 import { Prisma } from '@bronco/db';
 import { TicketStatus, TicketCategory, TicketEventType, Priority, TicketSource, TaskType, isClosedStatus, AnalysisStatus, SufficiencyStatus, LogLevel } from '@bronco/shared-types';
 import { getSelfAnalysisConfig } from '@bronco/shared-utils';
-import type { TicketCreatedJob, IngestionJob } from '@bronco/shared-types';
+import type { TicketCreatedJob, IngestionJob, AnalysisJob } from '@bronco/shared-types';
 import { resolveClientScope, scopeToWhere } from '../plugins/client-scope.js';
 
 interface TicketRouteOpts {
@@ -12,6 +12,7 @@ interface TicketRouteOpts {
   systemAnalysisQueue?: Queue;
   clientLearningQueue?: Queue;
   ticketCreatedQueue?: Queue<TicketCreatedJob>;
+  ticketAnalysisQueue?: Queue<AnalysisJob>;
   ingestQueue?: Queue<IngestionJob>;
   ai?: AIRouter;
 }
@@ -624,6 +625,201 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
 
     reply.code(202);
     return { queued, ticketId: ticket.id, jobId, ticket: updated };
+  });
+
+  // ─── Chat Tab (#312) ────────────────────────────────────────────────────────
+  // POST /api/tickets/:id/chat-message — operator sends a message in the Chat tab.
+  // Creates a CHAT_MESSAGE TicketEvent, optionally classifies intent via
+  // TaskType.CLASSIFY_INTENT, and either enqueues a re-analysis job with
+  // chatReanalysisMode set, skips when the reply is pure acknowledgement, or
+  // surfaces an inline mode picker when classifier confidence is low.
+  const CHAT_MODE_VALUES = ['continue', 'refine', 'fresh_start', 'not_a_question'] as const;
+  type ChatMode = (typeof CHAT_MODE_VALUES)[number];
+  type ReanalysisMode = Exclude<ChatMode, 'not_a_question'>;
+  const CHAT_CONFIDENCE_THRESHOLD = 0.6;
+
+  function parseChatClassification(raw: string): { label: ChatMode; confidence: number } {
+    const fallback = { label: 'not_a_question' as ChatMode, confidence: 0 };
+    if (!raw) return fallback;
+    const match = raw.match(/\{[\s\S]*\}/);
+    const candidate = match ? match[0] : raw.trim();
+    try {
+      const parsed = JSON.parse(candidate) as { label?: unknown; confidence?: unknown };
+      const label = typeof parsed.label === 'string' ? parsed.label.toLowerCase() : '';
+      const conf = typeof parsed.confidence === 'number' ? parsed.confidence : Number(parsed.confidence);
+      if (!(CHAT_MODE_VALUES as readonly string[]).includes(label)) return fallback;
+      if (!Number.isFinite(conf)) return fallback;
+      return { label: label as ChatMode, confidence: Math.max(0, Math.min(1, conf)) };
+    } catch {
+      return fallback;
+    }
+  }
+
+  async function enqueueChatReanalysis(
+    ticketId: string,
+    triggerEventId: string,
+    mode: ReanalysisMode,
+  ): Promise<string | null> {
+    if (!opts?.ticketAnalysisQueue) return null;
+    const jobId = `chat-reanalysis-${ticketId}-${triggerEventId}`;
+    const existing = await opts.ticketAnalysisQueue.getJob(jobId);
+    if (existing) {
+      const state = await existing.getState();
+      if (state === 'waiting' || state === 'delayed' || state === 'active') return jobId;
+      try { await existing.remove(); } catch { /* already cleaned up */ }
+    }
+    await opts.ticketAnalysisQueue.add('analyze-ticket', {
+      ticketId,
+      reanalysis: true,
+      triggerEventId,
+      chatReanalysisMode: mode,
+    }, {
+      jobId,
+      attempts: 4,
+      backoff: { type: 'exponential', delay: 30_000 },
+    });
+    await fastify.db.ticket.update({
+      where: { id: ticketId },
+      data: { analysisStatus: AnalysisStatus.PENDING, analysisError: null },
+    });
+    return jobId;
+  }
+
+  fastify.post<{
+    Params: { id: string };
+    Body: { text?: unknown; modeOverride?: unknown };
+  }>('/api/tickets/:id/chat-message', async (request, reply) => {
+    const ticket = await fastify.db.ticket.findUnique({
+      where: { id: request.params.id },
+      select: { id: true, clientId: true, subject: true },
+    });
+    if (!ticket) return fastify.httpErrors.notFound('Ticket not found');
+
+    const text = typeof request.body?.text === 'string' ? request.body.text.trim() : '';
+    if (!text) return fastify.httpErrors.badRequest('text is required');
+    if (text.length > 20_000) return fastify.httpErrors.badRequest('text must be 20000 characters or fewer');
+
+    let modeOverride: ChatMode | undefined;
+    if (request.body?.modeOverride !== undefined && request.body.modeOverride !== null) {
+      if (typeof request.body.modeOverride !== 'string' || !(CHAT_MODE_VALUES as readonly string[]).includes(request.body.modeOverride)) {
+        return fastify.httpErrors.badRequest(`modeOverride must be one of ${CHAT_MODE_VALUES.join(', ')}`);
+      }
+      modeOverride = request.body.modeOverride as ChatMode;
+    }
+
+    const operatorPersonId = request.user?.personId;
+    const chatEvent = await fastify.db.ticketEvent.create({
+      data: {
+        ticketId: ticket.id,
+        eventType: TicketEventType.CHAT_MESSAGE,
+        content: text,
+        actor: operatorPersonId ? `operator:${operatorPersonId}` : 'operator',
+        metadata: {
+          source: 'chat-tab',
+          ...(operatorPersonId && { authorPersonId: operatorPersonId }),
+          ...(modeOverride && { modeOverride }),
+        },
+      },
+    });
+
+    // Explicit override → skip classification
+    if (modeOverride) {
+      if (modeOverride === 'not_a_question') {
+        reply.code(202);
+        return { decision: 'skipped', chatMessageId: chatEvent.id };
+      }
+      const reanalysisJobId = await enqueueChatReanalysis(ticket.id, chatEvent.id, modeOverride);
+      reply.code(202);
+      return { decision: 'enqueued', chatMessageId: chatEvent.id, reanalysisJobId };
+    }
+
+    // Otherwise — classify via CLASSIFY_INTENT
+    let classifiedIntent: { label: ChatMode; confidence: number } = { label: 'not_a_question', confidence: 0 };
+    if (opts?.ai) {
+      try {
+        const response = await opts.ai.generate({
+          taskType: TaskType.CLASSIFY_INTENT,
+          promptKey: 'chat.classify-reply.system',
+          prompt: text,
+          context: { ticketId: ticket.id, clientId: ticket.clientId },
+        });
+        classifiedIntent = parseChatClassification(response.content ?? '');
+      } catch (err) {
+        fastify.log.warn({ err, ticketId: ticket.id }, 'Chat reply classifier unreachable — defaulting to mode picker');
+      }
+    }
+
+    // Low confidence → ask operator
+    if (classifiedIntent.confidence < CHAT_CONFIDENCE_THRESHOLD) {
+      reply.code(202);
+      return {
+        decision: 'needs_mode_pick',
+        chatMessageId: chatEvent.id,
+        classifiedIntent,
+      };
+    }
+
+    // not_a_question with high confidence → skip
+    if (classifiedIntent.label === 'not_a_question') {
+      reply.code(202);
+      return {
+        decision: 'skipped',
+        chatMessageId: chatEvent.id,
+        classifiedIntent,
+      };
+    }
+
+    // Otherwise → enqueue with classified mode
+    const mode = classifiedIntent.label as ReanalysisMode;
+    const reanalysisJobId = await enqueueChatReanalysis(ticket.id, chatEvent.id, mode);
+    reply.code(202);
+    return {
+      decision: 'enqueued',
+      chatMessageId: chatEvent.id,
+      reanalysisJobId,
+      classifiedIntent,
+    };
+  });
+
+  // POST /api/tickets/:id/chat-message/:eventId/pick-mode — resolves low-confidence
+  // classifier cases: operator picks a mode, we enqueue re-analysis (or skip for
+  // 'not_a_question') and annotate the original CHAT_MESSAGE event.
+  fastify.post<{
+    Params: { id: string; eventId: string };
+    Body: { mode?: unknown };
+  }>('/api/tickets/:id/chat-message/:eventId/pick-mode', async (request, reply) => {
+    const ticket = await fastify.db.ticket.findUnique({
+      where: { id: request.params.id },
+      select: { id: true },
+    });
+    if (!ticket) return fastify.httpErrors.notFound('Ticket not found');
+
+    const event = await fastify.db.ticketEvent.findFirst({
+      where: { id: request.params.eventId, ticketId: ticket.id, eventType: TicketEventType.CHAT_MESSAGE },
+      select: { id: true, metadata: true },
+    });
+    if (!event) return fastify.httpErrors.notFound('Chat message not found');
+
+    const modeRaw = request.body?.mode;
+    if (typeof modeRaw !== 'string' || !(CHAT_MODE_VALUES as readonly string[]).includes(modeRaw)) {
+      return fastify.httpErrors.badRequest(`mode must be one of ${CHAT_MODE_VALUES.join(', ')}`);
+    }
+    const mode = modeRaw as ChatMode;
+
+    const existingMeta = (event.metadata as Record<string, unknown> | null) ?? {};
+    await fastify.db.ticketEvent.update({
+      where: { id: event.id },
+      data: { metadata: { ...existingMeta, pickedMode: mode } as Prisma.InputJsonValue },
+    });
+
+    if (mode === 'not_a_question') {
+      reply.code(202);
+      return { decision: 'skipped', chatMessageId: event.id };
+    }
+
+    const reanalysisJobId = await enqueueChatReanalysis(ticket.id, event.id, mode);
+    reply.code(202);
+    return { decision: 'enqueued', chatMessageId: event.id, reanalysisJobId };
   });
 
   // GET /api/tickets/:id/logs — app logs filtered by this ticket's entityId

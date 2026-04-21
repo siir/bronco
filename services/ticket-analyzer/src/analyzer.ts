@@ -3329,7 +3329,7 @@ function formatConversationHistory(
 
 export function createAnalysisProcessor(deps: AnalyzerDeps) {
   return async function processAnalysis(job: Job<AnalysisJob>): Promise<void> {
-    const { ticketId, reanalysis, triggerEventId } = job.data;
+    const { ticketId, reanalysis, triggerEventId, chatReanalysisMode } = job.data;
 
     // Resolve ticket context from the DB instead of carrying it on the job payload
     const ctx = await loadAnalysisContext(deps.db, job.data);
@@ -3409,6 +3409,10 @@ export function createAnalysisProcessor(deps: AnalyzerDeps) {
           conversationHistory: formatConversationHistory(conversationHistory),
           triggerReplyText,
           triggerEventId,
+          // Threaded from the Chat tab endpoint (#312). flat + orchestrated
+          // strategies already consume `reanalysisCtx.mode` to branch their
+          // system prompt between continue / refine / fresh_start.
+          ...(chatReanalysisMode && { mode: chatReanalysisMode }),
         };
 
         // Synthetic re-analysis route: UPDATE_ANALYSIS → DRAFT_FINDINGS_EMAIL

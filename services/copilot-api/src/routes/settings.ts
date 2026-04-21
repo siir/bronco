@@ -1121,6 +1121,77 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     return parsed.data;
   });
 
+  // GET /api/settings/analysis-strategy/:ticketId — resolve effective strategy for a specific ticket.
+  // Mirrors the resolver in services/ticket-analyzer/src/analysis/shared.ts (resolveAnalysisStrategy):
+  // AGENTIC_ANALYSIS step's `analysisStrategy` config on the resolved route (if any)
+  // takes priority over the global AppSetting. Used by the Chat tab (#312) to show
+  // configured-vs-actual strategy mismatches on run markers.
+  fastify.get<{ Params: { ticketId: string } }>(
+    '/api/settings/analysis-strategy/:ticketId',
+    async (request) => {
+      const ticket = await fastify.db.ticket.findUnique({
+        where: { id: request.params.ticketId },
+        select: { clientId: true, category: true, source: true },
+      });
+      if (!ticket) return fastify.httpErrors.notFound('Ticket not found');
+
+      const appSettingRow = await fastify.db.appSetting.findUnique({
+        where: { key: SETTINGS_KEY_ANALYSIS_STRATEGY },
+      });
+      const appConfig = (appSettingRow?.value ?? null) as { strategy?: string } | null;
+      const globalRaw = appConfig?.strategy ?? 'full_context';
+      const globalStrategy: 'flat' | 'orchestrated' = globalRaw === 'orchestrated' ? 'orchestrated' : 'flat';
+
+      // Look up the route that would be selected for this ticket, constrained
+      // to client+category or global+category matches (the analyzer's primary
+      // resolution path). If the route contains an AGENTIC_ANALYSIS step with
+      // an `analysisStrategy` override, that takes precedence.
+      let stepOverride: 'flat' | 'orchestrated' | null = null;
+      try {
+        const baseInclude = {
+          steps: {
+            where: { isActive: true, stepType: 'AGENTIC_ANALYSIS' as const },
+            orderBy: { stepOrder: 'asc' as const },
+          },
+        };
+
+        const routeCandidates = await fastify.db.ticketRoute.findMany({
+          where: {
+            isActive: true,
+            routeType: 'ANALYSIS',
+            OR: [
+              ...(ticket.clientId && ticket.category ? [{ clientId: ticket.clientId, category: ticket.category }] : []),
+              ...(ticket.category ? [{ clientId: null, category: ticket.category }] : []),
+            ],
+          } as never,
+          include: baseInclude,
+          orderBy: { sortOrder: 'asc' },
+          take: 3,
+        });
+
+        for (const route of routeCandidates) {
+          for (const step of route.steps ?? []) {
+            const cfg = step.config as { analysisStrategy?: string } | null;
+            if (cfg?.analysisStrategy) {
+              stepOverride = cfg.analysisStrategy === 'orchestrated' ? 'orchestrated' : 'flat';
+              break;
+            }
+          }
+          if (stepOverride) break;
+        }
+      } catch (err) {
+        fastify.log.warn({ err, ticketId: request.params.ticketId }, 'Failed to resolve route-step analysis strategy override — falling back to global');
+      }
+
+      return {
+        ticketId: request.params.ticketId,
+        configured: stepOverride ?? globalStrategy,
+        globalStrategy,
+        stepOverride,
+      };
+    },
+  );
+
   // PUT /api/settings/analysis-strategy
   fastify.put<{ Body: Record<string, unknown> }>('/api/settings/analysis-strategy', async (request) => {
     const parsed = analysisStrategySchema.safeParse(request.body);

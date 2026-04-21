@@ -1021,6 +1021,7 @@ enum TicketEventType {
   ARTIFACT_ADDED
   SYSTEM_NOTE
   CODE_CHANGE
+  CHAT_MESSAGE
 
   @@map("ticket_event_type")
 }
