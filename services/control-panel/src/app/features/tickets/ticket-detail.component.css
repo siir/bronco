@@ -837,3 +837,30 @@
   margin-left: 8px;
 }
 .artifact-link:hover { text-decoration: underline; }
+
+/* Strategy stamp strip — shown at the top of the Raw Logs sub-view */
+.strategy-strip-inline {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.strategy-strip-inline .strategy-badge {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 12px;
+  background: var(--bg-muted);
+  color: var(--text-primary);
+}
+.strategy-strip-inline .strategy-flat {
+  background: var(--color-info-subtle);
+  color: var(--color-info);
+}
+.strategy-strip-inline .strategy-orchestrated {
+  background: var(--color-success-subtle);
+  color: var(--color-success);
+}
+.strategy-strip-inline .strategy-legacy {
+  background: var(--bg-muted);
+  color: var(--text-tertiary);
+}

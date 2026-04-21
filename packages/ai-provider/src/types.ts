@@ -43,6 +43,9 @@ export interface ConversationMetadata {
   orchestrationId?: string;
   orchestrationIteration?: number;
   isSubTask?: boolean;
+  /** Analysis strategy that produced this call — populated by ticket-analyzer;
+   *  used by the Analysis Trace UI to stamp flat vs orchestrated runs. */
+  strategy?: 'flat' | 'orchestrated';
 }
 
 /** Data written to the prompt archive table alongside a usage log entry. */

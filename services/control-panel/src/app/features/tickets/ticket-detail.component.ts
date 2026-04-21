@@ -20,6 +20,8 @@ import {
   IconComponent,
 } from '../../shared/components/index.js';
 import { AiLogEntryComponent } from './ai-log-entry.component.js';
+import { AnalysisTraceComponent } from './analysis-trace/analysis-trace.component.js';
+import { computeStrategyStamp, formatStrategyStamp } from './analysis-strategy-stamp.js';
 import { TicketDetailSummaryComponent } from './ticket-detail-summary.component.js';
 import { TicketDetailResolutionComponent } from './ticket-detail-resolution.component.js';
 import { TicketDetailDetailsComponent } from './ticket-detail-details.component.js';
@@ -67,6 +69,7 @@ interface ConvTreeNode {
     TextareaComponent,
     DialogComponent,
     AiLogEntryComponent,
+    AnalysisTraceComponent,
     AiHelpDialogComponent,
     TicketDetailSummaryComponent,
     TicketDetailResolutionComponent,
@@ -180,6 +183,10 @@ interface ConvTreeNode {
             </div>
 
             @if (logsView() === 'raw') {
+            <!-- Strategy stamp strip (shared with Analysis Trace) -->
+            <div class="strategy-strip-inline">
+              <span class="strategy-badge strategy-{{ rawLogsStamp().strategy }}">{{ rawLogsStampText() }}</span>
+            </div>
             <!-- Cost summary card -->
             @if (costSummary(); as cs) {
               @if (cs.callCount > 0) {
@@ -623,6 +630,9 @@ interface ConvTreeNode {
             }
             }
           </app-tab>
+          <app-tab label="Analysis Trace">
+            <app-analysis-trace [ticketId]="id()" [events]="events()" />
+          </app-tab>
           <app-tab label="Log Digest">
             <app-ticket-detail-log-digest
               [summaries]="logSummaries()"
@@ -779,6 +789,7 @@ export class TicketDetailComponent implements OnInit {
     labels.push('Details');
     if (t?.knowledgeDoc || this.editingKnowledgeDoc()) labels.push('Knowledge');
     labels.push('Logs');
+    labels.push('Analysis Trace');
     labels.push('Log Digest');
     labels.push('Artifacts');
     labels.push('Timeline');
@@ -790,6 +801,10 @@ export class TicketDetailComponent implements OnInit {
     const total = this.unifiedLogsTotal();
     return total > 0 ? `Logs (${total})` : 'Logs';
   });
+
+  /** Strategy stamp for the Raw Logs sub-view (reuses shared helper). */
+  rawLogsStamp = computed(() => computeStrategyStamp(this.unifiedLogs(), this.events()));
+  rawLogsStampText = computed(() => formatStrategyStamp(this.rawLogsStamp()));
 
   // Static select option lists
   readonly priorityOptions = [
