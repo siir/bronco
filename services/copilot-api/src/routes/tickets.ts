@@ -702,6 +702,15 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     });
     if (!ticket) return fastify.httpErrors.notFound('Ticket not found');
 
+    // Reject cross-client access as 404 (not 403) to avoid ticket-ID enumeration
+    const scope = await resolveClientScope(request);
+    if (scope.type === 'single' && ticket.clientId !== scope.clientId) {
+      return fastify.httpErrors.notFound('Ticket not found');
+    }
+    if (scope.type === 'assigned' && !scope.clientIds.includes(ticket.clientId)) {
+      return fastify.httpErrors.notFound('Ticket not found');
+    }
+
     const text = typeof request.body?.text === 'string' ? request.body.text.trim() : '';
     if (!text) return fastify.httpErrors.badRequest('text is required');
     if (text.length > 20_000) return fastify.httpErrors.badRequest('text must be 20000 characters or fewer');
@@ -820,9 +829,18 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
   }>('/api/tickets/:id/chat-message/:eventId/pick-mode', async (request, reply) => {
     const ticket = await fastify.db.ticket.findUnique({
       where: { id: request.params.id },
-      select: { id: true },
+      select: { id: true, clientId: true },
     });
     if (!ticket) return fastify.httpErrors.notFound('Ticket not found');
+
+    // Reject cross-client access as 404 (not 403) to avoid ticket-ID enumeration
+    const scope = await resolveClientScope(request);
+    if (scope.type === 'single' && ticket.clientId !== scope.clientId) {
+      return fastify.httpErrors.notFound('Ticket not found');
+    }
+    if (scope.type === 'assigned' && !scope.clientIds.includes(ticket.clientId)) {
+      return fastify.httpErrors.notFound('Ticket not found');
+    }
 
     const event = await fastify.db.ticketEvent.findFirst({
       where: { id: request.params.eventId, ticketId: ticket.id, eventType: TicketEventType.CHAT_MESSAGE },
