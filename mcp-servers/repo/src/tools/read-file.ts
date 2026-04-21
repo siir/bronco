@@ -1,9 +1,10 @@
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
+import { open, stat } from 'node:fs/promises';
+import { isAbsolute, join, resolve, relative } from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { PrismaClient } from '@bronco/db';
 import type { RepoManager } from '../repo-manager.js';
-import { executeCommand } from '../command-validator.js';
 
 const DEFAULT_LIMIT = 4000;
 const MAX_LIMIT = 16_000;
@@ -17,10 +18,6 @@ function sanitizeFilePath(fp: string): string | null {
   const normalized = fp.replace(/\\/g, '/');
   if (normalized.split('/').some(seg => seg === '..')) return null;
   return normalized.replace(/^\.\//, '');
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
 function describeRepo(repo: { description: string | null }): string {
@@ -77,37 +74,76 @@ export function registerReadFileTool(
 
       try {
         const worktreePath = await repoManager.getOrCreateWorktree(repoId, sid);
-        const result = await executeCommand(`cat ${shellQuote(safePath)}`, worktreePath);
-
-        if (result.exitCode !== 0) {
-          const stderr = result.stderr || '(no stderr)';
+        // Resolve absolute path and verify it's still inside the worktree —
+        // belt-and-suspenders alongside sanitizeFilePath (guards against symlinks
+        // escaping via `..` that survive the string-level check).
+        const absolutePath = resolve(join(worktreePath, safePath));
+        const relToWorktree = relative(worktreePath, absolutePath);
+        if (relToWorktree === '' || relToWorktree.startsWith('..') || isAbsolute(relToWorktree)) {
           return {
-            content: [{ type: 'text' as const, text: `[${describeRepo(repo)}] read_file error on ${repo.name}:${safePath}: exit=${result.exitCode}\n${stderr}` }],
+            content: [{ type: 'text' as const, text: `Invalid file path: ${filePath}` }],
             isError: true,
           };
         }
 
-        const fullContent = result.stdout;
-        const totalChars = fullContent.length;
-        const slice = fullContent.slice(effectiveOffset, effectiveOffset + effectiveLimit);
+        // Stat first so we report the real total file size regardless of slice.
+        let fileStat;
+        try {
+          fileStat = await stat(absolutePath);
+        } catch (err) {
+          return {
+            content: [{ type: 'text' as const, text: `[${describeRepo(repo)}] read_file error on ${repo.name}:${safePath}: ${err instanceof Error ? err.message : String(err)}` }],
+            isError: true,
+          };
+        }
+        if (!fileStat.isFile()) {
+          return {
+            content: [{ type: 'text' as const, text: `[${describeRepo(repo)}] read_file error on ${repo.name}:${safePath}: not a regular file` }],
+            isError: true,
+          };
+        }
+        const totalChars = fileStat.size;
 
-        // Number the lines for the slice. Line numbers are relative to the file start,
-        // so we need to count newlines before the offset to get the starting line number.
-        const startLine = effectiveOffset === 0
-          ? 1
-          : fullContent.slice(0, effectiveOffset).split('\n').length;
+        // Bounded read: allocate only the slice. Read at position=offset so a
+        // 1GB file with offset=10MB, limit=4k reads only 4k bytes.
+        const fh = await open(absolutePath, 'r');
+        try {
+          const sliceBuffer = Buffer.alloc(effectiveLimit);
+          const { bytesRead } = await fh.read(sliceBuffer, 0, effectiveLimit, effectiveOffset);
+          const slice = sliceBuffer.slice(0, bytesRead).toString('utf8');
 
-        const numbered = slice
-          .split('\n')
-          .map((line, idx) => `${startLine + idx}: ${line}`)
-          .join('\n');
+          // Compute startLine by streaming the prefix [0, offset) once.
+          // Counts newlines directly to avoid holding the prefix in memory.
+          let startLine = 1;
+          if (effectiveOffset > 0) {
+            const PREFIX_CHUNK = 64 * 1024;
+            const prefixBuf = Buffer.alloc(PREFIX_CHUNK);
+            let pos = 0;
+            while (pos < effectiveOffset) {
+              const readLen = Math.min(PREFIX_CHUNK, effectiveOffset - pos);
+              const r = await fh.read(prefixBuf, 0, readLen, pos);
+              if (r.bytesRead === 0) break;
+              for (let i = 0; i < r.bytesRead; i++) {
+                if (prefixBuf[i] === 0x0a /* \n */) startLine++;
+              }
+              pos += r.bytesRead;
+            }
+          }
 
-        const footer = `\n\n[returned ${slice.length} chars at offset ${effectiveOffset} of total ${totalChars}]`;
+          const numbered = slice
+            .split('\n')
+            .map((line, idx) => `${startLine + idx}: ${line}`)
+            .join('\n');
 
-        return {
-          content: [{ type: 'text' as const, text: numbered + footer }],
-          isError: false,
-        };
+          const footer = `\n\n[returned ${bytesRead} chars at offset ${effectiveOffset} of total ${totalChars}]`;
+
+          return {
+            content: [{ type: 'text' as const, text: numbered + footer }],
+            isError: false,
+          };
+        } finally {
+          await fh.close();
+        }
       } catch (err) {
         return {
           content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],

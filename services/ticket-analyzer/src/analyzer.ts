@@ -1857,8 +1857,9 @@ async function executeRoutePipeline(
 
       case RouteStepType.GATHER_REPO_CONTEXT: {
         if (!ticket) break;
+        const ticketClientId = ticket.clientId;
         // Query client repos via CodeRepo model
-        const clientRepos = await db.codeRepo.findMany({ where: { clientId: ticket.clientId, isActive: true } });
+        const clientRepos = await db.codeRepo.findMany({ where: { clientId: ticketClientId, isActive: true } });
         if (clientRepos.length === 0) break;
 
         const gatherSessionId = `gather-${ticketId}`;
@@ -1867,23 +1868,49 @@ async function executeRoutePipeline(
         const repoAuthHeader = deps.mcpAuthToken ? 'bearer' : 'x-api-key';
 
         // Pre-pull all repos in parallel so the per-repo search loop doesn't
-        // block serially on cold clones.
+        // block serially on cold clones. `callMcpToolViaSdk` resolves on both
+        // success and MCP-level tool errors, so we also parse the JSON body
+        // to detect a { status: 'failed' } response and bump prePullFailed.
         const prePullResults = await Promise.allSettled(
           clientRepos.map(r =>
-            callMcpToolViaSdk(mcpRepoUrl, '/mcp', 'prepare_repo', { repoId: r.id }, repoAuth, repoAuthHeader),
+            callMcpToolViaSdk(mcpRepoUrl, '/mcp', 'prepare_repo', { repoId: r.id, clientId: ticketClientId }, repoAuth, repoAuthHeader),
           ),
         );
-        const prePullSucceeded = prePullResults.filter(r => r.status === 'fulfilled').length;
-        const prePullFailed = prePullResults.length - prePullSucceeded;
+        let prePullSucceeded = 0;
+        let prePullFailed = 0;
         prePullResults.forEach((r, idx) => {
+          const repoName = clientRepos[idx]?.name ?? '(unknown)';
           if (r.status === 'rejected') {
-            const repoName = clientRepos[idx]?.name ?? '(unknown)';
+            prePullFailed++;
             const errMsg = redactUrls(r.reason instanceof Error ? r.reason.message : String(r.reason));
             appLog.warn(
               `prepare_repo failed for ${repoName}: ${errMsg}`,
               { ticketId, repo: repoName, err: r.reason },
               ticketId, 'ticket',
             );
+            return;
+          }
+          // Successful transport — still inspect the JSON body for tool-level failure.
+          let toolFailed = false;
+          let toolMessage = '';
+          try {
+            const parsed = JSON.parse(r.value) as { status?: string; message?: string };
+            if (parsed && parsed.status === 'failed') {
+              toolFailed = true;
+              toolMessage = typeof parsed.message === 'string' ? parsed.message : '';
+            }
+          } catch {
+            // Non-JSON body (shouldn't happen) — treat as opaque success.
+          }
+          if (toolFailed) {
+            prePullFailed++;
+            appLog.warn(
+              `prepare_repo reported failure for ${repoName}: ${redactUrls(toolMessage)}`,
+              { ticketId, repo: repoName, message: toolMessage },
+              ticketId, 'ticket',
+            );
+          } else {
+            prePullSucceeded++;
           }
         });
 
@@ -1920,21 +1947,34 @@ async function executeRoutePipeline(
               if (!rawTerm || rawTerm.replace(/[\x00-\x1f\x7f]/g, '').trim().length === 0) continue;
               const sanitized = rawTerm.replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200);
               try {
+                // Use `-e` so patterns beginning with `-` are not treated as grep options.
                 const grepResult = await callMcpToolViaSdk(
                   mcpRepoUrl, '/mcp', 'repo_exec',
-                  { repoId: repo.id, sessionId: gatherSessionId, clientId: ticket.clientId, command: `grep -rnilI "${sanitized.replace(/"/g, '\\"')}" .` },
+                  { repoId: repo.id, sessionId: gatherSessionId, clientId: ticket.clientId, command: `grep -rnilI -e "${sanitized.replace(/"/g, '\\"')}" .` },
                   repoAuth, repoAuthHeader,
                 );
-                // Parse file paths from stdout (skip the [session:...] line)
-                let matchedAny = false;
-                for (const line of grepResult.split('\n')) {
-                  const trimmed = line.trim();
-                  if (trimmed && !trimmed.startsWith('[session:') && !trimmed.startsWith('[stderr]') && exts.some(e => trimmed.endsWith(e))) {
-                    relevantFiles.add(trimmed);
-                    matchedAny = true;
+                // `callMcpToolViaSdk` doesn't surface MCP-level isError. `repo_exec`
+                // emits distinct markers we can use to separate real errors from
+                // the "grep exited 1 with no output" no-match case.
+                if (grepResult.startsWith('Command rejected:') || grepResult.startsWith('Error:') || grepResult.includes('[stderr]')) {
+                  grepErrors++;
+                  appLog.warn(
+                    `search_code pre-gather error for ${repo.name}:${rawTerm}`,
+                    { ticketId, repo: repo.name, term: rawTerm, result: grepResult.slice(0, 500) },
+                    ticketId, 'ticket',
+                  );
+                } else {
+                  // Parse file paths from stdout (skip the [session:...] line)
+                  let matchedAny = false;
+                  for (const line of grepResult.split('\n')) {
+                    const trimmed = line.trim();
+                    if (trimmed && !trimmed.startsWith('[session:') && exts.some(e => trimmed.endsWith(e))) {
+                      relevantFiles.add(trimmed);
+                      matchedAny = true;
+                    }
                   }
+                  if (!matchedAny) grepNoMatch++;
                 }
-                if (!matchedAny) grepNoMatch++;
               } catch (err) {
                 grepErrors++;
                 appLog.warn(

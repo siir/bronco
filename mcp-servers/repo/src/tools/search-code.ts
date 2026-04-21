@@ -87,10 +87,12 @@ export function registerSearchCodeTool(
         }
       }
 
+      // Use `-e` so patterns beginning with `-` are not treated as grep options.
       const command = [
         'grep',
         ...flags,
         ...includeArgs,
+        '-e',
         shellQuote(query),
         '.',
       ].join(' ');

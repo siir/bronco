@@ -65,27 +65,47 @@ export function registerListFilesTool(
       const effectivePattern = pattern && /^[A-Za-z0-9._*?\[\]/-]+$/.test(pattern) ? pattern : '*';
       const cap = Math.min(Math.max(maxResults ?? 200, 1), 2000);
 
-      const command = `find ${shellQuote(safeDir)} -type f -name ${shellQuote(effectivePattern)}`;
+      // `executeCommand` truncates stdout at 50k chars. To report an accurate
+      // `total` even for large repos, count via a separate `find | wc -l` call
+      // and return only the capped slice via `find | head`.
+      const baseFind = `find ${shellQuote(safeDir)} -type f -name ${shellQuote(effectivePattern)}`;
+      const countCommand = `${baseFind} | wc -l`;
+      const listCommand = `${baseFind} | head -n ${cap}`;
 
       try {
         const worktreePath = await repoManager.getOrCreateWorktree(repoId, sid);
-        const result = await executeCommand(command, worktreePath);
 
-        if (result.exitCode !== 0) {
-          const stderr = result.stderr || '(no stderr)';
+        const countResult = await executeCommand(countCommand, worktreePath);
+        if (countResult.exitCode !== 0) {
+          const stderr = countResult.stderr || '(no stderr)';
           return {
-            content: [{ type: 'text' as const, text: `list_files error on ${repo.name}: exit=${result.exitCode}\n${stderr}` }],
+            content: [{ type: 'text' as const, text: `list_files error on ${repo.name}: exit=${countResult.exitCode}\n${stderr}` }],
+            isError: true,
+          };
+        }
+        const totalText = countResult.stdout.trim();
+        const total = Number.parseInt(totalText, 10);
+        if (!Number.isFinite(total) || total < 0) {
+          return {
+            content: [{ type: 'text' as const, text: `list_files error on ${repo.name}: unable to parse total count: ${totalText || '(empty stdout)'}` }],
             isError: true,
           };
         }
 
-        const allPaths = result.stdout.split('\n').filter(l => l.length > 0);
-        const total = allPaths.length;
-        const slice = allPaths.slice(0, cap);
+        const listResult = await executeCommand(listCommand, worktreePath);
+        if (listResult.exitCode !== 0) {
+          const stderr = listResult.stderr || '(no stderr)';
+          return {
+            content: [{ type: 'text' as const, text: `list_files error on ${repo.name}: exit=${listResult.exitCode}\n${stderr}` }],
+            isError: true,
+          };
+        }
+
+        const slice = listResult.stdout.split('\n').filter(l => l.length > 0);
         const footer = `\n\n[returned ${slice.length} of total ${total} matching]`;
         const text = slice.length > 0
           ? slice.join('\n') + footer
-          : `[returned 0 of total 0 matching]`;
+          : `[returned 0 of total ${total} matching]`;
 
         return {
           content: [{ type: 'text' as const, text }],
