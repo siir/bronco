@@ -1121,6 +1121,98 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     return parsed.data;
   });
 
+  // GET /api/settings/analysis-strategy/:ticketId — resolve effective strategy for a specific ticket.
+  // Mirrors the `findBestRoute` precedence inside
+  // services/ticket-analyzer/src/analyzer.ts `resolveTicketRoute`:
+  //   1. client+category, source-specific (matching ticket.source)
+  //   2. client+category, source=null
+  //   3. global (clientId=null)+category, source-specific
+  //   4. global+category, source=null
+  // Only the FIRST matching route is consulted (by sortOrder asc). If that
+  // route has an AGENTIC_ANALYSIS step with an `analysisStrategy` override,
+  // that value wins; otherwise we fall through to the global AppSetting.
+  // Used by the Chat tab (#312) to show configured-vs-actual strategy
+  // mismatches on run markers.
+  fastify.get<{ Params: { ticketId: string } }>(
+    '/api/settings/analysis-strategy/:ticketId',
+    async (request) => {
+      const ticket = await fastify.db.ticket.findUnique({
+        where: { id: request.params.ticketId },
+        select: { clientId: true, category: true, source: true },
+      });
+      if (!ticket) return fastify.httpErrors.notFound('Ticket not found');
+
+      const ticketClientId = ticket.clientId;
+      const ticketCategory = ticket.category;
+      const ticketSource = ticket.source;
+
+      const appSettingRow = await fastify.db.appSetting.findUnique({
+        where: { key: SETTINGS_KEY_ANALYSIS_STRATEGY },
+      });
+      const appConfig = (appSettingRow?.value ?? null) as { strategy?: string } | null;
+      const globalRaw = appConfig?.strategy ?? 'full_context';
+      const globalStrategy: 'flat' | 'orchestrated' = globalRaw === 'orchestrated' ? 'orchestrated' : 'flat';
+
+      let stepOverride: 'flat' | 'orchestrated' | null = null;
+      try {
+        const baseInclude = {
+          steps: {
+            where: { isActive: true, stepType: 'AGENTIC_ANALYSIS' as const },
+            orderBy: { stepOrder: 'asc' as const },
+          },
+        };
+
+        // Mirrors analyzer.ts findBestRoute: try source-specific first, then source=null.
+        async function findFirstActiveRoute(
+          baseWhere: Record<string, unknown>,
+        ) {
+          if (ticketCategory == null) return null;
+          if (ticketSource) {
+            const sourceRoute = await fastify.db.ticketRoute.findFirst({
+              where: { ...baseWhere, source: ticketSource, isActive: true, routeType: 'ANALYSIS' } as never,
+              include: baseInclude,
+              orderBy: { sortOrder: 'asc' },
+            });
+            if (sourceRoute) return sourceRoute;
+          }
+          const anySourceRoute = await fastify.db.ticketRoute.findFirst({
+            where: { ...baseWhere, source: null, isActive: true, routeType: 'ANALYSIS' } as never,
+            include: baseInclude,
+            orderBy: { sortOrder: 'asc' },
+          });
+          return anySourceRoute ?? null;
+        }
+
+        // 1. client+category, then 2. global+category.
+        let selectedRoute = ticketClientId && ticketCategory
+          ? await findFirstActiveRoute({ clientId: ticketClientId, category: ticketCategory as never })
+          : null;
+        if (!selectedRoute && ticketCategory) {
+          selectedRoute = await findFirstActiveRoute({ clientId: null, category: ticketCategory as never });
+        }
+
+        if (selectedRoute) {
+          for (const step of selectedRoute.steps ?? []) {
+            const cfg = step.config as { analysisStrategy?: string } | null;
+            if (cfg?.analysisStrategy) {
+              stepOverride = cfg.analysisStrategy === 'orchestrated' ? 'orchestrated' : 'flat';
+              break;
+            }
+          }
+        }
+      } catch (err) {
+        fastify.log.warn({ err, ticketId: request.params.ticketId }, 'Failed to resolve route-step analysis strategy override — falling back to global');
+      }
+
+      return {
+        ticketId: request.params.ticketId,
+        configured: stepOverride ?? globalStrategy,
+        globalStrategy,
+        stepOverride,
+      };
+    },
+  );
+
   // PUT /api/settings/analysis-strategy
   fastify.put<{ Body: Record<string, unknown> }>('/api/settings/analysis-strategy', async (request) => {
     const parsed = analysisStrategySchema.safeParse(request.body);

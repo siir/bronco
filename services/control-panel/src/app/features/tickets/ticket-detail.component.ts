@@ -26,6 +26,7 @@ import { TicketDetailSummaryComponent } from './ticket-detail-summary.component.
 import { TicketDetailResolutionComponent } from './ticket-detail-resolution.component.js';
 import { TicketDetailDetailsComponent } from './ticket-detail-details.component.js';
 import { TicketDetailKnowledgeComponent } from './ticket-detail-knowledge.component.js';
+import { ChatTabComponent } from './chat/chat-tab.component.js';
 import { TicketDetailLogDigestComponent } from './ticket-detail-log-digest.component.js';
 import { TicketDetailFlowComponent, type FlowNode } from './ticket-detail-flow.component.js';
 import { TicketDetailCostComponent } from './ticket-detail-cost.component.js';
@@ -75,6 +76,7 @@ interface ConvTreeNode {
     TicketDetailResolutionComponent,
     TicketDetailDetailsComponent,
     TicketDetailKnowledgeComponent,
+    ChatTabComponent,
     TicketDetailLogDigestComponent,
     TicketDetailFlowComponent,
     TicketDetailCostComponent,
@@ -178,6 +180,12 @@ interface ConvTreeNode {
                 (clear)="clearKnowledgeDoc()" />
             </app-tab>
           }
+          <app-tab label="Chat">
+            <app-chat-tab
+              [ticketId]="id()"
+              [events]="events()"
+              (viewInTrace)="openAnalysisTraceTab()" />
+          </app-tab>
           <app-tab [label]="logsTabLabel()">
             <div class="logs-view-toggle">
               <button class="view-btn" [class.view-active]="logsView() === 'conversation'" (click)="setLogsView('conversation')">Conversation</button>
@@ -790,6 +798,7 @@ export class TicketDetailComponent implements OnInit {
     if (t?.summary) labels.push('Resolution Summary');
     labels.push('Details');
     if (t?.knowledgeDoc || this.editingKnowledgeDoc()) labels.push('Knowledge');
+    labels.push('Chat');
     labels.push('Logs');
     labels.push('Analysis Trace');
     labels.push('Log Digest');
@@ -1260,6 +1269,12 @@ export class TicketDetailComponent implements OnInit {
     const idx = this.tabsInOrder().indexOf('Logs');
     if (idx >= 0) this.selectedTabIndex.set(idx);
     this.setLogsView('raw');
+  }
+
+  /** Switch to the Analysis Trace tab (used by Chat's "View in Analysis Trace" link). */
+  openAnalysisTraceTab(): void {
+    const idx = this.tabsInOrder().indexOf('Analysis Trace');
+    if (idx >= 0) this.onTabIndexChange(idx);
   }
 
   private toSlug(label: string): string {

@@ -30,6 +30,9 @@ export * from './detect-tool-gaps.js';
 export { ANALYZE_TOOL_REQUESTS_PROMPTS } from './analyze-tool-requests.js';
 export * from './analyze-tool-requests.js';
 
+export { CHAT_PROMPTS } from './chat-classify-reply.js';
+export * from './chat-classify-reply.js';
+
 // Re-export individual prompts for direct import convenience
 import { IMAP_PROMPTS } from './imap.js';
 import { DEVOPS_PROMPTS } from './devops.js';
@@ -41,6 +44,7 @@ import { ROUTING_PROMPTS } from './routing.js';
 import { CLIENT_MEMORY_PROMPTS } from './client-memory.js';
 import { DETECT_TOOL_GAPS_PROMPTS } from './detect-tool-gaps.js';
 import { ANALYZE_TOOL_REQUESTS_PROMPTS } from './analyze-tool-requests.js';
+import { CHAT_PROMPTS } from './chat-classify-reply.js';
 import type { PromptDefinition } from './types.js';
 
 /**
@@ -62,6 +66,7 @@ export const ALL_PROMPTS: PromptDefinition[] = [
   ...CLIENT_MEMORY_PROMPTS,
   ...DETECT_TOOL_GAPS_PROMPTS,
   ...ANALYZE_TOOL_REQUESTS_PROMPTS,
+  ...CHAT_PROMPTS,
 ];
 
 /**
