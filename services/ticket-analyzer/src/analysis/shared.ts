@@ -170,6 +170,43 @@ export const TRUNCATION_SYSTEM_PROMPT_SNIPPET = [
   'specific patterns.',
 ].join('\n');
 
+/**
+ * Nudges the agent to scan the available tool list before falling back to
+ * generic tools like `run_custom_query`. Pairs with REQUEST_NEW_TOOL_SNIPPET
+ * so gaps get surfaced as tool requests rather than silently improvised.
+ */
+export const PREFER_EXISTING_TOOLS_SNIPPET = [
+  '',
+  '## Using Tools Effectively',
+  'Before working around a missing capability, scan the available tools. Use',
+  'specific tools when they fit; only fall back to generic tools like',
+  '`run_custom_query` when no specific tool applies to your question.',
+].join('\n');
+
+/**
+ * Teaches the agent to call `request_tool` when no existing tool fits —
+ * surfacing capability gaps to operators rather than improvising silently.
+ */
+export const REQUEST_NEW_TOOL_SNIPPET = [
+  '',
+  '## Requesting New Tools',
+  'If no existing tool fits the job and you are about to improvise with a',
+  'generic tool or give up on a line of investigation, call `request_tool`',
+  'with a specific name, description, suggested inputs, and why it was',
+  'needed for this ticket.',
+  '',
+  'Good examples of when to call:',
+  '- You inspected a stored procedure definition via `run_custom_query` that',
+  '  a `describe_schema_object` tool would serve better',
+  '- You parsed an execution plan XML by hand because there is no',
+  '  `analyze_execution_plan` tool',
+  '- You re-queried deadlock history because there is no',
+  '  `get_deadlock_history` tool returning structured results',
+  '',
+  'Do not request vague capabilities like "a better tool" or "an easier way."',
+  'Each request should be specific enough that someone could implement it.',
+].join('\n');
+
 // ---------------------------------------------------------------------------
 // Agentic tool builder / executor
 // ---------------------------------------------------------------------------

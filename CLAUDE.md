@@ -364,6 +364,11 @@ pnpm dev:portal           # Start ticket portal (Angular, port 4201)
 | `mcp-servers/platform/src/tools/people.ts` | MCP people tools (list, get, create, update, delete). |
 | `services/copilot-api/src/routes/client-memory.ts` | Client memory CRUD endpoints with resolver cache invalidation. |
 | `services/copilot-api/src/routes/ticket-routes.ts` | Ticket route CRUD + step type registry for configurable analysis pipelines. |
+| `services/copilot-api/src/routes/tool-requests.ts` | Gap Requests CRUD API (admin-only): list/filter tool-request records, view rationale history, transition status (approve/reject/duplicate/implemented/reopen), delete. |
+| `services/copilot-api/src/services/tool-request-registry.ts` | Dedup upsert helper for tool-request records keyed on `(clientId, requestedName)`; appends rationale rows without clobbering operator edits. |
+| `mcp-servers/platform/src/tools/request-tool.ts` | MCP `request_tool` that analyzers call when they hit a capability gap; enforces the per-run rate limit from AppSetting `tool-request-rate-limit-per-run`. |
+| `mcp-servers/platform/src/tools/tool-requests.ts` | MCP CRUD tools for tool requests (list/get/update/delete) used by the platform surface. |
+| `services/control-panel/src/app/features/tool-requests/tool-request-list.component.ts` | Admin Tool Requests page: list + detail dialog with rationale history, linked tickets, and status transition controls. |
 | `services/copilot-api/src/routes/artifacts.ts` | MCP tool artifact storage and retrieval endpoints (`/api/artifacts`). |
 | `services/copilot-api/src/routes/release-notes.ts` | Release notes API: commit ingestion, AI summarization, GitHub backfill, service filtering. |
 | `services/copilot-api/src/routes/ingest.ts` | Ingestion API: queue endpoints for email/scheduled/manual payloads, plus `GET /api/ingest/runs` and `GET /api/ingest/runs/:id` for run history. |

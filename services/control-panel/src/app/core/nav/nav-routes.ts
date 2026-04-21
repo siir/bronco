@@ -43,6 +43,7 @@ export const NAV_ROUTES: readonly NavRoute[] = [
   { route: '/ai-providers', label: 'AI Providers', icon: 'robot', section: 'ai' },
   { route: '/ai-usage', label: 'AI Usage', icon: 'bolt', section: 'ai' },
   { route: '/ticket-routes', label: 'Ticket Routes', icon: 'tag', section: 'ai' },
+  { route: '/tool-requests', label: 'Tool Requests', icon: 'sparkles', section: 'ai' },
   { route: '/system-analysis', label: 'System Analysis', icon: 'search', section: 'ai' },
   { route: '/system-issues', label: 'System Issues', icon: 'warning', section: 'ai' },
 

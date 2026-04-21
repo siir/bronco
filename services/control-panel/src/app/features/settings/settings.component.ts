@@ -17,6 +17,7 @@ import {
   ImapSystemConfig,
   SlackSystemConfig,
   PromptRetentionConfig,
+  ToolRequestRateLimitConfig,
 } from '../../core/services/settings.service.js';
 import { ExternalServiceDialogComponent } from './external-service-dialog.component.js';
 import { StatusConfigDialogComponent } from './status-config-dialog.component.js';
@@ -38,7 +39,7 @@ import {
 } from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service.js';
 
-const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External Services', 'Action Safety', 'Analysis Strategy', 'Self Analysis', 'SMTP', 'Azure DevOps', 'GitHub', 'IMAP', 'Slack', 'Prompt Retention'] as const;
+const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External Services', 'Action Safety', 'Analysis Strategy', 'Self Analysis', 'SMTP', 'Azure DevOps', 'GitHub', 'IMAP', 'Slack', 'Prompt Retention', 'Tool Requests'] as const;
 
 @Component({
   standalone: true,
@@ -561,6 +562,22 @@ const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External
               </div>
               <div class="card-actions">
                 <app-bronco-button variant="primary" (click)="savePromptRetention()" [disabled]="sysConfigSaving()">Save</app-bronco-button>
+              </div>
+            </app-card>
+          </div>
+        </app-tab>
+
+        <!-- Tool Requests Tab -->
+        <app-tab label="Tool Requests">
+          <div class="tab-content">
+            <app-card>
+              <h2 class="section-title">Tool Request Rate Limit</h2>
+              <p class="hint">Caps how often the analyzer can call <code>request_tool</code> within a single analysis run. Prevents runaway requests when an agent loops on missing capabilities.</p>
+              <div class="form-grid">
+                <app-form-field label="Maximum request_tool calls per analysis run"><input class="text-input" type="number" [(ngModel)]="toolRequestRateLimit.limit" min="1" max="100" placeholder="5"></app-form-field>
+              </div>
+              <div class="card-actions">
+                <app-bronco-button variant="primary" (click)="saveToolRequestRateLimit()" [disabled]="sysConfigSaving()">Save</app-bronco-button>
               </div>
             </app-card>
           </div>
@@ -1223,6 +1240,7 @@ export class SettingsComponent implements OnInit {
   imapConfig: ImapSystemConfig = { host: '', port: 993, user: '', password: '', pollIntervalSeconds: 60 };
   slackConfig: SlackSystemConfig = { botToken: '', appToken: '', defaultChannelId: '', enabled: false };
   promptRetention: PromptRetentionConfig = { fullRetentionDays: 30, summaryRetentionDays: 90 };
+  toolRequestRateLimit: ToolRequestRateLimitConfig = { limit: 5 };
 
   private loadSystemConfigs(): void {
     this.settingsSvc.getSmtpConfig().subscribe({ next: (c) => { if (c) this.smtp = { ...this.smtp, ...c }; } });
@@ -1231,6 +1249,7 @@ export class SettingsComponent implements OnInit {
     this.settingsSvc.getImapConfig().subscribe({ next: (c) => { if (c) this.imapConfig = { ...this.imapConfig, ...c }; } });
     this.settingsSvc.getSlackConfig().subscribe({ next: (c) => { if (c) this.slackConfig = { ...this.slackConfig, ...c }; } });
     this.settingsSvc.getPromptRetention().subscribe({ next: (c) => { if (c) this.promptRetention = { ...this.promptRetention, ...c }; } });
+    this.settingsSvc.getToolRequestRateLimit().subscribe({ next: (c) => { if (c) this.toolRequestRateLimit = { ...this.toolRequestRateLimit, ...c }; } });
   }
 
   saveSmtp(): void { this.sysConfigSaving.set(true); this.settingsSvc.updateSmtpConfig(this.smtp).subscribe({ next: (c) => { this.smtp = { ...this.smtp, ...c }; this.toast.success('SMTP config saved'); this.sysConfigSaving.set(false); }, error: () => { this.toast.error('Failed to save'); this.sysConfigSaving.set(false); } }); }
@@ -1249,4 +1268,6 @@ export class SettingsComponent implements OnInit {
   testSlackConfig(): void { this.sysConfigTesting.set(true); this.settingsSvc.testSlackConnection().subscribe({ next: (r) => { r.success ? this.toast.success(r.message || 'Success') : this.toast.error(r.error || 'Test failed'); this.sysConfigTesting.set(false); }, error: () => { this.toast.error('Test failed'); this.sysConfigTesting.set(false); } }); }
 
   savePromptRetention(): void { this.sysConfigSaving.set(true); this.settingsSvc.savePromptRetention(this.promptRetention).subscribe({ next: (c: PromptRetentionConfig) => { this.promptRetention = { ...this.promptRetention, ...c }; this.toast.success('Prompt retention saved'); this.sysConfigSaving.set(false); }, error: () => { this.toast.error('Failed to save'); this.sysConfigSaving.set(false); } }); }
+
+  saveToolRequestRateLimit(): void { this.sysConfigSaving.set(true); this.settingsSvc.saveToolRequestRateLimit(this.toolRequestRateLimit).subscribe({ next: (c: ToolRequestRateLimitConfig) => { this.toolRequestRateLimit = { ...this.toolRequestRateLimit, ...c }; this.toast.success('Tool request rate limit saved'); this.sysConfigSaving.set(false); }, error: () => { this.toast.error('Failed to save'); this.sysConfigSaving.set(false); } }); }
 }
