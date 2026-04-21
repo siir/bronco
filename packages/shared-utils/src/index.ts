@@ -34,3 +34,19 @@ export { registerToolRequest, normalizeRequestedName } from './tool-request-regi
 export type { RegisterToolRequestInput, RegisterToolRequestResult } from './tool-request-registry.js';
 export { createToolRequestGithubIssue, buildToolRequestIssueBody, ToolRequestNotFoundError, ToolRequestNotEligibleError } from './tool-request-github.js';
 export type { CreateGithubIssueInput, CreateGithubIssueResult } from './tool-request-github.js';
+export { withTicketLock } from './advisory-lock.js';
+export type { PrismaTx } from './advisory-lock.js';
+export {
+  initEmptyKnowledgeDoc,
+  slugify,
+  splitIntoSections,
+  composeSections,
+  buildToc,
+  readSection,
+  updateSection,
+  addSubsection,
+  loadKnowledgeDoc,
+  KnowledgeDocError,
+  REQUIRED_SECTION_KEYS,
+} from './knowledge-doc.js';
+export type { KdSection, KdReadSectionResult } from './knowledge-doc.js';

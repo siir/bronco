@@ -49,6 +49,7 @@ import { notificationPreferenceRoutes } from './notification-preferences.js';
 import { pendingActionRoutes } from './pending-actions.js';
 import { slackConversationRoutes } from './slack-conversations.js';
 import { toolRequestRoutes } from './tool-requests.js';
+import { knowledgeDocRoutes } from './knowledge-doc.js';
 
 interface RouteOpts {
   config: Config;
@@ -89,6 +90,7 @@ export async function registerRoutes(fastify: FastifyInstance, opts: RouteOpts):
     await scoped.register(clientRoutes);
     await scoped.register(peopleRoutes);
     await scoped.register(ticketRoutes, { logSummarizeQueue: opts.logSummarizeQueue, systemAnalysisQueue: opts.systemAnalysisQueue, clientLearningQueue: opts.clientLearningQueue, ticketCreatedQueue: opts.ticketCreatedQueue, ingestQueue: opts.ingestQueue, ai: opts.ai });
+    await scoped.register(knowledgeDocRoutes);
     await scoped.register(artifactRoutes, { config: opts.config });
     await scoped.register(aiUsageRoutes, { ai: opts.ai });
     await scoped.register(ticketFilterPresetRoutes);

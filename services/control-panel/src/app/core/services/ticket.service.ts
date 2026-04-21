@@ -27,6 +27,7 @@ export interface Ticket {
   category: string | null;
   ticketNumber: number | null;
   knowledgeDoc?: string | null;
+  knowledgeDocSectionMeta?: Record<string, unknown> | null;
   analysisStatus: string;
   analysisError: string | null;
   lastAnalyzedAt: string | null;
@@ -105,6 +106,24 @@ export interface PendingAction {
   resolvedAt: string | null;
   resolvedBy: string | null;
   createdAt: string;
+}
+
+export interface KnowledgeDocTocEntry {
+  sectionKey: string;
+  title: string;
+  length: number;
+  lastUpdatedAt: string | null;
+  updatedByRunId?: string;
+  subsections?: KnowledgeDocTocEntry[];
+}
+
+export interface KnowledgeDocSectionPayload {
+  sectionKey: string;
+  title: string;
+  content: string;
+  length: number;
+  lastUpdatedAt: string | null;
+  updatedByRunId?: string;
 }
 
 export interface UnifiedLogArchive {
@@ -258,6 +277,14 @@ export class TicketService {
 
   updateKnowledgeDoc(ticketId: string, knowledgeDoc: string | null): Observable<Ticket> {
     return this.api.patch<Ticket>(`/tickets/${ticketId}`, { knowledgeDoc });
+  }
+
+  getKnowledgeDocToc(ticketId: string): Observable<KnowledgeDocTocEntry[]> {
+    return this.api.get<KnowledgeDocTocEntry[]>(`/tickets/${ticketId}/knowledge-doc/toc`);
+  }
+
+  getKnowledgeDocSection(ticketId: string, sectionKey: string): Observable<KnowledgeDocSectionPayload> {
+    return this.api.get<KnowledgeDocSectionPayload>(`/tickets/${ticketId}/knowledge-doc/section/${encodeURIComponent(sectionKey)}`);
   }
 
   getArtifacts(ticketId: string): Observable<TicketArtifact[]> {

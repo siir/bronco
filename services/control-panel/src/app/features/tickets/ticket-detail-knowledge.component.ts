@@ -1,35 +1,93 @@
-import { Component, input, output, signal } from '@angular/core';
+import { Component, computed, inject, input, output, signal, effect } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { BroncoButtonComponent, TextareaComponent, IconComponent } from '../../shared/components/index.js';
 import { MarkdownPipe } from '../../shared/pipes/markdown.pipe.js';
+import { RelativeTimePipe } from '../../shared/pipes/relative-time.pipe.js';
+import { TicketService, type KnowledgeDocTocEntry } from '../../core/services/ticket.service.js';
 
 @Component({
   selector: 'app-ticket-detail-knowledge',
   standalone: true,
-  imports: [FormsModule, BroncoButtonComponent, TextareaComponent, MarkdownPipe, IconComponent],
+  imports: [FormsModule, BroncoButtonComponent, TextareaComponent, MarkdownPipe, IconComponent, RelativeTimePipe],
   template: `
-    <div class="knowledge-doc">
+    <div class="knowledge-doc" [class.with-toc]="showToc()">
       @if (editing()) {
-        <app-textarea
-          [value]="draft()"
-          [rows]="20"
-          (valueChange)="draft.set($event)" />
-        <div class="knowledge-actions">
-          <app-bronco-button variant="primary" (click)="onSave()">Save</app-bronco-button>
-          <app-bronco-button variant="secondary" (click)="onCancel()">Cancel</app-bronco-button>
+        <div class="editor-full">
+          <app-textarea
+            [value]="draft()"
+            [rows]="20"
+            (valueChange)="draft.set($event)" />
+          <div class="knowledge-actions">
+            <app-bronco-button variant="primary" (click)="onSave()">Save</app-bronco-button>
+            <app-bronco-button variant="secondary" (click)="onCancel()">Cancel</app-bronco-button>
+          </div>
         </div>
       } @else {
-        <div class="knowledge-actions">
-          <app-bronco-button variant="secondary" (click)="onStartEdit()">
-            <app-icon name="edit" size="sm" /> Edit
-          </app-bronco-button>
-          <app-bronco-button variant="destructive" (click)="onClear()">
-            <app-icon name="delete" size="sm" /> Clear
-          </app-bronco-button>
-        </div>
-        @if (knowledgeDoc()) {
-          <div class="knowledge-body" [innerHTML]="knowledgeDoc() | markdown"></div>
+        @if (showToc()) {
+          <aside class="toc-sidebar">
+            <div class="toc-header">
+              <div class="toc-title">Sections</div>
+              <button class="diff-btn" disabled title="Coming soon">Jump to iteration diffs</button>
+            </div>
+            @if (tocLoading()) {
+              <div class="toc-empty">Loading…</div>
+            } @else if (toc().length === 0) {
+              <div class="toc-empty">No sections yet.</div>
+            } @else {
+              <ul class="toc-list">
+                @for (entry of toc(); track entry.sectionKey) {
+                  <li>
+                    <a
+                      class="toc-link"
+                      [class.active]="entry.sectionKey === activeSectionKey()"
+                      (click)="onSelectSection(entry.sectionKey)">
+                      <span class="toc-entry-title">{{ entry.title }}</span>
+                      <span class="toc-meta">
+                        <span class="toc-len">{{ entry.length }} ch</span>
+                        @if (entry.lastUpdatedAt) {
+                          <span class="toc-updated">· {{ entry.lastUpdatedAt | relativeTime }}</span>
+                        }
+                      </span>
+                    </a>
+                    @if (entry.subsections && entry.subsections.length > 0) {
+                      <ul class="toc-sublist">
+                        @for (sub of entry.subsections; track sub.sectionKey) {
+                          <li>
+                            <a
+                              class="toc-link toc-sublink"
+                              [class.active]="sub.sectionKey === activeSectionKey()"
+                              (click)="onSelectSection(sub.sectionKey)">
+                              <span class="toc-entry-title">{{ sub.title }}</span>
+                              <span class="toc-meta">
+                                <span class="toc-len">{{ sub.length }} ch</span>
+                                @if (sub.lastUpdatedAt) {
+                                  <span class="toc-updated">· {{ sub.lastUpdatedAt | relativeTime }}</span>
+                                }
+                              </span>
+                            </a>
+                          </li>
+                        }
+                      </ul>
+                    }
+                  </li>
+                }
+              </ul>
+            }
+          </aside>
         }
+        <div class="knowledge-main">
+          <div class="knowledge-actions">
+            <app-bronco-button variant="secondary" (click)="onStartEdit()">
+              <app-icon name="edit" size="sm" /> Edit
+            </app-bronco-button>
+            <app-bronco-button variant="destructive" (click)="onClear()">
+              <app-icon name="delete" size="sm" /> Clear
+            </app-bronco-button>
+          </div>
+          @if (knowledgeDoc()) {
+            <div class="knowledge-body" [innerHTML]="knowledgeDoc() | markdown"></div>
+          }
+        </div>
       }
     </div>
   `,
@@ -42,6 +100,88 @@ import { MarkdownPipe } from '../../shared/pipes/markdown.pipe.js';
     .knowledge-doc {
       font-size: 14px;
       line-height: 1.6;
+    }
+    .knowledge-doc.with-toc {
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+    .toc-sidebar {
+      position: sticky;
+      top: 0;
+      max-height: calc(100vh - 120px);
+      overflow-y: auto;
+      padding-right: 8px;
+      border-right: 1px solid var(--border-light);
+    }
+    .toc-header {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+    .toc-title {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      letter-spacing: 0.04em;
+    }
+    .diff-btn {
+      font-size: 11px;
+      padding: 3px 6px;
+      background: var(--bg-muted);
+      color: var(--text-muted);
+      border: 1px dashed var(--border-light);
+      border-radius: var(--radius-sm);
+      cursor: not-allowed;
+      text-align: left;
+    }
+    .toc-empty {
+      font-size: 12px;
+      color: var(--text-muted);
+      padding: 8px 0;
+    }
+    .toc-list, .toc-sublist {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .toc-sublist {
+      margin-left: 12px;
+      border-left: 1px solid var(--border-light);
+      padding-left: 8px;
+      margin-top: 2px;
+    }
+    .toc-link {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding: 4px 6px;
+      font-size: 13px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      color: var(--text-primary);
+    }
+    .toc-link:hover {
+      background: var(--bg-muted);
+    }
+    .toc-link.active {
+      background: var(--bg-muted);
+      font-weight: 600;
+    }
+    .toc-sublink {
+      font-size: 12px;
+    }
+    .toc-entry-title {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .toc-meta {
+      font-size: 11px;
+      color: var(--text-muted);
     }
     .knowledge-doc h3 {
       margin-top: 16px;
@@ -79,7 +219,11 @@ import { MarkdownPipe } from '../../shared/pipes/markdown.pipe.js';
   `],
 })
 export class TicketDetailKnowledgeComponent {
+  private readonly ticketService = inject(TicketService);
+
+  ticketId = input<string | null>(null);
   knowledgeDoc = input<string | null>(null);
+  sectionMeta = input<Record<string, unknown> | null>(null);
   editing = input<boolean>(false);
 
   startEdit = output<void>();
@@ -88,6 +232,38 @@ export class TicketDetailKnowledgeComponent {
   clear = output<void>();
 
   draft = signal('');
+  toc = signal<KnowledgeDocTocEntry[]>([]);
+  tocLoading = signal<boolean>(false);
+  activeSectionKey = signal<string | null>(null);
+
+  // Show TOC sidebar only when the new-format sidecar is present. Legacy
+  // append-only docs render as before.
+  showToc = computed(() => {
+    const meta = this.sectionMeta();
+    return !!meta && Object.keys(meta).length > 0;
+  });
+
+  constructor() {
+    effect(() => {
+      const id = this.ticketId();
+      const hasMeta = this.showToc();
+      if (!id || !hasMeta) {
+        this.toc.set([]);
+        return;
+      }
+      this.tocLoading.set(true);
+      this.ticketService.getKnowledgeDocToc(id).subscribe({
+        next: (entries) => {
+          this.toc.set(entries);
+          this.tocLoading.set(false);
+        },
+        error: () => {
+          this.toc.set([]);
+          this.tocLoading.set(false);
+        },
+      });
+    });
+  }
 
   onStartEdit(): void {
     this.draft.set(this.knowledgeDoc() ?? '');
@@ -105,5 +281,22 @@ export class TicketDetailKnowledgeComponent {
 
   onClear(): void {
     this.clear.emit();
+  }
+
+  onSelectSection(sectionKey: string): void {
+    this.activeSectionKey.set(sectionKey);
+    // Best-effort in-page scroll to a rendered heading matching the slug.
+    const slug = sectionKey.split('.').pop() ?? sectionKey;
+    const headings = document.querySelectorAll<HTMLElement>('.knowledge-body h2, .knowledge-body h3');
+    for (const h of Array.from(headings)) {
+      const hSlug = (h.textContent ?? '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+      if (hSlug === slug) {
+        h.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+      }
+    }
   }
 }

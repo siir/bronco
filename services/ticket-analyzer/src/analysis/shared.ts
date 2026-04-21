@@ -3,9 +3,26 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 import type { PrismaClient } from '@bronco/db';
 import { AIRouter } from '@bronco/ai-provider';
-import { TaskType, SufficiencyStatus, SufficiencyConfidence } from '@bronco/shared-types';
+import {
+  TaskType,
+  SufficiencyStatus,
+  SufficiencyConfidence,
+  KnowledgeDocSectionKey,
+  KNOWLEDGE_DOC_TEMPLATE_SECTIONS,
+} from '@bronco/shared-types';
 import type { AIToolDefinition, AIToolUseBlock } from '@bronco/shared-types';
-import { AppLogger, createLogger, decrypt, looksEncrypted, callMcpToolViaSdk } from '@bronco/shared-utils';
+import {
+  AppLogger,
+  createLogger,
+  decrypt,
+  looksEncrypted,
+  callMcpToolViaSdk,
+  loadKnowledgeDoc,
+  readSection,
+  updateSection,
+  REQUIRED_SECTION_KEYS,
+} from '@bronco/shared-utils';
+import { KnowledgeDocUpdateMode } from '@bronco/shared-types';
 
 const logger = createLogger('ticket-analyzer');
 
@@ -469,6 +486,56 @@ export async function buildAgenticTools(
     },
   });
 
+  tools.push({
+    name: 'platform__kd_read_toc',
+    description: 'Return the knowledge-doc table of contents for this ticket: nine fixed sections (Problem Statement, Environment, Evidence, Hypotheses, Root Cause, Recommended Fix, Risks, Open Questions, Run Log) with length, lastUpdatedAt, and any subsections under Evidence / Hypotheses / Open Questions. Call this early to see what has already been documented.',
+    input_schema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  });
+
+  tools.push({
+    name: 'platform__kd_read_section',
+    description: 'Read a single section of the knowledge doc. sectionKey is a top-level key (problemStatement, environment, evidence, hypotheses, rootCause, recommendedFix, risks, openQuestions, runLog) or a dotted subsection key (e.g. evidence.blocking_on_sp_jobs). Returns { content, lastUpdatedAt, length }.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        sectionKey: { type: 'string', description: 'Top-level key or dotted subsection key' },
+      },
+      required: ['sectionKey'],
+    },
+  });
+
+  tools.push({
+    name: 'platform__kd_update_section',
+    description: 'Update a top-level knowledge-doc section. sectionKey must be one of the nine template keys. mode="replace" overwrites; mode="append" concatenates. Subsection keys are rejected — use platform__kd_add_subsection. Capped at 10000 chars per section.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        sectionKey: { type: 'string', description: 'Top-level section key (problemStatement, environment, evidence, hypotheses, rootCause, recommendedFix, risks, openQuestions, runLog)' },
+        content: { type: 'string', description: 'Section body content (markdown)' },
+        mode: { type: 'string', enum: ['replace', 'append'], description: '"replace" overwrites; "append" concatenates (default "replace")' },
+      },
+      required: ['sectionKey', 'content'],
+    },
+  });
+
+  tools.push({
+    name: 'platform__kd_add_subsection',
+    description: 'Add a subsection under one of: evidence, hypotheses, openQuestions. Title is deterministically slugified and collision-suffixed (-2, -3, …). Returns the full dotted key (e.g. evidence.blocking_on_sp_jobs). Capped at 10000 chars per subsection.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        parentSectionKey: { type: 'string', description: 'Parent key — must be one of: evidence, hypotheses, openQuestions' },
+        title: { type: 'string', description: 'Human-readable subsection title (used to generate the slug)' },
+        content: { type: 'string', description: 'Subsection body content (markdown)' },
+      },
+      required: ['parentSectionKey', 'title', 'content'],
+    },
+  });
+
   return { tools, mcpIntegrations, repoIdByPrefix, repos: repoInfos };
 }
 
@@ -511,6 +578,15 @@ export async function executeAgenticToolCall(
     } else if (actualToolName === 'list_repos' && clientId) {
       toolInput = { ...input, clientId };
     } else if (actualToolName === 'read_tool_result_artifact' && ticketId) {
+      toolInput = { ...input, ticketId };
+    } else if (
+      ticketId && (
+        actualToolName === 'kd_read_toc' ||
+        actualToolName === 'kd_read_section' ||
+        actualToolName === 'kd_update_section' ||
+        actualToolName === 'kd_add_subsection'
+      )
+    ) {
       toolInput = { ...input, ticketId };
     }
 
@@ -1015,3 +1091,144 @@ export interface StrategyStep {
 
 // Re-export TaskType for strategy modules
 export { TaskType };
+
+// ---------------------------------------------------------------------------
+// Knowledge-doc template wiring (see packages/shared-utils/src/knowledge-doc.ts
+// for the shared parser / writer implementation)
+// ---------------------------------------------------------------------------
+
+/** Canonical template sections re-exported so strategies can reference them. */
+export const KD_TEMPLATE_SECTIONS = KNOWLEDGE_DOC_TEMPLATE_SECTIONS;
+
+/**
+ * System-prompt snippet appended to both flat and orchestrated agentic system
+ * prompts. Agent adoption is opt-out — findings must flow through the `kd_*`
+ * tools so the knowledge doc stays the authoritative source. At end-of-run a
+ * fallback pass fills any required section the agent didn't populate.
+ */
+export const KD_SYSTEM_PROMPT_SNIPPET = [
+  '',
+  '## Knowledge Document (kd_* tools)',
+  '',
+  'Your investigative findings must be recorded via the kd_* tools, not free-form text in your response.',
+  '',
+  'Required sections in the knowledge document for this ticket:',
+  '- platform__kd_update_section(sectionKey=\'problemStatement\', ...) — your understanding of the ticket',
+  '- platform__kd_update_section(sectionKey=\'environment\', ...) — relevant systems, databases, repos',
+  '- platform__kd_update_section(sectionKey=\'rootCause\', ...) — once identified',
+  '- platform__kd_update_section(sectionKey=\'recommendedFix\', ...) — once determined',
+  '- platform__kd_update_section(sectionKey=\'risks\', ...) — what could go wrong',
+  '',
+  'For growing evidence, hypotheses, and open questions, use:',
+  '- platform__kd_add_subsection(parentSectionKey=\'evidence\', title, content)',
+  '- platform__kd_add_subsection(parentSectionKey=\'hypotheses\', title, content)',
+  '- platform__kd_add_subsection(parentSectionKey=\'openQuestions\', title, content)',
+  '',
+  'Before making progress, call platform__kd_read_toc to see what\'s already documented.',
+  'Call platform__kd_read_section on relevant sections to avoid re-discovering facts.',
+  '',
+  'Your final analysis text (in the response) should be a concise executive summary — the detail lives in the knowledge doc. The AI_ANALYSIS composer will pull Root Cause + Recommended Fix + Risks from the doc to render the analysis view.',
+].join('\n');
+
+const KD_REQUIRED_FALLBACK_SECTIONS: ReadonlyArray<KnowledgeDocSectionKey> = REQUIRED_SECTION_KEYS;
+
+/**
+ * Compose the final AI_ANALYSIS content from the knowledge doc's Problem
+ * Statement / Root Cause / Recommended Fix / Risks sections, prefixing the
+ * agent's own text-block response as the executive summary.
+ *
+ * Safe to call with a null doc — falls back to the agent summary alone.
+ */
+export function composeFinalAnalysis(
+  knowledgeDoc: string | null,
+  sectionMeta: unknown,
+  agentExecutiveSummary: string,
+): string {
+  const parts: string[] = [];
+  const summary = agentExecutiveSummary.trim();
+  if (summary) {
+    parts.push('## Executive Summary');
+    parts.push('');
+    parts.push(summary);
+  }
+  const sectionsToPull: Array<{ key: KnowledgeDocSectionKey; title: string }> = [
+    { key: KnowledgeDocSectionKey.PROBLEM_STATEMENT, title: 'Problem Statement' },
+    { key: KnowledgeDocSectionKey.ROOT_CAUSE, title: 'Root Cause' },
+    { key: KnowledgeDocSectionKey.RECOMMENDED_FIX, title: 'Recommended Fix' },
+    { key: KnowledgeDocSectionKey.RISKS, title: 'Risks' },
+  ];
+  for (const { key, title } of sectionsToPull) {
+    const { content } = readSection(knowledgeDoc, sectionMeta, key);
+    if (!content.trim()) continue;
+    if (parts.length > 0) parts.push('');
+    parts.push(`## ${title}`);
+    parts.push('');
+    parts.push(content.trim());
+  }
+  return parts.join('\n').trimEnd();
+}
+
+/**
+ * Best-effort snapshot writer. Captures `knowledgeDoc` + `knowledgeDocSectionMeta`
+ * as a `KnowledgeDocSnapshot` row so the future iteration-diff view has
+ * per-iteration ground truth. Failures are logged and swallowed so the
+ * analysis loop is never blocked by snapshot persistence.
+ */
+export async function writeKnowledgeDocSnapshot(
+  db: PrismaClient,
+  ticketId: string,
+  iteration: number,
+  runId?: string,
+): Promise<void> {
+  try {
+    const ticket = await loadKnowledgeDoc(db, ticketId);
+    if (!ticket) return;
+    await db.knowledgeDocSnapshot.create({
+      data: {
+        ticketId,
+        iteration,
+        content: ticket.knowledgeDoc ?? '',
+        sectionMeta: (ticket.knowledgeDocSectionMeta ?? undefined) as object | undefined,
+        ...(runId ? { runId } : {}),
+      },
+    });
+  } catch (err) {
+    logger.warn({ err, ticketId, iteration }, 'Failed to persist KnowledgeDocSnapshot — continuing');
+  }
+}
+
+/**
+ * End-of-run guard: for every required section the agent didn't populate
+ * (problemStatement / rootCause / recommendedFix), write a fallback marker so
+ * downstream `composeFinalAnalysis` always has something to render. Returns
+ * the list of keys that were fallback-filled.
+ */
+export async function fallbackFillRequiredSections(
+  db: PrismaClient,
+  ticketId: string,
+  reason: string,
+): Promise<string[]> {
+  const ticket = await loadKnowledgeDoc(db, ticketId);
+  if (!ticket) return [];
+  const filled: string[] = [];
+  for (const key of KD_REQUIRED_FALLBACK_SECTIONS) {
+    const { content } = readSection(ticket.knowledgeDoc, ticket.knowledgeDocSectionMeta, key);
+    if (content.trim().length > 0) continue;
+    try {
+      await updateSection(
+        db,
+        ticketId,
+        key,
+        `[agent did not populate this section — ${reason}]`,
+        KnowledgeDocUpdateMode.REPLACE,
+      );
+      filled.push(key);
+    } catch (err) {
+      logger.warn({ err, ticketId, key }, 'Fallback-fill failed for required section');
+    }
+  }
+  if (filled.length > 0) {
+    logger.warn({ ticketId, filled, reason }, `Fallback-filled ${filled.length} required section(s)`);
+  }
+  return filled;
+}

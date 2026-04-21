@@ -12,11 +12,15 @@ import type {
 import {
   buildRepoNudgeSnippet,
   buildTruncatedPreview,
+  composeFinalAnalysis,
   executeAgenticToolCall,
+  fallbackFillRequiredSections,
   getToolResultMaxTokens,
+  KD_SYSTEM_PROMPT_SNIPPET,
   parseSufficiencyEvaluation,
   saveMcpToolArtifact,
   shouldTruncate,
+  writeKnowledgeDocSnapshot,
   PREFER_EXISTING_TOOLS_SNIPPET,
   REQUEST_NEW_TOOL_SNIPPET,
   SUFFICIENCY_EVAL_INSTRUCTIONS,
@@ -29,6 +33,7 @@ import {
   type ReanalysisContext,
   type StrategyStep,
 } from './shared.js';
+import { loadKnowledgeDoc } from '@bronco/shared-utils';
 
 const logger = createLogger('ticket-analyzer');
 
@@ -118,6 +123,7 @@ export async function runFlatAnalysis(
   systemParts.push(TRUNCATION_SYSTEM_PROMPT_SNIPPET);
   systemParts.push(PREFER_EXISTING_TOOLS_SNIPPET);
   systemParts.push(REQUEST_NEW_TOOL_SNIPPET);
+  systemParts.push(KD_SYSTEM_PROMPT_SNIPPET);
   const repoNudge = buildRepoNudgeSnippet(clientRepos);
   if (repoNudge) systemParts.push(repoNudge);
 
@@ -269,6 +275,17 @@ export async function runFlatAnalysis(
   if (!finalAnalysis) {
     finalAnalysis = 'Agentic analysis reached maximum iterations without a final conclusion. Review the tool call log for partial findings.';
   }
+
+  // Knowledge doc: fallback-fill required sections, then compose final analysis
+  // from the agent's executive summary plus the doc's structured sections.
+  await fallbackFillRequiredSections(db, ticketId, 'flat loop end');
+  const kdAfter = await loadKnowledgeDoc(db, ticketId);
+  finalAnalysis = composeFinalAnalysis(
+    kdAfter?.knowledgeDoc ?? null,
+    kdAfter?.knowledgeDocSectionMeta ?? null,
+    finalAnalysis,
+  );
+  await writeKnowledgeDocSnapshot(db, ticketId, iterationsRun);
 
   // Parse sufficiency evaluation from the analysis response
   const { analysis: cleanAnalysis, evaluation: sufficiency } = parseSufficiencyEvaluation(finalAnalysis);
