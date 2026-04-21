@@ -158,10 +158,14 @@ jobs:
           TAG="${{ steps.next.outputs.next }}"
           PREV="${{ steps.next.outputs.latest }}"
 
-          # deploy-hugo.yml triggers on the tag push from the "Create tag" step
-          # above — it has its own master-reachability gate — so we intentionally
-          # do NOT dispatch it here. Dispatching would queue a redundant
-          # duplicate run alongside the push-triggered one.
+          # Explicitly dispatch deploy-hugo. GitHub Actions intentionally does
+          # NOT fire workflows triggered by push events when the push was made
+          # using the default GITHUB_TOKEN — which is exactly how the tag push
+          # above happens. So the push:tags trigger on deploy-hugo.yml won't
+          # run on tags we create here, and we must dispatch explicitly.
+          # The master-reachability gate in deploy-hugo.yml still handles
+          # externally-pushed tags (from a PAT or a human) cleanly.
+          gh workflow run deploy-hugo.yml --ref "$TAG" || echo "Warning: deploy-hugo dispatch skipped (workflow may not be registered yet)"
 
           # Only deploy the MCP server when its source files changed.
           # Paths: the server itself and the workspace packages it depends on.
