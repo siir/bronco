@@ -235,6 +235,7 @@ export class AIRouter {
       ...(request.context?.orchestrationId ? { orchestrationId: request.context.orchestrationId as string } : {}),
       ...(request.context?.orchestrationIteration != null ? { orchestrationIteration: request.context.orchestrationIteration as number } : {}),
       ...(request.context?.isSubTask ? { isSubTask: true } : {}),
+      ...(request.context?.strategy === 'flat' || request.context?.strategy === 'orchestrated' ? { strategy: request.context.strategy as 'flat' | 'orchestrated' } : {}),
     };
 
     // Persist usage to database (fire-and-forget)
@@ -414,6 +415,7 @@ export class AIRouter {
       ...(request.context?.orchestrationId ? { orchestrationId: request.context.orchestrationId as string } : {}),
       ...(request.context?.orchestrationIteration != null ? { orchestrationIteration: request.context.orchestrationIteration as number } : {}),
       ...(request.context?.isSubTask ? { isSubTask: true } : {}),
+      ...(request.context?.strategy === 'flat' || request.context?.strategy === 'orchestrated' ? { strategy: request.context.strategy as 'flat' | 'orchestrated' } : {}),
     };
 
     if (this.usageWriter) {

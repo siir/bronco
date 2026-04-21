@@ -142,7 +142,7 @@ async function executeOrchestratedSubTask(
         : { logId: subTaskLogId };
       const response = await ai.generateWithTools({
         taskType: TaskType.DEEP_ANALYSIS,
-        context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, ...orchCtx },
+        context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, strategy: 'orchestrated' as const, ...orchCtx },
         messages: [{ role: 'user', content: task.prompt }],
         tools,
         systemPrompt: subTaskSystemPrompt,
@@ -254,7 +254,7 @@ async function executeOrchestratedSubTask(
       : { logId: pureLogId };
     const response = await ai.generate({
       taskType: TaskType.DEEP_ANALYSIS,
-      context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, ...orchCtx },
+      context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, strategy: 'orchestrated' as const, ...orchCtx },
       prompt: task.prompt,
       providerOverride: 'CLAUDE',
       modelOverride: model,
@@ -461,7 +461,7 @@ export async function runOrchestratedAnalysis(
     const strategistLogId = randomUUID();
     const strategistResponse = await ai.generate({
       taskType: (step.taskTypeOverride ?? TaskType.DEEP_ANALYSIS) as TaskType,
-      context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!clientContext, orchestrationId, orchestrationIteration: i + 1, logId: strategistLogId },
+      context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!clientContext, orchestrationId, orchestrationIteration: i + 1, logId: strategistLogId, strategy: 'orchestrated' as const },
       prompt: strategistPrompt,
       systemPrompt: `${ORCHESTRATED_SYSTEM_PROMPT}\n${TRUNCATION_SYSTEM_PROMPT_SNIPPET}\n${PREFER_EXISTING_TOOLS_SNIPPET}\n${REQUEST_NEW_TOOL_SNIPPET}`,
       providerOverride: 'CLAUDE',
