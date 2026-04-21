@@ -16,7 +16,9 @@ import {
   ORCHESTRATED_SYSTEM_PROMPT,
   parseStrategistResponse,
   parseSufficiencyEvaluation,
+  PREFER_EXISTING_TOOLS_SNIPPET,
   ReanalysisMode,
+  REQUEST_NEW_TOOL_SNIPPET,
   resolveMaxParallelTasks,
   resolveOrchestratedModelMap,
   resolveTaskTools,
@@ -85,8 +87,8 @@ async function executeOrchestratedSubTask(
     ? `\n\n## Prior Artifacts You May Need\nThese artifact IDs from prior runs may be relevant. Read them via \`platform__read_tool_result_artifact\` before re-querying:\n${task.priorArtifactIds.map(id => `- ${id}`).join('\n')}`
     : '';
   const subTaskSystemPrompt = combinedContext
-    ? `${subTaskInstructions}\n\n${combinedContext}\n${TRUNCATION_SYSTEM_PROMPT_SNIPPET}${priorArtifactsHint}`
-    : `${subTaskInstructions}\n${TRUNCATION_SYSTEM_PROMPT_SNIPPET}${priorArtifactsHint}`;
+    ? `${subTaskInstructions}\n\n${combinedContext}\n${TRUNCATION_SYSTEM_PROMPT_SNIPPET}\n${PREFER_EXISTING_TOOLS_SNIPPET}\n${REQUEST_NEW_TOOL_SNIPPET}${priorArtifactsHint}`
+    : `${subTaskInstructions}\n${TRUNCATION_SYSTEM_PROMPT_SNIPPET}\n${PREFER_EXISTING_TOOLS_SNIPPET}\n${REQUEST_NEW_TOOL_SNIPPET}${priorArtifactsHint}`;
 
   // Resolve tools using ranked matching (exact → base name → substring → fuzzy)
   const resolution = task.tools.length > 0
@@ -461,7 +463,7 @@ export async function runOrchestratedAnalysis(
       taskType: (step.taskTypeOverride ?? TaskType.DEEP_ANALYSIS) as TaskType,
       context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!clientContext, orchestrationId, orchestrationIteration: i + 1, logId: strategistLogId },
       prompt: strategistPrompt,
-      systemPrompt: `${ORCHESTRATED_SYSTEM_PROMPT}\n${TRUNCATION_SYSTEM_PROMPT_SNIPPET}`,
+      systemPrompt: `${ORCHESTRATED_SYSTEM_PROMPT}\n${TRUNCATION_SYSTEM_PROMPT_SNIPPET}\n${PREFER_EXISTING_TOOLS_SNIPPET}\n${REQUEST_NEW_TOOL_SNIPPET}`,
       providerOverride: 'CLAUDE',
       modelOverride: 'claude-opus-4-6',
       maxTokens: defaultMaxTokens ?? 4096,

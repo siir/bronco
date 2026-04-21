@@ -143,6 +143,8 @@ System prompts for each task are registered in `packages/ai-provider/src/prompts
 - `GENERATE_RESOLUTION_PLAN` — Generate a resolution plan for operator review before code execution
 - `CUSTOM_AI_QUERY` — Flexible configurable AI query within a route pipeline (task type and model overridable per step)
 - `ANALYZE_APP_HEALTH` — Scheduled platform health analysis — ticket patterns, AI usage trends, error logs, and codebase review
+- `DETECT_TOOL_GAPS` — Post-hoc review of a completed analysis to detect capability gaps; upserts tool requests into the registry (default: Claude Haiku for cheap review)
+- `ANALYZE_TOOL_REQUESTS` — Admin-triggered dedupe agent: compares a client's PROPOSED/APPROVED tool requests against each other and against the live MCP tool catalog (platform + repo + database + per-client integrations) and writes `suggestedDuplicateOf*` / `suggestedImprovesExisting*` fields on rows (default: Claude Sonnet)
 
 ### Task Type Discipline (CRITICAL)
 
@@ -228,6 +230,7 @@ Ticket routes define configurable analysis pipelines executed when tickets are p
 | `SUGGEST_NEXT_STEPS` | Analysis | SUGGEST_NEXT_STEPS | Recommend actions |
 | `UPDATE_TICKET_SUMMARY` | Analysis | — | Finalize ticket summary |
 | `CUSTOM_AI_QUERY` | Analysis | CUSTOM_AI_QUERY | Configurable AI query with selectable context sources and optional fresh MCP/repo searches |
+| `DETECT_TOOL_GAPS` | Analysis | DETECT_TOOL_GAPS | Scans completed analysis for missing-tool gaps; upserts into ToolRequest registry via the shared registry helper. |
 | `NOTIFY_OPERATOR` | Dispatch | — | Send notification to operator |
 | `DISPATCH_TO_ROUTE` | Dispatch | — | Dispatch ticket to another route for further processing |
 | `ADD_FOLLOWER` | Dispatch | — | Add a follower to the ticket |
@@ -364,6 +367,13 @@ pnpm dev:portal           # Start ticket portal (Angular, port 4201)
 | `mcp-servers/platform/src/tools/people.ts` | MCP people tools (list, get, create, update, delete). |
 | `services/copilot-api/src/routes/client-memory.ts` | Client memory CRUD endpoints with resolver cache invalidation. |
 | `services/copilot-api/src/routes/ticket-routes.ts` | Ticket route CRUD + step type registry for configurable analysis pipelines. |
+| `services/copilot-api/src/routes/tool-requests.ts` | Gap Requests CRUD API (admin-only): list/filter tool-request records, view rationale history, transition status (approve/reject/duplicate/implemented/reopen), delete. |
+| `packages/shared-utils/src/tool-request-registry.ts` | Dedup upsert helper for tool-request records keyed on `(clientId, requestedName)`; appends rationale rows without clobbering operator edits. |
+| `services/copilot-api/src/services/tool-request-dedupe.ts` | Admin-triggered dedupe agent: discovers MCP catalog per-client + shared, calls Claude via `ANALYZE_TOOL_REQUESTS`, persists `suggestedDuplicateOf*` / `suggestedImprovesExisting*` suggestions transactionally. |
+| `packages/shared-utils/src/tool-request-github.ts` | Shared GitHub-issue helper for tool requests: reads encrypted token from `system-config-github`, repo from `tool-requests-github-default-repo` AppSetting (or override), POSTs via GitHub REST v3, persists `githubIssueUrl` + `implementedInIssue` on the row. |
+| `mcp-servers/platform/src/tools/request-tool.ts` | MCP `request_tool` that analyzers call when they hit a capability gap; enforces the per-run rate limit from AppSetting `tool-request-rate-limit-per-run`. |
+| `mcp-servers/platform/src/tools/tool-requests.ts` | MCP CRUD tools for tool requests (list/get/update/delete) + `create_tool_request_github_issue` wrapper used by the platform surface. |
+| `services/control-panel/src/app/features/tool-requests/tool-request-list.component.ts` | Admin Tool Requests page: list + detail dialog with rationale history, linked tickets, status transition controls, client filter + Run Dedupe button, AI suggestion pills with Accept/Dismiss, and Create GitHub Issue flow for approved requests. |
 | `services/copilot-api/src/routes/artifacts.ts` | MCP tool artifact storage and retrieval endpoints (`/api/artifacts`). |
 | `services/copilot-api/src/routes/release-notes.ts` | Release notes API: commit ingestion, AI summarization, GitHub backfill, service filtering. |
 | `services/copilot-api/src/routes/ingest.ts` | Ingestion API: queue endpoints for email/scheduled/manual payloads, plus `GET /api/ingest/runs` and `GET /api/ingest/runs/:id` for run history. |

@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify';
-import { TicketStatus, TicketCategory, DEFAULT_OPERATIONAL_ALERT_CONFIG, DEFAULT_ACTION_SAFETY_CONFIG } from '@bronco/shared-types';
+import { TicketStatus, TicketCategory, DEFAULT_OPERATIONAL_ALERT_CONFIG, DEFAULT_ACTION_SAFETY_CONFIG, OperatorRole } from '@bronco/shared-types';
 import type { OperationalAlertConfig, ActionSafetyConfig, ActionSafetyLevel } from '@bronco/shared-types';
 import { Mailer, createLogger, decrypt, encrypt, loadSmtpFromDb, looksEncrypted } from '@bronco/shared-utils';
 import { z } from 'zod';
+import { requireRole } from '../plugins/auth.js';
 
 const settingsLogger = createLogger('settings');
 
@@ -43,6 +44,8 @@ const SETTINGS_KEY_PROMPT_RETENTION = 'system-config-prompt-retention';
 const SETTINGS_KEY_ACTION_SAFETY = 'system-config-action-safety';
 const SETTINGS_KEY_ANALYSIS_STRATEGY = 'system-config-analysis-strategy';
 const SETTINGS_KEY_SELF_ANALYSIS = 'self_analysis_config';
+const SETTINGS_KEY_TOOL_REQUEST_RATE_LIMIT = 'tool-request-rate-limit-per-run';
+const SETTINGS_KEY_TOOL_REQUESTS_DEFAULT_REPO = 'tool-requests-github-default-repo';
 
 const REDACTED = '••••••••';
 
@@ -881,6 +884,102 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
       });
 
       return row.value as unknown as { fullRetentionDays: number; summaryRetentionDays: number };
+    },
+  );
+
+  // ─── Tool Request Rate Limit (ADMIN-only) ───
+
+  const toolRequestRateLimitSchema = z.object({
+    limit: z.number().int().min(1).max(100).default(5),
+  });
+
+  const DEFAULT_TOOL_REQUEST_RATE_LIMIT = { limit: 5 };
+
+  // These endpoints touch admin-only surface (Gap Requests triage + GitHub PAT usage),
+  // so gate them with ADMIN-only preHandlers instead of relying on the outer
+  // operatorControlPanelGuard which allows STANDARD operators as well.
+  const adminOnly = requireRole(OperatorRole.ADMIN);
+
+  // GET /api/settings/tool-request-rate-limit — max `request_tool` calls per analysis run
+  fastify.get(
+    '/api/settings/tool-request-rate-limit',
+    { preHandler: adminOnly },
+    async () => {
+      const row = await fastify.db.appSetting.findUnique({
+        where: { key: SETTINGS_KEY_TOOL_REQUEST_RATE_LIMIT },
+      });
+      if (!row) return DEFAULT_TOOL_REQUEST_RATE_LIMIT;
+      const parsed = toolRequestRateLimitSchema.safeParse(row.value);
+      return parsed.success ? parsed.data : DEFAULT_TOOL_REQUEST_RATE_LIMIT;
+    },
+  );
+
+  // PUT /api/settings/tool-request-rate-limit — update limit
+  fastify.put<{ Body: { limit?: number } }>(
+    '/api/settings/tool-request-rate-limit',
+    { preHandler: adminOnly },
+    async (request) => {
+      const parsed = toolRequestRateLimitSchema.safeParse(request.body);
+      if (!parsed.success) {
+        const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+        return fastify.httpErrors.badRequest(`Invalid tool request rate limit: ${issues}`);
+      }
+
+      const config = parsed.data;
+
+      const row = await fastify.db.appSetting.upsert({
+        where: { key: SETTINGS_KEY_TOOL_REQUEST_RATE_LIMIT },
+        update: { value: config as unknown as object },
+        create: { key: SETTINGS_KEY_TOOL_REQUEST_RATE_LIMIT, value: config as unknown as object },
+      });
+
+      return row.value as unknown as { limit: number };
+    },
+  );
+
+  // ─── Tool Requests: default GitHub repo (ADMIN-only) ───
+
+  const toolRequestsDefaultRepoSchema = z.object({
+    owner: z.string().trim().min(1),
+    name: z.string().trim().min(1),
+  });
+
+  type ToolRequestsDefaultRepo = z.output<typeof toolRequestsDefaultRepoSchema>;
+
+  // GET /api/settings/tool-requests-github-default-repo
+  fastify.get(
+    '/api/settings/tool-requests-github-default-repo',
+    { preHandler: adminOnly },
+    async () => {
+      const row = await fastify.db.appSetting.findUnique({
+        where: { key: SETTINGS_KEY_TOOL_REQUESTS_DEFAULT_REPO },
+      });
+      if (!row) return null;
+      const parsed = toolRequestsDefaultRepoSchema.safeParse(row.value);
+      return parsed.success ? parsed.data : null;
+    },
+  );
+
+  // PUT /api/settings/tool-requests-github-default-repo
+  fastify.put<{ Body: ToolRequestsDefaultRepo }>(
+    '/api/settings/tool-requests-github-default-repo',
+    { preHandler: adminOnly },
+    async (request) => {
+      const parsed = toolRequestsDefaultRepoSchema.safeParse(request.body);
+      if (!parsed.success) {
+        const msg = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+        return fastify.httpErrors.badRequest(`Invalid default repo config: ${msg}`);
+      }
+
+      const config = parsed.data;
+
+      const row = await fastify.db.appSetting.upsert({
+        where: { key: SETTINGS_KEY_TOOL_REQUESTS_DEFAULT_REPO },
+        update: { value: config as unknown as object },
+        create: { key: SETTINGS_KEY_TOOL_REQUESTS_DEFAULT_REPO, value: config as unknown as object },
+      });
+
+      return row.value as unknown as ToolRequestsDefaultRepo;
     },
   );
 

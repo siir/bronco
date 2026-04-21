@@ -24,6 +24,12 @@ export * from './routing.js';
 export { CLIENT_MEMORY_PROMPTS } from './client-memory.js';
 export * from './client-memory.js';
 
+export { DETECT_TOOL_GAPS_PROMPTS } from './detect-tool-gaps.js';
+export * from './detect-tool-gaps.js';
+
+export { ANALYZE_TOOL_REQUESTS_PROMPTS } from './analyze-tool-requests.js';
+export * from './analyze-tool-requests.js';
+
 // Re-export individual prompts for direct import convenience
 import { IMAP_PROMPTS } from './imap.js';
 import { DEVOPS_PROMPTS } from './devops.js';
@@ -33,6 +39,8 @@ import { SYSTEM_ANALYSIS_PROMPTS } from './system-analysis.js';
 import { RELEASE_NOTES_PROMPTS } from './release-notes.js';
 import { ROUTING_PROMPTS } from './routing.js';
 import { CLIENT_MEMORY_PROMPTS } from './client-memory.js';
+import { DETECT_TOOL_GAPS_PROMPTS } from './detect-tool-gaps.js';
+import { ANALYZE_TOOL_REQUESTS_PROMPTS } from './analyze-tool-requests.js';
 import type { PromptDefinition } from './types.js';
 
 /**
@@ -52,6 +60,8 @@ export const ALL_PROMPTS: PromptDefinition[] = [
   ...RELEASE_NOTES_PROMPTS,
   ...ROUTING_PROMPTS,
   ...CLIENT_MEMORY_PROMPTS,
+  ...DETECT_TOOL_GAPS_PROMPTS,
+  ...ANALYZE_TOOL_REQUESTS_PROMPTS,
 ];
 
 /**

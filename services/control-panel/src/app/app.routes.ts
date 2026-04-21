@@ -141,6 +141,11 @@ export const routes: Routes = [
         loadComponent: () => import('./features/ticket-routes/ticket-route-list.component.js').then(m => m.TicketRouteListComponent),
       },
       {
+        path: 'tool-requests',
+        canActivate: [scopedOpsGuard],
+        loadComponent: () => import('./features/tool-requests/tool-request-list.component.js').then(m => m.ToolRequestListComponent),
+      },
+      {
         path: 'ingestion-jobs',
         canActivate: [scopedOpsGuard],
         loadComponent: () => import('./features/ingestion-jobs/ingestion-job-list.component.js').then(m => m.IngestionJobListComponent),

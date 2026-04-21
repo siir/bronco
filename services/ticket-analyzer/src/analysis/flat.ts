@@ -16,6 +16,8 @@ import {
   parseSufficiencyEvaluation,
   saveMcpToolArtifact,
   shouldTruncate,
+  PREFER_EXISTING_TOOLS_SNIPPET,
+  REQUEST_NEW_TOOL_SNIPPET,
   SUFFICIENCY_EVAL_INSTRUCTIONS,
   TRUNCATION_SYSTEM_PROMPT_SNIPPET,
   type AnalysisDeps,
@@ -111,6 +113,8 @@ export async function runFlatAnalysis(
   if (stepConfig?.systemPromptOverride) systemParts.push('', stepConfig.systemPromptOverride);
   systemParts.push(SUFFICIENCY_EVAL_INSTRUCTIONS);
   systemParts.push(TRUNCATION_SYSTEM_PROMPT_SNIPPET);
+  systemParts.push(PREFER_EXISTING_TOOLS_SNIPPET);
+  systemParts.push(REQUEST_NEW_TOOL_SNIPPET);
 
   const agenticSystemPrompt = systemParts.join('\n');
 

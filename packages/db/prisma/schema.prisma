@@ -171,6 +171,7 @@ model Client {
   emailProcessingLogs EmailProcessingLog[]
   slackConversations  SlackConversationLog[]
   operatorAssignments OperatorClient[]
+  toolRequests        ToolRequest[]
 
   @@map("clients")
 }
@@ -317,6 +318,8 @@ model Ticket {
   ingestionRuns       IngestionRun[]
   emailProcessingLogs EmailProcessingLog[]
   pendingActions      PendingAction[]
+  toolRequests          ToolRequest[]           @relation("FirstTicketRequests")
+  toolRequestRationales ToolRequestRationale[]
 
   @@unique([clientId, ticketNumber])
   @@index([clientId, status])
@@ -1282,6 +1285,7 @@ enum RouteStepType {
   CREATE_TICKET
   CUSTOM_AI_QUERY
   UPDATE_ANALYSIS
+  DETECT_TOOL_GAPS
 
   @@map("route_step_type")
 }
@@ -1614,4 +1618,82 @@ model AppSetting {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("app_settings")
+}
+
+// --- Tool Requests (agent-flagged missing tool capabilities) ---
+// Agents call `request_tool` (MCP) mid-analysis to register a gap.
+// The same requested tool across multiple tickets is deduped via
+// (clientId, requestedName) and each call appends a rationale entry.
+
+enum ToolRequestStatus {
+  PROPOSED
+  APPROVED
+  REJECTED
+  IMPLEMENTED
+  DUPLICATE
+
+  @@map("tool_request_status")
+}
+
+enum ToolRequestRationaleSource {
+  INLINE_AGENT_REQUEST
+  POST_HOC_DETECTION
+  MANUAL
+
+  @@map("tool_request_rationale_source")
+}
+
+model ToolRequest {
+  id                  String            @id @default(uuid()) @db.Uuid
+  clientId            String            @map("client_id") @db.Uuid
+  client              Client            @relation(fields: [clientId], references: [id])
+  firstTicketId       String?           @map("first_ticket_id") @db.Uuid
+  firstTicket         Ticket?           @relation("FirstTicketRequests", fields: [firstTicketId], references: [id])
+  requestedName       String            @map("requested_name")
+  displayTitle        String            @map("display_title")
+  description         String            @db.Text
+  suggestedInputs     Json?             @map("suggested_inputs")
+  exampleUsage        String?           @db.Text @map("example_usage")
+  status              ToolRequestStatus @default(PROPOSED)
+  requestCount        Int               @default(1) @map("request_count")
+  approvedAt          DateTime?         @map("approved_at")
+  approvedBy          String?           @map("approved_by")
+  rejectedReason      String?           @map("rejected_reason")
+  duplicateOfId       String?           @map("duplicate_of_id") @db.Uuid
+  duplicateOf         ToolRequest?      @relation("ToolRequestDuplicates", fields: [duplicateOfId], references: [id])
+  duplicates          ToolRequest[]     @relation("ToolRequestDuplicates")
+  implementedInCommit String?           @map("implemented_in_commit")
+  implementedInIssue  String?           @map("implemented_in_issue")
+  githubIssueUrl      String?           @map("github_issue_url")
+
+  // AI dedupe suggestions — populated by runToolRequestDedupe.
+  // Operators review via the admin UI; accepting transitions status/rejects,
+  // dismissing clears the suggestion fields.
+  suggestedDuplicateOfId    String?   @map("suggested_duplicate_of_id") @db.Uuid
+  suggestedDuplicateReason  String?   @db.Text @map("suggested_duplicate_reason")
+  suggestedImprovesExisting String?   @map("suggested_improves_existing")
+  suggestedImprovesReason   String?   @db.Text @map("suggested_improves_reason")
+  dedupeAnalysisAt          DateTime? @map("dedupe_analysis_at")
+
+  rationales ToolRequestRationale[]
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([clientId, requestedName])
+  @@index([status, createdAt])
+  @@map("tool_requests")
+}
+
+model ToolRequestRationale {
+  id            String                     @id @default(uuid()) @db.Uuid
+  toolRequestId String                     @map("tool_request_id") @db.Uuid
+  toolRequest   ToolRequest                @relation(fields: [toolRequestId], references: [id], onDelete: Cascade)
+  ticketId      String?                    @map("ticket_id") @db.Uuid
+  ticket        Ticket?                    @relation(fields: [ticketId], references: [id])
+  rationale     String                     @db.Text
+  source        ToolRequestRationaleSource
+  createdAt     DateTime                   @default(now()) @map("created_at")
+
+  @@index([toolRequestId, createdAt])
+  @@map("tool_request_rationales")
 }
