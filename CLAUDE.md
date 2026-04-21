@@ -332,6 +332,7 @@ pnpm dev:portal           # Start ticket portal (Angular, port 4201)
 | `mcp-servers/database/src/connections/pool-manager.ts` | Connection factory with extensibility guide. |
 | `mcp-servers/database/src/tools/index.ts` | MCP tool registration (Zod schemas + handlers). |
 | `mcp-servers/platform/src/tools/index.ts` | MCP platform tool registration (all Bronco API operations). |
+| `mcp-servers/platform/src/tools/read-tool-result-artifact.ts` | Platform MCP tool for reading truncated tool-result artifacts (head/tail preview → full content via offset+limit or grep). |
 | `mcp-servers/database/src/security/query-validator.ts` | SQL keyword blocklist. |
 | `mcp-servers/database/src/security/audit-logger.ts` | Query audit logging (Pino structured JSON to stdout). |
 | `packages/ai-provider/src/router.ts` | AI task routing (dynamic provider/model resolution via ModelConfigResolver). |
