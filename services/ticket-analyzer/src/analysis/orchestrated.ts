@@ -4,12 +4,13 @@ import { TaskType } from '@bronco/shared-types';
 import type {
   AITextBlock,
   AIToolDefinition,
-  AIToolResultBlock,
   AIToolUseBlock,
 } from '@bronco/shared-types';
 import {
+  buildTruncatedPreview,
   chunkArray,
   executeAgenticToolCall,
+  getToolResultMaxTokens,
   IRRELEVANT_SIGNALS,
   ORCHESTRATED_SYSTEM_PROMPT,
   parseStrategistResponse,
@@ -18,6 +19,8 @@ import {
   resolveOrchestratedModelMap,
   resolveTaskTools,
   saveMcpToolArtifact,
+  shouldTruncate,
+  TRUNCATION_SYSTEM_PROMPT_SNIPPET,
   type AnalysisDeps,
   type AnalysisPipelineContext,
   type AnalysisResult,
@@ -28,6 +31,18 @@ import {
 import type { AgenticToolContext } from './flat.js';
 
 const logger = createLogger('ticket-analyzer');
+
+/**
+ * Fallback content when a sub-task's initial response has no text blocks.
+ * Uses the first tool call's output preview so the knowledge doc still gets
+ * something actionable. Empty tool-calls array → placeholder string.
+ */
+function fallbackFromToolResults(toolCalls: SubTaskResult['toolCalls']): string {
+  if (toolCalls.length === 0) return 'Sub-task produced no text output and no tool calls.';
+  const first = toolCalls[0];
+  const preview = (first.output ?? '').slice(0, 500);
+  return `No summary text; first tool (${first.tool}) output preview:\n${preview}`;
+}
 
 async function executeOrchestratedSubTask(
   deps: AnalysisDeps,
@@ -42,6 +57,7 @@ async function executeOrchestratedSubTask(
   repoIdByPrefix: Map<string, string>,
   orchestration?: { id: string; iteration: number; parentLogId?: string },
   modelMap?: Record<string, string>,
+  toolResultMaxTokens?: number,
 ): Promise<SubTaskResult> {
   const { ai, appLog } = deps;
   const map = modelMap ?? {};
@@ -56,9 +72,15 @@ async function executeOrchestratedSubTask(
   // re-injection for sub-tasks to avoid duplicating it in every sub-task system prompt.
   const skipClientMemory = !!clientContext;
   const combinedContext = [clientContext, environmentContext].filter(Boolean).join('\n\n');
+  const subTaskInstructions = [
+    'Execute the requested investigation step. Call the relevant tools, analyze the results,',
+    'and write a concise structured summary of your findings in the response text (alongside',
+    'any tool calls). Do not defer the summary to a follow-up call — include it directly in',
+    'this turn.',
+  ].join(' ');
   const subTaskSystemPrompt = combinedContext
-    ? `Execute the requested investigation step. Call the relevant tools, analyze the results, and return a structured summary of your findings.\n\n${combinedContext}`
-    : 'Execute the requested investigation step. Call the relevant tools, analyze the results, and return a structured summary of your findings.';
+    ? `${subTaskInstructions}\n\n${combinedContext}\n${TRUNCATION_SYSTEM_PROMPT_SNIPPET}`
+    : `${subTaskInstructions}\n${TRUNCATION_SYSTEM_PROMPT_SNIPPET}`;
 
   // Resolve tools using ranked matching (exact → base name → substring → fuzzy)
   const resolution = task.tools.length > 0
@@ -135,22 +157,31 @@ async function executeOrchestratedSubTask(
           const start = Date.now();
           const result = await executeAgenticToolCall(toolUse, mcpIntegrations, repoIdByPrefix, clientId, ticketId);
           const elapsed = Date.now() - start;
+
+          const fullResult = result.result;
+          const fullSizeChars = fullResult.length;
+          const artifactId = deps.artifactStoragePath && !result.isError ? randomUUID() : undefined;
+          const threshold = toolResultMaxTokens ?? 4000;
+          const truncated = !result.isError && !!artifactId && shouldTruncate(fullResult, threshold);
+          const contentForModel = truncated && artifactId
+            ? buildTruncatedPreview(fullResult, artifactId)
+            : fullResult;
+
           passToolCalls.push({
             tool: toolUse.name,
             system: (toolUse.input as Record<string, unknown>)?.system_name as string | undefined,
             input: toolUse.input,
-            output: result.result.slice(0, 500),
+            output: fullResult.slice(0, 500),
             durationMs: elapsed,
           });
           toolResults.push({
             type: 'tool_result',
             tool_use_id: toolUse.id,
-            content: result.result,
+            content: contentForModel,
             ...(result.isError ? { is_error: true } : {}),
           });
-          const artifactId = deps.artifactStoragePath && !result.isError ? randomUUID() : undefined;
           if (deps.artifactStoragePath && !result.isError) {
-            void saveMcpToolArtifact(deps.db, ticketId, toolUse.name, result.result, deps.artifactStoragePath, artifactId).catch(error => {
+            void saveMcpToolArtifact(deps.db, ticketId, toolUse.name, fullResult, deps.artifactStoragePath, artifactId).catch(error => {
               logger.warn({
                 err: error,
                 ticketId,
@@ -167,8 +198,10 @@ async function executeOrchestratedSubTask(
               tool: toolUse.name,
               durationMs: elapsed,
               params: toolUse.input ? JSON.stringify(toolUse.input).slice(0, 1000) : null,
-              resultPreview: result.result?.slice(0, 2000) ?? null,
+              resultPreview: fullResult?.slice(0, 2000) ?? null,
               isError: result.isError ?? false,
+              truncated,
+              fullSizeChars,
               parentLogId: subTaskLogId,
               parentLogType: 'ai',
               ...(artifactId ? { artifactId } : {}),
@@ -178,38 +211,15 @@ async function executeOrchestratedSubTask(
           );
         }
 
-        const summaryLogId = randomUUID();
-        const summaryOrchCtx = orchestration
-          ? { orchestrationId: orchestration.id, orchestrationIteration: orchestration.iteration, isSubTask: true, logId: summaryLogId, parentLogId: subTaskLogId, parentLogType: 'ai' }
-          : { logId: summaryLogId, parentLogId: subTaskLogId, parentLogType: 'ai' };
-        const summaryResponse = await ai.generateWithTools({
-          taskType: TaskType.DEEP_ANALYSIS,
-          context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, ...summaryOrchCtx },
-          messages: [
-            { role: 'user', content: task.prompt },
-            { role: 'assistant', content: response.contentBlocks },
-            { role: 'user', content: toolResults as AIToolResultBlock[] },
-          ],
-          tools: [],
-          systemPrompt: 'Summarize the tool results into a structured finding. Do not call additional tools.',
-          providerOverride: 'CLAUDE',
-          modelOverride: model,
-          maxTokens: defaultMaxTokens ?? 4096,
-        });
+        const textBlocks = response.contentBlocks.filter((b): b is AITextBlock => b.type === 'text');
+        const initialText = textBlocks.map(b => b.text).join('\n').trim();
+        const content = initialText || fallbackFromToolResults(passToolCalls);
 
-        passInput += summaryResponse.usage?.inputTokens ?? 0;
-        passOutput += summaryResponse.usage?.outputTokens ?? 0;
-
-        const summaryText = summaryResponse.contentBlocks
-          .filter((b): b is AITextBlock => b.type === 'text')
-          .map(b => b.text)
-          .join('\n');
-
-        const lowered = summaryText.slice(0, 500).toLowerCase();
+        const lowered = content.slice(0, 500).toLowerCase();
         const hasIrrelevantSignal = IRRELEVANT_SIGNALS.some(s => lowered.includes(s));
 
         return {
-          result: { content: summaryText, inputTokens: passInput, outputTokens: passOutput, toolCalls: passToolCalls },
+          result: { content, inputTokens: passInput, outputTokens: passOutput, toolCalls: passToolCalls },
           seemsIrrelevant: hasToolError || hasIrrelevantSignal,
         };
       }
@@ -326,6 +336,7 @@ export async function runOrchestratedAnalysis(
   const { tools: agenticTools, mcpIntegrations, repoIdByPrefix } = tools;
 
   const defaultMaxTokens = await deps.loadDefaultMaxTokens?.() ?? undefined;
+  const toolResultMaxTokens = await getToolResultMaxTokens(db);
 
   const maxParallelTasks = await resolveMaxParallelTasks(db);
   const orchModelMap = await resolveOrchestratedModelMap(db);
@@ -398,7 +409,7 @@ export async function runOrchestratedAnalysis(
       taskType: (step.taskTypeOverride ?? TaskType.DEEP_ANALYSIS) as TaskType,
       context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!clientContext, orchestrationId, orchestrationIteration: i + 1, logId: strategistLogId },
       prompt: strategistPrompt,
-      systemPrompt: ORCHESTRATED_SYSTEM_PROMPT,
+      systemPrompt: `${ORCHESTRATED_SYSTEM_PROMPT}\n${TRUNCATION_SYSTEM_PROMPT_SNIPPET}`,
       providerOverride: 'CLAUDE',
       modelOverride: 'claude-opus-4-6',
       maxTokens: defaultMaxTokens ?? 4096,
@@ -438,7 +449,7 @@ export async function runOrchestratedAnalysis(
     const taskBatches = chunkArray(plan.tasks, maxParallelTasks);
     for (const batch of taskBatches) {
       const results = await Promise.allSettled(
-        batch.map(task => executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, environmentContext, task, agenticTools, mcpIntegrations, repoIdByPrefix, { id: orchestrationId, iteration: i + 1, parentLogId: strategistLogId }, orchModelMap)),
+        batch.map(task => executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, environmentContext, task, agenticTools, mcpIntegrations, repoIdByPrefix, { id: orchestrationId, iteration: i + 1, parentLogId: strategistLogId }, orchModelMap, toolResultMaxTokens)),
       );
 
       for (let j = 0; j < results.length; j++) {
@@ -452,7 +463,7 @@ export async function runOrchestratedAnalysis(
         } else {
           // Retry once on failure
           try {
-            const retryResult = await executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, environmentContext, task, agenticTools, mcpIntegrations, repoIdByPrefix, { id: orchestrationId, iteration: i + 1, parentLogId: strategistLogId }, orchModelMap);
+            const retryResult = await executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, environmentContext, task, agenticTools, mcpIntegrations, repoIdByPrefix, { id: orchestrationId, iteration: i + 1, parentLogId: strategistLogId }, orchModelMap, toolResultMaxTokens);
             knowledgeDoc += `\n\n#### ${task.prompt} (retry)\n${retryResult.content}`;
             orchTotalInputTokens += retryResult.inputTokens;
             orchTotalOutputTokens += retryResult.outputTokens;
