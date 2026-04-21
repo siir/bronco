@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify';
-import { TicketStatus, TicketCategory, DEFAULT_OPERATIONAL_ALERT_CONFIG, DEFAULT_ACTION_SAFETY_CONFIG } from '@bronco/shared-types';
+import { TicketStatus, TicketCategory, DEFAULT_OPERATIONAL_ALERT_CONFIG, DEFAULT_ACTION_SAFETY_CONFIG, OperatorRole } from '@bronco/shared-types';
 import type { OperationalAlertConfig, ActionSafetyConfig, ActionSafetyLevel } from '@bronco/shared-types';
 import { Mailer, createLogger, decrypt, encrypt, loadSmtpFromDb, looksEncrypted } from '@bronco/shared-utils';
 import { z } from 'zod';
+import { requireRole } from '../plugins/auth.js';
 
 const settingsLogger = createLogger('settings');
 
@@ -886,7 +887,7 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     },
   );
 
-  // ─── Tool Request Rate Limit ───
+  // ─── Tool Request Rate Limit (ADMIN-only) ───
 
   const toolRequestRateLimitSchema = z.object({
     limit: z.number().int().min(1).max(100).default(5),
@@ -894,19 +895,29 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
 
   const DEFAULT_TOOL_REQUEST_RATE_LIMIT = { limit: 5 };
 
+  // These endpoints touch admin-only surface (Gap Requests triage + GitHub PAT usage),
+  // so gate them with ADMIN-only preHandlers instead of relying on the outer
+  // operatorControlPanelGuard which allows STANDARD operators as well.
+  const adminOnly = requireRole(OperatorRole.ADMIN);
+
   // GET /api/settings/tool-request-rate-limit — max `request_tool` calls per analysis run
-  fastify.get('/api/settings/tool-request-rate-limit', async () => {
-    const row = await fastify.db.appSetting.findUnique({
-      where: { key: SETTINGS_KEY_TOOL_REQUEST_RATE_LIMIT },
-    });
-    if (!row) return DEFAULT_TOOL_REQUEST_RATE_LIMIT;
-    const parsed = toolRequestRateLimitSchema.safeParse(row.value);
-    return parsed.success ? parsed.data : DEFAULT_TOOL_REQUEST_RATE_LIMIT;
-  });
+  fastify.get(
+    '/api/settings/tool-request-rate-limit',
+    { preHandler: adminOnly },
+    async () => {
+      const row = await fastify.db.appSetting.findUnique({
+        where: { key: SETTINGS_KEY_TOOL_REQUEST_RATE_LIMIT },
+      });
+      if (!row) return DEFAULT_TOOL_REQUEST_RATE_LIMIT;
+      const parsed = toolRequestRateLimitSchema.safeParse(row.value);
+      return parsed.success ? parsed.data : DEFAULT_TOOL_REQUEST_RATE_LIMIT;
+    },
+  );
 
   // PUT /api/settings/tool-request-rate-limit — update limit
   fastify.put<{ Body: { limit?: number } }>(
     '/api/settings/tool-request-rate-limit',
+    { preHandler: adminOnly },
     async (request) => {
       const parsed = toolRequestRateLimitSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -926,7 +937,7 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     },
   );
 
-  // ─── Tool Requests: default GitHub repo ───
+  // ─── Tool Requests: default GitHub repo (ADMIN-only) ───
 
   const toolRequestsDefaultRepoSchema = z.object({
     owner: z.string().trim().min(1),
@@ -936,18 +947,23 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
   type ToolRequestsDefaultRepo = z.output<typeof toolRequestsDefaultRepoSchema>;
 
   // GET /api/settings/tool-requests-github-default-repo
-  fastify.get('/api/settings/tool-requests-github-default-repo', async () => {
-    const row = await fastify.db.appSetting.findUnique({
-      where: { key: SETTINGS_KEY_TOOL_REQUESTS_DEFAULT_REPO },
-    });
-    if (!row) return null;
-    const parsed = toolRequestsDefaultRepoSchema.safeParse(row.value);
-    return parsed.success ? parsed.data : null;
-  });
+  fastify.get(
+    '/api/settings/tool-requests-github-default-repo',
+    { preHandler: adminOnly },
+    async () => {
+      const row = await fastify.db.appSetting.findUnique({
+        where: { key: SETTINGS_KEY_TOOL_REQUESTS_DEFAULT_REPO },
+      });
+      if (!row) return null;
+      const parsed = toolRequestsDefaultRepoSchema.safeParse(row.value);
+      return parsed.success ? parsed.data : null;
+    },
+  );
 
   // PUT /api/settings/tool-requests-github-default-repo
   fastify.put<{ Body: ToolRequestsDefaultRepo }>(
     '/api/settings/tool-requests-github-default-repo',
+    { preHandler: adminOnly },
     async (request) => {
       const parsed = toolRequestsDefaultRepoSchema.safeParse(request.body);
       if (!parsed.success) {

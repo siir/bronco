@@ -86,6 +86,23 @@ export function registerToolRequestTools(server: McpServer, { db, config }: Serv
         };
       }
 
+      // Mirror the REST API's transition validation so invalid state combos
+      // can't slip through via MCP (Copilot #3118042139). The REST handler in
+      // services/copilot-api/src/routes/tool-requests.ts enforces these same
+      // invariants.
+      if (params.status === ToolRequestStatus.REJECTED && !params.rejectedReason) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: 'ERROR: rejectedReason is required when setting status to REJECTED' }],
+        };
+      }
+      if (params.status === ToolRequestStatus.DUPLICATE && !params.duplicateOfId) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: 'ERROR: duplicateOfId is required when setting status to DUPLICATE' }],
+        };
+      }
+
       const data: Prisma.ToolRequestUpdateInput = {};
       if (params.status) {
         data.status = params.status as ToolRequestStatus;

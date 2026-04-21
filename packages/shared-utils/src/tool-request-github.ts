@@ -12,6 +12,28 @@ export interface CreateGithubIssueInput {
   repoOwner?: string;
   repoName?: string;
   labels?: string[];
+  /**
+   * Bypass the APPROVED-status and existing-issue guards. Intended for
+   * explicit operator overrides (e.g., re-creating an issue after a repo
+   * migration). Defaults to `false`.
+   */
+  force?: boolean;
+}
+
+/** Sentinel thrown when the tool request exists but is not eligible for issue creation. */
+export class ToolRequestNotEligibleError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ToolRequestNotEligibleError';
+  }
+}
+
+/** Sentinel thrown when the tool request row does not exist. */
+export class ToolRequestNotFoundError extends Error {
+  constructor(id: string) {
+    super(`Tool request ${id} not found`);
+    this.name = 'ToolRequestNotFoundError';
+  }
 }
 
 export interface CreateGithubIssueResult {
@@ -31,6 +53,8 @@ interface ToolRequestRow {
   id: string;
   displayTitle: string;
   description: string;
+  status: string;
+  githubIssueUrl: string | null;
   requestCount: number;
   suggestedInputs: unknown;
   exampleUsage: string | null;
@@ -64,7 +88,24 @@ export async function createToolRequestGithubIssue(
       client: { select: { id: true, name: true, shortCode: true } },
     },
   })) as ToolRequestRow | null;
-  if (!row) throw new Error('Tool request not found');
+  if (!row) throw new ToolRequestNotFoundError(input.toolRequestId);
+
+  // Idempotency guard — the admin UI only exposes Create GitHub Issue on
+  // APPROVED rows with no existing issue. Enforce the same invariant here so
+  // out-of-band callers (MCP, scripts) can't accidentally spam duplicate
+  // issues. Operators can override with `force: true`.
+  if (!input.force) {
+    if (row.status !== 'APPROVED') {
+      throw new ToolRequestNotEligibleError(
+        `Tool request must be APPROVED to create a GitHub issue (current status: ${row.status}). Pass force=true to override.`,
+      );
+    }
+    if (row.githubIssueUrl) {
+      throw new ToolRequestNotEligibleError(
+        `Tool request already has a GitHub issue (${row.githubIssueUrl}). Pass force=true to create another.`,
+      );
+    }
+  }
 
   let owner = input.repoOwner?.trim();
   let name = input.repoName?.trim();

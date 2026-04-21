@@ -197,6 +197,23 @@ export async function runToolRequestDedupe(
 
   await db.$transaction(async (tx) => {
     const now = new Date();
+
+    // Clear suggestion fields for every analyzed row up-front so stale
+    // suggestions from prior runs don't linger on rows the model didn't flag
+    // this time (Copilot #3118042189). `dedupeAnalysisAt` is stamped here so
+    // callers can distinguish "never analyzed" (null) from "analyzed, no
+    // suggestions" (timestamp, all suggestion fields null).
+    await tx.toolRequest.updateMany({
+      where: { id: { in: [...validIds] } },
+      data: {
+        suggestedDuplicateOfId: null,
+        suggestedDuplicateReason: null,
+        suggestedImprovesExisting: null,
+        suggestedImprovesReason: null,
+        dedupeAnalysisAt: now,
+      },
+    });
+
     for (const group of duplicateGroups) {
       if (!group || !validIds.has(group.canonicalId)) continue;
       const dupIds = Array.isArray(group.duplicateIds) ? group.duplicateIds : [];
@@ -207,7 +224,6 @@ export async function runToolRequestDedupe(
           data: {
             suggestedDuplicateOfId: group.canonicalId,
             suggestedDuplicateReason: group.reason ?? null,
-            dedupeAnalysisAt: now,
           },
         });
       }
@@ -220,7 +236,6 @@ export async function runToolRequestDedupe(
         data: {
           suggestedImprovesExisting: entry.existingToolName,
           suggestedImprovesReason: entry.reason ?? null,
-          dedupeAnalysisAt: now,
         },
       });
     }

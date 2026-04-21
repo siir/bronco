@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { Prisma } from '@bronco/db';
 import { ToolRequestStatus } from '@bronco/shared-types';
 import type { AIRouter } from '@bronco/ai-provider';
+import { ToolRequestNotFoundError, ToolRequestNotEligibleError } from '@bronco/shared-utils';
 import { runToolRequestDedupe } from '../services/tool-request-dedupe.js';
 import { createToolRequestGithubIssue } from '../services/tool-request-github.js';
 
@@ -308,6 +309,18 @@ export async function toolRequestRoutes(
     });
     if (!row) return fastify.httpErrors.notFound('Tool request not found');
 
+    // Accepting one kind transitions the row to a terminal status, so any
+    // *other* stale suggestion on the same row is no longer actionable — clear
+    // both suggestion field sets and the dedupe timestamp to keep the row
+    // consistent (Copilot #3118042310).
+    const clearAllSuggestions = {
+      suggestedDuplicateOfId: null,
+      suggestedDuplicateReason: null,
+      suggestedImprovesExisting: null,
+      suggestedImprovesReason: null,
+      dedupeAnalysisAt: null,
+    } as const;
+
     if (kind === 'duplicate') {
       if (!row.suggestedDuplicateOfId) {
         return fastify.httpErrors.badRequest('No duplicate suggestion on this request');
@@ -317,8 +330,7 @@ export async function toolRequestRoutes(
         data: {
           status: ToolRequestStatus.DUPLICATE,
           duplicateOf: { connect: { id: row.suggestedDuplicateOfId } },
-          suggestedDuplicateOfId: null,
-          suggestedDuplicateReason: null,
+          ...clearAllSuggestions,
         },
         include: {
           client: { select: { id: true, name: true, shortCode: true } },
@@ -336,8 +348,7 @@ export async function toolRequestRoutes(
       data: {
         status: ToolRequestStatus.REJECTED,
         rejectedReason: `Improves existing tool: ${row.suggestedImprovesExisting}`,
-        suggestedImprovesExisting: null,
-        suggestedImprovesReason: null,
+        ...clearAllSuggestions,
       },
       include: {
         client: { select: { id: true, name: true, shortCode: true } },
@@ -401,8 +412,19 @@ export async function toolRequestRoutes(
         labels: parsed.data.labels,
       });
     } catch (err) {
+      // Map typed errors from the shared helper to proper HTTP statuses.
+      // Not-found → 404 (row missing); not-eligible → 409 (wrong status or
+      // existing issue); config missing → 400; GitHub API error → 502.
+      if (err instanceof ToolRequestNotFoundError) {
+        reply.code(404);
+        return { error: err.message };
+      }
+      if (err instanceof ToolRequestNotEligibleError) {
+        reply.code(409);
+        return { error: err.message };
+      }
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('not configured') || msg.includes('not found') || msg.includes('missing')) {
+      if (msg.includes('not configured') || msg.includes('missing')) {
         reply.code(400);
         return { error: msg };
       }

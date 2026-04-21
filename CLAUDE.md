@@ -368,7 +368,7 @@ pnpm dev:portal           # Start ticket portal (Angular, port 4201)
 | `services/copilot-api/src/routes/client-memory.ts` | Client memory CRUD endpoints with resolver cache invalidation. |
 | `services/copilot-api/src/routes/ticket-routes.ts` | Ticket route CRUD + step type registry for configurable analysis pipelines. |
 | `services/copilot-api/src/routes/tool-requests.ts` | Gap Requests CRUD API (admin-only): list/filter tool-request records, view rationale history, transition status (approve/reject/duplicate/implemented/reopen), delete. |
-| `services/copilot-api/src/services/tool-request-registry.ts` | Dedup upsert helper for tool-request records keyed on `(clientId, requestedName)`; appends rationale rows without clobbering operator edits. |
+| `packages/shared-utils/src/tool-request-registry.ts` | Dedup upsert helper for tool-request records keyed on `(clientId, requestedName)`; appends rationale rows without clobbering operator edits. |
 | `services/copilot-api/src/services/tool-request-dedupe.ts` | Admin-triggered dedupe agent: discovers MCP catalog per-client + shared, calls Claude via `ANALYZE_TOOL_REQUESTS`, persists `suggestedDuplicateOf*` / `suggestedImprovesExisting*` suggestions transactionally. |
 | `packages/shared-utils/src/tool-request-github.ts` | Shared GitHub-issue helper for tool requests: reads encrypted token from `system-config-github`, repo from `tool-requests-github-default-repo` AppSetting (or override), POSTs via GitHub REST v3, persists `githubIssueUrl` + `implementedInIssue` on the row. |
 | `mcp-servers/platform/src/tools/request-tool.ts` | MCP `request_tool` that analyzers call when they hit a capability gap; enforces the per-run rate limit from AppSetting `tool-request-rate-limit-per-run`. |

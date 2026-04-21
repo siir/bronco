@@ -32,7 +32,6 @@ export function registerRequestToolTool(server: McpServer, { db }: ServerDeps): 
     ].join(' '),
     {
       ticketId: z.string().uuid().describe('Ticket being analyzed when the gap was encountered'),
-      clientId: z.string().uuid().describe('Client the ticket belongs to'),
       requestedName: z
         .string()
         .min(3)
@@ -61,15 +60,31 @@ export function registerRequestToolTool(server: McpServer, { db }: ServerDeps): 
         .describe('Optional example invocation or pseudo-code showing how the tool would be used'),
     },
     async (params) => {
+      // Derive clientId from the ticket — never trust caller-supplied values.
       const ticket = await db.ticket.findUnique({
         where: { id: params.ticketId },
-        select: { id: true, lastAnalyzedAt: true },
+        select: { id: true, clientId: true, lastAnalyzedAt: true },
       });
       if (!ticket) {
         return {
           isError: true,
           content: [
             { type: 'text', text: `ERROR: ticket ${params.ticketId} not found` },
+          ],
+        };
+      }
+      const clientId = ticket.clientId;
+
+      // Normalize requestedName up-front so we can dedupe same-run repeats
+      // before checking the rate limit (Copilot #3118042279).
+      let normalizedName: string;
+      try {
+        normalizedName = normalizeRequestedName(params.requestedName);
+      } catch (err) {
+        return {
+          isError: true,
+          content: [
+            { type: 'text', text: `ERROR: ${(err as Error).message}` },
           ],
         };
       }
@@ -93,10 +108,29 @@ export function registerRequestToolTool(server: McpServer, { db }: ServerDeps): 
         orderBy: { createdAt: 'asc' },
       });
 
+      const priorNames = priorInRun
+        .map((r) => r.toolRequest?.requestedName)
+        .filter((n): n is string => !!n);
+
+      // Reject repeated requests for the same normalizedName within one run —
+      // the acceptance criteria require a rate-limit-style error when the
+      // agent re-submits the same name without waiting for a different run.
+      if (priorNames.includes(normalizedName)) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text:
+                `ERROR: "${normalizedName}" was already requested in this analysis run. ` +
+                `Existing requests this run: [${priorNames.join(', ')}]. ` +
+                `Either continue analysis with existing tools or request a different missing capability.`,
+            },
+          ],
+        };
+      }
+
       if (priorInRun.length >= limit) {
-        const names = priorInRun
-          .map((r) => r.toolRequest?.requestedName)
-          .filter((n): n is string => !!n);
         return {
           isError: true,
           content: [
@@ -104,27 +138,15 @@ export function registerRequestToolTool(server: McpServer, { db }: ServerDeps): 
               type: 'text',
               text:
                 `ERROR: request_tool rate limit reached for this analysis run (limit=${limit}). ` +
-                `Already requested in this run: [${names.join(', ')}]. ` +
+                `Already requested in this run: [${priorNames.join(', ')}]. ` +
                 `Focus on the current question with existing tools, or stop and summarize findings.`,
             },
           ],
         };
       }
 
-      let normalizedName: string;
-      try {
-        normalizedName = normalizeRequestedName(params.requestedName);
-      } catch (err) {
-        return {
-          isError: true,
-          content: [
-            { type: 'text', text: `ERROR: ${(err as Error).message}` },
-          ],
-        };
-      }
-
       const result = await registerToolRequest(db, {
-        clientId: params.clientId,
+        clientId,
         ticketId: params.ticketId,
         requestedName: params.requestedName,
         displayTitle: params.displayTitle,
