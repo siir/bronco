@@ -168,7 +168,9 @@ interface ConvTreeNode {
           @if (t.knowledgeDoc || editingKnowledgeDoc()) {
             <app-tab label="Knowledge">
               <app-ticket-detail-knowledge
+                [ticketId]="t.id"
                 [knowledgeDoc]="t.knowledgeDoc ?? null"
+                [sectionMeta]="t.knowledgeDocSectionMeta ?? null"
                 [editing]="editingKnowledgeDoc()"
                 (startEdit)="editingKnowledgeDoc.set(true)"
                 (cancelEdit)="editingKnowledgeDoc.set(false)"
