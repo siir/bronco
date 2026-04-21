@@ -10,6 +10,7 @@ import type {
   AIToolUseBlock,
 } from '@bronco/shared-types';
 import {
+  buildRepoNudgeSnippet,
   buildTruncatedPreview,
   executeAgenticToolCall,
   getToolResultMaxTokens,
@@ -20,6 +21,7 @@ import {
   REQUEST_NEW_TOOL_SNIPPET,
   SUFFICIENCY_EVAL_INSTRUCTIONS,
   TRUNCATION_SYSTEM_PROMPT_SNIPPET,
+  type AgenticRepoInfo,
   type AnalysisDeps,
   type AnalysisPipelineContext,
   type AnalysisResult,
@@ -37,6 +39,7 @@ export interface AgenticToolContext {
   tools: AIToolDefinition[];
   mcpIntegrations: Map<string, McpIntegrationInfo>;
   repoIdByPrefix: Map<string, string>;
+  repos: AgenticRepoInfo[];
 }
 
 /**
@@ -54,7 +57,7 @@ export async function runFlatAnalysis(
   const { db, ai, appLog, artifactStoragePath } = deps;
   const { ticketId, clientId, category, priority, emailSubject, emailBody, clientContext, environmentContext, codeContext, dbContext, facts, summary } = ctx;
   const { maxIterations, reanalysisCtx } = opts;
-  const { tools: agenticTools, mcpIntegrations, repoIdByPrefix } = tools;
+  const { tools: agenticTools, mcpIntegrations, repoIdByPrefix, repos: clientRepos } = tools;
 
   const stepConfig = step.config as { systemPromptOverride?: string } | null;
 
@@ -115,6 +118,8 @@ export async function runFlatAnalysis(
   systemParts.push(TRUNCATION_SYSTEM_PROMPT_SNIPPET);
   systemParts.push(PREFER_EXISTING_TOOLS_SNIPPET);
   systemParts.push(REQUEST_NEW_TOOL_SNIPPET);
+  const repoNudge = buildRepoNudgeSnippet(clientRepos);
+  if (repoNudge) systemParts.push(repoNudge);
 
   const agenticSystemPrompt = systemParts.join('\n');
 

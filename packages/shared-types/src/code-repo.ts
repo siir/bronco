@@ -45,6 +45,8 @@ export interface CodeRepo {
   repoUrl: string;
   defaultBranch: string;
   branchPrefix: string;
+  description: string | null;
+  fileExtensions: string[];
   environmentId: string | null;
   isActive: boolean;
   createdAt: Date;

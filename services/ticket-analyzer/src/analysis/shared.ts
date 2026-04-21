@@ -171,6 +171,38 @@ export const TRUNCATION_SYSTEM_PROMPT_SNIPPET = [
 ].join('\n');
 
 /**
+ * Canonical file extensions considered "code" when pre-gathering repo context
+ * and when the MCP search_code tool is called without explicit extensions and
+ * the repo has no per-repo override configured.
+ */
+export const DEFAULT_REPO_FILE_EXTENSIONS = [
+  '.cs', '.sql', '.ts', '.tsx', '.js', '.jsx',
+  '.cshtml', '.razor', '.aspx', '.xml', '.config',
+  '.json', '.yaml', '.yml', '.md', '.py', '.go',
+  '.java', '.rb', '.rs', '.php',
+] as const;
+
+/**
+ * Compose a short system-prompt snippet that nudges the agent toward the
+ * per-repo `search_code` / `read_file` tools when the client has active
+ * repositories. Returns empty string when there are no repos, so callers can
+ * unconditionally append.
+ */
+export function buildRepoNudgeSnippet(repos: Array<{ name: string; description?: string | null }>): string {
+  if (repos.length === 0) return '';
+  const names = repos.map(r => r.name).join(', ');
+  const plural = repos.length === 1 ? 'repository' : 'repositories';
+  return [
+    '',
+    `This client has ${repos.length} code ${plural} registered (${names}).`,
+    'When investigating object definitions, code behavior, configuration, or "where is X',
+    'defined / used," prefer the `<repo>__search_code` and `<repo>__read_file` tools over',
+    'database queries. Only use `run_custom_query` to inspect database objects when the',
+    'repo lookup returns nothing.',
+  ].join('\n');
+}
+
+/**
  * Nudges the agent to scan the available tool list before falling back to
  * generic tools like `run_custom_query`. Pairs with REQUEST_NEW_TOOL_SNIPPET
  * so gaps get surfaced as tool requests rather than silently improvised.
@@ -224,6 +256,13 @@ export interface McpIntegrationInfo {
  * and code repositories (via mcp-repo). MCP tool names are prefixed with the
  * integration label to disambiguate across servers (e.g. `prod-db__get_blocking_tree`).
  */
+export interface AgenticRepoInfo {
+  id: string;
+  name: string;
+  description: string | null;
+  prefix: string;
+}
+
 export async function buildAgenticTools(
   db: PrismaClient,
   clientId: string,
@@ -236,10 +275,12 @@ export async function buildAgenticTools(
   tools: AIToolDefinition[];
   mcpIntegrations: Map<string, McpIntegrationInfo>;
   repoIdByPrefix: Map<string, string>;
+  repos: AgenticRepoInfo[];
 }> {
   const tools: AIToolDefinition[] = [];
   const mcpIntegrations = new Map<string, McpIntegrationInfo>();
   const repoIdByPrefix = new Map<string, string>();
+  const repoInfos: AgenticRepoInfo[] = [];
 
   // Collect MCP_DATABASE integrations
   const integrations = await db.clientIntegration.findMany({
@@ -325,18 +366,71 @@ export async function buildAgenticTools(
       },
     });
 
-    // Register per-repo repo_exec tools with repoId baked in
+    // Register per-repo tools with repoId baked in
     for (const repo of repos) {
       const prefix = `repo-${repo.name.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase()}-${repo.id.slice(0, 8)}`;
       repoIdByPrefix.set(prefix, repo.id);
+      repoInfos.push({ id: repo.id, name: repo.name, description: repo.description, prefix });
+      const repoDescription = repo.description || 'Code repository';
 
       // Register this prefix to point at mcp-repo
       mcpIntegrations.set(prefix, { label: `repo:${repo.name}`, url: mcpRepoUrl, mcpPath: '/mcp', apiKey: repoAuth, authHeader: repoAuthHeader });
 
-      // Build a modified input schema for repo_exec with repoId removed
+      // search_code — purpose-built grep
+      tools.push({
+        name: `${prefix}__search_code`,
+        description: `[${repo.name}] Search for code patterns, symbols, class names, SQL procedure definitions, configuration keys, or any text across the ${repoDescription} codebase. Prefer this over run_custom_query when looking for object definitions, code references, or configuration values — only fall back to database queries when the repo lookup returns nothing.`,
+        input_schema: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'Text or regex pattern to search for' },
+            filePattern: { type: 'string', description: 'Optional glob filter (e.g. "*.cs")' },
+            fileExtensions: { type: 'array', items: { type: 'string' }, description: 'Only include files matching these extensions' },
+            caseSensitive: { type: 'boolean', description: 'Case-sensitive match (default false)' },
+            wordBoundary: { type: 'boolean', description: 'Whole-word match (default false)' },
+            maxResults: { type: 'number', description: 'Cap on returned matches (default 100)' },
+            sessionId: { type: 'string', description: 'Session ID for worktree reuse' },
+          },
+          required: ['query'],
+        },
+      });
+
+      // read_file — purpose-built cat with paging
+      tools.push({
+        name: `${prefix}__read_file`,
+        description: `[${repo.name}] Read the contents of a specific file in the ${repoDescription} codebase. Supports offset/limit paging for large files. Use this after search_code locates a file you want to inspect.`,
+        input_schema: {
+          type: 'object',
+          properties: {
+            filePath: { type: 'string', description: 'Repo-relative path to the file' },
+            offset: { type: 'number', description: 'Character offset to start reading from (default 0)' },
+            limit: { type: 'number', description: 'Max chars to return (default 4000, max 16000)' },
+            sessionId: { type: 'string', description: 'Session ID for worktree reuse' },
+          },
+          required: ['filePath'],
+        },
+      });
+
+      // list_files — purpose-built find
+      tools.push({
+        name: `${prefix}__list_files`,
+        description: `[${repo.name}] List files in the ${repoDescription} codebase, optionally filtered by glob pattern or directory. Use this for discovery when you aren't sure what files exist.`,
+        input_schema: {
+          type: 'object',
+          properties: {
+            pattern: { type: 'string', description: 'Glob pattern to match (default "*")' },
+            directory: { type: 'string', description: 'Directory to search within (default ".")' },
+            maxResults: { type: 'number', description: 'Cap on returned paths (default 200)' },
+            sessionId: { type: 'string', description: 'Session ID for worktree reuse' },
+          },
+          required: [],
+        },
+      });
+
+      // repo_exec — escape hatch retained unchanged
       tools.push({
         name: `${prefix}__repo_exec`,
-        description: `[${repo.name}] ${repo.description || 'Code repository'}. Execute a read-only shell command in a sandboxed worktree. Allowed: grep, find, cat, head, tail, ls, tree, diff, stat. Pipes to grep/sed/awk/sort allowed.`,
+        description: `[${repo.name}] ${repoDescription}. Execute a read-only shell command in a sandboxed worktree. Allowed: grep, find, cat, head, tail, ls, tree, diff, stat. Pipes to grep/sed/awk/sort allowed.`,
         input_schema: {
           type: 'object',
           properties: {
@@ -375,7 +469,7 @@ export async function buildAgenticTools(
     },
   });
 
-  return { tools, mcpIntegrations, repoIdByPrefix };
+  return { tools, mcpIntegrations, repoIdByPrefix, repos: repoInfos };
 }
 
 /**
@@ -404,11 +498,12 @@ export async function executeAgenticToolCall(
       return { toolUseId, result: `No MCP integration found for prefix "${prefix}"`, isError: true };
     }
 
-    // For repo_exec, inject the baked-in repoId and clientId for defense-in-depth
+    // For per-repo tools, inject the baked-in repoId and clientId for defense-in-depth
     // For list_repos, inject clientId to prevent cross-client repo enumeration
     // For read_tool_result_artifact, inject ticketId as the auth scope (overwrite any agent-supplied value)
+    const PER_REPO_TOOLS = new Set(['repo_exec', 'search_code', 'read_file', 'list_files']);
     let toolInput = input;
-    if (actualToolName === 'repo_exec') {
+    if (PER_REPO_TOOLS.has(actualToolName)) {
       const repoId = repoIdByPrefix.get(prefix);
       if (repoId) {
         toolInput = { ...input, repoId, ...(clientId ? { clientId } : {}) };

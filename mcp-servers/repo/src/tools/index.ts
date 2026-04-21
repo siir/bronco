@@ -4,12 +4,21 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { PrismaClient } from '@bronco/db';
 import type { RepoManager } from '../repo-manager.js';
 import { validateCommand, executeCommand } from '../command-validator.js';
+import { registerSearchCodeTool } from './search-code.js';
+import { registerReadFileTool } from './read-file.js';
+import { registerListFilesTool } from './list-files.js';
+import { registerPrepareRepoTool } from './prepare-repo.js';
 
 export function registerAllTools(
   server: McpServer,
   deps: { db: PrismaClient; repoManager: RepoManager },
 ): void {
   const { db, repoManager } = deps;
+
+  registerSearchCodeTool(server, deps);
+  registerReadFileTool(server, deps);
+  registerListFilesTool(server, deps);
+  registerPrepareRepoTool(server, deps);
 
   server.tool(
     'repo_exec',
