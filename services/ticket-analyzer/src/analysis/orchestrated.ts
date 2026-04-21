@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { createLogger, loadKnowledgeDoc } from '@bronco/shared-utils';
+import { createLogger, loadKnowledgeDoc, withTicketLock } from '@bronco/shared-utils';
 import { TaskType } from '@bronco/shared-types';
 import type {
   AITextBlock,
@@ -487,9 +487,20 @@ export async function runOrchestratedAnalysis(
       );
     }
 
-    knowledgeDoc += `\n\n### Iteration ${i + 1}\n${plan.findings}`;
-
-    await db.ticket.update({ where: { id: ticketId }, data: { knowledgeDoc } });
+    // Append this iteration's findings under the advisory lock so concurrent
+    // kd_* tool writes from parallel sub-tasks don't race with this direct
+    // update. Re-read inside the lock to pick up any kd_* writes that landed
+    // since our last read, then apply our append to that fresh state.
+    const iterationChunk = `\n\n### Iteration ${i + 1}\n${plan.findings}`;
+    knowledgeDoc = await withTicketLock(db, ticketId, async (tx) => {
+      const current = await tx.ticket.findUnique({
+        where: { id: ticketId },
+        select: { knowledgeDoc: true },
+      });
+      const next = (current?.knowledgeDoc ?? knowledgeDoc) + iterationChunk;
+      await tx.ticket.update({ where: { id: ticketId }, data: { knowledgeDoc: next } });
+      return next;
+    });
     await writeKnowledgeDocSnapshot(db, ticketId, i + 1);
 
     appLog.info(
@@ -512,11 +523,15 @@ export async function runOrchestratedAnalysis(
         batch.map(task => executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, environmentContext, task, agenticTools, mcpIntegrations, repoIdByPrefix, { id: orchestrationId, iteration: i + 1, parentLogId: strategistLogId }, orchModelMap, toolResultMaxTokens)),
       );
 
+      // Collect this batch's appends locally, then commit them under the
+      // advisory lock with a fresh DB read so we serialize with kd_* tool
+      // writes that happened during the sub-task calls.
+      let batchAppend = '';
       for (let j = 0; j < results.length; j++) {
         const result = results[j];
         const task = batch[j];
         if (result.status === 'fulfilled') {
-          knowledgeDoc += `\n\n#### ${task.prompt}\n${result.value.content}`;
+          batchAppend += `\n\n#### ${task.prompt}\n${result.value.content}`;
           orchTotalInputTokens += result.value.inputTokens;
           orchTotalOutputTokens += result.value.outputTokens;
           orchToolCallLog.push(...result.value.toolCalls);
@@ -524,18 +539,28 @@ export async function runOrchestratedAnalysis(
           // Retry once on failure
           try {
             const retryResult = await executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, environmentContext, task, agenticTools, mcpIntegrations, repoIdByPrefix, { id: orchestrationId, iteration: i + 1, parentLogId: strategistLogId }, orchModelMap, toolResultMaxTokens);
-            knowledgeDoc += `\n\n#### ${task.prompt} (retry)\n${retryResult.content}`;
+            batchAppend += `\n\n#### ${task.prompt} (retry)\n${retryResult.content}`;
             orchTotalInputTokens += retryResult.inputTokens;
             orchTotalOutputTokens += retryResult.outputTokens;
             orchToolCallLog.push(...retryResult.toolCalls);
           } catch (retryErr) {
-            knowledgeDoc += `\n\n#### ${task.prompt}\n*Failed: ${retryErr instanceof Error ? retryErr.message : String(retryErr)}*`;
+            batchAppend += `\n\n#### ${task.prompt}\n*Failed: ${retryErr instanceof Error ? retryErr.message : String(retryErr)}*`;
             appLog.warn(`Orchestrated task failed after retry: ${task.prompt}`, { ticketId, task: task.prompt, err: retryErr }, ticketId, 'ticket');
           }
         }
       }
 
-      await db.ticket.update({ where: { id: ticketId }, data: { knowledgeDoc } });
+      if (batchAppend.length > 0) {
+        knowledgeDoc = await withTicketLock(db, ticketId, async (tx) => {
+          const current = await tx.ticket.findUnique({
+            where: { id: ticketId },
+            select: { knowledgeDoc: true },
+          });
+          const next = (current?.knowledgeDoc ?? knowledgeDoc) + batchAppend;
+          await tx.ticket.update({ where: { id: ticketId }, data: { knowledgeDoc: next } });
+          return next;
+        });
+      }
     }
   }
 
@@ -543,16 +568,26 @@ export async function runOrchestratedAnalysis(
     orchFinalAnalysis = 'Orchestrated analysis reached maximum iterations without a final conclusion. Review the knowledge document for partial findings.';
   }
 
-  // Knowledge doc: fallback-fill required sections, then compose final analysis
-  // from the agent's executive summary plus the doc's structured sections.
-  await fallbackFillRequiredSections(db, ticketId, 'orchestrated loop end');
-  const kdAfter = await loadKnowledgeDoc(db, ticketId);
-  orchFinalAnalysis = composeFinalAnalysis(
-    kdAfter?.knowledgeDoc ?? null,
-    kdAfter?.knowledgeDocSectionMeta ?? null,
-    orchFinalAnalysis,
-  );
-  await writeKnowledgeDocSnapshot(db, ticketId, orchIterationsRun);
+  // Knowledge doc: only run fallback-fill + compose + snapshot when the
+  // agent used kd_* tools during this run (detected via non-empty
+  // knowledgeDocSectionMeta). Legacy tickets and new-format tickets where
+  // the agent ignored kd_* keep their knowledgeDoc untouched — no silent
+  // migration, no override of the raw-append legacy content.
+  const kdBeforeCompose = await loadKnowledgeDoc(db, ticketId);
+  const hasSectionMeta =
+    !!kdBeforeCompose?.knowledgeDocSectionMeta
+    && typeof kdBeforeCompose.knowledgeDocSectionMeta === 'object'
+    && Object.keys(kdBeforeCompose.knowledgeDocSectionMeta as Record<string, unknown>).length > 0;
+  if (hasSectionMeta) {
+    await fallbackFillRequiredSections(db, ticketId, 'orchestrated loop end');
+    const kdAfter = await loadKnowledgeDoc(db, ticketId);
+    orchFinalAnalysis = composeFinalAnalysis(
+      kdAfter?.knowledgeDoc ?? null,
+      kdAfter?.knowledgeDocSectionMeta ?? null,
+      orchFinalAnalysis,
+    );
+    await writeKnowledgeDocSnapshot(db, ticketId, orchIterationsRun);
+  }
 
   // Parse sufficiency evaluation from the final analysis
   const { analysis: cleanOrchAnalysis, evaluation: orchSufficiency } = parseSufficiencyEvaluation(orchFinalAnalysis);

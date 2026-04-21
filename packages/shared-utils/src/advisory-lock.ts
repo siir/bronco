@@ -21,7 +21,7 @@ export async function withTicketLock<T>(
   fn: (tx: PrismaTx) => Promise<T>,
 ): Promise<T> {
   return db.$transaction(async (tx) => {
-    await tx.$executeRawUnsafe('SELECT pg_advisory_xact_lock(hashtext($1))', ticketId);
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${ticketId}))`;
     return fn(tx);
   });
 }

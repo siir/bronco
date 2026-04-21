@@ -187,7 +187,15 @@ function readMeta(raw: unknown): KnowledgeDocSectionMeta {
   return isKnowledgeDocSectionMeta(raw) ? { ...(raw as KnowledgeDocSectionMeta) } : {};
 }
 
-/** Build a TOC from `knowledgeDocSectionMeta` (sidecar); fall back to parsing the doc. */
+/**
+ * Build a TOC for the knowledge doc.
+ *
+ * Always parses `knowledgeDoc` to discover subsection titles/keys — the
+ * sidecar metadata only records per-key `length` / `updatedAt` / `updatedByRunId`,
+ * not the titles or the subsection tree shape. We prefer the sidecar for
+ * length + timestamps when both are available, so the TOC stays accurate
+ * even before the next kd_* write refreshes the parsed body.
+ */
 export function buildToc(
   knowledgeDoc: string | null,
   sectionMeta: unknown,
@@ -387,7 +395,7 @@ export async function addSubsection(
     const trimmedContent = content.trim();
     if (trimmedContent.length > KNOWLEDGE_DOC_SECTION_MAX_CHARS) {
       throw new KnowledgeDocError(
-        `ERROR: section too long (${trimmedContent.length} chars), consider kd_add_subsection under Evidence / Hypotheses / Open Questions`,
+        `ERROR: subsection too long (${trimmedContent.length} chars), split the content into multiple subsections or trim it`,
         'SECTION_TOO_LONG',
       );
     }

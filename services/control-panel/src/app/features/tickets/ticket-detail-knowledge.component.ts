@@ -1,4 +1,5 @@
-import { Component, computed, inject, input, output, signal, effect } from '@angular/core';
+import { Component, DestroyRef, computed, inject, input, output, signal, effect } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { BroncoButtonComponent, TextareaComponent, IconComponent } from '../../shared/components/index.js';
 import { MarkdownPipe } from '../../shared/pipes/markdown.pipe.js';
@@ -37,10 +38,11 @@ import { TicketService, type KnowledgeDocTocEntry } from '../../core/services/ti
               <ul class="toc-list">
                 @for (entry of toc(); track entry.sectionKey) {
                   <li>
-                    <a
+                    <button
+                      type="button"
                       class="toc-link"
                       [class.active]="entry.sectionKey === activeSectionKey()"
-                      (click)="onSelectSection(entry.sectionKey)">
+                      (click)="onSelectSection(entry.sectionKey, entry.title)">
                       <span class="toc-entry-title">{{ entry.title }}</span>
                       <span class="toc-meta">
                         <span class="toc-len">{{ entry.length }} ch</span>
@@ -48,15 +50,16 @@ import { TicketService, type KnowledgeDocTocEntry } from '../../core/services/ti
                           <span class="toc-updated">· {{ entry.lastUpdatedAt | relativeTime }}</span>
                         }
                       </span>
-                    </a>
+                    </button>
                     @if (entry.subsections && entry.subsections.length > 0) {
                       <ul class="toc-sublist">
                         @for (sub of entry.subsections; track sub.sectionKey) {
                           <li>
-                            <a
+                            <button
+                              type="button"
                               class="toc-link toc-sublink"
                               [class.active]="sub.sectionKey === activeSectionKey()"
-                              (click)="onSelectSection(sub.sectionKey)">
+                              (click)="onSelectSection(sub.sectionKey, sub.title)">
                               <span class="toc-entry-title">{{ sub.title }}</span>
                               <span class="toc-meta">
                                 <span class="toc-len">{{ sub.length }} ch</span>
@@ -64,7 +67,7 @@ import { TicketService, type KnowledgeDocTocEntry } from '../../core/services/ti
                                   <span class="toc-updated">· {{ sub.lastUpdatedAt | relativeTime }}</span>
                                 }
                               </span>
-                            </a>
+                            </button>
                           </li>
                         }
                       </ul>
@@ -163,6 +166,15 @@ import { TicketService, type KnowledgeDocTocEntry } from '../../core/services/ti
       border-radius: var(--radius-sm);
       cursor: pointer;
       color: var(--text-primary);
+      background: transparent;
+      border: none;
+      text-align: left;
+      width: 100%;
+      font-family: inherit;
+    }
+    .toc-link:focus-visible {
+      outline: 2px solid var(--accent, #0969da);
+      outline-offset: -1px;
     }
     .toc-link:hover {
       background: var(--bg-muted);
@@ -220,6 +232,7 @@ import { TicketService, type KnowledgeDocTocEntry } from '../../core/services/ti
 })
 export class TicketDetailKnowledgeComponent {
   private readonly ticketService = inject(TicketService);
+  private readonly destroyRef = inject(DestroyRef);
 
   ticketId = input<string | null>(null);
   knowledgeDoc = input<string | null>(null);
@@ -244,7 +257,12 @@ export class TicketDetailKnowledgeComponent {
   });
 
   constructor() {
-    effect(() => {
+    // Re-fetch the TOC whenever ticketId / sectionMeta presence changes. Each
+    // fetch is scoped with takeUntilDestroyed so previous in-flight requests
+    // can't leak beyond component teardown, and onCleanup tracks the active
+    // subscription so effect re-runs cancel their prior fetch rather than
+    // stacking multiple concurrent requests.
+    effect((onCleanup) => {
       const id = this.ticketId();
       const hasMeta = this.showToc();
       if (!id || !hasMeta) {
@@ -252,16 +270,20 @@ export class TicketDetailKnowledgeComponent {
         return;
       }
       this.tocLoading.set(true);
-      this.ticketService.getKnowledgeDocToc(id).subscribe({
-        next: (entries) => {
-          this.toc.set(entries);
-          this.tocLoading.set(false);
-        },
-        error: () => {
-          this.toc.set([]);
-          this.tocLoading.set(false);
-        },
-      });
+      const sub = this.ticketService
+        .getKnowledgeDocToc(id)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: (entries) => {
+            this.toc.set(entries);
+            this.tocLoading.set(false);
+          },
+          error: () => {
+            this.toc.set([]);
+            this.tocLoading.set(false);
+          },
+        });
+      onCleanup(() => sub.unsubscribe());
     });
   }
 
@@ -283,20 +305,30 @@ export class TicketDetailKnowledgeComponent {
     this.clear.emit();
   }
 
-  onSelectSection(sectionKey: string): void {
+  onSelectSection(sectionKey: string, title?: string): void {
     this.activeSectionKey.set(sectionKey);
-    // Best-effort in-page scroll to a rendered heading matching the slug.
-    const slug = sectionKey.split('.').pop() ?? sectionKey;
+    // Best-effort in-page scroll to a rendered heading. The markdown body
+    // uses heading text slugs (e.g. "Problem Statement" → "problem-statement"),
+    // not the templated section keys (`problemStatement`), so match on the
+    // TOC entry's title. Falls back to the last `.`-delimited slug if no
+    // title was provided (e.g. subsection keys already carry a kebab slug).
+    const raw = title ?? this.toc().find((e) => e.sectionKey === sectionKey)?.title
+      ?? (sectionKey.includes('.') ? (sectionKey.split('.').pop() ?? sectionKey) : sectionKey);
+    const slug = this.slugifyHeading(raw);
     const headings = document.querySelectorAll<HTMLElement>('.knowledge-body h2, .knowledge-body h3');
     for (const h of Array.from(headings)) {
-      const hSlug = (h.textContent ?? '')
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '');
+      const hSlug = this.slugifyHeading(h.textContent ?? '');
       if (hSlug === slug) {
         h.scrollIntoView({ behavior: 'smooth', block: 'start' });
         return;
       }
     }
+  }
+
+  private slugifyHeading(value: string): string {
+    return value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
   }
 }

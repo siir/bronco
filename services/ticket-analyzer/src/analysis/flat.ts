@@ -276,16 +276,27 @@ export async function runFlatAnalysis(
     finalAnalysis = 'Agentic analysis reached maximum iterations without a final conclusion. Review the tool call log for partial findings.';
   }
 
-  // Knowledge doc: fallback-fill required sections, then compose final analysis
-  // from the agent's executive summary plus the doc's structured sections.
-  await fallbackFillRequiredSections(db, ticketId, 'flat loop end');
-  const kdAfter = await loadKnowledgeDoc(db, ticketId);
-  finalAnalysis = composeFinalAnalysis(
-    kdAfter?.knowledgeDoc ?? null,
-    kdAfter?.knowledgeDocSectionMeta ?? null,
-    finalAnalysis,
-  );
-  await writeKnowledgeDocSnapshot(db, ticketId, iterationsRun);
+  // Knowledge doc: only run the fallback-fill + compose + snapshot pipeline
+  // when the agent actually wrote to the new-format doc during this run.
+  // `knowledgeDocSectionMeta` is populated by every kd_update_section /
+  // kd_add_subsection call, so its presence is the signal that kd_* was
+  // used. Legacy tickets (and new tickets where the agent ignored kd_*)
+  // keep their existing `knowledgeDoc` untouched — zero silent migration.
+  const kdBeforeCompose = await loadKnowledgeDoc(db, ticketId);
+  const hasSectionMeta =
+    !!kdBeforeCompose?.knowledgeDocSectionMeta
+    && typeof kdBeforeCompose.knowledgeDocSectionMeta === 'object'
+    && Object.keys(kdBeforeCompose.knowledgeDocSectionMeta as Record<string, unknown>).length > 0;
+  if (hasSectionMeta) {
+    await fallbackFillRequiredSections(db, ticketId, 'flat loop end');
+    const kdAfter = await loadKnowledgeDoc(db, ticketId);
+    finalAnalysis = composeFinalAnalysis(
+      kdAfter?.knowledgeDoc ?? null,
+      kdAfter?.knowledgeDocSectionMeta ?? null,
+      finalAnalysis,
+    );
+    await writeKnowledgeDocSnapshot(db, ticketId, iterationsRun);
+  }
 
   // Parse sufficiency evaluation from the analysis response
   const { analysis: cleanAnalysis, evaluation: sufficiency } = parseSufficiencyEvaluation(finalAnalysis);
