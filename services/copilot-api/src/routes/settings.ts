@@ -43,6 +43,7 @@ const SETTINGS_KEY_PROMPT_RETENTION = 'system-config-prompt-retention';
 const SETTINGS_KEY_ACTION_SAFETY = 'system-config-action-safety';
 const SETTINGS_KEY_ANALYSIS_STRATEGY = 'system-config-analysis-strategy';
 const SETTINGS_KEY_SELF_ANALYSIS = 'self_analysis_config';
+const SETTINGS_KEY_TOOL_REQUEST_RATE_LIMIT = 'tool-request-rate-limit-per-run';
 
 const REDACTED = '••••••••';
 
@@ -881,6 +882,46 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
       });
 
       return row.value as unknown as { fullRetentionDays: number; summaryRetentionDays: number };
+    },
+  );
+
+  // ─── Tool Request Rate Limit ───
+
+  const toolRequestRateLimitSchema = z.object({
+    limit: z.number().int().min(1).max(100).default(5),
+  });
+
+  const DEFAULT_TOOL_REQUEST_RATE_LIMIT = { limit: 5 };
+
+  // GET /api/settings/tool-request-rate-limit — max `request_tool` calls per analysis run
+  fastify.get('/api/settings/tool-request-rate-limit', async () => {
+    const row = await fastify.db.appSetting.findUnique({
+      where: { key: SETTINGS_KEY_TOOL_REQUEST_RATE_LIMIT },
+    });
+    if (!row) return DEFAULT_TOOL_REQUEST_RATE_LIMIT;
+    const parsed = toolRequestRateLimitSchema.safeParse(row.value);
+    return parsed.success ? parsed.data : DEFAULT_TOOL_REQUEST_RATE_LIMIT;
+  });
+
+  // PUT /api/settings/tool-request-rate-limit — update limit
+  fastify.put<{ Body: { limit?: number } }>(
+    '/api/settings/tool-request-rate-limit',
+    async (request) => {
+      const parsed = toolRequestRateLimitSchema.safeParse(request.body);
+      if (!parsed.success) {
+        const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+        return fastify.httpErrors.badRequest(`Invalid tool request rate limit: ${issues}`);
+      }
+
+      const config = parsed.data;
+
+      const row = await fastify.db.appSetting.upsert({
+        where: { key: SETTINGS_KEY_TOOL_REQUEST_RATE_LIMIT },
+        update: { value: config as unknown as object },
+        create: { key: SETTINGS_KEY_TOOL_REQUEST_RATE_LIMIT, value: config as unknown as object },
+      });
+
+      return row.value as unknown as { limit: number };
     },
   );
 

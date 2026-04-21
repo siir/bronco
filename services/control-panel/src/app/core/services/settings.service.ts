@@ -134,6 +134,10 @@ export interface PromptRetentionConfig {
   summaryRetentionDays: number;
 }
 
+export interface ToolRequestRateLimitConfig {
+  limit: number;
+}
+
 export interface ActionSafetyConfig {
   actions: Record<string, 'auto' | 'approval'>;
 }
@@ -268,6 +272,14 @@ export class SettingsService {
   }
   savePromptRetention(config: PromptRetentionConfig): Observable<PromptRetentionConfig> {
     return this.api.put<PromptRetentionConfig>('/settings/prompt-retention', config);
+  }
+
+  // --- Tool Request Rate Limit ---
+  getToolRequestRateLimit(): Observable<ToolRequestRateLimitConfig> {
+    return this.api.get<ToolRequestRateLimitConfig>('/settings/tool-request-rate-limit');
+  }
+  saveToolRequestRateLimit(config: ToolRequestRateLimitConfig): Observable<ToolRequestRateLimitConfig> {
+    return this.api.put<ToolRequestRateLimitConfig>('/settings/tool-request-rate-limit', config);
   }
 
   // --- Action Safety ---

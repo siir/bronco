@@ -48,6 +48,7 @@ import { operatorRoutes } from './operators.js';
 import { notificationPreferenceRoutes } from './notification-preferences.js';
 import { pendingActionRoutes } from './pending-actions.js';
 import { slackConversationRoutes } from './slack-conversations.js';
+import { toolRequestRoutes } from './tool-requests.js';
 
 interface RouteOpts {
   config: Config;
@@ -132,5 +133,15 @@ export async function registerRoutes(fastify: FastifyInstance, opts: RouteOpts):
     await scoped.register(operatorRoutes);
     await scoped.register(notificationPreferenceRoutes);
     await scoped.register(slackConversationRoutes);
+  });
+
+  // Admin-only routes — restricted to platform ADMIN operators. Client-scoped
+  // operators and STANDARD operators are rejected.
+  const adminOnlyGuard = requireRole(OperatorRole.ADMIN);
+
+  await fastify.register(async (scoped) => {
+    scoped.addHook('preHandler', adminOnlyGuard);
+
+    await scoped.register(toolRequestRoutes);
   });
 }
