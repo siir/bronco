@@ -116,18 +116,75 @@ export function deriveRunMeta(
   const model = typeof meta['aiModel'] === 'string' ? meta['aiModel'] as string : null;
   const models = model ? [model] : [];
 
-  // Tool + sub-task counts from unified logs joined by the AI_ANALYSIS's `parentLogId` lineage.
-  // We approximate: any tool-type entry within 2 minutes of the event contributes.
+  // Tool + sub-task counts derived from the run's unified-log lineage via
+  // `parentLogId`. We first look for root logs tied to this AI_ANALYSIS event
+  // (either via log.parentLogId === event.id or an explicit eventId reference
+  // in context / conversationMetadata), then walk the parentLogId tree
+  // breadth-first. When no lineage roots are identifiable — older tickets
+  // that predate the lineage wiring — we fall back to the historical ±2
+  // minute timestamp window so counts aren't silently zero.
+  const readString = (value: unknown): string | null =>
+    typeof value === 'string' ? value : null;
+  const getParentLogId = (log: UnifiedLogEntry): string | null =>
+    readString((log as unknown as Record<string, unknown>)['parentLogId']);
+  const isEventRootLog = (log: UnifiedLogEntry): boolean => {
+    const rawLog = log as unknown as Record<string, unknown>;
+    if (readString(rawLog['parentLogId']) === event.id) return true;
+    if (readString(rawLog['eventId']) === event.id) return true;
+
+    const context = (log.context ?? {}) as Record<string, unknown>;
+    if (readString(context['eventId']) === event.id) return true;
+    if (readString(context['ticketEventId']) === event.id) return true;
+
+    const conversationMetadata = (log.conversationMetadata ?? {}) as Record<string, unknown>;
+    if (readString(conversationMetadata['eventId']) === event.id) return true;
+    if (readString(conversationMetadata['ticketEventId']) === event.id) return true;
+
+    return false;
+  };
+
   const eventTime = new Date(event.createdAt).getTime();
   const WINDOW_MS = 2 * 60 * 1000;
-  const nearLogs = logs.filter((l) => {
-    const t = new Date(l.timestamp).getTime();
-    return Math.abs(t - eventTime) <= WINDOW_MS;
-  });
+  const lineageRoots = logs.filter((l) => isEventRootLog(l));
+
+  let runLogs: UnifiedLogEntry[];
+  if (lineageRoots.length > 0) {
+    const childLogsByParentId = new Map<string, UnifiedLogEntry[]>();
+    for (const log of logs) {
+      const parentLogId = getParentLogId(log);
+      if (!parentLogId) continue;
+      const children = childLogsByParentId.get(parentLogId);
+      if (children) {
+        children.push(log);
+      } else {
+        childLogsByParentId.set(parentLogId, [log]);
+      }
+    }
+
+    const visited = new Set<string>();
+    const queue: UnifiedLogEntry[] = [...lineageRoots];
+    const collected: UnifiedLogEntry[] = [];
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (!current || visited.has(current.id)) continue;
+      visited.add(current.id);
+      collected.push(current);
+      const children = childLogsByParentId.get(current.id) ?? [];
+      for (const child of children) {
+        if (!visited.has(child.id)) queue.push(child);
+      }
+    }
+    runLogs = collected;
+  } else {
+    runLogs = logs.filter((l) => {
+      const t = new Date(l.timestamp).getTime();
+      return Math.abs(t - eventTime) <= WINDOW_MS;
+    });
+  }
 
   const tools: ChatRunToolSummary[] = [];
   let subTaskCount = 0;
-  for (const l of nearLogs) {
+  for (const l of runLogs) {
     if (l.type === 'tool') {
       const ctx = (l.context ?? {}) as Record<string, unknown>;
       tools.push({

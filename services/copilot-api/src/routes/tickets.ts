@@ -655,12 +655,19 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     }
   }
 
+  /**
+   * Enqueue a chat-driven re-analysis job. Throws when the analysis queue is
+   * unavailable so callers can return a 503 rather than silently reporting
+   * success with a null jobId.
+   */
   async function enqueueChatReanalysis(
     ticketId: string,
     triggerEventId: string,
     mode: ReanalysisMode,
-  ): Promise<string | null> {
-    if (!opts?.ticketAnalysisQueue) return null;
+  ): Promise<string> {
+    if (!opts?.ticketAnalysisQueue) {
+      throw new Error('ticketAnalysisQueue is not configured');
+    }
     const jobId = `chat-reanalysis-${ticketId}-${triggerEventId}`;
     const existing = await opts.ticketAnalysisQueue.getJob(jobId);
     if (existing) {
@@ -707,6 +714,15 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
       modeOverride = request.body.modeOverride as ChatMode;
     }
 
+    // Fail fast when the analysis queue isn't configured — any branch that
+    // would enqueue will hit this, and skipping branches don't need the queue.
+    const willEnqueue = modeOverride !== undefined
+      ? modeOverride !== 'not_a_question'
+      : true; // classifier path may enqueue depending on result
+    if (willEnqueue && !opts?.ticketAnalysisQueue) {
+      return fastify.httpErrors.serviceUnavailable('Ticket analysis queue not available');
+    }
+
     const operatorPersonId = request.user?.personId;
     const chatEvent = await fastify.db.ticketEvent.create({
       data: {
@@ -749,8 +765,22 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
       }
     }
 
+    // Persist the classifier result onto the CHAT_MESSAGE event so the Chat tab
+    // can re-render the mode picker across page reloads.
+    const existingMeta = (chatEvent.metadata as Record<string, unknown> | null) ?? {};
+    const needsModePick = classifiedIntent.confidence < CHAT_CONFIDENCE_THRESHOLD;
+    const persistedMeta: Record<string, unknown> = {
+      ...existingMeta,
+      classifiedIntent: { label: classifiedIntent.label, confidence: classifiedIntent.confidence },
+    };
+    if (needsModePick) persistedMeta['needsModePick'] = true;
+    await fastify.db.ticketEvent.update({
+      where: { id: chatEvent.id },
+      data: { metadata: persistedMeta as Prisma.InputJsonValue },
+    });
+
     // Low confidence → ask operator
-    if (classifiedIntent.confidence < CHAT_CONFIDENCE_THRESHOLD) {
+    if (needsModePick) {
       reply.code(202);
       return {
         decision: 'needs_mode_pick',
@@ -806,10 +836,19 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     }
     const mode = modeRaw as ChatMode;
 
+    // Any mode other than 'not_a_question' will enqueue — guard queue availability up front.
+    if (mode !== 'not_a_question' && !opts?.ticketAnalysisQueue) {
+      return fastify.httpErrors.serviceUnavailable('Ticket analysis queue not available');
+    }
+
+    // Preserve existing metadata (classifiedIntent, source, etc.) while
+    // stamping the operator's pick and clearing the needsModePick flag —
+    // the UI uses the absence of needsModePick to hide the picker.
     const existingMeta = (event.metadata as Record<string, unknown> | null) ?? {};
+    const { needsModePick: _omit, ...preservedMeta } = existingMeta;
     await fastify.db.ticketEvent.update({
       where: { id: event.id },
-      data: { metadata: { ...existingMeta, pickedMode: mode } as Prisma.InputJsonValue },
+      data: { metadata: { ...preservedMeta, pickedMode: mode } as Prisma.InputJsonValue },
     });
 
     if (mode === 'not_a_question') {

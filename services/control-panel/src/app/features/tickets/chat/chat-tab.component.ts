@@ -5,6 +5,7 @@ import {
   ElementRef,
   OnInit,
   computed,
+  effect,
   inject,
   input,
   output,
@@ -434,6 +435,28 @@ export class ChatTabComponent implements OnInit, AfterViewChecked {
 
     return nodes;
   });
+
+  constructor() {
+    // Clear the "Analyzing…" placeholder once the corresponding run lands.
+    // Watches runs(); when a run arrives whose timestamp is newer than the
+    // most recent placeholder's, we remove the placeholder and drop the id.
+    effect(() => {
+      const placeholderId = this.analyzingPlaceholderId();
+      if (!placeholderId) return;
+      const placeholder = this.optimisticItems().find((it) => it.id === placeholderId);
+      if (!placeholder) {
+        // Someone else already removed it — just clear the tracked id.
+        this.analyzingPlaceholderId.set(null);
+        return;
+      }
+      const placeholderTs = new Date(placeholder.timestamp).getTime();
+      const latestRun = this.runs().at(-1);
+      if (latestRun && new Date(latestRun.timestamp).getTime() > placeholderTs) {
+        this.optimisticItems.update((items) => items.filter((it) => it.id !== placeholderId));
+        this.analyzingPlaceholderId.set(null);
+      }
+    });
+  }
 
   ngOnInit(): void {
     this.loadUnifiedLogs();

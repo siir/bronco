@@ -31,6 +31,7 @@ export interface ChatReplySubmit {
         <app-select
           [value]="selectedMode()"
           [options]="modeOptions"
+          [disabled]="disabled()"
           (valueChange)="selectedMode.set($any($event))" />
       </app-form-field>
 
@@ -39,6 +40,7 @@ export interface ChatReplySubmit {
         placeholder="Reply to this ticket — ask a follow-up, request a refinement, or start fresh"
         rows="3"
         [value]="text()"
+        [disabled]="disabled()"
         (input)="text.set($any($event.target).value)"
         (keydown)="onKeydown($event)"></textarea>
 

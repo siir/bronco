@@ -3279,7 +3279,7 @@ async function loadConversationHistory(
   return db.ticketEvent.findMany({
     where: {
       ticketId,
-      eventType: { in: ['AI_ANALYSIS', 'COMMENT', 'EMAIL_OUTBOUND', 'AI_RECOMMENDATION', 'EMAIL_INBOUND'] },
+      eventType: { in: ['AI_ANALYSIS', 'COMMENT', 'EMAIL_OUTBOUND', 'AI_RECOMMENDATION', 'EMAIL_INBOUND', 'CHAT_MESSAGE'] },
     },
     orderBy: { createdAt: 'asc' },
     select: { eventType: true, content: true, metadata: true, actor: true, createdAt: true },
@@ -3301,6 +3301,7 @@ function formatConversationHistory(
         : e.eventType === 'AI_RECOMMENDATION' ? 'AI Recommendation'
         : e.eventType === 'EMAIL_OUTBOUND' ? 'Outbound Email'
         : e.eventType === 'EMAIL_INBOUND' ? 'Inbound Email'
+        : e.eventType === 'CHAT_MESSAGE' ? 'Operator Chat Reply'
         : e.eventType === 'COMMENT' ? 'Reply'
         : e.eventType;
     const content = (e.content ?? '').slice(0, 3000);
@@ -3398,10 +3399,10 @@ export function createAnalysisProcessor(deps: AnalyzerDeps) {
           });
           triggerReplyText = triggerEvent?.content ?? '';
         }
-        // If no trigger event found, use the most recent inbound email/comment
+        // If no trigger event found, use the most recent inbound email, comment, or chat message
         if (!triggerReplyText) {
           const latestReply = conversationHistory
-            .filter((e) => e.eventType === 'EMAIL_INBOUND' || e.eventType === 'COMMENT')
+            .filter((e) => e.eventType === 'EMAIL_INBOUND' || e.eventType === 'COMMENT' || e.eventType === 'CHAT_MESSAGE')
             .pop();
           triggerReplyText = latestReply?.content ?? '';
         }
