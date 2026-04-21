@@ -8,6 +8,7 @@ import type {
 } from '@bronco/shared-types';
 import {
   buildArtifactCatalog,
+  buildRepoNudgeSnippet,
   buildTruncatedPreview,
   chunkArray,
   executeAgenticToolCall,
@@ -343,7 +344,7 @@ export async function runOrchestratedAnalysis(
   const { maxIterations: orchMaxIterations, existingKnowledgeDoc, reanalysisCtx } = opts;
   const reanalysisMode = reanalysisCtx?.mode ?? ReanalysisMode.CONTINUE;
   const isReanalysis = !!reanalysisCtx && reanalysisMode !== ReanalysisMode.FRESH_START;
-  const { tools: agenticTools, mcpIntegrations, repoIdByPrefix } = tools;
+  const { tools: agenticTools, mcpIntegrations, repoIdByPrefix, repos: clientRepos } = tools;
 
   const defaultMaxTokens = await deps.loadDefaultMaxTokens?.() ?? undefined;
   const toolResultMaxTokens = await getToolResultMaxTokens(db);
@@ -463,7 +464,7 @@ export async function runOrchestratedAnalysis(
       taskType: (step.taskTypeOverride ?? TaskType.DEEP_ANALYSIS) as TaskType,
       context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!clientContext, orchestrationId, orchestrationIteration: i + 1, logId: strategistLogId },
       prompt: strategistPrompt,
-      systemPrompt: `${ORCHESTRATED_SYSTEM_PROMPT}\n${TRUNCATION_SYSTEM_PROMPT_SNIPPET}\n${PREFER_EXISTING_TOOLS_SNIPPET}\n${REQUEST_NEW_TOOL_SNIPPET}`,
+      systemPrompt: `${ORCHESTRATED_SYSTEM_PROMPT}\n${TRUNCATION_SYSTEM_PROMPT_SNIPPET}\n${PREFER_EXISTING_TOOLS_SNIPPET}\n${REQUEST_NEW_TOOL_SNIPPET}${buildRepoNudgeSnippet(clientRepos)}`,
       providerOverride: 'CLAUDE',
       modelOverride: 'claude-opus-4-6',
       maxTokens: defaultMaxTokens ?? 4096,

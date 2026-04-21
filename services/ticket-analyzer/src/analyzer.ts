@@ -14,6 +14,7 @@ import { executeRecommendations } from './recommendation-executor.js';
 import type { ParsedAction } from './recommendation-executor.js';
 import {
   buildAgenticTools,
+  DEFAULT_REPO_FILE_EXTENSIONS,
   parseSufficiencyEvaluation,
   resolveAnalysisStrategy,
   SUFFICIENCY_EVAL_INSTRUCTIONS,
@@ -1865,13 +1866,54 @@ async function executeRoutePipeline(
         const repoAuth = deps.mcpAuthToken || deps.apiKey;
         const repoAuthHeader = deps.mcpAuthToken ? 'bearer' : 'x-api-key';
 
+        // Pre-pull all repos in parallel so the per-repo search loop doesn't
+        // block serially on cold clones.
+        const prePullResults = await Promise.allSettled(
+          clientRepos.map(r =>
+            callMcpToolViaSdk(mcpRepoUrl, '/mcp', 'prepare_repo', { repoId: r.id }, repoAuth, repoAuthHeader),
+          ),
+        );
+        const prePullSucceeded = prePullResults.filter(r => r.status === 'fulfilled').length;
+        const prePullFailed = prePullResults.length - prePullSucceeded;
+        prePullResults.forEach((r, idx) => {
+          if (r.status === 'rejected') {
+            const repoName = clientRepos[idx]?.name ?? '(unknown)';
+            const errMsg = redactUrls(r.reason instanceof Error ? r.reason.message : String(r.reason));
+            appLog.warn(
+              `prepare_repo failed for ${repoName}: ${errMsg}`,
+              { ticketId, repo: repoName, err: r.reason },
+              ticketId, 'ticket',
+            );
+          }
+        });
+
+        let grepErrors = 0;
+        let grepNoMatch = 0;
+
         for (const repo of clientRepos) {
           try {
-            const searchTerms = [
+            // Start with extracted-fact search terms, capped at 10.
+            let searchTerms = [
               ...(facts.keywords ?? []),
               ...(facts.filesMentioned ?? []),
               ...(facts.errorMessages?.map((e) => e.slice(0, 60)) ?? []),
-            ].slice(0, 5);
+            ].slice(0, 10);
+
+            // If we have fewer than 3 usable terms, back-fill from the email
+            // subject — split on whitespace, drop tokens < 3 chars or
+            // punctuation-only, take up to 5 extra terms.
+            if (searchTerms.length < 3) {
+              const subjectTokens = (emailSubject || '')
+                .split(/\s+/)
+                .map(t => t.trim())
+                .filter(t => t.length >= 3 && /[A-Za-z0-9]/.test(t))
+                .slice(0, 5);
+              searchTerms = [...searchTerms, ...subjectTokens].slice(0, 10);
+            }
+
+            const exts = (repo.fileExtensions && repo.fileExtensions.length > 0)
+              ? repo.fileExtensions
+              : [...DEFAULT_REPO_FILE_EXTENSIONS];
 
             const relevantFiles = new Set<string>();
             for (const rawTerm of searchTerms) {
@@ -1880,18 +1922,27 @@ async function executeRoutePipeline(
               try {
                 const grepResult = await callMcpToolViaSdk(
                   mcpRepoUrl, '/mcp', 'repo_exec',
-                  { repoId: repo.id, sessionId: gatherSessionId, clientId: ticket.clientId, command: `grep -rnil "${sanitized.replace(/"/g, '\\"')}" .` },
+                  { repoId: repo.id, sessionId: gatherSessionId, clientId: ticket.clientId, command: `grep -rnilI "${sanitized.replace(/"/g, '\\"')}" .` },
                   repoAuth, repoAuthHeader,
                 );
                 // Parse file paths from stdout (skip the [session:...] line)
-                const exts = ['.sql', '.cs', '.ts'];
+                let matchedAny = false;
                 for (const line of grepResult.split('\n')) {
                   const trimmed = line.trim();
                   if (trimmed && !trimmed.startsWith('[session:') && !trimmed.startsWith('[stderr]') && exts.some(e => trimmed.endsWith(e))) {
                     relevantFiles.add(trimmed);
+                    matchedAny = true;
                   }
                 }
-              } catch { /* grep found nothing */ }
+                if (!matchedAny) grepNoMatch++;
+              } catch (err) {
+                grepErrors++;
+                appLog.warn(
+                  `search_code pre-gather failed for ${repo.name}:${rawTerm}: ${err instanceof Error ? err.message : String(err)}`,
+                  { ticketId, repo: repo.name, term: rawTerm },
+                  ticketId, 'ticket',
+                );
+              }
             }
             for (const f of facts.filesMentioned ?? []) {
               relevantFiles.add(f);
@@ -1933,11 +1984,31 @@ async function executeRoutePipeline(
           await callMcpToolViaSdk(mcpRepoUrl, '/mcp', 'repo_cleanup', { sessionId: gatherSessionId }, repoAuth, repoAuthHeader);
         } catch { /* best effort */ }
 
+        // If pre-gather produced nothing but we know repos exist and something
+        // failed, surface a notice so downstream analysis still nudges the
+        // agent to hit the per-repo tools directly.
+        if (codeContext.length === 0 && (grepErrors > 0 || prePullFailed > 0)) {
+          const repoList = clientRepos.map(r => r.name).join(', ');
+          const plural = clientRepos.length === 1 ? 'repository' : 'repositories';
+          codeContext.push(
+            `## Repository Status Notice\n\n${clientRepos.length} ${plural} registered for this client (${repoList}) but pre-search could not reach them this run. Use the \`<repo>__search_code\` and \`<repo>__read_file\` tools directly — the code is available, only the pre-gather failed.`,
+          );
+        }
+
         {
           const stepDuration = Date.now() - stepStart;
           appLog.info(
             `Repo context gathered: ${clientRepos.length} repos checked, ${codeContext.length} with results (${(stepDuration / 1000).toFixed(1)}s)`,
-            { ticketId, reposChecked: clientRepos.length, reposWithResults: codeContext.length, durationMs: stepDuration },
+            {
+              ticketId,
+              reposChecked: clientRepos.length,
+              reposWithResults: codeContext.length,
+              prePullSucceeded,
+              prePullFailed,
+              grepErrors,
+              grepNoMatch,
+              durationMs: stepDuration,
+            },
             ticketId, 'ticket',
           );
         }
@@ -2073,7 +2144,7 @@ async function executeRoutePipeline(
         }
 
         // Build tool definitions from MCP integrations and mcp-repo
-        const { tools: agenticTools, mcpIntegrations, repoIdByPrefix } = await buildAgenticTools(
+        const { tools: agenticTools, mcpIntegrations, repoIdByPrefix, repos: agenticRepos } = await buildAgenticTools(
           db, ticket.clientId, deps.encryptionKey, deps.mcpRepoUrl, deps.mcpPlatformUrl, deps.apiKey, deps.mcpAuthToken,
         );
 
@@ -2099,7 +2170,7 @@ async function executeRoutePipeline(
           ticketId, clientId, category, priority, emailSubject, emailBody,
           clientContext, environmentContext, codeContext, dbContext, facts, summary,
         };
-        const toolCtx = { tools: agenticTools, mcpIntegrations, repoIdByPrefix };
+        const toolCtx = { tools: agenticTools, mcpIntegrations, repoIdByPrefix, repos: agenticRepos };
 
         const result = canRunOrchestrated
           ? await runOrchestratedAnalysis(analysisDeps, analysisCtx, step, toolCtx, { maxIterations, existingKnowledgeDoc: ticket.knowledgeDoc ?? '', reanalysisCtx })
