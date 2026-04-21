@@ -158,7 +158,10 @@ jobs:
           TAG="${{ steps.next.outputs.next }}"
           PREV="${{ steps.next.outputs.latest }}"
 
-          gh workflow run deploy-hugo.yml --ref "$TAG" || echo "Warning: deploy-hugo dispatch skipped (workflow may not be registered yet)"
+          # deploy-hugo.yml triggers on the tag push from the "Create tag" step
+          # above — it has its own master-reachability gate — so we intentionally
+          # do NOT dispatch it here. Dispatching would queue a redundant
+          # duplicate run alongside the push-triggered one.
 
           # Only deploy the MCP server when its source files changed.
           # Paths: the server itself and the workspace packages it depends on.

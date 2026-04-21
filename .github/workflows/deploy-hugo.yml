@@ -7,12 +7,9 @@ name: Deploy Hugo
 # (via Tailscale) to pull the new images and restart services.
 
 on:
-  # Deploy runs only when tag-release.yml dispatches us with a specific tag ref
-  # after a master push. We intentionally do NOT trigger on `push: tags: ['v*']`
-  # here — otherwise pushing a tag to a non-master commit (e.g. a feature branch
-  # or staging HEAD before merge) would deploy code that hasn't landed on master.
-  # All production deploys flow through master → tag-release.yml → workflow_dispatch.
   workflow_dispatch:
+  push:
+    tags: ['v*']
 
 concurrency:
   group: deploy-hugo
@@ -23,8 +20,43 @@ env:
   IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/bronco
 
 jobs:
+  # Gate: deploys only proceed when the triggering tag points at a commit
+  # reachable from master. Prevents tags pushed to feature branches or
+  # staging-HEAD experiments from deploying unmerged code. workflow_dispatch
+  # bypasses the check — tag-release.yml is the trusted dispatcher.
+  gate:
+    name: Gate to master tags
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      proceed: ${{ steps.check.outputs.proceed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify tag is on master
+        id: check
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "workflow_dispatch event — trusting dispatcher, proceeding."
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # push: tags event — verify the tagged commit is on master.
+          git fetch origin master --quiet
+          if git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
+            echo "Tag ${GITHUB_REF_NAME} points at a commit on master — proceeding."
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Tag ${GITHUB_REF_NAME} points at $GITHUB_SHA which is NOT reachable from master — skipping deploy."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          fi
+
   detect-changes:
     name: Detect Changed Services
+    needs: gate
+    if: needs.gate.outputs.proceed == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
