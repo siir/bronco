@@ -156,11 +156,11 @@ Caddy sits in front as a reverse proxy, providing HTTPS. The API listens on port
 | `TICKET_ANALYZER_HEALTH_URL` | No | http://ticket-analyzer:3106 | ticket-analyzer health endpoint |
 | `PROBE_WORKER_HEALTH_URL` | No | http://probe-worker:3107 | probe-worker health endpoint |
 | `STATUS_MONITOR_HEALTH_URL` | No | http://status-monitor:3105 | status-monitor health endpoint |
-| `MCP_DATABASE_HEALTH_URL` | No | http://mcp-database:3100 | MCP database server health endpoint |
+| `MCP_DATABASE_URL` | No | http://mcp-database:3100 | MCP database server base URL (`discoverMcpServer` appends `/mcp`, health probes append `/health`) |
 | `SLACK_WORKER_HEALTH_URL` | No | http://slack-worker:3108 | slack-worker health endpoint |
 | `SCHEDULER_WORKER_HEALTH_URL` | No | http://scheduler-worker:3109 | scheduler-worker health endpoint |
-| `MCP_PLATFORM_HEALTH_URL` | No | http://mcp-platform:3110 | MCP platform server health endpoint |
-| `MCP_REPO_HEALTH_URL` | No | http://mcp-repo:3111 | MCP repo server health endpoint |
+| `MCP_PLATFORM_URL` | No | http://mcp-platform:3110 | MCP platform server base URL (`discoverMcpServer` appends `/mcp`, health probes append `/health`) |
+| `MCP_REPO_URL` | No | http://mcp-repo:3111 | MCP repo server base URL (`discoverMcpServer` appends `/mcp`, health probes append `/health`) |
 
 AI provider configuration (API keys, model selection) is managed through the database via `AiProviderConfig` and `AiModelConfig` tables, not env vars.
 

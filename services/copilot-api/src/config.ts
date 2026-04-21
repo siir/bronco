@@ -18,11 +18,12 @@ const configSchema = z.object({
   STATUS_MONITOR_HEALTH_URL: z.string().url().optional().default('http://status-monitor:3105'),
   TICKET_ANALYZER_HEALTH_URL: z.string().url().optional().default('http://ticket-analyzer:3106'),
   PROBE_WORKER_HEALTH_URL: z.string().url().optional().default('http://probe-worker:3107'),
-  MCP_DATABASE_HEALTH_URL: z.string().url().optional().default('http://mcp-database:3100'),
+  // Base URLs for MCP servers — discoverMcpServer appends /mcp, health probes append /health
+  MCP_DATABASE_URL: z.string().url().optional().default('http://mcp-database:3100'),
   SLACK_WORKER_HEALTH_URL: z.string().url().optional().default('http://slack-worker:3108'),
   SCHEDULER_WORKER_HEALTH_URL: z.string().url().optional().default('http://scheduler-worker:3109'),
-  MCP_PLATFORM_HEALTH_URL: z.string().url().optional().default('http://mcp-platform:3110'),
-  MCP_REPO_HEALTH_URL: z.string().url().optional().default('http://mcp-repo:3111'),
+  MCP_PLATFORM_URL: z.string().url().optional().default('http://mcp-platform:3110'),
+  MCP_REPO_URL: z.string().url().optional().default('http://mcp-repo:3111'),
   // Invoice storage
   INVOICE_STORAGE_PATH: z.string().default('/var/lib/copilot-api/invoices'),
   // GitHub (optional — required for manual release notes backfill)
