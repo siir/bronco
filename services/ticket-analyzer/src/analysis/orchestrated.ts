@@ -7,6 +7,7 @@ import type {
   AIToolUseBlock,
 } from '@bronco/shared-types';
 import {
+  buildArtifactCatalog,
   buildTruncatedPreview,
   chunkArray,
   executeAgenticToolCall,
@@ -15,6 +16,7 @@ import {
   ORCHESTRATED_SYSTEM_PROMPT,
   parseStrategistResponse,
   parseSufficiencyEvaluation,
+  ReanalysisMode,
   resolveMaxParallelTasks,
   resolveOrchestratedModelMap,
   resolveTaskTools,
@@ -25,6 +27,7 @@ import {
   type AnalysisPipelineContext,
   type AnalysisResult,
   type McpIntegrationInfo,
+  type ReanalysisContext,
   type StrategyStep,
   type SubTaskResult,
 } from './shared.js';
@@ -51,7 +54,7 @@ async function executeOrchestratedSubTask(
   category: string,
   clientContext: string,
   environmentContext: string,
-  task: { prompt: string; tools: string[]; model: string },
+  task: { prompt: string; tools: string[]; model: string; priorArtifactIds?: string[] },
   agenticTools: AIToolDefinition[],
   mcpIntegrations: Map<string, McpIntegrationInfo>,
   repoIdByPrefix: Map<string, string>,
@@ -78,9 +81,12 @@ async function executeOrchestratedSubTask(
     'any tool calls). Do not defer the summary to a follow-up call — include it directly in',
     'this turn.',
   ].join(' ');
+  const priorArtifactsHint = task.priorArtifactIds && task.priorArtifactIds.length > 0
+    ? `\n\n## Prior Artifacts You May Need\nThese artifact IDs from prior runs may be relevant. Read them via \`platform__read_tool_result_artifact\` before re-querying:\n${task.priorArtifactIds.map(id => `- ${id}`).join('\n')}`
+    : '';
   const subTaskSystemPrompt = combinedContext
-    ? `${subTaskInstructions}\n\n${combinedContext}\n${TRUNCATION_SYSTEM_PROMPT_SNIPPET}`
-    : `${subTaskInstructions}\n${TRUNCATION_SYSTEM_PROMPT_SNIPPET}`;
+    ? `${subTaskInstructions}\n\n${combinedContext}\n${TRUNCATION_SYSTEM_PROMPT_SNIPPET}${priorArtifactsHint}`
+    : `${subTaskInstructions}\n${TRUNCATION_SYSTEM_PROMPT_SNIPPET}${priorArtifactsHint}`;
 
   // Resolve tools using ranked matching (exact → base name → substring → fuzzy)
   const resolution = task.tools.length > 0
@@ -328,11 +334,13 @@ export async function runOrchestratedAnalysis(
   ctx: AnalysisPipelineContext,
   step: StrategyStep,
   tools: AgenticToolContext,
-  opts: { maxIterations: number; existingKnowledgeDoc: string },
+  opts: { maxIterations: number; existingKnowledgeDoc: string; reanalysisCtx?: ReanalysisContext },
 ): Promise<AnalysisResult> {
   const { db, ai, appLog } = deps;
   const { ticketId, clientId, category, priority, emailSubject, emailBody, clientContext, environmentContext, codeContext, dbContext, facts, summary } = ctx;
-  const { maxIterations: orchMaxIterations, existingKnowledgeDoc } = opts;
+  const { maxIterations: orchMaxIterations, existingKnowledgeDoc, reanalysisCtx } = opts;
+  const reanalysisMode = reanalysisCtx?.mode ?? ReanalysisMode.CONTINUE;
+  const isReanalysis = !!reanalysisCtx && reanalysisMode !== ReanalysisMode.FRESH_START;
   const { tools: agenticTools, mcpIntegrations, repoIdByPrefix } = tools;
 
   const defaultMaxTokens = await deps.loadDefaultMaxTokens?.() ?? undefined;
@@ -340,6 +348,11 @@ export async function runOrchestratedAnalysis(
 
   const maxParallelTasks = await resolveMaxParallelTasks(db);
   const orchModelMap = await resolveOrchestratedModelMap(db);
+
+  let artifactCatalog = '';
+  if (isReanalysis) {
+    artifactCatalog = await buildArtifactCatalog(db, ticketId, { maxEntries: 20 });
+  }
   const existingDoc = existingKnowledgeDoc ?? '';
   const runTimestamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
   const runNumber = (existingDoc.match(/## Analysis Run \d+/g) ?? []).length + 1;
@@ -399,7 +412,41 @@ export async function runOrchestratedAnalysis(
       const priorNote = priorRunsContext
         ? `\n\n## Prior Analysis Runs (for context)\n${priorRunsContext}\n\n---\n\n`
         : '';
-      strategistPrompt = `Investigate this ticket. Here is the full context:\n\n${contextParts.join('\n')}${priorNote}`;
+
+      if (isReanalysis && reanalysisCtx) {
+        const modeIntro = reanalysisMode === ReanalysisMode.REFINE
+          ? [
+              'The operator has replied asking for clarification or refinement. Use the prior',
+              'knowledge document and artifacts as ground truth. Do NOT fire fresh MCP tool',
+              'calls unless the operator\'s request explicitly requires new data — prefer',
+              'reading prior artifacts via `platform__read_tool_result_artifact`.',
+            ].join(' ')
+          : [
+              'The operator has replied. Plan the next iteration that addresses their reply.',
+              'A catalog of prior tool-result artifacts is provided below — re-query only when',
+              'necessary; prefer reading prior artifacts via `platform__read_tool_result_artifact`',
+              'or hint at them via `priorArtifactIds` in a sub-task.',
+            ].join(' ');
+
+        const sections = [
+          modeIntro,
+          '',
+          '## Operator Reply',
+          reanalysisCtx.triggerReplyText || '(no reply text available — see conversation history)',
+          '',
+          '## Prior Knowledge Document',
+          priorRunsContext || existingDoc || '(no prior knowledge document)',
+        ];
+        if (artifactCatalog) {
+          sections.push('', '## Prior Artifacts', artifactCatalog);
+        }
+        sections.push('', '## Conversation History', reanalysisCtx.conversationHistory);
+        sections.push('', '## Ticket Context', contextParts.join('\n'));
+
+        strategistPrompt = sections.join('\n');
+      } else {
+        strategistPrompt = `Investigate this ticket. Here is the full context:\n\n${contextParts.join('\n')}${priorNote}`;
+      }
     } else {
       strategistPrompt = `Continue the investigation. Here is the knowledge document so far:\n\n${currentRunContent}\n\n## Next Investigation Step\n${orchNextPrompt}`;
     }

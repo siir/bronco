@@ -2082,7 +2082,7 @@ async function executeRoutePipeline(
         }
 
         const strategy = await resolveAnalysisStrategy(db, step);
-        const canRunOrchestrated = strategy === 'orchestrated' && !reanalysisCtx;
+        const canRunOrchestrated = strategy === 'orchestrated';
 
         const analysisDeps: AnalysisDeps = {
           db, ai, appLog,
@@ -2101,7 +2101,7 @@ async function executeRoutePipeline(
         const toolCtx = { tools: agenticTools, mcpIntegrations, repoIdByPrefix };
 
         const result = canRunOrchestrated
-          ? await runOrchestratedAnalysis(analysisDeps, analysisCtx, step, toolCtx, { maxIterations, existingKnowledgeDoc: ticket.knowledgeDoc ?? '' })
+          ? await runOrchestratedAnalysis(analysisDeps, analysisCtx, step, toolCtx, { maxIterations, existingKnowledgeDoc: ticket.knowledgeDoc ?? '', reanalysisCtx })
           : await runFlatAnalysis(analysisDeps, analysisCtx, step, toolCtx, { maxIterations, reanalysisCtx });
 
         analysis = result.analysis;

@@ -415,7 +415,8 @@ Return a JSON object in a markdown code block with:
     {
       "prompt": "A focused prompt for a sub-task",
       "tools": ["tool_name_1", "tool_name_2"],
-      "model": "haiku|sonnet|opus"
+      "model": "haiku|sonnet|opus",
+      "priorArtifactIds": ["artifact-uuid-1", "artifact-uuid-2"]  // optional — only when re-analyzing
     }
   ],
   "nextPrompt": "What should be investigated in the next iteration after these tasks complete",
@@ -428,6 +429,7 @@ Guidelines for task assignment:
 - Use "opus" for complex reasoning (root cause analysis, architecture decisions)
 - Keep tasks focused — each task should have a clear, specific goal
 - Maximum 5 tasks per iteration
+- During re-analysis, include "priorArtifactIds" with relevant artifact IDs from the catalog so the sub-task can read them via \`platform__read_tool_result_artifact\` instead of re-querying.
 
 CRITICAL: In the "tools" array, use EXACT tool names from the Available Tools list provided in the prompt. Do not abbreviate, rename, or invent tool names. Copy-paste the full tool name including any prefix (e.g. "ap-dbadmin-e5834180__run_query", not "run_query" or "run_sql_query"). If no available tool fits the task, leave the tools array empty and describe what data you need in the prompt text so the model can request it conversationally.
 
@@ -448,7 +450,13 @@ Note: Full raw tool results from prior iterations are stored by the orchestrator
 
 export interface StrategistPlan {
   findings: string;
-  tasks: Array<{ prompt: string; tools: string[]; model: string }>;
+  tasks: Array<{
+    prompt: string;
+    tools: string[];
+    model: string;
+    /** Optional artifact IDs from prior runs the sub-task should consult via read_tool_result_artifact. */
+    priorArtifactIds?: string[];
+  }>;
   nextPrompt: string | null;
   done: boolean;
   finalAnalysis?: string;
@@ -469,6 +477,9 @@ export function parseStrategistResponse(content: string): StrategistPlan {
             prompt: typeof t['prompt'] === 'string' ? t['prompt'] : '',
             tools: Array.isArray(t['tools']) ? (t['tools'] as string[]) : [],
             model: typeof t['model'] === 'string' ? t['model'] : 'sonnet',
+            priorArtifactIds: Array.isArray(t['priorArtifactIds'])
+              ? (t['priorArtifactIds'] as unknown[]).filter((x): x is string => typeof x === 'string')
+              : undefined,
           }))
         : [],
       nextPrompt: typeof parsed['nextPrompt'] === 'string' ? parsed['nextPrompt'] : null,
@@ -711,6 +722,52 @@ export const IRRELEVANT_SIGNALS = [
 ];
 
 // ---------------------------------------------------------------------------
+// Artifact catalog helper (re-analysis context)
+// ---------------------------------------------------------------------------
+
+/**
+ * Compose a compact markdown list of artifacts for a ticket, suitable for
+ * injection into a strategist prompt. Returns empty string when no artifacts.
+ *
+ * @param maxEntries Cap on rows returned (default 20)
+ * @param sinceMs   Optional millisecond cutoff (only artifacts created after this Date)
+ */
+export async function buildArtifactCatalog(
+  db: PrismaClient,
+  ticketId: string,
+  options?: { maxEntries?: number; sinceMs?: number },
+): Promise<string> {
+  const maxEntries = options?.maxEntries ?? 20;
+  const where: Record<string, unknown> = { ticketId };
+  if (options?.sinceMs !== undefined) {
+    where.createdAt = { gte: new Date(options.sinceMs) };
+  }
+  const artifacts = await db.artifact.findMany({
+    where,
+    orderBy: { createdAt: 'desc' },
+    take: maxEntries,
+    select: { id: true, filename: true, description: true, sizeBytes: true, createdAt: true },
+  });
+  if (artifacts.length === 0) return '';
+
+  const now = Date.now();
+  const lines = artifacts.map(a => {
+    const ageMs = now - a.createdAt.getTime();
+    const ageMin = Math.round(ageMs / 60000);
+    const ageLabel = ageMin < 60 ? `${ageMin}m ago` : ageMin < 1440 ? `${Math.round(ageMin / 60)}h ago` : `${Math.round(ageMin / 1440)}d ago`;
+    const sizeKb = (a.sizeBytes / 1024).toFixed(1);
+    const toolMatch = a.description?.match(/\(([^)]+)\)\s*$/);
+    const toolLabel = toolMatch ? toolMatch[1] : (a.description ?? a.filename);
+    return `- artifact ${a.id} — ${toolLabel} (${sizeKb} KB, ${ageLabel})`;
+  });
+
+  return [
+    'Prior tool-result artifacts (use `platform__read_tool_result_artifact` to inspect, or hint at them via `priorArtifactIds` in a sub-task):',
+    ...lines,
+  ].join('\n');
+}
+
+// ---------------------------------------------------------------------------
 // Strategy resolution
 // ---------------------------------------------------------------------------
 
@@ -796,6 +853,13 @@ export interface AnalysisResult {
   sufficiencyEval: SufficiencyEvaluation;
 }
 
+export const ReanalysisMode = {
+  CONTINUE: 'continue',
+  REFINE: 'refine',
+  FRESH_START: 'fresh_start',
+} as const;
+export type ReanalysisMode = (typeof ReanalysisMode)[keyof typeof ReanalysisMode];
+
 /** Context passed to the pipeline during re-analysis (reply-triggered). */
 export interface ReanalysisContext {
   /** Formatted markdown conversation history from all prior events. */
@@ -804,6 +868,12 @@ export interface ReanalysisContext {
   triggerReplyText: string;
   /** The ticket event ID that triggered this re-analysis (for metadata tracking). */
   triggerEventId?: string;
+  /**
+   * Continuation mode for orchestrated re-analysis. When undefined, defaults
+   * to 'continue'. Producer (#312 Chat tab) classifies operator-reply intent
+   * and sets this; pre-#312 callers leave it unset.
+   */
+  mode?: ReanalysisMode;
 }
 
 export interface StrategyStep {
