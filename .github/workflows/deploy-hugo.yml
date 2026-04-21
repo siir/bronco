@@ -7,9 +7,12 @@ name: Deploy Hugo
 # (via Tailscale) to pull the new images and restart services.
 
 on:
+  # Deploy runs only when tag-release.yml dispatches us with a specific tag ref
+  # after a master push. We intentionally do NOT trigger on `push: tags: ['v*']`
+  # here — otherwise pushing a tag to a non-master commit (e.g. a feature branch
+  # or staging HEAD before merge) would deploy code that hasn't landed on master.
+  # All production deploys flow through master → tag-release.yml → workflow_dispatch.
   workflow_dispatch:
-  push:
-    tags: ['v*']
 
 concurrency:
   group: deploy-hugo

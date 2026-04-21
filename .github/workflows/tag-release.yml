@@ -4,8 +4,12 @@ name: Tag Release
 # The tag triggers deploy-hugo.yml and conditionally deploy-mcp.yml
 # (only when MCP-relevant paths changed since the previous release).
 #
-# Version strategy: auto-increment patch (v0.0.1 → v0.0.2).
-# To bump major or minor, push a tag manually before merging to master.
+# Version strategy: auto-increment patch (v0.0.1 → v0.0.2) by default.
+# For minor or major bumps, include `[bump: minor]` or `[bump: major]` in
+# the master commit message (typically the merge commit from a staging → master
+# PR). Whitespace and case are tolerated: `[bump:minor]`, `[Bump: MAJOR]`, etc.
+# If both markers are present, major wins. On the very first release the
+# initial tag is always v0.0.1 regardless of any marker.
 
 on:
   push:
@@ -53,17 +57,38 @@ jobs:
               break
             fi
           done <<< "$(git tag --list 'v[0-9]*' --sort=-version:refname)"
+
+          # Parse the HEAD commit message (subject + body) for a bump marker.
+          # Accepts `[bump: minor]`, `[bump:major]`, `[Bump: MAJOR]` etc. Major wins
+          # if both markers appear. Missing marker → default patch bump.
+          MSG=$(git log -1 --pretty=%B HEAD)
+          if printf '%s' "$MSG" | grep -Eqi '\[bump:[[:space:]]*major\]'; then
+            BUMP="major"
+          elif printf '%s' "$MSG" | grep -Eqi '\[bump:[[:space:]]*minor\]'; then
+            BUMP="minor"
+          else
+            BUMP="patch"
+          fi
+
           if [ -z "$LATEST" ]; then
+            # First release — always v0.0.1, ignore any bump marker.
             NEXT="v0.0.1"
           else
             VERSION="${LATEST#v}"
             MAJOR=$(echo "$VERSION" | cut -d. -f1)
             MINOR=$(echo "$VERSION" | cut -d. -f2)
             PATCH=$(echo "$VERSION" | cut -d. -f3)
-            NEXT="v${MAJOR}.${MINOR}.$((PATCH + 1))"
+            case "$BUMP" in
+              major) NEXT="v$((MAJOR + 1)).0.0" ;;
+              minor) NEXT="v${MAJOR}.$((MINOR + 1)).0" ;;
+              patch) NEXT="v${MAJOR}.${MINOR}.$((PATCH + 1))" ;;
+            esac
           fi
+
           echo "latest=${LATEST:-none}" >> "$GITHUB_OUTPUT"
           echo "next=${NEXT}" >> "$GITHUB_OUTPUT"
+          echo "bump=${BUMP}" >> "$GITHUB_OUTPUT"
+          echo "Computed release tag: $NEXT (bump=$BUMP, previous=${LATEST:-none})"
 
       - name: Create tag
         run: |
