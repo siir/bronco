@@ -2,7 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { ToolRequestRationaleSource } from '@bronco/shared-types';
 import type { ServerDeps } from '../server.js';
-import { normalizeRequestedName, registerToolRequest } from '../shared/tool-request-registry.js';
+import { normalizeRequestedName, registerToolRequest } from '@bronco/shared-utils';
 
 const SETTING_KEY = 'tool-request-rate-limit-per-run';
 const DEFAULT_LIMIT_PER_RUN = 5;

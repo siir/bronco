@@ -1285,6 +1285,7 @@ enum RouteStepType {
   CREATE_TICKET
   CUSTOM_AI_QUERY
   UPDATE_ANALYSIS
+  DETECT_TOOL_GAPS
 
   @@map("route_step_type")
 }

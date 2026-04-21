@@ -143,6 +143,7 @@ System prompts for each task are registered in `packages/ai-provider/src/prompts
 - `GENERATE_RESOLUTION_PLAN` — Generate a resolution plan for operator review before code execution
 - `CUSTOM_AI_QUERY` — Flexible configurable AI query within a route pipeline (task type and model overridable per step)
 - `ANALYZE_APP_HEALTH` — Scheduled platform health analysis — ticket patterns, AI usage trends, error logs, and codebase review
+- `DETECT_TOOL_GAPS` — Post-hoc review of a completed analysis to detect capability gaps; upserts tool requests into the registry (default: Claude Haiku for cheap review)
 
 ### Task Type Discipline (CRITICAL)
 
@@ -228,6 +229,7 @@ Ticket routes define configurable analysis pipelines executed when tickets are p
 | `SUGGEST_NEXT_STEPS` | Analysis | SUGGEST_NEXT_STEPS | Recommend actions |
 | `UPDATE_TICKET_SUMMARY` | Analysis | — | Finalize ticket summary |
 | `CUSTOM_AI_QUERY` | Analysis | CUSTOM_AI_QUERY | Configurable AI query with selectable context sources and optional fresh MCP/repo searches |
+| `DETECT_TOOL_GAPS` | Analysis | DETECT_TOOL_GAPS | Scans completed analysis for missing-tool gaps; upserts into ToolRequest registry via the shared registry helper. |
 | `NOTIFY_OPERATOR` | Dispatch | — | Send notification to operator |
 | `DISPATCH_TO_ROUTE` | Dispatch | — | Dispatch ticket to another route for further processing |
 | `ADD_FOLLOWER` | Dispatch | — | Add a follower to the ticket |
