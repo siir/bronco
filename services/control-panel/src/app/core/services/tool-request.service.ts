@@ -53,6 +53,11 @@ export interface ToolRequestListItem {
   implementedInCommit: string | null;
   implementedInIssue: string | null;
   githubIssueUrl: string | null;
+  suggestedDuplicateOfId: string | null;
+  suggestedDuplicateReason: string | null;
+  suggestedImprovesExisting: string | null;
+  suggestedImprovesReason: string | null;
+  dedupeAnalysisAt: string | null;
   createdAt: string;
   updatedAt: string;
   client: ToolRequestClientSummary;
@@ -84,8 +89,35 @@ export interface ToolRequestDetail extends ToolRequestListItem {
     displayTitle: string;
     status: ToolRequestStatus;
   } | null;
+  suggestedDuplicateOf: {
+    id: string;
+    requestedName: string;
+    displayTitle: string;
+    status: ToolRequestStatus;
+  } | null;
   firstTicket: ToolRequestTicketSummary | null;
   linkedTickets: ToolRequestTicketSummary[];
+}
+
+export interface DedupeResult {
+  duplicateGroupsCount: number;
+  improvesExistingCount: number;
+  requestsAnalyzed: number;
+  warnings: string[];
+  raw?: unknown;
+}
+
+export type SuggestionKind = 'duplicate' | 'improves_existing';
+
+export interface CreateGithubIssueOptions {
+  repoOwner?: string;
+  repoName?: string;
+  labels?: string[];
+}
+
+export interface CreateGithubIssueResponse {
+  issueUrl: string;
+  issueNumber: number;
 }
 
 export interface ToolRequestListResponse {
@@ -139,5 +171,27 @@ export class ToolRequestService {
 
   delete(id: string): Observable<void> {
     return this.api.delete<void>(`/tool-requests/${id}`);
+  }
+
+  runDedupeAnalysis(clientId: string): Observable<DedupeResult> {
+    return this.api.post<DedupeResult>('/tool-requests/dedupe-analyses', { clientId });
+  }
+
+  acceptSuggestion(id: string, kind: SuggestionKind): Observable<ToolRequestDetail> {
+    return this.api.post<ToolRequestDetail>(`/tool-requests/${id}/accept-suggestion`, { kind });
+  }
+
+  dismissSuggestion(id: string, kind: SuggestionKind): Observable<ToolRequestDetail> {
+    return this.api.post<ToolRequestDetail>(`/tool-requests/${id}/dismiss-suggestion`, { kind });
+  }
+
+  createGithubIssue(
+    id: string,
+    opts?: CreateGithubIssueOptions,
+  ): Observable<CreateGithubIssueResponse> {
+    return this.api.post<CreateGithubIssueResponse>(
+      `/tool-requests/${id}/create-github-issue`,
+      opts ?? {},
+    );
   }
 }

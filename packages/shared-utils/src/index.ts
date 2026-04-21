@@ -32,3 +32,5 @@ export { SlackClient } from './slack-client.js';
 export type { SlackClientOpts, SlackMessageResult, SlackBlockAction, SlackThreadMessage, SlackMentionEvent, SlackDirectMessageEvent, BlockActionHandler, ThreadMessageHandler, MentionHandler, DirectMessageHandler } from './slack-client.js';
 export { registerToolRequest, normalizeRequestedName } from './tool-request-registry.js';
 export type { RegisterToolRequestInput, RegisterToolRequestResult } from './tool-request-registry.js';
+export { createToolRequestGithubIssue, buildToolRequestIssueBody } from './tool-request-github.js';
+export type { CreateGithubIssueInput, CreateGithubIssueResult } from './tool-request-github.js';
