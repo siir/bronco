@@ -145,9 +145,9 @@ export async function registerRoutes(fastify: FastifyInstance, opts: RouteOpts):
     await scoped.register(toolRequestRoutes, {
       ai: opts.ai,
       encryptionKey: opts.config.ENCRYPTION_KEY,
-      mcpPlatformUrl: opts.config.MCP_PLATFORM_HEALTH_URL,
-      mcpRepoUrl: opts.config.MCP_REPO_HEALTH_URL,
-      mcpDatabaseUrl: opts.config.MCP_DATABASE_HEALTH_URL,
+      mcpPlatformUrl: opts.config.MCP_PLATFORM_URL,
+      mcpRepoUrl: opts.config.MCP_REPO_URL,
+      mcpDatabaseUrl: opts.config.MCP_DATABASE_URL,
       platformApiKey: opts.config.API_KEY,
     });
   });

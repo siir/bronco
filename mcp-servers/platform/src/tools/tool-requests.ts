@@ -136,6 +136,71 @@ export function registerToolRequestTools(server: McpServer, { db, config }: Serv
   );
 
   server.tool(
+    'run_tool_request_dedupe',
+    'Run the admin dedupe agent for a client: diffs PROPOSED/APPROVED tool requests against the live MCP tool catalog and populates suggestion fields (suggestedDuplicate*, suggestedImproves*) transactionally. Admin-only.',
+    {
+      clientId: z.string().uuid().describe('Client ID to run dedupe analysis for'),
+    },
+    async (params) => {
+      try {
+        const copilotApiUrl = config.COPILOT_API_URL;
+        if (!copilotApiUrl) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: 'ERROR: COPILOT_API_URL is required to call /api/tool-requests/dedupe-analyses',
+              },
+            ],
+          };
+        }
+
+        const apiKey = config.API_KEY;
+        if (!apiKey) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: 'ERROR: API_KEY is required to call /api/tool-requests/dedupe-analyses',
+              },
+            ],
+          };
+        }
+
+        // URL constructor tolerates a trailing slash on COPILOT_API_URL.
+        const url = new URL('/api/tool-requests/dedupe-analyses', copilotApiUrl);
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'x-api-key': apiKey,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ clientId: params.clientId }),
+          // dedupe analysis is slow: live MCP discovery + Claude call
+          signal: AbortSignal.timeout(120_000),
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          return {
+            isError: true,
+            content: [{ type: 'text', text: `ERROR: copilot-api returned ${res.status}: ${text.slice(0, 400)}` }],
+          };
+        }
+        const result = await res.json();
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          isError: true,
+          content: [{ type: 'text', text: `ERROR: ${msg}` }],
+        };
+      }
+    },
+  );
+
+  server.tool(
     'create_tool_request_github_issue',
     'Create a GitHub issue for a tool request using the configured default repo (or override). Persists githubIssueUrl + implementedInIssue on the row.',
     {
