@@ -17,6 +17,7 @@ export * from './operational-task.js';
 export * from './ticket-route.js';
 export * from './ingestion.js';
 export * from './client-memory.js';
+export * from './knowledge-doc.js';
 export * from './tool-request.js';
 export * from './client-user.js';
 export * from './client-environment.js';

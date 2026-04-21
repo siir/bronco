@@ -194,6 +194,32 @@ Per-client operational knowledge (playbooks, procedures, architectural guidance)
 | `packages/ai-provider/src/client-memory-resolver.ts` | Resolver with caching, category/tag filtering, markdown composition |
 | `services/copilot-api/src/routes/client-memory.ts` | CRUD API endpoints with validation and cache invalidation |
 
+## Knowledge Document
+
+Each ticket carries a structured "knowledge document" (`Ticket.knowledgeDoc`) that the analysis pipeline incrementally fills during investigation. As of the section-keyed restructure it is a templated markdown artifact — not an append-only blob — and agents edit it through the `kd_*` MCP tools rather than concatenating text.
+
+### Template
+
+The doc always contains nine top-level sections in this order: `Problem Statement`, `Environment`, `Evidence`, `Hypotheses`, `Root Cause`, `Recommended Fix`, `Risks`, `Open Questions`, `Run Log`. Subsections (`### …`) are only permitted under `Evidence`, `Hypotheses`, and `Open Questions`. Each section body is capped at 10 000 characters. Sidecar metadata (`Ticket.knowledgeDocSectionMeta`) stores per-section `length` / `lastUpdatedAt` / `updatedByRunId` so the control panel can render the TOC without re-parsing the markdown.
+
+### MCP tools (platform server)
+
+| Tool | Purpose |
+|------|---------|
+| `kd_read_toc` | Return the section tree for a ticket (titles, lengths, timestamps, subsections). |
+| `kd_read_section` | Read one section by `sectionKey` (top-level slug or `parent.childSlug`). |
+| `kd_update_section` | Replace or append content for a top-level section. |
+| `kd_add_subsection` | Add a `### <title>` child under `evidence` / `hypotheses` / `openQuestions`. |
+
+All four tools run inside `withTicketLock` (Postgres advisory transaction lock on `hashtext(ticketId)`) so concurrent agent calls and REST writes serialize per ticket. REST mirrors live at `/api/tickets/:id/knowledge-doc/{toc,section/:key,subsection}`.
+
+### Analysis pipeline integration
+
+- Flat and orchestrated analyzers append `KD_SYSTEM_PROMPT_SNIPPET` to their system prompts, nudging (not forcing) the agent to use `kd_*` tools during investigation.
+- End-of-run, `fallbackFillRequiredSections(db, ticketId, reason)` populates any empty required sections (`problemStatement`, `rootCause`, `recommendedFix`) with a marker so downstream composition never renders a blank analysis.
+- `composeFinalAnalysis(knowledgeDoc, sectionMeta, agentExecutiveSummary)` merges the agent's executive summary with Problem Statement / Root Cause / Recommended Fix / Risks pulled from the doc — that composed text is what lands in the `AI_ANALYSIS` ticket event and email.
+- After each iteration (and at run end) the orchestrator writes a `KnowledgeDocSnapshot` row capturing the doc + sidecar, so future iteration-diff views have ground truth per iteration.
+
 ## Ticket Route Step Types
 
 Ticket routes define configurable analysis pipelines executed when tickets are processed. Each route consists of ordered steps, each performing a specific processing function.
@@ -336,6 +362,10 @@ pnpm dev:portal           # Start ticket portal (Angular, port 4201)
 | `mcp-servers/database/src/tools/index.ts` | MCP tool registration (Zod schemas + handlers). |
 | `mcp-servers/platform/src/tools/index.ts` | MCP platform tool registration (all Bronco API operations). |
 | `mcp-servers/platform/src/tools/read-tool-result-artifact.ts` | Platform MCP tool for reading truncated tool-result artifacts (head/tail preview → full content via offset+limit or grep). |
+| `mcp-servers/platform/src/tools/knowledge-doc.ts` | Platform MCP `kd_*` tools (`kd_read_toc`, `kd_read_section`, `kd_update_section`, `kd_add_subsection`) — templated section-keyed edits on `Ticket.knowledgeDoc` + `knowledgeDocSectionMeta` sidecar, guarded by a per-ticket `pg_advisory_xact_lock`. |
+| `packages/shared-utils/src/knowledge-doc.ts` | Shared knowledge-doc core: 9-section template, parse/compose, slug-keyed read/update with 10k-char per-section cap; used by MCP tools, REST mirrors, and the analysis pipeline. |
+| `packages/shared-utils/src/advisory-lock.ts` | `withTicketLock(db, ticketId, fn)` — wraps a Prisma transaction with `pg_advisory_xact_lock(hashtext($1))` so kd_* writes from agents and REST endpoints can't race. |
+| `services/copilot-api/src/routes/knowledge-doc.ts` | REST mirrors for the four kd tools under `/api/tickets/:id/knowledge-doc/*` — used by the Knowledge tab to render the TOC + section bodies. |
 | `mcp-servers/database/src/security/query-validator.ts` | SQL keyword blocklist. |
 | `mcp-servers/database/src/security/audit-logger.ts` | Query audit logging (Pino structured JSON to stdout). |
 | `packages/ai-provider/src/router.ts` | AI task routing (dynamic provider/model resolution via ModelConfigResolver). |

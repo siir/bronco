@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { createLogger } from '@bronco/shared-utils';
+import { createLogger, loadKnowledgeDoc, withTicketLock } from '@bronco/shared-utils';
 import { TaskType } from '@bronco/shared-types';
 import type {
   AITextBlock,
@@ -11,9 +11,12 @@ import {
   buildRepoNudgeSnippet,
   buildTruncatedPreview,
   chunkArray,
+  composeFinalAnalysis,
   executeAgenticToolCall,
+  fallbackFillRequiredSections,
   getToolResultMaxTokens,
   IRRELEVANT_SIGNALS,
+  KD_SYSTEM_PROMPT_SNIPPET,
   ORCHESTRATED_SYSTEM_PROMPT,
   parseStrategistResponse,
   parseSufficiencyEvaluation,
@@ -26,6 +29,7 @@ import {
   saveMcpToolArtifact,
   shouldTruncate,
   TRUNCATION_SYSTEM_PROMPT_SNIPPET,
+  writeKnowledgeDocSnapshot,
   type AnalysisDeps,
   type AnalysisPipelineContext,
   type AnalysisResult,
@@ -88,8 +92,8 @@ async function executeOrchestratedSubTask(
     ? `\n\n## Prior Artifacts You May Need\nThese artifact IDs from prior runs may be relevant. Read them via \`platform__read_tool_result_artifact\` before re-querying:\n${task.priorArtifactIds.map(id => `- ${id}`).join('\n')}`
     : '';
   const subTaskSystemPrompt = combinedContext
-    ? `${subTaskInstructions}\n\n${combinedContext}\n${TRUNCATION_SYSTEM_PROMPT_SNIPPET}\n${PREFER_EXISTING_TOOLS_SNIPPET}\n${REQUEST_NEW_TOOL_SNIPPET}${priorArtifactsHint}`
-    : `${subTaskInstructions}\n${TRUNCATION_SYSTEM_PROMPT_SNIPPET}\n${PREFER_EXISTING_TOOLS_SNIPPET}\n${REQUEST_NEW_TOOL_SNIPPET}${priorArtifactsHint}`;
+    ? `${subTaskInstructions}\n\n${combinedContext}\n${TRUNCATION_SYSTEM_PROMPT_SNIPPET}\n${PREFER_EXISTING_TOOLS_SNIPPET}\n${REQUEST_NEW_TOOL_SNIPPET}\n${KD_SYSTEM_PROMPT_SNIPPET}${priorArtifactsHint}`
+    : `${subTaskInstructions}\n${TRUNCATION_SYSTEM_PROMPT_SNIPPET}\n${PREFER_EXISTING_TOOLS_SNIPPET}\n${REQUEST_NEW_TOOL_SNIPPET}\n${KD_SYSTEM_PROMPT_SNIPPET}${priorArtifactsHint}`;
 
   // Resolve tools using ranked matching (exact → base name → substring → fuzzy)
   const resolution = task.tools.length > 0
@@ -464,7 +468,7 @@ export async function runOrchestratedAnalysis(
       taskType: (step.taskTypeOverride ?? TaskType.DEEP_ANALYSIS) as TaskType,
       context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!clientContext, orchestrationId, orchestrationIteration: i + 1, logId: strategistLogId, strategy: 'orchestrated' as const },
       prompt: strategistPrompt,
-      systemPrompt: `${ORCHESTRATED_SYSTEM_PROMPT}\n${TRUNCATION_SYSTEM_PROMPT_SNIPPET}\n${PREFER_EXISTING_TOOLS_SNIPPET}\n${REQUEST_NEW_TOOL_SNIPPET}${buildRepoNudgeSnippet(clientRepos)}`,
+      systemPrompt: `${ORCHESTRATED_SYSTEM_PROMPT}\n${TRUNCATION_SYSTEM_PROMPT_SNIPPET}\n${PREFER_EXISTING_TOOLS_SNIPPET}\n${REQUEST_NEW_TOOL_SNIPPET}\n${KD_SYSTEM_PROMPT_SNIPPET}${buildRepoNudgeSnippet(clientRepos)}`,
       providerOverride: 'CLAUDE',
       modelOverride: 'claude-opus-4-6',
       maxTokens: defaultMaxTokens ?? 4096,
@@ -483,9 +487,21 @@ export async function runOrchestratedAnalysis(
       );
     }
 
-    knowledgeDoc += `\n\n### Iteration ${i + 1}\n${plan.findings}`;
-
-    await db.ticket.update({ where: { id: ticketId }, data: { knowledgeDoc } });
+    // Append this iteration's findings under the advisory lock so concurrent
+    // kd_* tool writes from parallel sub-tasks don't race with this direct
+    // update. Re-read inside the lock to pick up any kd_* writes that landed
+    // since our last read, then apply our append to that fresh state.
+    const iterationChunk = `\n\n### Iteration ${i + 1}\n${plan.findings}`;
+    knowledgeDoc = await withTicketLock(db, ticketId, async (tx) => {
+      const current = await tx.ticket.findUnique({
+        where: { id: ticketId },
+        select: { knowledgeDoc: true },
+      });
+      const next = (current?.knowledgeDoc ?? knowledgeDoc) + iterationChunk;
+      await tx.ticket.update({ where: { id: ticketId }, data: { knowledgeDoc: next } });
+      return next;
+    });
+    await writeKnowledgeDocSnapshot(db, ticketId, i + 1);
 
     appLog.info(
       `Orchestrated iteration ${i + 1}: ${plan.tasks.length} tasks, done=${plan.done}`,
@@ -507,11 +523,15 @@ export async function runOrchestratedAnalysis(
         batch.map(task => executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, environmentContext, task, agenticTools, mcpIntegrations, repoIdByPrefix, { id: orchestrationId, iteration: i + 1, parentLogId: strategistLogId }, orchModelMap, toolResultMaxTokens)),
       );
 
+      // Collect this batch's appends locally, then commit them under the
+      // advisory lock with a fresh DB read so we serialize with kd_* tool
+      // writes that happened during the sub-task calls.
+      let batchAppend = '';
       for (let j = 0; j < results.length; j++) {
         const result = results[j];
         const task = batch[j];
         if (result.status === 'fulfilled') {
-          knowledgeDoc += `\n\n#### ${task.prompt}\n${result.value.content}`;
+          batchAppend += `\n\n#### ${task.prompt}\n${result.value.content}`;
           orchTotalInputTokens += result.value.inputTokens;
           orchTotalOutputTokens += result.value.outputTokens;
           orchToolCallLog.push(...result.value.toolCalls);
@@ -519,23 +539,54 @@ export async function runOrchestratedAnalysis(
           // Retry once on failure
           try {
             const retryResult = await executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, environmentContext, task, agenticTools, mcpIntegrations, repoIdByPrefix, { id: orchestrationId, iteration: i + 1, parentLogId: strategistLogId }, orchModelMap, toolResultMaxTokens);
-            knowledgeDoc += `\n\n#### ${task.prompt} (retry)\n${retryResult.content}`;
+            batchAppend += `\n\n#### ${task.prompt} (retry)\n${retryResult.content}`;
             orchTotalInputTokens += retryResult.inputTokens;
             orchTotalOutputTokens += retryResult.outputTokens;
             orchToolCallLog.push(...retryResult.toolCalls);
           } catch (retryErr) {
-            knowledgeDoc += `\n\n#### ${task.prompt}\n*Failed: ${retryErr instanceof Error ? retryErr.message : String(retryErr)}*`;
+            batchAppend += `\n\n#### ${task.prompt}\n*Failed: ${retryErr instanceof Error ? retryErr.message : String(retryErr)}*`;
             appLog.warn(`Orchestrated task failed after retry: ${task.prompt}`, { ticketId, task: task.prompt, err: retryErr }, ticketId, 'ticket');
           }
         }
       }
 
-      await db.ticket.update({ where: { id: ticketId }, data: { knowledgeDoc } });
+      if (batchAppend.length > 0) {
+        knowledgeDoc = await withTicketLock(db, ticketId, async (tx) => {
+          const current = await tx.ticket.findUnique({
+            where: { id: ticketId },
+            select: { knowledgeDoc: true },
+          });
+          const next = (current?.knowledgeDoc ?? knowledgeDoc) + batchAppend;
+          await tx.ticket.update({ where: { id: ticketId }, data: { knowledgeDoc: next } });
+          return next;
+        });
+      }
     }
   }
 
   if (!orchFinalAnalysis) {
     orchFinalAnalysis = 'Orchestrated analysis reached maximum iterations without a final conclusion. Review the knowledge document for partial findings.';
+  }
+
+  // Knowledge doc: only run fallback-fill + compose + snapshot when the
+  // agent used kd_* tools during this run (detected via non-empty
+  // knowledgeDocSectionMeta). Legacy tickets and new-format tickets where
+  // the agent ignored kd_* keep their knowledgeDoc untouched — no silent
+  // migration, no override of the raw-append legacy content.
+  const kdBeforeCompose = await loadKnowledgeDoc(db, ticketId);
+  const hasSectionMeta =
+    !!kdBeforeCompose?.knowledgeDocSectionMeta
+    && typeof kdBeforeCompose.knowledgeDocSectionMeta === 'object'
+    && Object.keys(kdBeforeCompose.knowledgeDocSectionMeta as Record<string, unknown>).length > 0;
+  if (hasSectionMeta) {
+    await fallbackFillRequiredSections(db, ticketId, 'orchestrated loop end');
+    const kdAfter = await loadKnowledgeDoc(db, ticketId);
+    orchFinalAnalysis = composeFinalAnalysis(
+      kdAfter?.knowledgeDoc ?? null,
+      kdAfter?.knowledgeDocSectionMeta ?? null,
+      orchFinalAnalysis,
+    );
+    await writeKnowledgeDocSnapshot(db, ticketId, orchIterationsRun);
   }
 
   // Parse sufficiency evaluation from the final analysis

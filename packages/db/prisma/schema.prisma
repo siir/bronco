@@ -297,6 +297,7 @@ model Ticket {
   analysisError   String?         @map("analysis_error")
   sufficiencyStatus SufficiencyStatus? @map("sufficiency_status")
   knowledgeDoc    String?         @map("knowledge_doc") @db.Text
+  knowledgeDocSectionMeta Json?   @map("knowledge_doc_section_meta")
   lastAnalyzedAt  DateTime?       @map("last_analyzed_at")
   resolvedAt      DateTime?    @map("resolved_at")
   createdAt   DateTime     @default(now()) @map("created_at")
@@ -320,6 +321,7 @@ model Ticket {
   pendingActions      PendingAction[]
   toolRequests          ToolRequest[]           @relation("FirstTicketRequests")
   toolRequestRationales ToolRequestRationale[]
+  knowledgeDocSnapshots KnowledgeDocSnapshot[]
 
   @@unique([clientId, ticketNumber])
   @@index([clientId, status])
@@ -362,6 +364,20 @@ model TicketEvent {
 
   @@index([ticketId, createdAt])
   @@map("ticket_events")
+}
+
+model KnowledgeDocSnapshot {
+  id          String   @id @default(uuid()) @db.Uuid
+  ticketId    String   @map("ticket_id") @db.Uuid
+  ticket      Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  runId       String?  @map("run_id") @db.Uuid
+  iteration   Int
+  content     String   @db.Text
+  sectionMeta Json?    @map("section_meta")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([ticketId, createdAt])
+  @@map("knowledge_doc_snapshots")
 }
 
 // --- Operational tasks (internal/business tasks, not tied to clients) ---

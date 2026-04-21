@@ -12,11 +12,15 @@ import type {
 import {
   buildRepoNudgeSnippet,
   buildTruncatedPreview,
+  composeFinalAnalysis,
   executeAgenticToolCall,
+  fallbackFillRequiredSections,
   getToolResultMaxTokens,
+  KD_SYSTEM_PROMPT_SNIPPET,
   parseSufficiencyEvaluation,
   saveMcpToolArtifact,
   shouldTruncate,
+  writeKnowledgeDocSnapshot,
   PREFER_EXISTING_TOOLS_SNIPPET,
   REQUEST_NEW_TOOL_SNIPPET,
   SUFFICIENCY_EVAL_INSTRUCTIONS,
@@ -29,6 +33,7 @@ import {
   type ReanalysisContext,
   type StrategyStep,
 } from './shared.js';
+import { loadKnowledgeDoc } from '@bronco/shared-utils';
 
 const logger = createLogger('ticket-analyzer');
 
@@ -118,6 +123,7 @@ export async function runFlatAnalysis(
   systemParts.push(TRUNCATION_SYSTEM_PROMPT_SNIPPET);
   systemParts.push(PREFER_EXISTING_TOOLS_SNIPPET);
   systemParts.push(REQUEST_NEW_TOOL_SNIPPET);
+  systemParts.push(KD_SYSTEM_PROMPT_SNIPPET);
   const repoNudge = buildRepoNudgeSnippet(clientRepos);
   if (repoNudge) systemParts.push(repoNudge);
 
@@ -268,6 +274,28 @@ export async function runFlatAnalysis(
 
   if (!finalAnalysis) {
     finalAnalysis = 'Agentic analysis reached maximum iterations without a final conclusion. Review the tool call log for partial findings.';
+  }
+
+  // Knowledge doc: only run the fallback-fill + compose + snapshot pipeline
+  // when the agent actually wrote to the new-format doc during this run.
+  // `knowledgeDocSectionMeta` is populated by every kd_update_section /
+  // kd_add_subsection call, so its presence is the signal that kd_* was
+  // used. Legacy tickets (and new tickets where the agent ignored kd_*)
+  // keep their existing `knowledgeDoc` untouched — zero silent migration.
+  const kdBeforeCompose = await loadKnowledgeDoc(db, ticketId);
+  const hasSectionMeta =
+    !!kdBeforeCompose?.knowledgeDocSectionMeta
+    && typeof kdBeforeCompose.knowledgeDocSectionMeta === 'object'
+    && Object.keys(kdBeforeCompose.knowledgeDocSectionMeta as Record<string, unknown>).length > 0;
+  if (hasSectionMeta) {
+    await fallbackFillRequiredSections(db, ticketId, 'flat loop end');
+    const kdAfter = await loadKnowledgeDoc(db, ticketId);
+    finalAnalysis = composeFinalAnalysis(
+      kdAfter?.knowledgeDoc ?? null,
+      kdAfter?.knowledgeDocSectionMeta ?? null,
+      finalAnalysis,
+    );
+    await writeKnowledgeDocSnapshot(db, ticketId, iterationsRun);
   }
 
   // Parse sufficiency evaluation from the analysis response
