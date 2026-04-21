@@ -2,6 +2,9 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { Prisma } from '@bronco/db';
 import { ToolRequestStatus } from '@bronco/shared-types';
+import type { AIRouter } from '@bronco/ai-provider';
+import { runToolRequestDedupe } from '../services/tool-request-dedupe.js';
+import { createToolRequestGithubIssue } from '../services/tool-request-github.js';
 
 const STATUS_VALUES = Object.values(ToolRequestStatus) as [string, ...string[]];
 
@@ -24,11 +27,37 @@ const updateBodySchema = z.object({
   githubIssueUrl: z.string().url().optional(),
 });
 
+const dedupeBodySchema = z.object({
+  clientId: z.string().uuid(),
+});
+
+const suggestionBodySchema = z.object({
+  kind: z.enum(['duplicate', 'improves_existing']),
+});
+
+const createGithubIssueBodySchema = z.object({
+  repoOwner: z.string().min(1).optional(),
+  repoName: z.string().min(1).optional(),
+  labels: z.array(z.string().min(1)).optional(),
+});
+
 function isPrismaError(err: unknown, code: string): boolean {
   return err instanceof Error && 'code' in err && (err as { code: string }).code === code;
 }
 
-export async function toolRequestRoutes(fastify: FastifyInstance): Promise<void> {
+export interface ToolRequestRouteOpts {
+  ai: AIRouter;
+  encryptionKey: string;
+  mcpPlatformUrl?: string;
+  mcpRepoUrl?: string;
+  mcpDatabaseUrl?: string;
+  platformApiKey?: string;
+}
+
+export async function toolRequestRoutes(
+  fastify: FastifyInstance,
+  opts: ToolRequestRouteOpts,
+): Promise<void> {
   // List tool requests with filters
   fastify.get('/api/tool-requests', async (request) => {
     const parsed = listQuerySchema.safeParse(request.query);
@@ -122,7 +151,22 @@ export async function toolRequestRoutes(fastify: FastifyInstance): Promise<void>
       }
     }
 
-    return { ...row, linkedTickets };
+    // Resolve a short preview of the suggested canonical duplicate when present
+    let suggestedDuplicateOf: {
+      id: string;
+      requestedName: string;
+      displayTitle: string;
+      status: string;
+    } | null = null;
+    if (row.suggestedDuplicateOfId) {
+      const canonical = await fastify.db.toolRequest.findUnique({
+        where: { id: row.suggestedDuplicateOfId },
+        select: { id: true, requestedName: true, displayTitle: true, status: true },
+      });
+      suggestedDuplicateOf = canonical;
+    }
+
+    return { ...row, linkedTickets, suggestedDuplicateOf };
   });
 
   // Update tool request (status transitions, reasons, implementation refs)
@@ -202,4 +246,172 @@ export async function toolRequestRoutes(fastify: FastifyInstance): Promise<void>
       reply.code(204).send();
     },
   );
+
+  // Run dedupe analysis for a client — populates suggestion fields on
+  // PROPOSED/APPROVED rows. Idempotent; each run overwrites prior suggestions.
+  fastify.post<{ Body: { clientId: string } }>(
+    '/api/tool-requests/dedupe-analyses',
+    async (request, reply) => {
+      const parsed = dedupeBodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return fastify.httpErrors.badRequest(
+          parsed.error.errors[0]?.message ?? 'clientId is required',
+        );
+      }
+      const client = await fastify.db.client.findUnique({
+        where: { id: parsed.data.clientId },
+        select: { id: true },
+      });
+      if (!client) return fastify.httpErrors.notFound('Client not found');
+
+      try {
+        return await runToolRequestDedupe(
+          fastify.db,
+          opts.ai,
+          parsed.data.clientId,
+          opts.encryptionKey,
+          {
+            mcpPlatformUrl: opts.mcpPlatformUrl,
+            mcpRepoUrl: opts.mcpRepoUrl,
+            mcpDatabaseUrl: opts.mcpDatabaseUrl,
+            platformApiKey: opts.platformApiKey,
+          },
+        );
+      } catch (err) {
+        reply.code(500);
+        const error = err as Error & { debugContent?: string };
+        return { error: error.message, debugContent: error.debugContent };
+      }
+    },
+  );
+
+  // Accept an AI-suggested transition (duplicate or improves-existing).
+  fastify.post<{
+    Params: { id: string };
+    Body: { kind: 'duplicate' | 'improves_existing' };
+  }>('/api/tool-requests/:id/accept-suggestion', async (request) => {
+    const parsed = suggestionBodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return fastify.httpErrors.badRequest(
+        parsed.error.errors[0]?.message ?? 'kind must be "duplicate" or "improves_existing"',
+      );
+    }
+    const { kind } = parsed.data;
+
+    const row = await fastify.db.toolRequest.findUnique({
+      where: { id: request.params.id },
+      select: {
+        id: true,
+        suggestedDuplicateOfId: true,
+        suggestedImprovesExisting: true,
+      },
+    });
+    if (!row) return fastify.httpErrors.notFound('Tool request not found');
+
+    if (kind === 'duplicate') {
+      if (!row.suggestedDuplicateOfId) {
+        return fastify.httpErrors.badRequest('No duplicate suggestion on this request');
+      }
+      return fastify.db.toolRequest.update({
+        where: { id: row.id },
+        data: {
+          status: ToolRequestStatus.DUPLICATE,
+          duplicateOf: { connect: { id: row.suggestedDuplicateOfId } },
+          suggestedDuplicateOfId: null,
+          suggestedDuplicateReason: null,
+        },
+        include: {
+          client: { select: { id: true, name: true, shortCode: true } },
+          _count: { select: { rationales: true } },
+        },
+      });
+    }
+
+    // improves_existing
+    if (!row.suggestedImprovesExisting) {
+      return fastify.httpErrors.badRequest('No improves-existing suggestion on this request');
+    }
+    return fastify.db.toolRequest.update({
+      where: { id: row.id },
+      data: {
+        status: ToolRequestStatus.REJECTED,
+        rejectedReason: `Improves existing tool: ${row.suggestedImprovesExisting}`,
+        suggestedImprovesExisting: null,
+        suggestedImprovesReason: null,
+      },
+      include: {
+        client: { select: { id: true, name: true, shortCode: true } },
+        _count: { select: { rationales: true } },
+      },
+    });
+  });
+
+  // Dismiss an AI-suggested transition — clears suggestion fields, no status change.
+  fastify.post<{
+    Params: { id: string };
+    Body: { kind: 'duplicate' | 'improves_existing' };
+  }>('/api/tool-requests/:id/dismiss-suggestion', async (request) => {
+    const parsed = suggestionBodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return fastify.httpErrors.badRequest(
+        parsed.error.errors[0]?.message ?? 'kind must be "duplicate" or "improves_existing"',
+      );
+    }
+    const { kind } = parsed.data;
+
+    const data: Prisma.ToolRequestUpdateInput =
+      kind === 'duplicate'
+        ? { suggestedDuplicateOfId: null, suggestedDuplicateReason: null }
+        : { suggestedImprovesExisting: null, suggestedImprovesReason: null };
+
+    try {
+      return await fastify.db.toolRequest.update({
+        where: { id: request.params.id },
+        data,
+        include: {
+          client: { select: { id: true, name: true, shortCode: true } },
+          _count: { select: { rationales: true } },
+        },
+      });
+    } catch (err) {
+      if (isPrismaError(err, 'P2025')) {
+        return fastify.httpErrors.notFound('Tool request not found');
+      }
+      throw err;
+    }
+  });
+
+  // Create a GitHub issue for this tool request. Uses the configured default
+  // repo (SETTINGS_KEY_TOOL_REQUESTS_DEFAULT_REPO) unless overridden.
+  fastify.post<{
+    Params: { id: string };
+    Body: { repoOwner?: string; repoName?: string; labels?: string[] };
+  }>('/api/tool-requests/:id/create-github-issue', async (request, reply) => {
+    const parsed = createGithubIssueBodySchema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      return fastify.httpErrors.badRequest(
+        parsed.error.errors[0]?.message ?? 'Invalid request body',
+      );
+    }
+    try {
+      return await createToolRequestGithubIssue(fastify.db, opts.encryptionKey, {
+        toolRequestId: request.params.id,
+        repoOwner: parsed.data.repoOwner,
+        repoName: parsed.data.repoName,
+        labels: parsed.data.labels,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('not configured') || msg.includes('not found') || msg.includes('missing')) {
+        reply.code(400);
+        return { error: msg };
+      }
+      if (msg.startsWith('GitHub API error')) {
+        reply.code(502);
+        return { error: msg };
+      }
+      reply.code(500);
+      return { error: msg };
+    }
+  });
 }

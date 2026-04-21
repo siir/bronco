@@ -25,6 +25,7 @@ export const TASK_CAPABILITY_REQUIREMENTS: Record<string, string> = {
   [TaskType.ANALYZE_WORK_ITEM]: CapabilityLevel.STANDARD,
   [TaskType.DRAFT_COMMENT]: CapabilityLevel.STANDARD,
   [TaskType.GENERATE_RELEASE_NOTE]: CapabilityLevel.STANDARD,
+  [TaskType.ANALYZE_TOOL_REQUESTS]: CapabilityLevel.STANDARD,
 
   // ADVANCED — large models (planning, SQL generation, code review)
   [TaskType.GENERATE_DEVOPS_PLAN]: CapabilityLevel.ADVANCED,

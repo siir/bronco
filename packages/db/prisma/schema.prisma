@@ -1666,6 +1666,15 @@ model ToolRequest {
   implementedInIssue  String?           @map("implemented_in_issue")
   githubIssueUrl      String?           @map("github_issue_url")
 
+  // AI dedupe suggestions — populated by runToolRequestDedupe.
+  // Operators review via the admin UI; accepting transitions status/rejects,
+  // dismissing clears the suggestion fields.
+  suggestedDuplicateOfId    String?   @map("suggested_duplicate_of_id") @db.Uuid
+  suggestedDuplicateReason  String?   @db.Text @map("suggested_duplicate_reason")
+  suggestedImprovesExisting String?   @map("suggested_improves_existing")
+  suggestedImprovesReason   String?   @db.Text @map("suggested_improves_reason")
+  dedupeAnalysisAt          DateTime? @map("dedupe_analysis_at")
+
   rationales ToolRequestRationale[]
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")

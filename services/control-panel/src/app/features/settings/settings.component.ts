@@ -18,6 +18,7 @@ import {
   SlackSystemConfig,
   PromptRetentionConfig,
   ToolRequestRateLimitConfig,
+  ToolRequestsDefaultRepoConfig,
 } from '../../core/services/settings.service.js';
 import { ExternalServiceDialogComponent } from './external-service-dialog.component.js';
 import { StatusConfigDialogComponent } from './status-config-dialog.component.js';
@@ -578,6 +579,18 @@ const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External
               </div>
               <div class="card-actions">
                 <app-bronco-button variant="primary" (click)="saveToolRequestRateLimit()" [disabled]="sysConfigSaving()">Save</app-bronco-button>
+              </div>
+            </app-card>
+
+            <app-card>
+              <h2 class="section-title">GitHub Default Repo</h2>
+              <p class="hint">Target repository when an operator clicks "Create GitHub Issue" on an approved tool request. Uses the token from the GitHub tab.</p>
+              <div class="form-grid">
+                <app-form-field label="Owner"><input class="text-input" type="text" [(ngModel)]="toolRequestsDefaultRepo.owner" placeholder="e.g. siir"></app-form-field>
+                <app-form-field label="Repo name"><input class="text-input" type="text" [(ngModel)]="toolRequestsDefaultRepo.name" placeholder="e.g. bronco"></app-form-field>
+              </div>
+              <div class="card-actions">
+                <app-bronco-button variant="primary" (click)="saveToolRequestsDefaultRepo()" [disabled]="sysConfigSaving()">Save</app-bronco-button>
               </div>
             </app-card>
           </div>
@@ -1241,6 +1254,7 @@ export class SettingsComponent implements OnInit {
   slackConfig: SlackSystemConfig = { botToken: '', appToken: '', defaultChannelId: '', enabled: false };
   promptRetention: PromptRetentionConfig = { fullRetentionDays: 30, summaryRetentionDays: 90 };
   toolRequestRateLimit: ToolRequestRateLimitConfig = { limit: 5 };
+  toolRequestsDefaultRepo: ToolRequestsDefaultRepoConfig = { owner: '', name: '' };
 
   private loadSystemConfigs(): void {
     this.settingsSvc.getSmtpConfig().subscribe({ next: (c) => { if (c) this.smtp = { ...this.smtp, ...c }; } });
@@ -1250,6 +1264,7 @@ export class SettingsComponent implements OnInit {
     this.settingsSvc.getSlackConfig().subscribe({ next: (c) => { if (c) this.slackConfig = { ...this.slackConfig, ...c }; } });
     this.settingsSvc.getPromptRetention().subscribe({ next: (c) => { if (c) this.promptRetention = { ...this.promptRetention, ...c }; } });
     this.settingsSvc.getToolRequestRateLimit().subscribe({ next: (c) => { if (c) this.toolRequestRateLimit = { ...this.toolRequestRateLimit, ...c }; } });
+    this.settingsSvc.getToolRequestsDefaultRepo().subscribe({ next: (c) => { if (c) this.toolRequestsDefaultRepo = { ...this.toolRequestsDefaultRepo, ...c }; } });
   }
 
   saveSmtp(): void { this.sysConfigSaving.set(true); this.settingsSvc.updateSmtpConfig(this.smtp).subscribe({ next: (c) => { this.smtp = { ...this.smtp, ...c }; this.toast.success('SMTP config saved'); this.sysConfigSaving.set(false); }, error: () => { this.toast.error('Failed to save'); this.sysConfigSaving.set(false); } }); }
@@ -1270,4 +1285,15 @@ export class SettingsComponent implements OnInit {
   savePromptRetention(): void { this.sysConfigSaving.set(true); this.settingsSvc.savePromptRetention(this.promptRetention).subscribe({ next: (c: PromptRetentionConfig) => { this.promptRetention = { ...this.promptRetention, ...c }; this.toast.success('Prompt retention saved'); this.sysConfigSaving.set(false); }, error: () => { this.toast.error('Failed to save'); this.sysConfigSaving.set(false); } }); }
 
   saveToolRequestRateLimit(): void { this.sysConfigSaving.set(true); this.settingsSvc.saveToolRequestRateLimit(this.toolRequestRateLimit).subscribe({ next: (c: ToolRequestRateLimitConfig) => { this.toolRequestRateLimit = { ...this.toolRequestRateLimit, ...c }; this.toast.success('Tool request rate limit saved'); this.sysConfigSaving.set(false); }, error: () => { this.toast.error('Failed to save'); this.sysConfigSaving.set(false); } }); }
+
+  saveToolRequestsDefaultRepo(): void {
+    const owner = this.toolRequestsDefaultRepo.owner.trim();
+    const name = this.toolRequestsDefaultRepo.name.trim();
+    if (!owner || !name) { this.toast.error('Both owner and repo name are required'); return; }
+    this.sysConfigSaving.set(true);
+    this.settingsSvc.saveToolRequestsDefaultRepo({ owner, name }).subscribe({
+      next: (c: ToolRequestsDefaultRepoConfig) => { this.toolRequestsDefaultRepo = { ...this.toolRequestsDefaultRepo, ...c }; this.toast.success('Default repo saved'); this.sysConfigSaving.set(false); },
+      error: () => { this.toast.error('Failed to save'); this.sysConfigSaving.set(false); },
+    });
+  }
 }

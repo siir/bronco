@@ -47,6 +47,11 @@ export interface ToolRequest {
   implementedInCommit: string | null;
   implementedInIssue: string | null;
   githubIssueUrl: string | null;
+  suggestedDuplicateOfId: string | null;
+  suggestedDuplicateReason: string | null;
+  suggestedImprovesExisting: string | null;
+  suggestedImprovesReason: string | null;
+  dedupeAnalysisAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }

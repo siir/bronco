@@ -44,6 +44,7 @@ const SETTINGS_KEY_ACTION_SAFETY = 'system-config-action-safety';
 const SETTINGS_KEY_ANALYSIS_STRATEGY = 'system-config-analysis-strategy';
 const SETTINGS_KEY_SELF_ANALYSIS = 'self_analysis_config';
 const SETTINGS_KEY_TOOL_REQUEST_RATE_LIMIT = 'tool-request-rate-limit-per-run';
+const SETTINGS_KEY_TOOL_REQUESTS_DEFAULT_REPO = 'tool-requests-github-default-repo';
 
 const REDACTED = '••••••••';
 
@@ -922,6 +923,47 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
       });
 
       return row.value as unknown as { limit: number };
+    },
+  );
+
+  // ─── Tool Requests: default GitHub repo ───
+
+  const toolRequestsDefaultRepoSchema = z.object({
+    owner: z.string().trim().min(1),
+    name: z.string().trim().min(1),
+  });
+
+  type ToolRequestsDefaultRepo = z.output<typeof toolRequestsDefaultRepoSchema>;
+
+  // GET /api/settings/tool-requests-github-default-repo
+  fastify.get('/api/settings/tool-requests-github-default-repo', async () => {
+    const row = await fastify.db.appSetting.findUnique({
+      where: { key: SETTINGS_KEY_TOOL_REQUESTS_DEFAULT_REPO },
+    });
+    if (!row) return null;
+    const parsed = toolRequestsDefaultRepoSchema.safeParse(row.value);
+    return parsed.success ? parsed.data : null;
+  });
+
+  // PUT /api/settings/tool-requests-github-default-repo
+  fastify.put<{ Body: ToolRequestsDefaultRepo }>(
+    '/api/settings/tool-requests-github-default-repo',
+    async (request) => {
+      const parsed = toolRequestsDefaultRepoSchema.safeParse(request.body);
+      if (!parsed.success) {
+        const msg = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+        return fastify.httpErrors.badRequest(`Invalid default repo config: ${msg}`);
+      }
+
+      const config = parsed.data;
+
+      const row = await fastify.db.appSetting.upsert({
+        where: { key: SETTINGS_KEY_TOOL_REQUESTS_DEFAULT_REPO },
+        update: { value: config as unknown as object },
+        create: { key: SETTINGS_KEY_TOOL_REQUESTS_DEFAULT_REPO, value: config as unknown as object },
+      });
+
+      return row.value as unknown as ToolRequestsDefaultRepo;
     },
   );
 

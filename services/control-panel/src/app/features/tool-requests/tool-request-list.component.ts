@@ -7,7 +7,9 @@ import {
   type ToolRequestListItem,
   type ToolRequestDetail,
   type UpdateToolRequestBody,
+  type SuggestionKind,
 } from '../../core/services/tool-request.service.js';
+import { ClientService, type Client } from '../../core/services/client.service.js';
 import { ToastService } from '../../core/services/toast.service.js';
 import {
   BroncoButtonComponent,
@@ -51,6 +53,13 @@ const STATUS_OPTIONS = [
     <div class="page-header">
       <h1>Tool Requests</h1>
       <div class="header-actions">
+        <app-bronco-button
+          variant="primary"
+          size="sm"
+          (click)="runDedupe()"
+          [disabled]="dedupeRunning() || !clientFilter()">
+          {{ dedupeRunning() ? 'Analyzing…' : '⎇ Run Dedupe' }}
+        </app-bronco-button>
         <app-bronco-button variant="secondary" size="sm" (click)="refresh()" [disabled]="loading()">
           ↻ Refresh
         </app-bronco-button>
@@ -59,10 +68,14 @@ const STATUS_OPTIONS = [
 
     <p class="page-hint">
       Agent-flagged capability gaps. Each row represents a missing tool the analyzer wished it had, deduplicated by
-      <code>(client, requested_name)</code> with rationale history.
+      <code>(client, requested_name)</code> with rationale history. Select a client and click Run Dedupe to have Claude propose duplicate/improves-existing suggestions for its PROPOSED/APPROVED requests.
     </p>
 
     <app-toolbar>
+      <app-select
+        [value]="clientFilter()"
+        [options]="clientOptions()"
+        (valueChange)="onClientFilter($event)" />
       <app-select
         [value]="statusFilter()"
         [options]="statusOptions"
@@ -100,6 +113,12 @@ const STATUS_OPTIONS = [
             <div class="title-cell">
               <span class="title">{{ row.displayTitle }}</span>
               <span class="requested-name">{{ row.requestedName }}</span>
+              @if (row.suggestedDuplicateOfId) {
+                <span class="suggestion-pill suggestion-duplicate" title="AI dedupe flagged this as a duplicate">⚠ Suggested duplicate</span>
+              }
+              @if (row.suggestedImprovesExisting) {
+                <span class="suggestion-pill suggestion-improves" title="AI dedupe flagged this as improving an existing tool">↗ Improves: {{ row.suggestedImprovesExisting }}</span>
+              }
             </div>
           </ng-template>
         </app-data-column>
@@ -202,6 +221,79 @@ const STATUS_OPTIONS = [
                   <li>{{ dup.displayTitle }} ({{ dup.requestedName }}) — {{ dup.status }} · {{ dup.requestCount }}</li>
                 }
               </ul>
+            </section>
+          }
+
+          @if (d.suggestedDuplicateOfId || d.suggestedImprovesExisting) {
+            <section class="suggestion-section">
+              <h3>AI Dedupe Suggestions</h3>
+              @if (d.dedupeAnalysisAt) {
+                <p class="muted suggestion-when">Last analyzed {{ d.dedupeAnalysisAt | date:'short' }}</p>
+              }
+
+              @if (d.suggestedDuplicateOfId) {
+                <div class="suggestion-card suggestion-card-duplicate">
+                  <div class="suggestion-header">
+                    <span class="suggestion-pill suggestion-duplicate">⚠ Suggested duplicate</span>
+                    @if (d.suggestedDuplicateOf) {
+                      <span class="muted">of {{ d.suggestedDuplicateOf.displayTitle }} ({{ d.suggestedDuplicateOf.requestedName }})</span>
+                    }
+                  </div>
+                  @if (d.suggestedDuplicateReason) {
+                    <p class="suggestion-reason">{{ d.suggestedDuplicateReason }}</p>
+                  }
+                  <div class="action-row">
+                    <app-bronco-button variant="primary" size="sm" (click)="acceptSuggestion(d, 'duplicate')" [disabled]="saving()">Accept (→ Duplicate)</app-bronco-button>
+                    <app-bronco-button variant="secondary" size="sm" (click)="dismissSuggestion(d, 'duplicate')" [disabled]="saving()">Dismiss</app-bronco-button>
+                  </div>
+                </div>
+              }
+
+              @if (d.suggestedImprovesExisting) {
+                <div class="suggestion-card suggestion-card-improves">
+                  <div class="suggestion-header">
+                    <span class="suggestion-pill suggestion-improves">↗ Improves existing</span>
+                    <span class="muted">{{ d.suggestedImprovesExisting }}</span>
+                  </div>
+                  @if (d.suggestedImprovesReason) {
+                    <p class="suggestion-reason">{{ d.suggestedImprovesReason }}</p>
+                  }
+                  <div class="action-row">
+                    <app-bronco-button variant="primary" size="sm" (click)="acceptSuggestion(d, 'improves_existing')" [disabled]="saving()">Accept (→ Rejected)</app-bronco-button>
+                    <app-bronco-button variant="secondary" size="sm" (click)="dismissSuggestion(d, 'improves_existing')" [disabled]="saving()">Dismiss</app-bronco-button>
+                  </div>
+                </div>
+              }
+            </section>
+          }
+
+          @if (d.status === 'APPROVED' && !d.githubIssueUrl) {
+            <section class="github-section">
+              <h3>Create GitHub Issue</h3>
+              <p class="muted">Opens an issue in the configured default repo (or override below) and saves the link on this request.</p>
+              <div class="form-block">
+                <app-form-field label="Repo owner (optional override)">
+                  <input class="text-input" [(ngModel)]="ghRepoOwner" placeholder="e.g. siir" />
+                </app-form-field>
+                <app-form-field label="Repo name (optional override)">
+                  <input class="text-input" [(ngModel)]="ghRepoName" placeholder="e.g. bronco" />
+                </app-form-field>
+                <app-form-field label="Labels (comma-separated, optional)">
+                  <input class="text-input" [(ngModel)]="ghLabels" placeholder="tool-request, enhancement" />
+                </app-form-field>
+                <div class="action-row">
+                  <app-bronco-button variant="primary" (click)="createGithubIssue(d)" [disabled]="ghCreating()">
+                    {{ ghCreating() ? 'Creating…' : 'Create GitHub Issue' }}
+                  </app-bronco-button>
+                </div>
+              </div>
+            </section>
+          }
+
+          @if (d.githubIssueUrl) {
+            <section class="github-section">
+              <h3>GitHub Issue</h3>
+              <p><a [href]="d.githubIssueUrl" target="_blank" rel="noopener">{{ d.githubIssueUrl }}</a></p>
             </section>
           }
 
@@ -347,10 +439,39 @@ const STATUS_OPTIONS = [
     .action-row { display: flex; gap: 8px; flex-wrap: wrap; }
     .form-block { margin-top: 12px; padding: 12px; background: var(--bg-muted); border-radius: var(--radius-md); display: flex; flex-direction: column; gap: 10px; }
     .danger-section { border-top: 1px solid var(--border-light); padding-top: 12px; }
+
+    .suggestion-pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: var(--radius-pill);
+      font-size: 11px;
+      font-weight: 600;
+      margin-left: 4px;
+      white-space: nowrap;
+    }
+    .suggestion-pill.suggestion-duplicate { background: rgba(255,204,0,0.15); color: #b58900; border: 1px solid rgba(255,204,0,0.35); }
+    .suggestion-pill.suggestion-improves { background: rgba(0,122,255,0.12); color: var(--accent); border: 1px solid rgba(0,122,255,0.25); }
+
+    .suggestion-section { border-top: 1px solid var(--border-light); padding-top: 12px; }
+    .suggestion-when { margin: -4px 0 8px; font-size: 11px; }
+    .suggestion-card {
+      padding: 10px 12px;
+      border-radius: var(--radius-md);
+      margin-bottom: 10px;
+      border: 1px solid var(--border-light);
+    }
+    .suggestion-card-duplicate { background: rgba(255,204,0,0.04); border-color: rgba(255,204,0,0.2); }
+    .suggestion-card-improves { background: rgba(0,122,255,0.03); border-color: rgba(0,122,255,0.2); }
+    .suggestion-header { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+    .suggestion-reason { margin: 4px 0 8px; font-size: 13px; color: var(--text-primary); white-space: pre-wrap; }
+
+    .github-section { border-top: 1px solid var(--border-light); padding-top: 12px; }
+    .github-section a { color: var(--accent); word-break: break-all; }
   `],
 })
 export class ToolRequestListComponent implements OnInit {
   private svc = inject(ToolRequestService);
+  private clientSvc = inject(ClientService);
   private toast = inject(ToastService);
 
   readonly statusOptions = STATUS_OPTIONS;
@@ -359,9 +480,18 @@ export class ToolRequestListComponent implements OnInit {
   items = signal<ToolRequestListItem[]>([]);
   total = signal(0);
   statusFilter = signal<string>('');
+  clientFilter = signal<string>('');
   searchInput = signal<string>('');
   offset = signal(0);
   readonly pageSize = 50;
+
+  clients = signal<Client[]>([]);
+  clientOptions = computed(() => [
+    { value: '', label: 'All Clients' },
+    ...this.clients().map((c) => ({ value: c.id, label: `${c.name} (${c.shortCode})` })),
+  ]);
+
+  dedupeRunning = signal(false);
 
   detail = signal<ToolRequestDetail | null>(null);
   showRejectForm = signal(false);
@@ -372,6 +502,11 @@ export class ToolRequestListComponent implements OnInit {
   implementedInCommit = '';
   githubIssueUrl = '';
 
+  ghRepoOwner = '';
+  ghRepoName = '';
+  ghLabels = '';
+  ghCreating = signal(false);
+
   private searchDebounce: ReturnType<typeof setTimeout> | null = null;
 
   hasMore = computed(() => this.total() > this.items().length);
@@ -379,6 +514,12 @@ export class ToolRequestListComponent implements OnInit {
   trackById = (row: ToolRequestListItem) => row.id;
 
   ngOnInit(): void {
+    this.clientSvc.getClients().subscribe({
+      next: (list) => this.clients.set(list),
+      error: () => {
+        /* non-fatal — client filter stays empty */
+      },
+    });
     this.refresh();
   }
 
@@ -398,6 +539,7 @@ export class ToolRequestListComponent implements OnInit {
     this.svc
       .list({
         status: status ? (status as ToolRequestStatus) : undefined,
+        clientId: this.clientFilter() || undefined,
         search: this.searchInput() || undefined,
         limit: this.pageSize,
         offset: this.offset(),
@@ -418,6 +560,35 @@ export class ToolRequestListComponent implements OnInit {
   onStatusFilter(value: string): void {
     this.statusFilter.set(value);
     this.refresh();
+  }
+
+  onClientFilter(value: string): void {
+    this.clientFilter.set(value);
+    this.refresh();
+  }
+
+  runDedupe(): void {
+    const clientId = this.clientFilter();
+    if (!clientId) {
+      this.toast.error('Select a client first');
+      return;
+    }
+    this.dedupeRunning.set(true);
+    this.svc.runDedupeAnalysis(clientId).subscribe({
+      next: (res) => {
+        this.dedupeRunning.set(false);
+        const warn = res.warnings?.length ? ` (${res.warnings.length} warning${res.warnings.length === 1 ? '' : 's'})` : '';
+        this.toast.success(
+          `Dedupe complete: ${res.duplicateGroupsCount} duplicate group(s), ${res.improvesExistingCount} improves-existing across ${res.requestsAnalyzed} request(s)${warn}`,
+        );
+        this.refresh();
+      },
+      error: (err) => {
+        this.dedupeRunning.set(false);
+        const msg = err?.error?.message ?? 'Dedupe analysis failed';
+        this.toast.error(msg);
+      },
+    });
   }
 
   onSearchChange(value: string): void {
@@ -453,6 +624,9 @@ export class ToolRequestListComponent implements OnInit {
     this.duplicateOfId = '';
     this.implementedInCommit = '';
     this.githubIssueUrl = '';
+    this.ghRepoOwner = '';
+    this.ghRepoName = '';
+    this.ghLabels = '';
   }
 
   private applyUpdate(id: string, body: UpdateToolRequestBody, successMsg: string): void {
@@ -517,6 +691,66 @@ export class ToolRequestListComponent implements OnInit {
       error: () => {
         this.toast.error('Failed to delete tool request');
         this.saving.set(false);
+      },
+    });
+  }
+
+  acceptSuggestion(d: ToolRequestDetail, kind: SuggestionKind): void {
+    this.saving.set(true);
+    this.svc.acceptSuggestion(d.id, kind).subscribe({
+      next: (updated) => {
+        this.saving.set(false);
+        this.detail.set(updated);
+        this.toast.success(kind === 'duplicate' ? 'Accepted — marked as duplicate' : 'Accepted — marked rejected (improves existing)');
+        this.fetch(false);
+      },
+      error: (err) => {
+        this.saving.set(false);
+        const msg = err?.error?.message ?? 'Failed to accept suggestion';
+        this.toast.error(msg);
+      },
+    });
+  }
+
+  dismissSuggestion(d: ToolRequestDetail, kind: SuggestionKind): void {
+    this.saving.set(true);
+    this.svc.dismissSuggestion(d.id, kind).subscribe({
+      next: (updated) => {
+        this.saving.set(false);
+        this.detail.set(updated);
+        this.toast.success('Suggestion dismissed');
+        this.fetch(false);
+      },
+      error: (err) => {
+        this.saving.set(false);
+        const msg = err?.error?.message ?? 'Failed to dismiss suggestion';
+        this.toast.error(msg);
+      },
+    });
+  }
+
+  createGithubIssue(d: ToolRequestDetail): void {
+    this.ghCreating.set(true);
+    const opts: { repoOwner?: string; repoName?: string; labels?: string[] } = {};
+    if (this.ghRepoOwner.trim()) opts.repoOwner = this.ghRepoOwner.trim();
+    if (this.ghRepoName.trim()) opts.repoName = this.ghRepoName.trim();
+    const labels = this.ghLabels
+      .split(',')
+      .map((l) => l.trim())
+      .filter(Boolean);
+    if (labels.length > 0) opts.labels = labels;
+
+    this.svc.createGithubIssue(d.id, opts).subscribe({
+      next: (res) => {
+        this.ghCreating.set(false);
+        this.toast.success(`Created GitHub issue #${res.issueNumber}`);
+        this.svc.get(d.id).subscribe({ next: (refreshed) => this.detail.set(refreshed) });
+        this.fetch(false);
+      },
+      error: (err) => {
+        this.ghCreating.set(false);
+        const msg = err?.error?.message ?? 'Failed to create GitHub issue';
+        this.toast.error(msg);
       },
     });
   }

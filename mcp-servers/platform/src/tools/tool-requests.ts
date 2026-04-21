@@ -2,11 +2,12 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { Prisma } from '@bronco/db';
 import { ToolRequestStatus } from '@bronco/shared-types';
+import { createToolRequestGithubIssue } from '@bronco/shared-utils';
 import type { ServerDeps } from '../server.js';
 
 const STATUS_VALUES = Object.values(ToolRequestStatus) as [string, ...string[]];
 
-export function registerToolRequestTools(server: McpServer, { db }: ServerDeps): void {
+export function registerToolRequestTools(server: McpServer, { db, config }: ServerDeps): void {
   server.tool(
     'list_tool_requests',
     'List agent-flagged tool requests (missing capability registry). Filterable by client and status.',
@@ -114,6 +115,34 @@ export function registerToolRequestTools(server: McpServer, { db }: ServerDeps):
     async (params) => {
       await db.toolRequest.delete({ where: { id: params.id } });
       return { content: [{ type: 'text', text: JSON.stringify({ deleted: true, id: params.id }) }] };
+    },
+  );
+
+  server.tool(
+    'create_tool_request_github_issue',
+    'Create a GitHub issue for a tool request using the configured default repo (or override). Persists githubIssueUrl + implementedInIssue on the row.',
+    {
+      id: z.string().uuid().describe('Tool request ID'),
+      repoOwner: z.string().optional().describe('Override the default repo owner'),
+      repoName: z.string().optional().describe('Override the default repo name'),
+      labels: z.array(z.string()).optional().describe('GitHub labels (defaults to ["tool-request"])'),
+    },
+    async (params) => {
+      try {
+        const result = await createToolRequestGithubIssue(db, config.ENCRYPTION_KEY, {
+          toolRequestId: params.id,
+          repoOwner: params.repoOwner,
+          repoName: params.repoName,
+          labels: params.labels,
+        });
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          isError: true,
+          content: [{ type: 'text', text: `ERROR: ${msg}` }],
+        };
+      }
     },
   );
 }
