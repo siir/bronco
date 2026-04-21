@@ -445,7 +445,12 @@ export async function runOrchestratedAnalysis(
 
         strategistPrompt = sections.join('\n');
       } else {
-        strategistPrompt = `Investigate this ticket. Here is the full context:\n\n${contextParts.join('\n')}${priorNote}`;
+        // fresh_start mode (or initial run with no reanalysisCtx): suppress priorNote
+        // when the operator explicitly requested a fresh start — the whole point is to
+        // ignore prior context. Initial runs with no prior doc naturally have empty priorNote.
+        const includePriorNote = reanalysisMode !== ReanalysisMode.FRESH_START;
+        const effectivePriorNote = includePriorNote ? priorNote : '';
+        strategistPrompt = `Investigate this ticket. Here is the full context:\n\n${contextParts.join('\n')}${effectivePriorNote}`;
       }
     } else {
       strategistPrompt = `Continue the investigation. Here is the knowledge document so far:\n\n${currentRunContent}\n\n## Next Investigation Step\n${orchNextPrompt}`;

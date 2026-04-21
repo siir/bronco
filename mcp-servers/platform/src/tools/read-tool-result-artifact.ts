@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { relative, resolve } from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { ServerDeps } from '../server.js';
@@ -21,9 +21,18 @@ export function registerArtifactTools(server: McpServer, { db, config }: ServerD
         return { content: [{ type: 'text', text: 'ERROR: artifact not found or not accessible' }] };
       }
 
+      // Defense-in-depth: validate the resolved path stays within the storage root.
+      // storagePath comes from the DB; a poisoned/corrupted row could otherwise enable
+      // path traversal. Same pattern as saveMcpToolArtifact in analysis/shared.ts.
+      const resolvedStorage = resolve(config.ARTIFACT_STORAGE_PATH);
+      const absPath = resolve(resolvedStorage, artifact.storagePath);
+      const rel = relative(resolvedStorage, absPath);
+      if (rel.startsWith('..') || rel === '' || rel.startsWith('/')) {
+        return { content: [{ type: 'text', text: 'ERROR: artifact not found or not accessible' }] };
+      }
+
       let full: string;
       try {
-        const absPath = join(config.ARTIFACT_STORAGE_PATH, artifact.storagePath);
         full = await readFile(absPath, 'utf-8');
       } catch {
         return { content: [{ type: 'text', text: 'ERROR: artifact not found or not accessible' }] };
