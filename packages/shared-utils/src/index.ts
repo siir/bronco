@@ -30,3 +30,5 @@ export { getSelfAnalysisConfig } from './self-analysis-config.js';
 export type { SelfAnalysisConfig } from './self-analysis-config.js';
 export { SlackClient } from './slack-client.js';
 export type { SlackClientOpts, SlackMessageResult, SlackBlockAction, SlackThreadMessage, SlackMentionEvent, SlackDirectMessageEvent, BlockActionHandler, ThreadMessageHandler, MentionHandler, DirectMessageHandler } from './slack-client.js';
+export { registerToolRequest, normalizeRequestedName } from './tool-request-registry.js';
+export type { RegisterToolRequestInput, RegisterToolRequestResult } from './tool-request-registry.js';

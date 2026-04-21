@@ -7,8 +7,8 @@ import { Prisma } from '@bronco/db';
 import type { PrismaClient } from '@bronco/db';
 import type { TicketCategory, Priority, TicketStatus, TicketSource, AnalysisJob } from '@bronco/shared-types';
 import { AIRouter } from '@bronco/ai-provider';
-import { TaskType, RouteStepType, isClosedStatus, AnalysisStatus, SufficiencyStatus, NotificationMode } from '@bronco/shared-types';
-import { createLogger, AppLogger, createPrismaLogWriter, MCP_TOOL_TIMEOUT_MS, mcpUrl, callMcpToolViaSdk, notifyOperators as notifyOperatorsFn, notifyClientOperators as notifyClientOperatorsFn, getActiveOperatorRecords, getSelfAnalysisConfig } from '@bronco/shared-utils';
+import { TaskType, RouteStepType, isClosedStatus, AnalysisStatus, SufficiencyStatus, NotificationMode, ToolRequestRationaleSource } from '@bronco/shared-types';
+import { createLogger, AppLogger, createPrismaLogWriter, MCP_TOOL_TIMEOUT_MS, mcpUrl, callMcpToolViaSdk, notifyOperators as notifyOperatorsFn, notifyClientOperators as notifyClientOperatorsFn, getActiveOperatorRecords, getSelfAnalysisConfig, registerToolRequest } from '@bronco/shared-utils';
 import type { Mailer, ReplyOptions } from '@bronco/shared-utils';
 import { executeRecommendations } from './recommendation-executor.js';
 import type { ParsedAction } from './recommendation-executor.js';
@@ -1523,6 +1523,7 @@ async function executeRoutePipeline(
   let codeContext: string[] = [];
   let dbContext = '';
   let analysis = '';
+  let lastToolCallLog: Array<{ tool: string; system?: string; input: Record<string, unknown>; output: string; durationMs: number }> = [];
   const cleanups: Array<() => Promise<void>> = [];
 
   // Load ticket for current state
@@ -2105,6 +2106,7 @@ async function executeRoutePipeline(
           : await runFlatAnalysis(analysisDeps, analysisCtx, step, toolCtx, { maxIterations, reanalysisCtx });
 
         analysis = result.analysis;
+        lastToolCallLog = result.toolCallLog;
         ctx.sufficiencyEval = result.sufficiencyEval;
 
         // Cost aggregation — both strategies use the same AI-usage-log window starting from stepStart.
@@ -2751,6 +2753,97 @@ async function executeRoutePipeline(
           appLog.info(
             `Ticket summary updated (${(stepDuration / 1000).toFixed(1)}s)`,
             { ticketId, durationMs: stepDuration },
+            ticketId, 'ticket',
+          );
+        }
+        stepsSucceeded++;
+        break;
+      }
+
+      case RouteStepType.DETECT_TOOL_GAPS: {
+        if (!analysis || analysis.trim().length === 0) {
+          appLog.info('DETECT_TOOL_GAPS skipped — no analysis text available', { ticketId }, ticketId, 'ticket');
+          stepsSkipped++;
+          break;
+        }
+
+        const toolsUsedSummary = lastToolCallLog.length === 0
+          ? 'no agentic tool use this run'
+          : (() => {
+              const counts = new Map<string, number>();
+              for (const c of lastToolCallLog) counts.set(c.tool, (counts.get(c.tool) ?? 0) + 1);
+              return Array.from(counts.entries()).map(([name, n]) => `- ${name} (${n}×)`).join('\n');
+            })();
+
+        const truncatedAnalysis = analysis.length > 6000 ? `${analysis.slice(0, 6000)}\n... [truncated]` : analysis;
+
+        const userPrompt = [
+          `Ticket: ${ticket?.subject ?? emailSubject}`,
+          `Category: ${category}`,
+          '',
+          'Tools used this run (with call counts):',
+          toolsUsedSummary,
+          '',
+          'Final analysis text:',
+          truncatedAnalysis,
+          '',
+          'Return the JSON array of gap requests.',
+        ].join('\n');
+
+        let detectResult;
+        try {
+          detectResult = await ai.generate({
+            taskType: TaskType.DETECT_TOOL_GAPS,
+            context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category },
+            prompt: userPrompt,
+            promptKey: 'detect-tool-gaps.system',
+          });
+        } catch (err) {
+          appLog.warn(`DETECT_TOOL_GAPS AI call failed: ${(err as Error).message}`, { ticketId }, ticketId, 'ticket');
+          stepsSkipped++;
+          break;
+        }
+
+        let gaps: Array<{ requestedName: string; displayTitle: string; description: string; rationale: string; suggestedInputs?: Record<string, unknown>; exampleUsage?: string }> = [];
+        try {
+          const raw = detectResult.content.trim();
+          const cleaned = raw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim();
+          const parsed = JSON.parse(cleaned);
+          if (Array.isArray(parsed)) gaps = parsed;
+        } catch (err) {
+          appLog.warn(`DETECT_TOOL_GAPS returned non-JSON output: ${(err as Error).message}`, { ticketId }, ticketId, 'ticket');
+          stepsSkipped++;
+          break;
+        }
+
+        let registered = 0;
+        for (const gap of gaps) {
+          if (!gap?.requestedName || !gap?.displayTitle || !gap?.description || !gap?.rationale) {
+            continue;
+          }
+          try {
+            await registerToolRequest(db, {
+              clientId,
+              ticketId,
+              requestedName: gap.requestedName,
+              displayTitle: gap.displayTitle,
+              description: gap.description,
+              rationale: gap.rationale,
+              suggestedInputs: gap.suggestedInputs,
+              exampleUsage: gap.exampleUsage,
+              source: ToolRequestRationaleSource.POST_HOC_DETECTION,
+            });
+            registered++;
+          } catch (err) {
+            appLog.warn(`DETECT_TOOL_GAPS: failed to register "${gap.requestedName}": ${(err as Error).message}`, { ticketId, requestedName: gap.requestedName }, ticketId, 'ticket');
+          }
+        }
+
+        {
+          const stepDuration = Date.now() - stepStart;
+          appLog.info(
+            `DETECT_TOOL_GAPS: found ${gaps.length} gap(s), registered ${registered} (${(stepDuration / 1000).toFixed(1)}s)`,
+            { ticketId, gapCount: gaps.length, registeredCount: registered, durationMs: stepDuration },
             ticketId, 'ticket',
           );
         }
