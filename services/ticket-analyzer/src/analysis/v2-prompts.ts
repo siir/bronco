@@ -88,6 +88,39 @@ export const REQUEST_NEW_TOOL_SNIPPET = [
 ].join('\n');
 
 /**
+ * System-prompt snippet teaching the agent how to recognize and react to
+ * structured MCP tool errors. Pairs with buildMcpToolErrorResult() in
+ * analysis/shared.ts — failed tool calls return a JSON envelope with
+ * `_mcp_tool_error: true`, plus `errorClass`, `retryable`, and `guidance`.
+ */
+export const TOOL_ERROR_SYSTEM_PROMPT_SNIPPET = [
+  '',
+  '## Handling Tool Failures',
+  '',
+  'Some tool calls fail. A failed tool_result is a JSON object starting with',
+  '`{"_mcp_tool_error": true, ...}`. When you see this, do NOT treat the message',
+  'as data — it is a failure signal.',
+  '',
+  'Inspect these fields and react:',
+  '- `errorClass` — kind of failure (transport / auth / tool_not_registered /',
+  '  tool_logic / timeout / rate_limit / repeated_failure / unknown)',
+  '- `retryable` — boolean. If `false`, do NOT call the same tool with the same',
+  '  inputs again in this run. It will be short-circuited.',
+  '- `guidance` — human-readable next step tailored to the error class.',
+  '',
+  'Rules:',
+  '- If `retryable: true` (e.g. timeout, rate_limit), retry at most ONCE, with',
+  '  the same inputs.',
+  '- If `retryable: false`, switch approach: try a different tool, change inputs,',
+  '  or abandon this line of investigation and note the gap in your analysis.',
+  '- If multiple tools in the same class fail (e.g. every repo tool returns',
+  '  `transport` errors), suspect infrastructure. Stop calling that class and',
+  '  flag the outage via `request_tool` with `kind: "BROKEN_TOOL"`.',
+  '- After 2 failures of the same `(tool, input)` pair, the runner blocks further',
+  '  attempts automatically — you will get `errorClass: "repeated_failure"`.',
+].join('\n');
+
+/**
  * System-prompt snippet appended to v2 agentic system prompts. Agent adoption
  * is opt-out — findings must flow through the `kd_*` tools so the knowledge
  * doc stays the authoritative source. At end-of-run a fallback pass fills any

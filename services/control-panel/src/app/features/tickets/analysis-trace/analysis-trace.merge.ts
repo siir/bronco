@@ -369,3 +369,40 @@ export function flattenTree(roots: TraceNode[]): TraceNode[] {
   walk(roots);
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Structured MCP tool error helpers (used by pill + expand dialog)
+// ---------------------------------------------------------------------------
+
+interface McpToolErrorEnvelope {
+  _mcp_tool_error: true;
+  toolName: string;
+  errorClass: string;
+  message: string;
+  retryable: boolean;
+  guidance: string;
+}
+
+/** Returns true when the tool result content is a structured MCP error envelope. */
+export function isStructuredMcpToolError(content: string): boolean {
+  const trimmed = content.trimStart();
+  if (!trimmed.startsWith('{"_mcp_tool_error":') && !trimmed.startsWith('{\n  "_mcp_tool_error":')) {
+    return false;
+  }
+  try {
+    const parsed = JSON.parse(content) as Record<string, unknown>;
+    return parsed['_mcp_tool_error'] === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Parses and returns the structured error envelope, or null if not structured. */
+export function parsedMcpToolError(content: string): McpToolErrorEnvelope | null {
+  if (!isStructuredMcpToolError(content)) return null;
+  try {
+    return JSON.parse(content) as McpToolErrorEnvelope;
+  } catch {
+    return null;
+  }
+}

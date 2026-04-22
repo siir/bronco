@@ -496,6 +496,95 @@ export async function buildAgenticTools(
   return { tools, mcpIntegrations, repoIdByPrefix, repos: repoInfos };
 }
 
+// ---------------------------------------------------------------------------
+// Structured MCP tool error envelopes
+// ---------------------------------------------------------------------------
+
+export type McpToolErrorClass =
+  | 'transport'
+  | 'auth'
+  | 'tool_not_registered'
+  | 'tool_logic'
+  | 'timeout'
+  | 'rate_limit'
+  | 'repeated_failure'
+  | 'unknown';
+
+export interface McpToolErrorEnvelope {
+  _mcp_tool_error: true;
+  toolName: string;
+  errorClass: McpToolErrorClass;
+  message: string;
+  retryable: boolean;
+  guidance: string;
+}
+
+export function buildMcpToolErrorResult(env: McpToolErrorEnvelope): string {
+  // Plain JSON string — tool_result content is a string from Anthropic's
+  // perspective. The agent sees the JSON and recognizes `_mcp_tool_error: true`.
+  return JSON.stringify(env, null, 2);
+}
+
+export function classifyMcpError(err: unknown): { errorClass: McpToolErrorClass; retryable: boolean } {
+  const msg = err instanceof Error ? err.message : String(err);
+  const lower = msg.toLowerCase();
+
+  // Order matters — check specific patterns before generic ones.
+  if (lower.includes('timeout') || lower.includes('timed out') || lower.includes('etimedout')) {
+    return { errorClass: 'timeout', retryable: true };
+  }
+  if (lower.includes('rate') && lower.includes('limit')) return { errorClass: 'rate_limit', retryable: true };
+  if (lower.includes('429')) return { errorClass: 'rate_limit', retryable: true };
+  if (lower.includes('401') || lower.includes('403') || lower.includes('unauthorized') || lower.includes('forbidden')) {
+    return { errorClass: 'auth', retryable: false };
+  }
+  if (lower.includes('method not found') || lower.includes('unknown tool') || lower.includes('tool not found')) {
+    return { errorClass: 'tool_not_registered', retryable: false };
+  }
+  if (lower.includes('econnrefused') || lower.includes('enotfound') || lower.includes('network') || lower.includes('fetch failed')) {
+    return { errorClass: 'transport', retryable: true };
+  }
+  // Many git/ssh/shell failures read as "transport" to the agent — missing binary, refused connection, etc.
+  if (lower.includes('cannot run ssh') || lower.includes('unable to fork') || lower.includes('no such file or directory')) {
+    return { errorClass: 'transport', retryable: false };
+  }
+  // JSON-RPC errors from the MCP SDK
+  if (lower.includes('jsonrpc') || lower.includes('json-rpc')) return { errorClass: 'tool_logic', retryable: false };
+  return { errorClass: 'unknown', retryable: false };
+}
+
+function guidanceFor(errorClass: McpToolErrorClass, toolName: string): string {
+  switch (errorClass) {
+    case 'transport':
+      return `The MCP server backing ${toolName} is unreachable or the underlying infrastructure is broken. Do not retry. Consider whether your investigation can proceed without this tool class, or call request_tool with kind=BROKEN_TOOL to flag the outage.`;
+    case 'auth':
+      return `${toolName} rejected the call with an auth error. This is an operator-level configuration issue. Do not retry. Move on with what you have and mention the auth gap in your analysis.`;
+    case 'tool_not_registered':
+      return `No MCP tool by that name is registered for this run. Check the Available Tools list for the exact name (including prefix).`;
+    case 'timeout':
+      return `${toolName} timed out. Retry at most once with the same inputs. If it times out twice, stop and try a narrower query.`;
+    case 'rate_limit':
+      return `Rate-limited. Wait before trying ${toolName} again. Consider batching or reducing call frequency.`;
+    case 'tool_logic':
+      return `${toolName} rejected the input or hit an internal error. Re-read the tool description, adjust inputs, and retry at most once. If it fails again, switch approaches.`;
+    case 'repeated_failure':
+      return `This exact ${toolName} + input combination has already failed in this run and is now blocked. Try a different tool, different inputs, or abandon this line of investigation.`;
+    default:
+      return `${toolName} failed with an unrecognized error. Do not retry blindly — change inputs or switch tools.`;
+  }
+}
+
+function sortedStringify(obj: unknown): string {
+  if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) {
+    return JSON.stringify(obj);
+  }
+  const sorted: Record<string, unknown> = {};
+  for (const key of Object.keys(obj as Record<string, unknown>).sort()) {
+    sorted[key] = (obj as Record<string, unknown>)[key];
+  }
+  return JSON.stringify(sorted);
+}
+
 /**
  * Execute a single tool call from the agentic loop.
  * Returns the tool result text and whether it was an error.
@@ -506,8 +595,24 @@ export async function executeAgenticToolCall(
   repoIdByPrefix: Map<string, string>,
   clientId?: string,
   ticketId?: string,
+  failureTracker?: Map<string, number>,
 ): Promise<{ toolUseId: string; result: string; isError: boolean }> {
   const { id: toolUseId, name, input } = toolCall;
+
+  const failureKey = `${name}::${sortedStringify(input)}`;
+
+  // Short-circuit if this (tool, input) pair has already failed twice
+  if (failureTracker && (failureTracker.get(failureKey) ?? 0) >= 2) {
+    const envelope: McpToolErrorEnvelope = {
+      _mcp_tool_error: true,
+      toolName: name,
+      errorClass: 'repeated_failure',
+      message: `This exact (${name}, input) combination has already failed twice in this run and is blocked.`,
+      retryable: false,
+      guidance: guidanceFor('repeated_failure', name),
+    };
+    return { toolUseId, result: buildMcpToolErrorResult(envelope), isError: true };
+  }
 
   try {
     // MCP tool — parse prefix
@@ -558,7 +663,19 @@ export async function executeAgenticToolCall(
     return { toolUseId, result, isError: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return { toolUseId, result: `Tool error: ${msg}`, isError: true };
+    if (failureTracker) {
+      failureTracker.set(failureKey, (failureTracker.get(failureKey) ?? 0) + 1);
+    }
+    const { errorClass, retryable } = classifyMcpError(err);
+    const envelope: McpToolErrorEnvelope = {
+      _mcp_tool_error: true,
+      toolName: name,
+      errorClass,
+      message: msg,
+      retryable,
+      guidance: guidanceFor(errorClass, name),
+    };
+    return { toolUseId, result: buildMcpToolErrorResult(envelope), isError: true };
   }
 }
 
