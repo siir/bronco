@@ -317,7 +317,16 @@ export async function callMcpToolViaSdk(
     const texts = contentArray
       .filter((c: { type: string }) => c.type === 'text')
       .map((c: { type: string; text: string }) => c.text);
-    return texts.join('\n') || JSON.stringify(result);
+    const joined = texts.join('\n') || JSON.stringify(result);
+    // MCP tools may return normally with `isError: true` (input validation,
+    // rate-limit rejections, tool-logic errors the server returns as a result
+    // rather than throwing). Surface these as thrown exceptions so the agentic
+    // caller's catch block can classify them into the structured envelope
+    // alongside transport/timeout/auth failures. See #360.
+    if (result.isError === true) {
+      throw new Error(`MCP tool returned isError: ${joined}`);
+    }
+    return joined;
   } finally {
     if (timer !== undefined) clearTimeout(timer);
     try { await transport.close(); } catch { /* ignore close errors */ }
