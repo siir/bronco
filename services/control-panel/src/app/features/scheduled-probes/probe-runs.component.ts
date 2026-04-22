@@ -232,7 +232,7 @@ import { ToastService } from '../../core/services/toast.service.js';
                           <div class="step-result-block">
                             <div class="result-toolbar">
                               <span class="result-label">Result</span>
-                              <span class="result-size">{{ getLineCount(step.detail) }} lines · {{ formatBytes(getByteSize(step.detail)) }}</span>
+                              <span class="result-size">{{ getLineCount(step.id) }} lines · {{ formatBytes(getByteSize(step.id)) }}</span>
                               <app-bronco-button
                                 variant="icon"
                                 size="sm"
@@ -247,7 +247,8 @@ import { ToastService } from '../../core/services/toast.service.js';
                                 Show full result
                               </app-bronco-button>
                             } @else {
-                              <pre class="detail-pre detail-pre-expanded" [class.detail-pre-json]="getFormattedJson(step.id) !== null">{{ getFormattedJson(step.id) !== null ? getFormattedJson(step.id) : step.detail }}</pre>
+                              @let formattedJson = getFormattedJson(step.id);
+                              <pre class="detail-pre detail-pre-expanded" [class.detail-pre-json]="formattedJson !== null">{{ formattedJson ?? step.detail }}</pre>
                               @if (step.detail.length > 500) {
                                 <app-bronco-button variant="ghost" size="sm" (click)="toggleStepExpand(step.id); $event.stopPropagation()">
                                   Collapse
@@ -294,7 +295,7 @@ import { ToastService } from '../../core/services/toast.service.js';
                         <details class="detail-step-output">
                           <summary>
                             Output
-                            <span class="result-size">{{ getLineCount(step.detail) }} lines · {{ formatBytes(getByteSize(step.detail)) }}</span>
+                            <span class="result-size">{{ getLineCount(step.id) }} lines · {{ formatBytes(getByteSize(step.id)) }}</span>
                           </summary>
                           <div class="result-toolbar">
                             <span></span>
@@ -682,6 +683,10 @@ export class ProbeRunsComponent implements OnInit, OnDestroy {
   expandedStepIds = new Set<string>();
   /** Precomputed formatted JSON per step id; null means content is not JSON. */
   private formattedJsonCache = new Map<string, string | null>();
+  /** Precomputed line count per step id. */
+  private lineCountCache = new Map<string, number>();
+  /** Precomputed byte size per step id. */
+  private byteSizeCache = new Map<string, number>();
 
   filterStatus = '';
   page = 0;
@@ -759,6 +764,8 @@ export class ProbeRunsComponent implements OnInit, OnDestroy {
     this.expandedRun.set(null);
     this.expandedStepIds.clear();
     this.formattedJsonCache.clear();
+    this.lineCountCache.clear();
+    this.byteSizeCache.clear();
   }
 
   toggleExpand(run: ProbeRun): void {
@@ -773,12 +780,18 @@ export class ProbeRunsComponent implements OnInit, OnDestroy {
     this.probeService.getRun(this.probeId, run.id).subscribe({
       next: (r) => {
         this.formattedJsonCache.clear();
+        this.lineCountCache.clear();
+        this.byteSizeCache.clear();
         for (const step of r.steps ?? []) {
           if (step.detail) {
             const parsed = this.tryParseJson(step.detail.trim());
             this.formattedJsonCache.set(step.id, parsed !== null ? JSON.stringify(parsed, null, 2) : null);
+            this.lineCountCache.set(step.id, step.detail.split('\n').length);
+            this.byteSizeCache.set(step.id, new Blob([step.detail]).size);
           } else {
             this.formattedJsonCache.set(step.id, null);
+            this.lineCountCache.set(step.id, 0);
+            this.byteSizeCache.set(step.id, 0);
           }
         }
         if (this.expandedRunId() === run.id) this.expandedRun.set(r);
@@ -880,14 +893,12 @@ export class ProbeRunsComponent implements OnInit, OnDestroy {
     }
   }
 
-  getLineCount(text: string | null | undefined): number {
-    if (!text) return 0;
-    return text.split('\n').length;
+  getLineCount(stepId: string): number {
+    return this.lineCountCache.get(stepId) ?? 0;
   }
 
-  getByteSize(text: string | null | undefined): number {
-    if (!text) return 0;
-    return new Blob([text]).size;
+  getByteSize(stepId: string): number {
+    return this.byteSizeCache.get(stepId) ?? 0;
   }
 
   formatBytes(n: number): string {
