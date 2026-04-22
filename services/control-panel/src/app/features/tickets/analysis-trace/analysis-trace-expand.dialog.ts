@@ -148,7 +148,7 @@ export interface ExpandPayload {
           }
 
           @if (p.artifactId) {
-            <a class="artifact-download" [href]="ticketService.getArtifactDownloadUrl(p.artifactId)" download>
+            <a class="artifact-download" href="#" (click)="$event.preventDefault(); ticketService.downloadArtifact(p.artifactId)">
               <app-icon name="download" size="sm" /> Download full output artifact
             </a>
           }

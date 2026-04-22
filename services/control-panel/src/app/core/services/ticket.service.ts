@@ -1,6 +1,8 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { Observable, tap } from 'rxjs';
 import { ApiService } from './api.service.js';
+import { AuthService } from './auth.service.js';
+import { ToastService } from './toast.service.js';
 
 /** Comma-separated active status values for API queries. Single source of truth for the UI. */
 export const ACTIVE_STATUS_FILTER = 'OPEN,IN_PROGRESS,WAITING';
@@ -199,6 +201,8 @@ export interface TicketArtifact {
 @Injectable({ providedIn: 'root' })
 export class TicketService {
   private api = inject(ApiService);
+  private auth = inject(AuthService);
+  private toast = inject(ToastService);
 
   private static readonly ACTIVE_STATUSES = ACTIVE_STATUS_FILTER.split(',');
 
@@ -295,8 +299,30 @@ export class TicketService {
     return this.api.get<TicketSearchResult[]>('/search/tickets', { q, limit });
   }
 
-  getArtifactDownloadUrl(artifactId: string): string {
-    return `/api/artifacts/${artifactId}/download`;
+  async downloadArtifact(artifactId: string): Promise<void> {
+    const res = await fetch(`/api/artifacts/${artifactId}/download`, {
+      headers: { Authorization: `Bearer ${this.auth.accessToken ?? ''}` },
+      credentials: 'include',
+    });
+    if (!res.ok) {
+      let msg = `Download failed (HTTP ${res.status})`;
+      try {
+        const body = await res.json() as { error?: string };
+        if (body.error) msg = body.error;
+      } catch { /* ignore */ }
+      this.toast.error(msg);
+      return;
+    }
+    const blob = await res.blob();
+    const disposition = res.headers.get('Content-Disposition') ?? '';
+    const match = /filename="([^"]+)"/.exec(disposition);
+    const filename = match ? match[1] : `artifact-${artifactId}`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 }
 

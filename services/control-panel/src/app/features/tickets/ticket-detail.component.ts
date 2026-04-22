@@ -290,7 +290,7 @@ interface ConvTreeNode {
                       @if (entry.service) { <span class="log-service">{{ entry.service }}</span> }
                       <span class="log-message">{{ entry.message }}</span>
                       @if (entry.context?.['artifactId']) {
-                        <a class="artifact-link" [href]="ticketService.getArtifactDownloadUrl('' + entry.context!['artifactId'])" download><app-icon name="download" size="xs" /> Full output</a>
+                        <a class="artifact-link" href="#" (click)="$event.preventDefault(); ticketService.downloadArtifact('' + entry.context!['artifactId'])"><app-icon name="download" size="xs" /> Full output</a>
                       }
                     </div>
                     @if (entry.context && hasKeys(entry.context)) {
@@ -355,7 +355,7 @@ interface ConvTreeNode {
                                 @if (entry.service) { <span class="log-service">{{ entry.service }}</span> }
                                 <span class="log-message">{{ entry.message }}</span>
                                 @if (entry.context?.['artifactId']) {
-                                  <a class="artifact-link" [href]="ticketService.getArtifactDownloadUrl('' + entry.context!['artifactId'])" download><app-icon name="download" size="xs" /> Full output</a>
+                                  <a class="artifact-link" href="#" (click)="$event.preventDefault(); ticketService.downloadArtifact('' + entry.context!['artifactId'])"><app-icon name="download" size="xs" /> Full output</a>
                                 }
                               }
                             </div>
@@ -665,7 +665,7 @@ interface ConvTreeNode {
                         <span class="artifact-desc">{{ a.description }}</span>
                       }
                     </div>
-                    <a class="artifact-dl" [href]="ticketService.getArtifactDownloadUrl(a.id)" download>
+                    <a class="artifact-dl" href="#" (click)="$event.preventDefault(); ticketService.downloadArtifact(a.id)">
                       <app-icon name="download" size="sm" /> Download
                     </a>
                   </div>
