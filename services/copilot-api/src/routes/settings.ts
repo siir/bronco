@@ -154,6 +154,25 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     const missing = DEFAULT_STATUS_CONFIGS.filter((d) => !existingValues.has(d.value));
     if (missing.length > 0) {
       await fastify.db.ticketStatusConfig.createMany({ data: missing, skipDuplicates: true });
+    }
+
+    // For existing deployments where the OPEN row was seeded before the NEW status was
+    // introduced, it may still carry the old pre-PR defaults (sortOrder=0, old description).
+    // Apply the targeted update only when the row still matches those exact pre-PR values so
+    // that operator customizations are left untouched.
+    const PRE_PR_OPEN_DESCRIPTION = 'Newly created ticket awaiting triage';
+    const openRow = configs.find((c) => c.value === 'OPEN');
+    if (openRow && openRow.sortOrder === 0 && openRow.description === PRE_PR_OPEN_DESCRIPTION) {
+      await fastify.db.ticketStatusConfig.update({
+        where: { value: 'OPEN' },
+        data: {
+          sortOrder: 1,
+          description: 'Active ticket — analysis complete, awaiting operator action or external response',
+        },
+      });
+    }
+
+    if (missing.length > 0 || (openRow && openRow.sortOrder === 0 && openRow.description === PRE_PR_OPEN_DESCRIPTION)) {
       configs = await fastify.db.ticketStatusConfig.findMany({ orderBy: { sortOrder: 'asc' } });
     }
 

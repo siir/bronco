@@ -180,6 +180,7 @@ export function registerTicketTools(server: McpServer, { db }: ServerDeps): void
           clientId: params.clientId,
           subject: params.subject,
           ticketNumber,
+          status: 'NEW',
           ...(params.description && { description: params.description }),
           ...(params.priority && { priority: params.priority as never }),
           ...(params.category && { category: params.category as never }),

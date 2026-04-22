@@ -1,7 +1,7 @@
 -- AlterEnum
 ALTER TYPE "ticket_status" ADD VALUE 'NEW';
 
--- Backfill: OPEN tickets with no completed AI_ANALYSIS event → NEW
+-- Backfill: OPEN tickets with no AI_ANALYSIS event recorded (i.e., pre-analysis) → NEW
 UPDATE tickets
 SET status = 'NEW'
 WHERE status = 'OPEN'
