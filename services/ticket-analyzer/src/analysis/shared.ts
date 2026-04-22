@@ -7,8 +7,6 @@ import {
   TaskType,
   SufficiencyStatus,
   SufficiencyConfidence,
-  KnowledgeDocSectionKey,
-  KNOWLEDGE_DOC_TEMPLATE_SECTIONS,
 } from '@bronco/shared-types';
 import type { AIToolDefinition, AIToolUseBlock } from '@bronco/shared-types';
 import {
@@ -17,12 +15,7 @@ import {
   decrypt,
   looksEncrypted,
   callMcpToolViaSdk,
-  loadKnowledgeDoc,
-  readSection,
-  updateSection,
-  REQUIRED_SECTION_KEYS,
 } from '@bronco/shared-utils';
-import { KnowledgeDocUpdateMode } from '@bronco/shared-types';
 
 const logger = createLogger('ticket-analyzer');
 
@@ -173,21 +166,6 @@ export function buildTruncatedPreview(content: string, artifactId: string): stri
 }
 
 /**
- * System-prompt snippet advising the agent on how to recognize and paginate
- * truncated tool results. Exported for #301/#302 to append to their system
- * prompts — not wired in this session.
- */
-export const TRUNCATION_SYSTEM_PROMPT_SNIPPET = [
-  '',
-  'Some tool results may be truncated to control token usage. Truncated results',
-  'include a header line "[truncated — full output saved as artifact]" followed',
-  'by an `artifactId:` value. If the truncated preview is insufficient for your',
-  'analysis, call `platform__read_tool_result_artifact(artifactId, ...)` to fetch',
-  'more — supply `offset` + `limit` to page through, or `grep` to search for',
-  'specific patterns.',
-].join('\n');
-
-/**
  * Canonical file extensions considered "code" when pre-gathering repo context
  * and when the MCP search_code tool is called without explicit extensions and
  * the repo has no per-repo override configured.
@@ -219,43 +197,6 @@ export function buildRepoNudgeSnippet(repos: Array<{ name: string; description?:
   ].join('\n');
 }
 
-/**
- * Nudges the agent to scan the available tool list before falling back to
- * generic tools like `run_custom_query`. Pairs with REQUEST_NEW_TOOL_SNIPPET
- * so gaps get surfaced as tool requests rather than silently improvised.
- */
-export const PREFER_EXISTING_TOOLS_SNIPPET = [
-  '',
-  '## Using Tools Effectively',
-  'Before working around a missing capability, scan the available tools. Use',
-  'specific tools when they fit; only fall back to generic tools like',
-  '`run_custom_query` when no specific tool applies to your question.',
-].join('\n');
-
-/**
- * Teaches the agent to call `request_tool` when no existing tool fits —
- * surfacing capability gaps to operators rather than improvising silently.
- */
-export const REQUEST_NEW_TOOL_SNIPPET = [
-  '',
-  '## Requesting New Tools',
-  'If no existing tool fits the job and you are about to improvise with a',
-  'generic tool or give up on a line of investigation, call `request_tool`',
-  'with a specific name, description, suggested inputs, and why it was',
-  'needed for this ticket.',
-  '',
-  'Good examples of when to call:',
-  '- You inspected a stored procedure definition via `run_custom_query` that',
-  '  a `describe_schema_object` tool would serve better',
-  '- You parsed an execution plan XML by hand because there is no',
-  '  `analyze_execution_plan` tool',
-  '- You re-queried deadlock history because there is no',
-  '  `get_deadlock_history` tool returning structured results',
-  '',
-  'Do not request vague capabilities like "a better tool" or "an easier way."',
-  'Each request should be specific enough that someone could implement it.',
-].join('\n');
-
 // ---------------------------------------------------------------------------
 // Agentic tool builder / executor
 // ---------------------------------------------------------------------------
@@ -280,6 +221,18 @@ export interface AgenticRepoInfo {
   prefix: string;
 }
 
+/**
+ * Tool context pre-built by the dispatcher and shared across strategies.
+ * v1 runners ignore the `repos` field; v2 runners use it to build repo-nudge
+ * snippets into system prompts.
+ */
+export interface AgenticToolContext {
+  tools: AIToolDefinition[];
+  mcpIntegrations: Map<string, McpIntegrationInfo>;
+  repoIdByPrefix: Map<string, string>;
+  repos: AgenticRepoInfo[];
+}
+
 export async function buildAgenticTools(
   db: PrismaClient,
   clientId: string,
@@ -288,12 +241,14 @@ export async function buildAgenticTools(
   mcpPlatformUrl: string,
   apiKey?: string,
   mcpAuthToken?: string,
+  options?: { includeKdTools?: boolean },
 ): Promise<{
   tools: AIToolDefinition[];
   mcpIntegrations: Map<string, McpIntegrationInfo>;
   repoIdByPrefix: Map<string, string>;
   repos: AgenticRepoInfo[];
 }> {
+  const includeKdTools = options?.includeKdTools ?? true;
   const tools: AIToolDefinition[] = [];
   const mcpIntegrations = new Map<string, McpIntegrationInfo>();
   const repoIdByPrefix = new Map<string, string>();
@@ -486,57 +441,158 @@ export async function buildAgenticTools(
     },
   });
 
-  tools.push({
-    name: 'platform__kd_read_toc',
-    description: 'Return the knowledge-doc table of contents for this ticket: nine fixed sections (Problem Statement, Environment, Evidence, Hypotheses, Root Cause, Recommended Fix, Risks, Open Questions, Run Log) with length, lastUpdatedAt, and any subsections under Evidence / Hypotheses / Open Questions. Call this early to see what has already been documented.',
-    input_schema: {
-      type: 'object',
-      properties: {},
-      required: [],
-    },
-  });
-
-  tools.push({
-    name: 'platform__kd_read_section',
-    description: 'Read a single section of the knowledge doc. sectionKey is a top-level key (problemStatement, environment, evidence, hypotheses, rootCause, recommendedFix, risks, openQuestions, runLog) or a dotted subsection key (e.g. evidence.blocking_on_sp_jobs). Returns { content, lastUpdatedAt, length }.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        sectionKey: { type: 'string', description: 'Top-level key or dotted subsection key' },
+  if (includeKdTools) {
+    tools.push({
+      name: 'platform__kd_read_toc',
+      description: 'Return the knowledge-doc table of contents for this ticket: nine fixed sections (Problem Statement, Environment, Evidence, Hypotheses, Root Cause, Recommended Fix, Risks, Open Questions, Run Log) with length, lastUpdatedAt, and any subsections under Evidence / Hypotheses / Open Questions. Call this early to see what has already been documented.',
+      input_schema: {
+        type: 'object',
+        properties: {},
+        required: [],
       },
-      required: ['sectionKey'],
-    },
-  });
+    });
 
-  tools.push({
-    name: 'platform__kd_update_section',
-    description: 'Update a top-level knowledge-doc section. sectionKey must be one of the nine template keys. mode="replace" overwrites; mode="append" concatenates. Subsection keys are rejected — use platform__kd_add_subsection. Capped at 10000 chars per section.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        sectionKey: { type: 'string', description: 'Top-level section key (problemStatement, environment, evidence, hypotheses, rootCause, recommendedFix, risks, openQuestions, runLog)' },
-        content: { type: 'string', description: 'Section body content (markdown)' },
-        mode: { type: 'string', enum: ['replace', 'append'], description: '"replace" overwrites; "append" concatenates (default "replace")' },
+    tools.push({
+      name: 'platform__kd_read_section',
+      description: 'Read a single section of the knowledge doc. sectionKey is a top-level key (problemStatement, environment, evidence, hypotheses, rootCause, recommendedFix, risks, openQuestions, runLog) or a dotted subsection key (e.g. evidence.blocking_on_sp_jobs). Returns { content, lastUpdatedAt, length }.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          sectionKey: { type: 'string', description: 'Top-level key or dotted subsection key' },
+        },
+        required: ['sectionKey'],
       },
-      required: ['sectionKey', 'content'],
-    },
-  });
+    });
 
-  tools.push({
-    name: 'platform__kd_add_subsection',
-    description: 'Add a subsection under one of: evidence, hypotheses, openQuestions. Title is deterministically slugified and collision-suffixed (-2, -3, …). Returns the full dotted key (e.g. evidence.blocking_on_sp_jobs). Capped at 10000 chars per subsection.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        parentSectionKey: { type: 'string', description: 'Parent key — must be one of: evidence, hypotheses, openQuestions' },
-        title: { type: 'string', description: 'Human-readable subsection title (used to generate the slug)' },
-        content: { type: 'string', description: 'Subsection body content (markdown)' },
+    tools.push({
+      name: 'platform__kd_update_section',
+      description: 'Update a top-level knowledge-doc section. sectionKey must be one of the nine template keys. mode="replace" overwrites; mode="append" concatenates. Subsection keys are rejected — use platform__kd_add_subsection. Capped at 10000 chars per section.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          sectionKey: { type: 'string', description: 'Top-level section key (problemStatement, environment, evidence, hypotheses, rootCause, recommendedFix, risks, openQuestions, runLog)' },
+          content: { type: 'string', description: 'Section body content (markdown)' },
+          mode: { type: 'string', enum: ['replace', 'append'], description: '"replace" overwrites; "append" concatenates (default "replace")' },
+        },
+        required: ['sectionKey', 'content'],
       },
-      required: ['parentSectionKey', 'title', 'content'],
-    },
-  });
+    });
+
+    tools.push({
+      name: 'platform__kd_add_subsection',
+      description: 'Add a subsection under one of: evidence, hypotheses, openQuestions. Title is deterministically slugified and collision-suffixed (-2, -3, …). Returns the full dotted key (e.g. evidence.blocking_on_sp_jobs). Capped at 10000 chars per subsection.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          parentSectionKey: { type: 'string', description: 'Parent key — must be one of: evidence, hypotheses, openQuestions' },
+          title: { type: 'string', description: 'Human-readable subsection title (used to generate the slug)' },
+          content: { type: 'string', description: 'Subsection body content (markdown)' },
+        },
+        required: ['parentSectionKey', 'title', 'content'],
+      },
+    });
+  }
 
   return { tools, mcpIntegrations, repoIdByPrefix, repos: repoInfos };
+}
+
+// ---------------------------------------------------------------------------
+// Structured MCP tool error envelopes
+// ---------------------------------------------------------------------------
+
+export type McpToolErrorClass =
+  | 'transport'
+  | 'auth'
+  | 'tool_not_registered'
+  | 'tool_logic'
+  | 'timeout'
+  | 'rate_limit'
+  | 'repeated_failure'
+  | 'unknown';
+
+export interface McpToolErrorEnvelope {
+  _mcp_tool_error: true;
+  toolName: string;
+  errorClass: McpToolErrorClass;
+  message: string;
+  retryable: boolean;
+  guidance: string;
+}
+
+export function buildMcpToolErrorResult(env: McpToolErrorEnvelope): string {
+  // Plain JSON string — tool_result content is a string from Anthropic's
+  // perspective. The agent sees the JSON and recognizes `_mcp_tool_error: true`.
+  return JSON.stringify(env, null, 2);
+}
+
+export function classifyMcpError(err: unknown): { errorClass: McpToolErrorClass; retryable: boolean } {
+  const msg = err instanceof Error ? err.message : String(err);
+  const lower = msg.toLowerCase();
+
+  // Order matters — check specific patterns before generic ones.
+  if (lower.includes('timeout') || lower.includes('timed out') || lower.includes('etimedout')) {
+    return { errorClass: 'timeout', retryable: true };
+  }
+  if (lower.includes('rate') && lower.includes('limit')) return { errorClass: 'rate_limit', retryable: true };
+  if (lower.includes('429')) return { errorClass: 'rate_limit', retryable: true };
+  if (lower.includes('401') || lower.includes('403') || lower.includes('unauthorized') || lower.includes('forbidden')) {
+    return { errorClass: 'auth', retryable: false };
+  }
+  if (lower.includes('method not found') || lower.includes('unknown tool') || lower.includes('tool not found')) {
+    return { errorClass: 'tool_not_registered', retryable: false };
+  }
+  if (lower.includes('econnrefused') || lower.includes('enotfound') || lower.includes('network') || lower.includes('fetch failed')) {
+    return { errorClass: 'transport', retryable: true };
+  }
+  // Many git/ssh/shell failures read as "transport" to the agent — missing binary, refused connection, etc.
+  if (lower.includes('cannot run ssh') || lower.includes('unable to fork') || lower.includes('no such file or directory')) {
+    return { errorClass: 'transport', retryable: false };
+  }
+  // JSON-RPC errors from the MCP SDK
+  if (lower.includes('jsonrpc') || lower.includes('json-rpc')) return { errorClass: 'tool_logic', retryable: false };
+  // MCP-level isError results (surfaced by callMcpToolViaSdk throwing when the
+  // tool returned isError: true). This is a generic catch-all — the specific
+  // pattern checks above (rate_limit / auth / timeout / etc.) win first so an
+  // MCP-level "rate limit reached" still classifies as rate_limit, not
+  // tool_logic.
+  if (lower.includes('mcp tool returned iserror')) {
+    return { errorClass: 'tool_logic', retryable: false };
+  }
+  return { errorClass: 'unknown', retryable: false };
+}
+
+function guidanceFor(errorClass: McpToolErrorClass, toolName: string, retryable: boolean): string {
+  switch (errorClass) {
+    case 'transport':
+      return retryable
+        ? `${toolName} hit a transient transport error (network blip, connection refused, DNS hiccup). Retry at most once. If it fails again, suspect infrastructure and consider request_tool with kind=BROKEN_TOOL.`
+        : `The MCP server backing ${toolName} is unreachable or the underlying infrastructure is broken (e.g. missing binary, persistent connection failure). Do not retry. Consider whether your investigation can proceed without this tool class, or call request_tool with kind=BROKEN_TOOL to flag the outage.`;
+    case 'auth':
+      return `${toolName} rejected the call with an auth error. This is an operator-level configuration issue. Do not retry. Move on with what you have and mention the auth gap in your analysis.`;
+    case 'tool_not_registered':
+      return `No MCP tool by that name is registered for this run. Check the Available Tools list for the exact name (including prefix).`;
+    case 'timeout':
+      return `${toolName} timed out. Retry at most once with the same inputs. If it times out twice, stop and try a narrower query.`;
+    case 'rate_limit':
+      return `Rate-limited. Wait before trying ${toolName} again. Consider batching or reducing call frequency.`;
+    case 'tool_logic':
+      return `${toolName} rejected the input or hit an internal error. Re-read the tool description, adjust inputs, and retry at most once. If it fails again, switch approaches.`;
+    case 'repeated_failure':
+      return `This exact ${toolName} + input combination has already failed in this run and is now blocked. Try a different tool, different inputs, or abandon this line of investigation.`;
+    default:
+      return `${toolName} failed with an unrecognized error. Do not retry blindly — change inputs or switch tools.`;
+  }
+}
+
+function sortedStringify(obj: unknown): string {
+  if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) {
+    return JSON.stringify(obj);
+  }
+  const sorted: Record<string, unknown> = {};
+  for (const key of Object.keys(obj as Record<string, unknown>).sort()) {
+    sorted[key] = (obj as Record<string, unknown>)[key];
+  }
+  return JSON.stringify(sorted);
 }
 
 /**
@@ -549,8 +605,24 @@ export async function executeAgenticToolCall(
   repoIdByPrefix: Map<string, string>,
   clientId?: string,
   ticketId?: string,
+  failureTracker?: Map<string, number>,
 ): Promise<{ toolUseId: string; result: string; isError: boolean }> {
   const { id: toolUseId, name, input } = toolCall;
+
+  const failureKey = `${name}::${sortedStringify(input)}`;
+
+  // Short-circuit if this (tool, input) pair has already failed twice
+  if (failureTracker && (failureTracker.get(failureKey) ?? 0) >= 2) {
+    const envelope: McpToolErrorEnvelope = {
+      _mcp_tool_error: true,
+      toolName: name,
+      errorClass: 'repeated_failure',
+      message: `This exact (${name}, input) combination has already failed twice in this run and is blocked.`,
+      retryable: false,
+      guidance: guidanceFor('repeated_failure', name, false),
+    };
+    return { toolUseId, result: buildMcpToolErrorResult(envelope), isError: true };
+  }
 
   try {
     // MCP tool — parse prefix
@@ -601,7 +673,19 @@ export async function executeAgenticToolCall(
     return { toolUseId, result, isError: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return { toolUseId, result: `Tool error: ${msg}`, isError: true };
+    if (failureTracker) {
+      failureTracker.set(failureKey, (failureTracker.get(failureKey) ?? 0) + 1);
+    }
+    const { errorClass, retryable } = classifyMcpError(err);
+    const envelope: McpToolErrorEnvelope = {
+      _mcp_tool_error: true,
+      toolName: name,
+      errorClass,
+      message: msg,
+      retryable,
+      guidance: guidanceFor(errorClass, name, retryable),
+    };
+    return { toolUseId, result: buildMcpToolErrorResult(envelope), isError: true };
   }
 }
 
@@ -996,6 +1080,23 @@ export async function resolveAnalysisStrategy(
 }
 
 /**
+ * Resolve the effective analysis strategy version (v1 or v2).
+ * Step-level `analysisVersion` config takes priority over the global AppSetting
+ * `analysis-strategy-version`. Defaults to 'v2' when unset. v1 is a legacy
+ * pre-truncation, pre-kd_* behavior retained as a fallback.
+ */
+export async function resolveAnalysisVersion(
+  db: PrismaClient,
+  step: { config: unknown },
+): Promise<'v1' | 'v2'> {
+  const row = await db.appSetting.findUnique({ where: { key: 'analysis-strategy-version' } });
+  const setting = row?.value as { version?: string } | null;
+  const stepConfig = step.config as { analysisVersion?: string } | null;
+  const raw = stepConfig?.analysisVersion ?? setting?.version ?? 'v2';
+  return raw === 'v1' ? 'v1' : 'v2';
+}
+
+/**
  * Resolve `maxParallelTasks` from the analysis-strategy AppSetting.
  * Clamped to [1, 10]; defaults to 3 when unset or invalid.
  */
@@ -1091,144 +1192,3 @@ export interface StrategyStep {
 
 // Re-export TaskType for strategy modules
 export { TaskType };
-
-// ---------------------------------------------------------------------------
-// Knowledge-doc template wiring (see packages/shared-utils/src/knowledge-doc.ts
-// for the shared parser / writer implementation)
-// ---------------------------------------------------------------------------
-
-/** Canonical template sections re-exported so strategies can reference them. */
-export const KD_TEMPLATE_SECTIONS = KNOWLEDGE_DOC_TEMPLATE_SECTIONS;
-
-/**
- * System-prompt snippet appended to both flat and orchestrated agentic system
- * prompts. Agent adoption is opt-out — findings must flow through the `kd_*`
- * tools so the knowledge doc stays the authoritative source. At end-of-run a
- * fallback pass fills any required section the agent didn't populate.
- */
-export const KD_SYSTEM_PROMPT_SNIPPET = [
-  '',
-  '## Knowledge Document (kd_* tools)',
-  '',
-  'Your investigative findings must be recorded via the kd_* tools, not free-form text in your response.',
-  '',
-  'Required sections in the knowledge document for this ticket:',
-  '- platform__kd_update_section(sectionKey=\'problemStatement\', ...) — your understanding of the ticket',
-  '- platform__kd_update_section(sectionKey=\'environment\', ...) — relevant systems, databases, repos',
-  '- platform__kd_update_section(sectionKey=\'rootCause\', ...) — once identified',
-  '- platform__kd_update_section(sectionKey=\'recommendedFix\', ...) — once determined',
-  '- platform__kd_update_section(sectionKey=\'risks\', ...) — what could go wrong',
-  '',
-  'For growing evidence, hypotheses, and open questions, use:',
-  '- platform__kd_add_subsection(parentSectionKey=\'evidence\', title, content)',
-  '- platform__kd_add_subsection(parentSectionKey=\'hypotheses\', title, content)',
-  '- platform__kd_add_subsection(parentSectionKey=\'openQuestions\', title, content)',
-  '',
-  'Before making progress, call platform__kd_read_toc to see what\'s already documented.',
-  'Call platform__kd_read_section on relevant sections to avoid re-discovering facts.',
-  '',
-  'Your final analysis text (in the response) should be a concise executive summary — the detail lives in the knowledge doc. The AI_ANALYSIS composer will pull Root Cause + Recommended Fix + Risks from the doc to render the analysis view.',
-].join('\n');
-
-const KD_REQUIRED_FALLBACK_SECTIONS: ReadonlyArray<KnowledgeDocSectionKey> = REQUIRED_SECTION_KEYS;
-
-/**
- * Compose the final AI_ANALYSIS content from the knowledge doc's Problem
- * Statement / Root Cause / Recommended Fix / Risks sections, prefixing the
- * agent's own text-block response as the executive summary.
- *
- * Safe to call with a null doc — falls back to the agent summary alone.
- */
-export function composeFinalAnalysis(
-  knowledgeDoc: string | null,
-  sectionMeta: unknown,
-  agentExecutiveSummary: string,
-): string {
-  const parts: string[] = [];
-  const summary = agentExecutiveSummary.trim();
-  if (summary) {
-    parts.push('## Executive Summary');
-    parts.push('');
-    parts.push(summary);
-  }
-  const sectionsToPull: Array<{ key: KnowledgeDocSectionKey; title: string }> = [
-    { key: KnowledgeDocSectionKey.PROBLEM_STATEMENT, title: 'Problem Statement' },
-    { key: KnowledgeDocSectionKey.ROOT_CAUSE, title: 'Root Cause' },
-    { key: KnowledgeDocSectionKey.RECOMMENDED_FIX, title: 'Recommended Fix' },
-    { key: KnowledgeDocSectionKey.RISKS, title: 'Risks' },
-  ];
-  for (const { key, title } of sectionsToPull) {
-    const { content } = readSection(knowledgeDoc, sectionMeta, key);
-    if (!content.trim()) continue;
-    if (parts.length > 0) parts.push('');
-    parts.push(`## ${title}`);
-    parts.push('');
-    parts.push(content.trim());
-  }
-  return parts.join('\n').trimEnd();
-}
-
-/**
- * Best-effort snapshot writer. Captures `knowledgeDoc` + `knowledgeDocSectionMeta`
- * as a `KnowledgeDocSnapshot` row so the future iteration-diff view has
- * per-iteration ground truth. Failures are logged and swallowed so the
- * analysis loop is never blocked by snapshot persistence.
- */
-export async function writeKnowledgeDocSnapshot(
-  db: PrismaClient,
-  ticketId: string,
-  iteration: number,
-  runId?: string,
-): Promise<void> {
-  try {
-    const ticket = await loadKnowledgeDoc(db, ticketId);
-    if (!ticket) return;
-    await db.knowledgeDocSnapshot.create({
-      data: {
-        ticketId,
-        iteration,
-        content: ticket.knowledgeDoc ?? '',
-        sectionMeta: (ticket.knowledgeDocSectionMeta ?? undefined) as object | undefined,
-        ...(runId ? { runId } : {}),
-      },
-    });
-  } catch (err) {
-    logger.warn({ err, ticketId, iteration }, 'Failed to persist KnowledgeDocSnapshot — continuing');
-  }
-}
-
-/**
- * End-of-run guard: for every required section the agent didn't populate
- * (problemStatement / rootCause / recommendedFix), write a fallback marker so
- * downstream `composeFinalAnalysis` always has something to render. Returns
- * the list of keys that were fallback-filled.
- */
-export async function fallbackFillRequiredSections(
-  db: PrismaClient,
-  ticketId: string,
-  reason: string,
-): Promise<string[]> {
-  const ticket = await loadKnowledgeDoc(db, ticketId);
-  if (!ticket) return [];
-  const filled: string[] = [];
-  for (const key of KD_REQUIRED_FALLBACK_SECTIONS) {
-    const { content } = readSection(ticket.knowledgeDoc, ticket.knowledgeDocSectionMeta, key);
-    if (content.trim().length > 0) continue;
-    try {
-      await updateSection(
-        db,
-        ticketId,
-        key,
-        `[agent did not populate this section — ${reason}]`,
-        KnowledgeDocUpdateMode.REPLACE,
-      );
-      filled.push(key);
-    } catch (err) {
-      logger.warn({ err, ticketId, key }, 'Fallback-fill failed for required section');
-    }
-  }
-  if (filled.length > 0) {
-    logger.warn({ ticketId, filled, reason }, `Fallback-filled ${filled.length} required section(s)`);
-  }
-  return filled;
-}

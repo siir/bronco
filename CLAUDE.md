@@ -9,11 +9,12 @@ AI-augmented database and software architecture operations platform. Single-oper
 - **Monorepo**: pnpm workspaces. Shared packages in `packages/`, services in `services/`, MCP servers in `mcp-servers/`.
 - **Control plane DB**: PostgreSQL (Prisma ORM). Schema at `packages/db/prisma/schema.prisma`.
 - **Client databases**: Azure SQL Managed Instances (primary, SQL cred auth), on-prem SQL Server (future clients). Connected via MCP database server (Node.js/Express) running on Hugo in Docker Compose. The MCP server reads system configs directly from the control plane Postgres `System` table and decrypts passwords using `ENCRYPTION_KEY`.
-- **MCP Platform Server**: Exposes all Bronco platform operations (tickets, clients, people, probes, AI usage, etc.) as MCP tools. Uses Prisma directly (no HTTP hop to copilot-api). Exception: `run_tool_request_dedupe` proxies to copilot-api via HTTP because the dedupe logic depends on AIRouter and `mcp-discovery` which don't live in the mcp-platform dep graph. Runs on Hugo in Docker Compose (port 3110).
+- **MCP Platform Server**: Exposes all Bronco platform operations (tickets, clients, people, probes, AI usage, etc.) as MCP tools. Uses Prisma directly (no HTTP hop to copilot-api). Exception: `run_tool_request_dedupe` proxies to copilot-api via HTTP because the dedupe logic depends on AIRouter and `mcp-discovery` which don't live in the mcp-platform dep graph. Runs on Hugo in Docker Compose (port 3110). MCP platform/repo/database URLs are configured per-service via `MCP_PLATFORM_URL`, `MCP_REPO_URL`, `MCP_DATABASE_URL` (defaults assume the Docker Compose network: `http://mcp-platform:3110`, `http://mcp-repo:3111`, `http://mcp-database:3100`).
 - **AI routing**: Local Ollama for triage/categorize/summarize/extract; Claude API for deep analysis, code review, architecture review, bug analysis, schema review, feature analysis.
 - **Hugo** (control plane VM): Ubuntu 24.04 LTS on ESXi NUC. Runs copilot-api (Fastify), imap-worker, ticket-analyzer, devops-worker, issue-resolver, status-monitor, slack-worker, scheduler-worker, mcp-database, mcp-platform, mcp-repo, Postgres, Redis, Caddy, and cloudflared (Cloudflare Tunnel for public ingress at `itrack.siirial.com`) via Docker Compose.
 - **Mac mini (siiriaplex)**: Runs Ollama for local LLM inference.
 - **CI/CD**: GitHub Actions — CI runs on push to `staging` (typecheck + build), not on every PR update. Feature branches PR into `staging`; staging PRs into `master`. Pushes to `master` that change app-relevant paths (packages/, services/, mcp-servers/, docker-compose.yml, lockfile) auto-tag a semver release (`tag-release.yml`), which triggers deploy-hugo (GHCR + SSH via Tailscale). Docs-only or workflow-only changes do not trigger a release or deploy. To bump major/minor, push a tag manually before merging staging → master.
+- **Analysis strategies (v1 vs v2)**: Four runners live in parallel files under `services/ticket-analyzer/src/analysis/`: `flat-v1.ts`, `flat-v2.ts`, `orchestrated-v1.ts`, `orchestrated-v2.ts`. `shared.ts` holds version-agnostic primitives only; `v2-knowledge-doc.ts` and `v2-prompts.ts` hold v2-only helpers (`kd_*` compose, fallback-fill, snapshot, prompt snippets). v2 is default; v1 is opt-in via AppSetting `analysis-strategy-version`. v1 is historical fidelity (pre-truncation, pre-`kd_*`, pre-sub-task-summary split) and must not be modified to add v2 features. v1 never supported orchestrated re-analysis — the dispatcher redirects re-analysis on v1 orchestrated to v1 flat.
 
 ## Key Conventions
 
@@ -85,6 +86,21 @@ AZDO_POLL_INTERVAL_SECONDS=120
 | `services/devops-worker/src/poller.ts` | Incremental work item polling |
 | `services/devops-worker/src/config.ts` | Zod config schema |
 
+## Ticket Statuses
+
+| Status | Class | Description |
+|--------|-------|-------------|
+| `NEW` | open | Pre-analysis: ticket was just created and the analyzer pipeline has not yet run. All ingestion paths set this. |
+| `OPEN` | open | Post-analysis: analysis complete, ticket is active and awaiting operator action or external response. The analyzer auto-transitions `NEW → OPEN` at end-of-run (unless the ticket was set to `WAITING` by the sufficiency check). |
+| `IN_PROGRESS` | open | Actively being worked on by the operator. |
+| `WAITING` | open | Awaiting external input or response. Set by the analyzer when sufficiency eval returns `NEEDS_USER_INPUT`. |
+| `RESOLVED` | closed | Issue has been resolved. |
+| `CLOSED` | closed | Ticket is closed. |
+
+`NEW`, `OPEN`, `IN_PROGRESS`, and `WAITING` are all in `OPEN_STATUSES` and are treated as "active" tickets throughout the codebase (filters, notifications, MCP queries).
+
+**Replies arriving during NEW (pre-analysis):** a reply threads onto the ticket but does NOT trigger a re-analysis job — the in-flight initial analysis will read the thread when it reaches the ingestion step. Once the initial analysis has completed, replies on active/open tickets with an existing findings email may enqueue re-analysis, including `OPEN`, `WAITING`, and `IN_PROGRESS`.
+
 ## Ticket Categories
 
 Tickets span multiple domains, not just DBA work:
@@ -116,6 +132,7 @@ System prompts for each task are registered in `packages/ai-provider/src/prompts
 - `SUMMARIZE_TICKET` — Summarize ticket context for analysis
 - `SUGGEST_NEXT_STEPS` — Suggest next actions for a ticket
 - `CLASSIFY_INTENT` — Classify user comment intent (approval, rejection, question)
+- `CLASSIFY_CHAT_INTENT` — Classify operator chat-reply intent (continue / refine / fresh_start / not_a_question) for the ticket Chat tab
 - `SUMMARIZE_LOGS` — Summarize application log entries
 - `ANALYZE_WORK_ITEM` — Analyze DevOps work items and compose user-facing responses
 - `DRAFT_COMMENT` — Compose DevOps comments (clarifications, execution results)
@@ -154,10 +171,15 @@ Rules:
 - **Create a new task type** when the work has a fundamentally different capability requirement, output format, or provider routing need than any existing type.
 - **`DEEP_ANALYSIS` is for single-shot ticket analysis**, not a generic fallback. Do not use it for agentic tool loops, admin operations, or plan generation.
 - **`SUMMARIZE` is for email threads.** Use `SUMMARIZE_LOGS` for monitoring data, probe results, and log entries.
+- **`CLASSIFY_INTENT` is for DevOps workflow intent.** Use `CLASSIFY_CHAT_INTENT` for the ticket Chat tab reply classifier — separate task type so operator model overrides don't cross-contaminate.
 - **`GENERATE_DEVOPS_PLAN` is for DevOps workflow plans (Ollama).** Use `GENERATE_RESOLUTION_PLAN` for code resolution plans (Claude).
 - **`RESOLVE_ISSUE` is for code generation**, not plan generation.
 - **`CUSTOM_AI_QUERY` is the correct choice** for one-off administrative AI calls that don't fit any specific task type (e.g., pricing catalog refresh).
 - When adding a new task type: add to `packages/shared-types/src/ai.ts`, `packages/ai-provider/src/model-config-resolver.ts` (default provider), `packages/ai-provider/src/task-capabilities.ts`, and update this section of CLAUDE.md.
+
+### Enforcement
+
+Direct imports from `@anthropic-ai/sdk` outside `packages/ai-provider/src/` are banned via ESLint's `no-restricted-imports` rule (see `eslint.config.mjs`). All AI calls MUST go through `AIRouter.generate()` / `AIRouter.generateWithTools()` so every call writes an `ai_usage_logs` row for cost tracking. Every call site MUST also pass `context: { entityId, entityType, clientId }` so the row is queryable from entity-scoped views (ticket pages, AI Usage reports). `entityType` values (canonical — see `EntityType` in `packages/shared-types/src/log.ts`): `'ticket'`, `'operational_task'`, `'probe'`, `'email'`, `'system'`, `'operator'`, `'client'` — match the consumer query's filter. If a call is genuinely not entity-scoped (cross-ticket summarization, archive retention), pass `context: { entityType: null, entityId: null, clientId: null }` explicitly so reviewers know it's intentional.
 
 ## Client Memory Management
 
@@ -374,6 +396,7 @@ pnpm dev:portal           # Start ticket portal (Angular, port 4201)
 | `services/copilot-api/src/routes/ai-config.ts` | AI model config CRUD + resolution preview endpoints (`/api/ai-config`). |
 | `services/copilot-api/src/routes/tickets.ts` | Ticket CRUD endpoints. |
 | `services/imap-worker/src/processor.ts` | Email collector: parse, noise-filter, push to ingestion queue. |
+| `services/ticket-analyzer/src/analysis/shared.ts` | Agentic tool-call execution + structured MCP error envelopes (`_mcp_tool_error`), per-run retry-limiter, and error-class categorization consumed by v2 runners. |
 | `services/ticket-analyzer/src/analyzer.ts` | Ticket analysis with repo cloning (bare+worktree) and MCP tools. |
 | `services/ticket-analyzer/src/index.ts` | Ticket analyzer service entry (BullMQ workers, probe scheduler, health). |
 | `services/ticket-analyzer/src/probe-worker.ts` | Scheduled probe execution (cron + one-off via API). |
@@ -397,18 +420,18 @@ pnpm dev:portal           # Start ticket portal (Angular, port 4201)
 | `mcp-servers/platform/src/tools/people.ts` | MCP people tools (list, get, create, update, delete). |
 | `services/copilot-api/src/routes/client-memory.ts` | Client memory CRUD endpoints with resolver cache invalidation. |
 | `services/copilot-api/src/routes/ticket-routes.ts` | Ticket route CRUD + step type registry for configurable analysis pipelines. |
-| `services/copilot-api/src/routes/tool-requests.ts` | Gap Requests CRUD API (admin-only): list/filter tool-request records, view rationale history, transition status (approve/reject/duplicate/implemented/reopen), delete. |
+| `services/copilot-api/src/routes/tool-requests.ts` | Gap Requests CRUD API (admin-only): list/filter tool-request records (by status, kind, client), view rationale history, transition status (approve/reject/duplicate/implemented/reopen), delete; PATCH accepts `kind` for operator corrections. |
 | `packages/shared-utils/src/tool-request-registry.ts` | Dedup upsert helper for tool-request records keyed on `(clientId, requestedName)`; appends rationale rows without clobbering operator edits. |
 | `services/copilot-api/src/services/tool-request-dedupe.ts` | Admin-triggered dedupe agent: discovers MCP catalog per-client + shared, calls Claude via `ANALYZE_TOOL_REQUESTS`, persists `suggestedDuplicateOf*` / `suggestedImprovesExisting*` suggestions transactionally. |
 | `packages/shared-utils/src/tool-request-github.ts` | Shared GitHub-issue helper for tool requests: reads encrypted token from `system-config-github`, repo from `tool-requests-github-default-repo` AppSetting (or override), POSTs via GitHub REST v3, persists `githubIssueUrl` + `implementedInIssue` on the row. |
-| `mcp-servers/platform/src/tools/request-tool.ts` | MCP `request_tool` that analyzers call when they hit a capability gap; enforces the per-run rate limit from AppSetting `tool-request-rate-limit-per-run`. |
+| `mcp-servers/platform/src/tools/request-tool.ts` | MCP `request_tool` that analyzers call when they hit a capability gap; accepts `kind` (`NEW_TOOL` / `BROKEN_TOOL` / `IMPROVE_TOOL`); enforces the per-run rate limit from AppSetting `tool-request-rate-limit-per-run`. |
 | `mcp-servers/platform/src/tools/tool-requests.ts` | MCP CRUD tools for tool requests (list/get/update/delete) + `create_tool_request_github_issue` wrapper used by the platform surface. |
 | `services/control-panel/src/app/features/tool-requests/tool-request-list.component.ts` | Admin Tool Requests page: list + detail dialog with rationale history, linked tickets, status transition controls, client filter + Run Dedupe button, AI suggestion pills with Accept/Dismiss, and Create GitHub Issue flow for approved requests. |
 | `mcp-servers/repo/src/tools/search-code.ts` | Per-repo MCP `search_code` tool — grep across repo tree, broad default extension list with per-repo `CodeRepo.fileExtensions` override. |
 | `mcp-servers/repo/src/tools/read-file.ts` | Per-repo MCP `read_file` tool — read a single file by path with optional line-range slice. |
 | `mcp-servers/repo/src/tools/list-files.ts` | Per-repo MCP `list_files` tool — list files in a directory tree, extension-filtered. |
 | `mcp-servers/repo/src/tools/prepare-repo.ts` | Per-repo MCP `prepare_repo` tool — called in parallel by `GATHER_REPO_CONTEXT` to clone/pull active repos before analysis. |
-| `services/control-panel/src/app/features/tickets/chat/chat-tab.component.ts` | Chat tab: operator-facing conversation surface with intent-based re-analysis (`continue` / `refine` / `fresh_start`) classified via `CLASSIFY_INTENT` (see [#330](https://github.com/siir/bronco/issues/330) — should migrate to `CLASSIFY_CHAT_INTENT`). Posts `CHAT_MESSAGE` ticket events. |
+| `services/control-panel/src/app/features/tickets/chat/chat-tab.component.ts` | Chat tab: operator-facing conversation surface with intent-based re-analysis (`continue` / `refine` / `fresh_start`) classified via `CLASSIFY_CHAT_INTENT`. Posts `CHAT_MESSAGE` ticket events. |
 | `services/control-panel/src/app/features/tickets/analysis-trace/analysis-trace.component.ts` | Analysis Trace tab: three-pass merge (tree build → same-prompt merge → tool-call collapse) over `ai_usage_logs` with strategy stamp rendering and Raw Logs fallback for legacy data. |
 | `packages/shared-types/src/access-type.ts` | `AccessType` + `OperatorRole` (ADMIN / STANDARD) enums — foundation for scoped-ops access control and portal-user vs operator discrimination. Used by `resolveClientScope` in `services/copilot-api/src/plugins/client-scope.ts`. |
 | `services/copilot-api/src/routes/artifacts.ts` | MCP tool artifact storage and retrieval endpoints (`/api/artifacts`). |
@@ -420,7 +443,7 @@ pnpm dev:portal           # Start ticket portal (Angular, port 4201)
 | `services/copilot-api/src/routes/email-logs.ts` | Email processing log API: list/filter logs, stats summary, retry and reclassify endpoints. |
 | `services/slack-worker/src/index.ts` | Slack worker entry: system + per-client Slack Socket Mode connections, interaction handlers. |
 | `services/scheduler-worker/src/index.ts` | Scheduler worker entry: BullMQ cron workers (log-summarize, system-analysis, mcp-discovery, model-catalog-refresh, prompt-retention), auto-invoicing, operational alerts. |
-| `services/scheduler-worker/src/system-analyzer.ts` | System analysis dispatcher (TICKET_CLOSE, POST_ANALYSIS, SCHEDULED trigger types). |
+| `services/scheduler-worker/src/system-analyzer.ts` | System analysis dispatcher (TICKET_CLOSE, POST_ANALYSIS, SCHEDULED trigger types). `analyze-post-pipeline` jobs run up to 4 attempts total (1 initial + 3 retries at 5s / 10s / 20s exponential backoff) on transient Anthropic 5xx / network errors; non-transient errors short-circuit via `UnrecoverableError`. Post-pipeline failures are non-blocking (best-effort meta-analysis). |
 | `services/ticket-analyzer/src/client-learning-worker.ts` | Client learning extraction from resolved tickets → client memory. |
 | `services/ticket-analyzer/src/recommendation-executor.ts` | Executes system analysis recommendations (operational tasks). |
 | `services/probe-worker/src/builtin-tools.ts` | Built-in probe tool definitions (scan_app_logs, analyze_app_health). |

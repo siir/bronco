@@ -5,9 +5,9 @@ import { setTimeout as delay } from 'node:timers/promises';
 import type { Job } from 'bullmq';
 import { Prisma } from '@bronco/db';
 import type { PrismaClient } from '@bronco/db';
-import type { TicketCategory, Priority, TicketStatus, TicketSource, AnalysisJob } from '@bronco/shared-types';
+import type { TicketCategory, Priority, TicketSource, AnalysisJob } from '@bronco/shared-types';
 import { AIRouter } from '@bronco/ai-provider';
-import { TaskType, RouteStepType, isClosedStatus, AnalysisStatus, SufficiencyStatus, NotificationMode, ToolRequestRationaleSource } from '@bronco/shared-types';
+import { TicketStatus, TaskType, RouteStepType, isClosedStatus, AnalysisStatus, SufficiencyStatus, NotificationMode, ToolRequestRationaleSource } from '@bronco/shared-types';
 import { createLogger, AppLogger, createPrismaLogWriter, MCP_TOOL_TIMEOUT_MS, mcpUrl, callMcpToolViaSdk, notifyOperators as notifyOperatorsFn, notifyClientOperators as notifyClientOperatorsFn, getActiveOperatorRecords, getSelfAnalysisConfig, registerToolRequest } from '@bronco/shared-utils';
 import type { Mailer, ReplyOptions } from '@bronco/shared-utils';
 import { executeRecommendations } from './recommendation-executor.js';
@@ -17,14 +17,17 @@ import {
   DEFAULT_REPO_FILE_EXTENSIONS,
   parseSufficiencyEvaluation,
   resolveAnalysisStrategy,
+  resolveAnalysisVersion,
   SUFFICIENCY_EVAL_INSTRUCTIONS,
   type AnalysisDeps,
   type AnalysisPipelineContext,
   type ReanalysisContext,
   type SufficiencyEvaluation,
 } from './analysis/shared.js';
-import { runFlatAnalysis } from './analysis/flat.js';
-import { runOrchestratedAnalysis } from './analysis/orchestrated.js';
+import { runFlatV1 } from './analysis/flat-v1.js';
+import { runFlatV2 } from './analysis/flat-v2.js';
+import { runOrchestratedV1 } from './analysis/orchestrated-v1.js';
+import { runOrchestratedV2 } from './analysis/orchestrated-v2.js';
 
 const logger = createLogger('ticket-analyzer');
 export const appLog = new AppLogger('ticket-analyzer');
@@ -1133,6 +1136,9 @@ async function deepAnalysis(
       '',
       '## Available actions (use these exact "action" values)',
       '',
+      // Note: `NEW` is deliberately excluded from set_status options — NEW is a pre-analysis state
+      // assigned automatically at ingestion and auto-transitioned to OPEN at end-of-run. The AI
+      // should never regress a ticket to NEW.
       '- { "action": "set_status", "value": "OPEN|IN_PROGRESS|WAITING|RESOLVED|CLOSED", "reason": "..." }',
       '- { "action": "set_priority", "value": "LOW|MEDIUM|HIGH|CRITICAL", "reason": "..." }',
       '- { "action": "set_category", "value": "DATABASE_PERF|BUG_FIX|FEATURE_REQUEST|SCHEMA_CHANGE|CODE_REVIEW|ARCHITECTURE|GENERAL", "reason": "..." }',
@@ -2183,18 +2189,28 @@ async function executeRoutePipeline(
           break;
         }
 
-        // Build tool definitions from MCP integrations and mcp-repo
+        const strategy = await resolveAnalysisStrategy(db, step);
+        const version = await resolveAnalysisVersion(db, step);
+
+        // v1 orchestrated never supported re-analysis modes — redirect any
+        // re-analysis request on v1 to flat-v1 (matches pre-#311 behavior).
+        const effectiveStrategy = (version === 'v1' && strategy === 'orchestrated' && reanalysisCtx)
+          ? 'flat'
+          : strategy;
+        const canRunOrchestrated = effectiveStrategy === 'orchestrated';
+
+        // Build tool definitions from MCP integrations and mcp-repo. v1
+        // agents must not see kd_* tools — they predate the templated
+        // knowledge-doc infrastructure.
         const { tools: agenticTools, mcpIntegrations, repoIdByPrefix, repos: agenticRepos } = await buildAgenticTools(
           db, ticket.clientId, deps.encryptionKey, deps.mcpRepoUrl, deps.mcpPlatformUrl, deps.apiKey, deps.mcpAuthToken,
+          { includeKdTools: version === 'v2' },
         );
 
         if (agenticTools.length === 0) {
           appLog.info('No tools available for agentic analysis, skipping', { ticketId }, ticketId, 'ticket');
           break;
         }
-
-        const strategy = await resolveAnalysisStrategy(db, step);
-        const canRunOrchestrated = strategy === 'orchestrated';
 
         const analysisDeps: AnalysisDeps = {
           db, ai, appLog,
@@ -2213,8 +2229,12 @@ async function executeRoutePipeline(
         const toolCtx = { tools: agenticTools, mcpIntegrations, repoIdByPrefix, repos: agenticRepos };
 
         const result = canRunOrchestrated
-          ? await runOrchestratedAnalysis(analysisDeps, analysisCtx, step, toolCtx, { maxIterations, existingKnowledgeDoc: ticket.knowledgeDoc ?? '', reanalysisCtx })
-          : await runFlatAnalysis(analysisDeps, analysisCtx, step, toolCtx, { maxIterations, reanalysisCtx });
+          ? (version === 'v2'
+              ? await runOrchestratedV2(analysisDeps, analysisCtx, step, toolCtx, { maxIterations, existingKnowledgeDoc: ticket.knowledgeDoc ?? '', reanalysisCtx })
+              : await runOrchestratedV1(analysisDeps, analysisCtx, step, toolCtx, { maxIterations, existingKnowledgeDoc: ticket.knowledgeDoc ?? '' }))
+          : (version === 'v2'
+              ? await runFlatV2(analysisDeps, analysisCtx, step, toolCtx, { maxIterations, reanalysisCtx })
+              : await runFlatV1(analysisDeps, analysisCtx, step, toolCtx, { maxIterations, reanalysisCtx }));
 
         analysis = result.analysis;
         lastToolCallLog = result.toolCallLog;
@@ -2796,6 +2816,9 @@ async function executeRoutePipeline(
             `Current status: ${currentTicket.status}`, '',
             'Analysis findings:', analysis, '',
             '## Available actions (use these exact "action" values)', '',
+            // Note: `NEW` is deliberately excluded from set_status options — NEW is a pre-analysis state
+            // assigned automatically at ingestion and auto-transitioned to OPEN at end-of-run. The AI
+            // should never regress a ticket to NEW.
             '- { "action": "set_status", "value": "OPEN|IN_PROGRESS|WAITING|RESOLVED|CLOSED", "reason": "..." }',
             '- { "action": "set_priority", "value": "LOW|MEDIUM|HIGH|CRITICAL", "reason": "..." }',
             '- { "action": "set_category", "value": "DATABASE_PERF|BUG_FIX|FEATURE_REQUEST|SCHEMA_CHANGE|CODE_REVIEW|ARCHITECTURE|GENERAL", "reason": "..." }',
@@ -3504,6 +3527,11 @@ export function createAnalysisProcessor(deps: AnalyzerDeps) {
         where: { id: ticketId },
         data: { analysisStatus: AnalysisStatus.COMPLETED, analysisError: null, lastAnalyzedAt: new Date() },
       });
+      // Auto-transition NEW → OPEN now that analysis is complete (leave WAITING/IN_PROGRESS untouched)
+      await deps.db.ticket.updateMany({
+        where: { id: ticketId, status: TicketStatus.NEW },
+        data: { status: TicketStatus.OPEN },
+      });
       appLog.info(
         `Ticket analysis pipeline completed successfully (${route ? 'route-driven' : 'default fallback'})`,
         { ticketId, routeId: analysisRoute.id },
@@ -3519,7 +3547,11 @@ export function createAnalysisProcessor(deps: AnalyzerDeps) {
             await deps.selfAnalysisQueue.add(
               'analyze-post-pipeline',
               { ticketId, triggerType: 'POST_ANALYSIS' },
-              { jobId: `post-pipeline-${ticketId}-${Date.now()}` },
+              {
+                jobId: `post-pipeline-${ticketId}-${Date.now()}`,
+                attempts: 4,              // 1 initial attempt + 3 retries = 4 attempts total
+                backoff: { type: 'exponential', delay: 5000 },
+              },
             );
           }
         } catch (triggerErr) {

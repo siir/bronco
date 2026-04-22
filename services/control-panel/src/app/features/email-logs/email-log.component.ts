@@ -76,9 +76,9 @@ import { ToastService } from '../../core/services/toast.service.js';
           <app-data-column key="from" header="From" [sortable]="false">
             <ng-template #cell let-log>
               <div class="from-cell">
-                <span class="from-name">{{ log.fromName || log.from }}</span>
+                <span class="from-name" [title]="log.fromName || log.from">{{ log.fromName || log.from }}</span>
                 @if (log.fromName && log.fromName !== log.from) {
-                  <span class="from-address">{{ log.from }}</span>
+                  <span class="from-address" [title]="log.from">{{ log.from }}</span>
                 }
               </div>
             </ng-template>
@@ -86,7 +86,7 @@ import { ToastService } from '../../core/services/toast.service.js';
 
           <app-data-column key="subject" header="Subject" [sortable]="false" width="300px">
             <ng-template #cell let-log>
-              <span class="subject-text">{{ log.subject }}</span>
+              <span class="subject-text" [title]="log.subject">{{ log.subject }}</span>
             </ng-template>
           </app-data-column>
 
@@ -237,10 +237,22 @@ import { ToastService } from '../../core/services/toast.service.js';
       box-shadow: var(--shadow-card);
       overflow: hidden;
     }
-    .from-cell { display: flex; flex-direction: column; }
-    .from-name { font-weight: 500; font-size: 13px; color: var(--text-primary); }
-    .from-address { font-size: 11px; color: var(--text-tertiary); }
+    .from-cell { display: flex; flex-direction: column; min-width: 0; }
+    .from-name {
+      font-weight: 500; font-size: 13px; color: var(--text-primary);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .from-address {
+      font-size: 11px; color: var(--text-tertiary);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
     .subject-text { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; color: var(--text-secondary); }
+
+    /* Respect column widths so From addresses and flex cells can't push
+     * downstream columns past the viewport. */
+    :host ::ng-deep app-data-table table {
+      table-layout: fixed;
+    }
     .time-cell { white-space: nowrap; font-size: 12px; color: var(--text-tertiary); font-family: var(--font-primary); }
     .muted { color: var(--text-tertiary); }
     .link { text-decoration: none; color: var(--accent-link); font-weight: 500; }

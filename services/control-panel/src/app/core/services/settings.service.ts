@@ -138,11 +138,6 @@ export interface ToolRequestRateLimitConfig {
   limit: number;
 }
 
-export interface ToolRequestsDefaultRepoConfig {
-  owner: string;
-  name: string;
-}
-
 export interface ActionSafetyConfig {
   actions: Record<string, 'auto' | 'approval'>;
 }
@@ -153,12 +148,21 @@ export interface AnalysisStrategyConfig {
   defaultMaxTokens: number | null;
 }
 
+export interface AnalysisStrategyVersionConfig {
+  version: 'v1' | 'v2';
+}
+
 export interface SelfAnalysisConfig {
   postAnalysisTrigger: boolean;
   ticketCloseTrigger: boolean;
   scheduledEnabled: boolean;
   scheduledCron: string;
   repoUrl: string;
+  scheduleType: 'time' | 'cron';
+  scheduleHour: number | null;
+  scheduleMinute: number | null;
+  scheduleDaysOfWeek: string | null;
+  scheduleTimezone: string;
 }
 
 export interface TestResult {
@@ -206,15 +210,6 @@ export class SettingsService {
   testOperationalAlert(): Observable<TestAlertResult> {
     return this.api.post<TestAlertResult>('/settings/operational-alerts/test', {});
   }
-
-  getSuperAdminUserId(): Observable<{ userId: string | null }> {
-    return this.api.get<{ userId: string | null }>('/settings/super-admin');
-  }
-
-  setSuperAdminUserId(userId: string | null): Observable<{ userId: string | null }> {
-    return this.api.put<{ userId: string | null }>('/settings/super-admin', { userId });
-  }
-
 
   // --- System Config: SMTP ---
   getSmtpConfig(): Observable<SmtpSystemConfig | null> {
@@ -287,21 +282,6 @@ export class SettingsService {
     return this.api.put<ToolRequestRateLimitConfig>('/settings/tool-request-rate-limit', config);
   }
 
-  // --- Tool Requests GitHub Default Repo ---
-  getToolRequestsDefaultRepo(): Observable<ToolRequestsDefaultRepoConfig | null> {
-    return this.api.get<ToolRequestsDefaultRepoConfig | null>(
-      '/settings/tool-requests-github-default-repo',
-    );
-  }
-  saveToolRequestsDefaultRepo(
-    config: ToolRequestsDefaultRepoConfig,
-  ): Observable<ToolRequestsDefaultRepoConfig> {
-    return this.api.put<ToolRequestsDefaultRepoConfig>(
-      '/settings/tool-requests-github-default-repo',
-      config,
-    );
-  }
-
   // --- Action Safety ---
   getActionSafety(): Observable<ActionSafetyConfig> {
     return this.api.get<ActionSafetyConfig>('/settings/action-safety');
@@ -316,6 +296,14 @@ export class SettingsService {
   }
   saveAnalysisStrategy(config: AnalysisStrategyConfig): Observable<AnalysisStrategyConfig> {
     return this.api.put<AnalysisStrategyConfig>('/settings/analysis-strategy', config);
+  }
+
+  // --- Analysis Strategy Version ---
+  getAnalysisStrategyVersion(): Observable<AnalysisStrategyVersionConfig> {
+    return this.api.get<AnalysisStrategyVersionConfig>('/settings/analysis-strategy-version');
+  }
+  saveAnalysisStrategyVersion(config: AnalysisStrategyVersionConfig): Observable<AnalysisStrategyVersionConfig> {
+    return this.api.put<AnalysisStrategyVersionConfig>('/settings/analysis-strategy-version', config);
   }
 
   // --- Self Analysis ---

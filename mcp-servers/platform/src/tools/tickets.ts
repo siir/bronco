@@ -95,7 +95,7 @@ export function registerTicketTools(server: McpServer, { db }: ServerDeps): void
     'List tickets with optional filters. Returns summary array with id, ticketNumber, subject, status, priority, category, client name, createdAt, and analysisStatus.',
     {
       clientId: z.string().uuid().optional().describe('Filter by client ID'),
-      status: z.string().optional().describe('Filter by ticket status (OPEN, IN_PROGRESS, WAITING, RESOLVED, CLOSED)'),
+      status: z.string().optional().describe('Filter by ticket status (NEW, OPEN, IN_PROGRESS, WAITING, RESOLVED, CLOSED)'),
       priority: z.string().optional().describe('Filter by priority (LOW, MEDIUM, HIGH, CRITICAL)'),
       category: z.string().optional().describe('Filter by category (DATABASE_PERF, BUG_FIX, FEATURE_REQUEST, SCHEMA_CHANGE, CODE_REVIEW, ARCHITECTURE, GENERAL)'),
       assignedOperatorId: z.string().uuid().optional().describe('Filter by assigned operator ID'),
@@ -180,6 +180,7 @@ export function registerTicketTools(server: McpServer, { db }: ServerDeps): void
           clientId: params.clientId,
           subject: params.subject,
           ticketNumber,
+          status: 'NEW',
           ...(params.description && { description: params.description }),
           ...(params.priority && { priority: params.priority as never }),
           ...(params.category && { category: params.category as never }),

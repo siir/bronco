@@ -37,6 +37,18 @@ export type { CreateGithubIssueInput, CreateGithubIssueResult } from './tool-req
 export { withTicketLock } from './advisory-lock.js';
 export type { PrismaTx } from './advisory-lock.js';
 export {
+  normalizeUrl,
+  discoverMcpServer,
+  buildClientToolCatalog,
+} from './mcp-catalog.js';
+export type {
+  McpDiscoveryConfig,
+  McpToolInfo,
+  McpDiscoveryResult,
+  ClientCatalogOpts,
+} from './mcp-catalog.js';
+export { isTransientApiError } from './transient-error.js';
+export {
   initEmptyKnowledgeDoc,
   slugify,
   splitIntoSections,

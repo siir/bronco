@@ -23,6 +23,15 @@ CREATE TYPE "access_type"   AS ENUM ('OPERATOR', 'CLIENT_USER');
 -- 1b. Extend people with email_lower (will backfill from email below).
 ALTER TABLE "people" ADD COLUMN "email_lower" TEXT;
 
+-- 1b-i. Relax NOT NULL on people.client_id. The legacy schema required a
+-- client_id on every Person (per-client identity). The new model makes
+-- Person global and drops this column entirely in step 9c, but in between
+-- we INSERT new Person rows (step 5a) that don't carry a client_id — any
+-- existing NOT NULL constraint would reject those INSERTs.
+-- (First observed in prod v0.2.0 deploy: a User without a matching
+-- pre-existing Person triggered NOT NULL violation on client_id.)
+ALTER TABLE "people" ALTER COLUMN "client_id" DROP NOT NULL;
+
 -- 1c. Relax the existing (client_id, email) uniqueness on people — we'll
 -- enforce global (email_lower) uniqueness instead. Drop after backfill below.
 
@@ -331,8 +340,16 @@ ALTER TABLE "ticket_filter_presets" DROP COLUMN IF EXISTS "user_id";
 ALTER TABLE "ticket_filter_presets" DROP CONSTRAINT IF EXISTS "ticket_filter_presets_user_id_name_key";
 DROP INDEX IF EXISTS "ticket_filter_presets_user_id_idx";
 
--- Drop users table.
-DROP TABLE IF EXISTS "users";
+-- Drop users table. CASCADE handles any FK constraints pointing at users
+-- from tables outside bronco's own schema (e.g. inherited legacy tables in
+-- a shared database). Bronco's own FKs are dropped explicitly above
+-- (refresh_tokens dropped at line 324, ticket_filter_presets.user_id_fkey
+-- at line 327), so CASCADE here is a safety net for unknown external
+-- references, not a substitute for explicit cleanup.
+-- (First observed in prod v0.2.0 deploy: legacy predecessor-app tables
+-- in the same database had 10 FK constraints pointing at users that
+-- blocked the drop.)
+DROP TABLE IF EXISTS "users" CASCADE;
 
 -- Drop UserRole enum.
 DROP TYPE IF EXISTS "user_role";

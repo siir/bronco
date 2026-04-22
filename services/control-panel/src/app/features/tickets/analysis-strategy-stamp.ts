@@ -1,9 +1,11 @@
 import type { TicketEvent, UnifiedLogEntry } from '../../core/services/ticket.service.js';
 
 export type AnalysisStrategy = 'flat' | 'orchestrated' | 'legacy';
+export type AnalysisStrategyVersion = 'v1' | 'v2';
 
 export interface AnalysisStrategyStamp {
   strategy: AnalysisStrategy;
+  version: AnalysisStrategyVersion | null;
   models: string[];
   iterations: number;
   toolsUsedCount: number;
@@ -62,6 +64,7 @@ export function computeStrategyStamp(
   // Unified logs arrive in chronological (oldest→newest) order, so pick the last match
   // — this ensures multi-run tickets surface the latest run's strategy.
   let strategy: AnalysisStrategy = 'legacy';
+  let version: AnalysisStrategyVersion | null = null;
   const rootStrategists = aiEntries.filter(e => {
     const meta = (e.conversationMetadata ?? {}) as Record<string, unknown>;
     return !meta['isSubTask'] && !e.parentLogId;
@@ -71,6 +74,8 @@ export function computeStrategyStamp(
     const meta = (rootStrategist.conversationMetadata ?? {}) as Record<string, unknown>;
     const s = meta['strategy'];
     if (s === 'flat' || s === 'orchestrated') strategy = s;
+    const v = meta['strategyVersion'];
+    if (v === 'v1' || v === 'v2') version = v;
   }
 
   // Fallback to TicketEvent phase.
@@ -93,11 +98,12 @@ export function computeStrategyStamp(
     }
   }
 
-  return { strategy, models: Array.from(modelSet), iterations, toolsUsedCount };
+  return { strategy, version, models: Array.from(modelSet), iterations, toolsUsedCount };
 }
 
 /** Compose the header strip text for the Analysis Trace / Raw Logs tabs. */
 export function formatStrategyStamp(stamp: AnalysisStrategyStamp): string {
   const models = stamp.models.length > 0 ? stamp.models.join(', ') : '—';
-  return `Strategy: ${stamp.strategy} · Models: ${models} · Iterations: ${stamp.iterations} · Tools used: ${stamp.toolsUsedCount}`;
+  const strategyLabel = stamp.version ? `${stamp.strategy} ${stamp.version}` : stamp.strategy;
+  return `Strategy: ${strategyLabel} · Models: ${models} · Iterations: ${stamp.iterations} · Tools used: ${stamp.toolsUsedCount}`;
 }

@@ -3,7 +3,7 @@ import { CommonModule, DecimalPipe, JsonPipe } from '@angular/common';
 import { DialogComponent, BroncoButtonComponent, IconComponent } from '../../../shared/components/index.js';
 import { TicketService } from '../../../core/services/ticket.service.js';
 import type { TraceNode, TraceToolPill } from './analysis-trace.types.js';
-import { firstUserMessageText, responseText } from './analysis-trace.merge.js';
+import { firstUserMessageText, parsedMcpToolError, responseText } from './analysis-trace.merge.js';
 
 export interface ExpandPayload {
   kind: 'node' | 'pill';
@@ -120,13 +120,32 @@ export interface ExpandPayload {
         </div>
       } @else if (payload()?.kind === 'pill') {
         @let p = payload()!.pill!;
+        @let se = structuredError(p);
         <div class="expand-sections">
           <div class="expand-row">
             <code class="meta-chip model-chip">{{ p.toolName }}</code>
             @if (p.durationMs != null) { <span class="meta-chip duration-chip">{{ p.durationMs | number }}ms</span> }
             @if (p.truncated) { <span class="meta-chip truncated-chip">truncated</span> }
-            @if (p.isError) { <span class="meta-chip err-chip">error</span> }
+            @if (p.isError && !se) { <span class="meta-chip err-chip">error</span> }
+            @if (se) {
+              <span class="meta-chip err-chip">{{ se.errorClass }}</span>
+              <span class="meta-chip" [class.retryable-chip]="se.retryable" [class.err-chip]="!se.retryable">
+                {{ se.retryable ? 'retryable' : 'not retryable' }}
+              </span>
+            }
           </div>
+
+          @if (se) {
+            <section class="expand-section">
+              <header><span class="expand-label">Error Details</span></header>
+              <div class="structured-error-body">
+                <div class="se-row"><span class="se-key">errorClass</span><code class="meta-chip err-chip">{{ se.errorClass }}</code></div>
+                <div class="se-row"><span class="se-key">retryable</span><code class="meta-chip">{{ se.retryable }}</code></div>
+                <div class="se-row se-row-block"><span class="se-key">message</span><span class="se-value">{{ se.message }}</span></div>
+                <div class="se-row se-row-block"><span class="se-key">guidance</span><span class="se-value se-guidance">{{ se.guidance }}</span></div>
+              </div>
+            </section>
+          }
 
           @if (p.input) {
             <section class="expand-section">
@@ -136,21 +155,28 @@ export interface ExpandPayload {
           }
 
           @if (p.result) {
-            <section class="expand-section">
-              <header>
-                <span class="expand-label">Tool result</span>
-                <app-bronco-button variant="ghost" size="sm" (click)="copy(p.result!)">
-                  <app-icon name="copy" size="xs" /> Copy
-                </app-bronco-button>
-              </header>
-              <pre class="expand-pre">{{ p.result }}</pre>
-            </section>
+            @if (se) {
+              <details class="raw-json-details">
+                <summary class="raw-json-summary">Show raw JSON</summary>
+                <pre class="expand-pre">{{ p.result }}</pre>
+              </details>
+            } @else {
+              <section class="expand-section">
+                <header>
+                  <span class="expand-label">Tool result</span>
+                  <app-bronco-button variant="ghost" size="sm" (click)="copy(p.result!)">
+                    <app-icon name="copy" size="xs" /> Copy
+                  </app-bronco-button>
+                </header>
+                <pre class="expand-pre">{{ p.result }}</pre>
+              </section>
+            }
           }
 
           @if (p.artifactId) {
-            <a class="artifact-download" [href]="ticketService.getArtifactDownloadUrl(p.artifactId)" download>
+            <button type="button" class="artifact-download" (click)="ticketService.downloadArtifact(p.artifactId)">
               <app-icon name="download" size="sm" /> Download full output artifact
-            </a>
+            </button>
           }
         </div>
       }
@@ -173,9 +199,18 @@ export interface ExpandPayload {
     .artifact-download {
       display: inline-flex; align-items: center; gap: 6px;
       padding: 6px 10px; border: 1px solid var(--color-info); color: var(--color-info);
-      border-radius: 4px; font-size: 13px; text-decoration: none; align-self: flex-start;
+      border-radius: 4px; font-size: 13px; background: none; cursor: pointer; font: inherit; align-self: flex-start;
     }
     .artifact-download:hover { background: var(--color-info-subtle); }
+    .retryable-chip { background: var(--color-warning-subtle); color: var(--color-warning); }
+    .structured-error-body { padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+    .se-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+    .se-row-block { align-items: flex-start; flex-direction: column; gap: 2px; }
+    .se-key { font-weight: 700; color: var(--text-tertiary); font-size: 11px; min-width: 80px; }
+    .se-value { font-size: 12px; color: var(--text-primary); white-space: pre-wrap; word-break: break-word; }
+    .se-guidance { color: var(--text-secondary); font-style: italic; }
+    .raw-json-details { border: 1px solid var(--border-light); border-radius: 4px; overflow: hidden; }
+    .raw-json-summary { font-size: 11px; font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; padding: 4px 8px; background: var(--bg-muted); cursor: pointer; }
   `],
 })
 export class AnalysisTraceExpandDialogComponent {
@@ -228,6 +263,10 @@ export class AnalysisTraceExpandDialogComponent {
     } catch {
       void this.copy(String(ctx));
     }
+  }
+
+  structuredError(p: TraceToolPill) {
+    return parsedMcpToolError(p.result ?? '');
   }
 
   async copy(text: string): Promise<void> {

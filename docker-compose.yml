@@ -342,6 +342,9 @@ services:
       API_KEY: ${API_KEY}
       MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-}
       COPILOT_API_URL: http://copilot-api:3000
+      MCP_PLATFORM_URL: http://mcp-platform:3110
+      MCP_REPO_URL: http://mcp-repo:3111
+      MCP_DATABASE_URL: ${MCP_DATABASE_URL:-http://mcp-database:3100}
       PORT: "3110"
       LOG_LEVEL: info
       ARTIFACT_STORAGE_PATH: ${ARTIFACT_STORAGE_PATH:-/mnt/qnap/artifacts}

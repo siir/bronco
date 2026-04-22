@@ -9,11 +9,12 @@ const settingsLogger = createLogger('settings');
 
 /** Default configs seeded lazily if the DB tables are empty. */
 const DEFAULT_STATUS_CONFIGS = [
-  { value: TicketStatus.OPEN, displayName: 'Open', description: 'Newly created ticket awaiting triage', color: '#2196f3', sortOrder: 0, statusClass: 'open' },
-  { value: TicketStatus.IN_PROGRESS, displayName: 'In Progress', description: 'Actively being worked on', color: '#ff9800', sortOrder: 1, statusClass: 'open' },
-  { value: TicketStatus.WAITING, displayName: 'Waiting', description: 'Waiting for external input or response', color: '#9c27b0', sortOrder: 2, statusClass: 'open' },
-  { value: TicketStatus.RESOLVED, displayName: 'Resolved', description: 'Issue has been resolved', color: '#4caf50', sortOrder: 3, statusClass: 'closed' },
-  { value: TicketStatus.CLOSED, displayName: 'Closed', description: 'Ticket is closed', color: '#757575', sortOrder: 4, statusClass: 'closed' },
+  { value: TicketStatus.NEW, displayName: 'New', description: 'Newly created ticket awaiting analysis', color: '#60a5fa', sortOrder: 0, statusClass: 'open' },
+  { value: TicketStatus.OPEN, displayName: 'Open', description: 'Active ticket — analysis complete, awaiting operator action or external response', color: '#2196f3', sortOrder: 1, statusClass: 'open' },
+  { value: TicketStatus.IN_PROGRESS, displayName: 'In Progress', description: 'Actively being worked on', color: '#ff9800', sortOrder: 2, statusClass: 'open' },
+  { value: TicketStatus.WAITING, displayName: 'Waiting', description: 'Waiting for external input or response', color: '#9c27b0', sortOrder: 3, statusClass: 'open' },
+  { value: TicketStatus.RESOLVED, displayName: 'Resolved', description: 'Issue has been resolved', color: '#4caf50', sortOrder: 4, statusClass: 'closed' },
+  { value: TicketStatus.CLOSED, displayName: 'Closed', description: 'Ticket is closed', color: '#757575', sortOrder: 5, statusClass: 'closed' },
 ];
 
 const DEFAULT_CATEGORY_CONFIGS = [
@@ -34,7 +35,6 @@ const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 const logger = createLogger('settings');
 
 const SETTINGS_KEY_OPERATIONAL_ALERTS = 'operational-alerts';
-const SETTINGS_KEY_SUPER_ADMIN = 'super-admin-user-id';
 const SETTINGS_KEY_SMTP = 'system-config-smtp';
 const SETTINGS_KEY_DEVOPS = 'system-config-devops';
 const SETTINGS_KEY_GITHUB = 'system-config-github';
@@ -43,9 +43,9 @@ const SETTINGS_KEY_SLACK = 'system-config-slack';
 const SETTINGS_KEY_PROMPT_RETENTION = 'system-config-prompt-retention';
 const SETTINGS_KEY_ACTION_SAFETY = 'system-config-action-safety';
 const SETTINGS_KEY_ANALYSIS_STRATEGY = 'system-config-analysis-strategy';
+const SETTINGS_KEY_ANALYSIS_STRATEGY_VERSION = 'analysis-strategy-version';
 const SETTINGS_KEY_SELF_ANALYSIS = 'self_analysis_config';
 const SETTINGS_KEY_TOOL_REQUEST_RATE_LIMIT = 'tool-request-rate-limit-per-run';
-const SETTINGS_KEY_TOOL_REQUESTS_DEFAULT_REPO = 'tool-requests-github-default-repo';
 
 const REDACTED = '••••••••';
 
@@ -144,12 +144,33 @@ interface SettingsRouteOpts {
 export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRouteOpts): Promise<void> {
   // ─── Ticket Statuses ───
 
-  // GET /api/settings/statuses — list all status configs (auto-seed if empty)
+  // GET /api/settings/statuses — list all status configs (auto-seed missing defaults)
   fastify.get('/api/settings/statuses', async () => {
     let configs = await fastify.db.ticketStatusConfig.findMany({ orderBy: { sortOrder: 'asc' } });
 
-    if (configs.length === 0) {
-      await fastify.db.ticketStatusConfig.createMany({ data: DEFAULT_STATUS_CONFIGS, skipDuplicates: true });
+    const existingValues = new Set(configs.map((c) => c.value));
+    const missing = DEFAULT_STATUS_CONFIGS.filter((d) => !existingValues.has(d.value));
+    if (missing.length > 0) {
+      await fastify.db.ticketStatusConfig.createMany({ data: missing, skipDuplicates: true });
+    }
+
+    // For existing deployments where the OPEN row was seeded before the NEW status was
+    // introduced, it may still carry the old pre-PR defaults (sortOrder=0, old description).
+    // Apply the targeted update only when the row still matches those exact pre-PR values so
+    // that operator customizations are left untouched.
+    const PRE_PR_OPEN_DESCRIPTION = 'Newly created ticket awaiting triage';
+    const openRow = configs.find((c) => c.value === 'OPEN');
+    if (openRow && openRow.sortOrder === 0 && openRow.description === PRE_PR_OPEN_DESCRIPTION) {
+      await fastify.db.ticketStatusConfig.update({
+        where: { value: 'OPEN' },
+        data: {
+          sortOrder: 1,
+          description: 'Active ticket — analysis complete, awaiting operator action or external response',
+        },
+      });
+    }
+
+    if (missing.length > 0 || (openRow && openRow.sortOrder === 0 && openRow.description === PRE_PR_OPEN_DESCRIPTION)) {
       configs = await fastify.db.ticketStatusConfig.findMany({ orderBy: { sortOrder: 'asc' } });
     }
 
@@ -937,106 +958,6 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     },
   );
 
-  // ─── Tool Requests: default GitHub repo (ADMIN-only) ───
-
-  const toolRequestsDefaultRepoSchema = z.object({
-    owner: z.string().trim().min(1),
-    name: z.string().trim().min(1),
-  });
-
-  type ToolRequestsDefaultRepo = z.output<typeof toolRequestsDefaultRepoSchema>;
-
-  // GET /api/settings/tool-requests-github-default-repo
-  fastify.get(
-    '/api/settings/tool-requests-github-default-repo',
-    { preHandler: adminOnly },
-    async () => {
-      const row = await fastify.db.appSetting.findUnique({
-        where: { key: SETTINGS_KEY_TOOL_REQUESTS_DEFAULT_REPO },
-      });
-      if (!row) return null;
-      const parsed = toolRequestsDefaultRepoSchema.safeParse(row.value);
-      return parsed.success ? parsed.data : null;
-    },
-  );
-
-  // PUT /api/settings/tool-requests-github-default-repo
-  fastify.put<{ Body: ToolRequestsDefaultRepo }>(
-    '/api/settings/tool-requests-github-default-repo',
-    { preHandler: adminOnly },
-    async (request) => {
-      const parsed = toolRequestsDefaultRepoSchema.safeParse(request.body);
-      if (!parsed.success) {
-        const msg = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
-        return fastify.httpErrors.badRequest(`Invalid default repo config: ${msg}`);
-      }
-
-      const config = parsed.data;
-
-      const row = await fastify.db.appSetting.upsert({
-        where: { key: SETTINGS_KEY_TOOL_REQUESTS_DEFAULT_REPO },
-        update: { value: config as unknown as object },
-        create: { key: SETTINGS_KEY_TOOL_REQUESTS_DEFAULT_REPO, value: config as unknown as object },
-      });
-
-      return row.value as unknown as ToolRequestsDefaultRepo;
-    },
-  );
-
-  // ─── Super Admin ───
-
-  // GET /api/settings/super-admin — get the designated super admin user ID
-  fastify.get('/api/settings/super-admin', async () => {
-    const setting = await fastify.db.appSetting.findUnique({ where: { key: SETTINGS_KEY_SUPER_ADMIN } });
-    if (!setting || setting.value === null || setting.value === undefined) {
-      return { userId: null };
-    }
-    if (typeof setting.value !== 'string') {
-      logger.error({ value: setting.value, valueType: typeof setting.value }, 'Invalid super-admin setting value; expected string');
-      return fastify.httpErrors.internalServerError('Invalid super admin setting value');
-    }
-    return { userId: setting.value };
-  });
-
-  // PUT /api/settings/super-admin — set the designated super admin user ID
-  fastify.put<{ Body: { userId: string | null } }>('/api/settings/super-admin', async (request) => {
-    if (request.body == null) {
-      return fastify.httpErrors.badRequest('Request body is required');
-    }
-
-    const { userId } = request.body;
-
-    if (userId === null) {
-      await fastify.db.appSetting.deleteMany({ where: { key: SETTINGS_KEY_SUPER_ADMIN } });
-      return { userId: null };
-    }
-
-    if (typeof userId !== 'string' || userId === '') {
-      return fastify.httpErrors.badRequest('userId must be a non-empty string or null');
-    }
-
-    // `userId` here is a Person.id — super admin is designated on the unified
-    // Person identity. The person must have an Operator extension (control
-    // panel access) and be active. #219 Wave 2A may rename this endpoint.
-    const person = await fastify.db.person.findUnique({
-      where: { id: userId },
-      include: { operator: true },
-    });
-    if (!person) return fastify.httpErrors.notFound('User not found');
-    if (!person.isActive) return fastify.httpErrors.badRequest('Super admin must be an active user');
-    if (!person.operator) {
-      return fastify.httpErrors.badRequest('Super admin must be an operator');
-    }
-
-    await fastify.db.appSetting.upsert({
-      where: { key: SETTINGS_KEY_SUPER_ADMIN },
-      create: { key: SETTINGS_KEY_SUPER_ADMIN, value: userId },
-      update: { value: userId },
-    });
-
-    return { userId };
-  });
-
   // ─── Action Safety Configuration ───
 
   /** Zod schema for validating a stored ActionSafetyConfig object. */
@@ -1232,6 +1153,50 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     return row.value as AnalysisStrategyConfig;
   });
 
+  // ─── Analysis Strategy Version ───
+
+  const analysisStrategyVersionSchema = z.object({
+    version: z.enum(['v1', 'v2']).default('v2'),
+  });
+
+  type AnalysisStrategyVersionConfig = z.output<typeof analysisStrategyVersionSchema>;
+
+  const DEFAULT_ANALYSIS_STRATEGY_VERSION: AnalysisStrategyVersionConfig = { version: 'v2' };
+
+  fastify.get('/api/settings/analysis-strategy-version', async () => {
+    const row = await fastify.db.appSetting.findUnique({ where: { key: SETTINGS_KEY_ANALYSIS_STRATEGY_VERSION } });
+    if (!row) return DEFAULT_ANALYSIS_STRATEGY_VERSION;
+    const parsed = analysisStrategyVersionSchema.safeParse(row.value);
+    if (!parsed.success) {
+      logger.warn({ key: SETTINGS_KEY_ANALYSIS_STRATEGY_VERSION, errors: parsed.error.issues }, 'Stored analysis strategy version is malformed — resetting to defaults');
+      await fastify.db.appSetting.update({
+        where: { key: SETTINGS_KEY_ANALYSIS_STRATEGY_VERSION },
+        data: { value: DEFAULT_ANALYSIS_STRATEGY_VERSION as unknown as object },
+      });
+      return DEFAULT_ANALYSIS_STRATEGY_VERSION;
+    }
+    return parsed.data;
+  });
+
+  fastify.put<{ Body: Record<string, unknown> }>(
+    '/api/settings/analysis-strategy-version',
+    { preHandler: requireRole(OperatorRole.ADMIN) },
+    async (request) => {
+      const parsed = analysisStrategyVersionSchema.safeParse(request.body);
+      if (!parsed.success) {
+        const msg = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+        return fastify.httpErrors.badRequest(`Invalid analysis strategy version config: ${msg}`);
+      }
+      const config = parsed.data;
+      const row = await fastify.db.appSetting.upsert({
+        where: { key: SETTINGS_KEY_ANALYSIS_STRATEGY_VERSION },
+        update: { value: config as unknown as object },
+        create: { key: SETTINGS_KEY_ANALYSIS_STRATEGY_VERSION, value: config as unknown as object },
+      });
+      return row.value as AnalysisStrategyVersionConfig;
+    },
+  );
+
   // ---------------------------------------------------------------------------
   // Self-Analysis Config
   // ---------------------------------------------------------------------------
@@ -1242,6 +1207,11 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     scheduledEnabled: z.boolean().default(false),
     scheduledCron: z.string().default('0 9 * * 1'),
     repoUrl: z.string().default('https://github.com/siir/bronco'),
+    scheduleType: z.enum(['time', 'cron']).default('cron'),
+    scheduleHour: z.number().int().min(0).max(23).nullable().default(null),
+    scheduleMinute: z.number().int().min(0).max(59).nullable().default(null),
+    scheduleDaysOfWeek: z.string().nullable().default(null),
+    scheduleTimezone: z.string().default('UTC'),
   });
 
   type SelfAnalysisConfig = z.output<typeof selfAnalysisConfigSchema>;
@@ -1252,6 +1222,11 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     scheduledEnabled: false,
     scheduledCron: '0 9 * * 1',
     repoUrl: 'https://github.com/siir/bronco',
+    scheduleType: 'cron',
+    scheduleHour: null,
+    scheduleMinute: null,
+    scheduleDaysOfWeek: null,
+    scheduleTimezone: 'UTC',
   };
 
   // GET /api/settings/self-analysis

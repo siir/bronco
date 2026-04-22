@@ -213,7 +213,7 @@ import {
 
                 <app-data-column key="message" header="Message" [sortable]="false" mobilePriority="primary">
                   <ng-template #cell let-row>
-                    <span class="col-message" [title]="row.error ?? ''">{{ row.message }}</span>
+                    <span class="col-message" [title]="row.message + (row.error ? ' — ' + row.error : '')">{{ row.message }}</span>
                   </ng-template>
                 </app-data-column>
 
@@ -362,10 +362,21 @@ import {
       font-size: 12px; font-family: monospace;
     }
     .col-message {
+      display: block;
+      max-width: 100%;
+      min-width: 0;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       color: var(--text-secondary);
     }
     .col-time { color: var(--text-tertiary); }
+
+    /* Force table cells to respect column widths so flex columns (no explicit
+     * width) can truncate with ellipsis rather than pushing the table past
+     * the viewport. Without this, a long .col-message grows its td and
+     * shoves Service/Time off-screen. */
+    :host ::ng-deep app-data-table table {
+      table-layout: fixed;
+    }
 
     .queue-failed-count {
       font-family: var(--font-primary); font-size: 16px;

@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { DatePipe, JsonPipe, NgClass } from '@angular/common';
 import {
   ToolRequestService,
+  ToolRequestKind,
   ToolRequestStatus,
   type ToolRequestListItem,
   type ToolRequestDetail,
@@ -30,6 +31,13 @@ const STATUS_OPTIONS = [
   { value: ToolRequestStatus.REJECTED, label: 'Rejected' },
   { value: ToolRequestStatus.IMPLEMENTED, label: 'Implemented' },
   { value: ToolRequestStatus.DUPLICATE, label: 'Duplicate' },
+];
+
+const KIND_OPTIONS = [
+  { value: '', label: 'All Kinds' },
+  { value: ToolRequestKind.NEW_TOOL, label: 'New Tool' },
+  { value: ToolRequestKind.BROKEN_TOOL, label: 'Broken Tool' },
+  { value: ToolRequestKind.IMPROVE_TOOL, label: 'Improve Tool' },
 ];
 
 @Component({
@@ -80,6 +88,10 @@ const STATUS_OPTIONS = [
         [value]="statusFilter()"
         [options]="statusOptions"
         (valueChange)="onStatusFilter($event)" />
+      <app-select
+        [value]="kindFilter()"
+        [options]="kindOptions"
+        (valueChange)="onKindFilter($event)" />
       <app-text-input
         type="text"
         [value]="searchInput()"
@@ -94,14 +106,20 @@ const STATUS_OPTIONS = [
     @if (!loading() && items().length === 0) {
       <app-card>
         <div class="empty-state">
-          <p>No tool requests{{ statusFilter() ? ' with status ' + statusFilter() : '' }}.</p>
-          <p class="empty-hint">When the analyzer identifies a missing capability it will post a <code>request_tool</code> call and surface it here.</p>
+          <p>No tool requests{{ statusFilter() ? ' with status ' + statusFilter() : '' }}{{ kindFilter() ? ' with kind ' + kindFilter() : '' }}.</p>
+          <p class="empty-hint">When the analyzer identifies a missing capability, a broken tool, or an improvement opportunity, it will post a <code>request_tool</code> call and surface it here.</p>
         </div>
       </app-card>
     }
 
     @if (items().length > 0) {
       <app-data-table [data]="items()" [trackBy]="trackById" (rowClick)="openDetail($event)">
+        <app-data-column key="kind" header="Kind" width="120px" [sortable]="false">
+          <ng-template #cell let-row>
+            <span class="kind-pill" [ngClass]="kindClass(row.kind)">{{ kindLabel(row.kind) }}</span>
+          </ng-template>
+        </app-data-column>
+
         <app-data-column key="status" header="Status" width="120px" [sortable]="false">
           <ng-template #cell let-row>
             <span class="status-pill" [ngClass]="statusClass(row.status)">{{ row.status }}</span>
@@ -111,8 +129,8 @@ const STATUS_OPTIONS = [
         <app-data-column key="displayTitle" header="Title" [sortable]="false">
           <ng-template #cell let-row>
             <div class="title-cell">
-              <span class="title">{{ row.displayTitle }}</span>
-              <span class="requested-name">{{ row.requestedName }}</span>
+              <span class="title" [title]="row.displayTitle">{{ row.displayTitle }}</span>
+              <span class="requested-name" [title]="row.requestedName">{{ row.requestedName }}</span>
               @if (row.suggestedDuplicateOfId) {
                 <span class="suggestion-pill suggestion-duplicate" title="AI dedupe flagged this as a duplicate">⚠ Suggested duplicate</span>
               }
@@ -155,10 +173,17 @@ const STATUS_OPTIONS = [
       <app-dialog [open]="true" [title]="d.displayTitle" maxWidth="720px" (openChange)="closeDetail()">
         <div class="detail">
           <div class="detail-header">
+            <span class="kind-pill" [ngClass]="kindClass(d.kind)">{{ kindLabel(d.kind) }}</span>
             <span class="status-pill" [ngClass]="statusClass(d.status)">{{ d.status }}</span>
             <span class="requested-name-big">{{ d.requestedName }}</span>
             <span class="count-pill">requests: {{ d.requestCount }}</span>
           </div>
+
+          @if (d.kind === 'BROKEN_TOOL' || d.kind === 'IMPROVE_TOOL') {
+            <div class="affects-tool-banner">
+              Affects existing tool: <code>{{ d.requestedName }}</code>
+            </div>
+          }
 
           <section>
             <h3>Description</h3>
@@ -376,7 +401,7 @@ const STATUS_OPTIONS = [
     .empty-hint { font-size: 12px; margin-top: 8px; }
     .empty-hint code { background: var(--bg-muted); padding: 1px 5px; border-radius: 4px; }
 
-    .status-pill {
+    .status-pill, .kind-pill {
       display: inline-block;
       padding: 2px 8px;
       border-radius: var(--radius-pill);
@@ -390,10 +415,35 @@ const STATUS_OPTIONS = [
     .status-pill.status-rejected { background: rgba(255,59,48,0.1); color: var(--color-error); border: 1px solid rgba(255,59,48,0.25); }
     .status-pill.status-implemented { background: rgba(0,122,255,0.1); color: var(--accent); border: 1px solid rgba(0,122,255,0.25); }
     .status-pill.status-duplicate { background: rgba(142,142,147,0.15); color: var(--text-secondary); border: 1px solid rgba(142,142,147,0.3); }
+    .kind-pill.kind-new-tool { background: rgba(0,122,255,0.1); color: var(--accent); border: 1px solid rgba(0,122,255,0.25); }
+    .kind-pill.kind-broken-tool { background: rgba(255,59,48,0.1); color: var(--color-error); border: 1px solid rgba(255,59,48,0.25); }
+    .kind-pill.kind-improve-tool { background: rgba(255,149,0,0.1); color: #c47400; border: 1px solid rgba(255,149,0,0.3); }
 
-    .title-cell { display: flex; flex-direction: column; gap: 2px; }
-    .title { font-weight: 500; color: var(--text-primary); }
-    .requested-name { font-family: ui-monospace, monospace; font-size: 11px; color: var(--text-tertiary); }
+    .affects-tool-banner {
+      padding: 6px 12px;
+      background: rgba(255,59,48,0.06);
+      border: 1px solid rgba(255,59,48,0.2);
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      color: var(--text-primary);
+    }
+    .affects-tool-banner code { font-family: ui-monospace, monospace; font-size: 12px; }
+
+    .title-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .title {
+      font-weight: 500; color: var(--text-primary);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .requested-name {
+      font-family: ui-monospace, monospace; font-size: 11px; color: var(--text-tertiary);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+
+    /* Respect column widths so the flex Title column truncates long tool
+     * names/titles instead of pushing Client/Count/Updated off the right. */
+    :host ::ng-deep app-data-table table {
+      table-layout: fixed;
+    }
     .client-name { font-size: 13px; color: var(--text-secondary); }
     .count-pill {
       display: inline-block;
@@ -475,11 +525,13 @@ export class ToolRequestListComponent implements OnInit {
   private toast = inject(ToastService);
 
   readonly statusOptions = STATUS_OPTIONS;
+  readonly kindOptions = KIND_OPTIONS;
   loading = signal(false);
   saving = signal(false);
   items = signal<ToolRequestListItem[]>([]);
   total = signal(0);
   statusFilter = signal<string>('');
+  kindFilter = signal<string>('');
   clientFilter = signal<string>('');
   searchInput = signal<string>('');
   offset = signal(0);
@@ -536,9 +588,11 @@ export class ToolRequestListComponent implements OnInit {
   private fetch(append: boolean): void {
     this.loading.set(true);
     const status = this.statusFilter();
+    const kind = this.kindFilter();
     this.svc
       .list({
         status: status ? (status as ToolRequestStatus) : undefined,
+        kind: kind ? (kind as ToolRequestKind) : undefined,
         clientId: this.clientFilter() || undefined,
         search: this.searchInput() || undefined,
         limit: this.pageSize,
@@ -559,6 +613,11 @@ export class ToolRequestListComponent implements OnInit {
 
   onStatusFilter(value: string): void {
     this.statusFilter.set(value);
+    this.refresh();
+  }
+
+  onKindFilter(value: string): void {
+    this.kindFilter.set(value);
     this.refresh();
   }
 
@@ -599,6 +658,19 @@ export class ToolRequestListComponent implements OnInit {
 
   statusClass(status: string): string {
     return `status-${status.toLowerCase()}`;
+  }
+
+  kindClass(kind: string): string {
+    return `kind-${kind.toLowerCase().replace(/_/g, '-')}`;
+  }
+
+  kindLabel(kind: string): string {
+    switch (kind) {
+      case ToolRequestKind.NEW_TOOL: return 'New';
+      case ToolRequestKind.BROKEN_TOOL: return 'Broken';
+      case ToolRequestKind.IMPROVE_TOOL: return 'Improve';
+      default: return kind;
+    }
   }
 
   openDetail(row: ToolRequestListItem): void {

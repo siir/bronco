@@ -14,7 +14,7 @@ const logger = createLogger('recommendation-executor');
 
 const SETTINGS_KEY_ACTION_SAFETY = 'system-config-action-safety';
 
-const VALID_STATUSES = new Set(['OPEN', 'IN_PROGRESS', 'WAITING', 'RESOLVED', 'CLOSED']);
+const VALID_STATUSES = new Set(['NEW', 'OPEN', 'IN_PROGRESS', 'WAITING', 'RESOLVED', 'CLOSED']);
 const VALID_PRIORITIES = new Set(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']);
 const VALID_CATEGORIES = new Set([
   'DATABASE_PERF', 'BUG_FIX', 'FEATURE_REQUEST', 'SCHEMA_CHANGE',

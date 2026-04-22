@@ -22,11 +22,14 @@
     "db:generate": "pnpm --filter @bronco/db run generate",
     "db:migrate": "pnpm --filter @bronco/db run migrate",
     "db:seed": "pnpm --filter @bronco/db run seed",
-    "lint": "pnpm -r run lint",
+    "lint": "eslint .",
     "typecheck": "pnpm -r run typecheck",
     "clean": "pnpm -r run clean"
   },
   "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0",
     "typescript": "~5.8.0"
   },
   "engines": {

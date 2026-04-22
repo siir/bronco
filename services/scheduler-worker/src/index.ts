@@ -75,6 +75,18 @@ async function main(): Promise<void> {
   );
 
   systemAnalysisWorker.on('failed', (job, err) => {
+    if (job?.name === 'analyze-post-pipeline') {
+      const attemptsMade = job.attemptsMade ?? 0;
+      const maxAttempts = job.opts?.attempts ?? 1;
+      if (attemptsMade >= maxAttempts) {
+        logger.warn(
+          { err, jobId: job.id, attemptsMade, maxAttempts },
+          'Post-pipeline analysis: all retries exhausted (non-blocking)',
+        );
+      }
+      // Intermediate failures already logged by processor's transient-error path — skip
+      return;
+    }
     logger.error({ err, jobId: job?.id }, 'System analysis job failed');
   });
 

@@ -25,3 +25,4 @@ export {
 } from './dropdown-menu.component.js';
 export { IconComponent, type IconSize } from './icon.component.js';
 export { ICON_REGISTRY, type IconName } from './icon-registry.js';
+export { CronSchedulerComponent, type CronSchedulerValue } from './cron-scheduler.component.js';

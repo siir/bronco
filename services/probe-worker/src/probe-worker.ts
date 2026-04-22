@@ -736,6 +736,7 @@ async function createTicketFromProbe(
           clientId: probe.clientId,
           subject: title ?? `[Probe] ${probe.name}: ${probe.toolName}`,
           description,
+          status: 'NEW',
           source: 'SCHEDULED',
           category: (probe.category || null) as TicketCategory | null,
           ticketNumber,

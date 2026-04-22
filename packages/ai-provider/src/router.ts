@@ -277,11 +277,11 @@ export class AIRouter {
             totalContextTokens: convMeta.totalContextTokens,
             messageCount: convMeta.messageCount,
           }).catch((err) => {
-            logger.warn({ err }, 'Failed to persist AI prompt archive entry');
+            logger.error({ err, taskType: request.taskType, provider: response.provider, model: response.model }, 'Failed to persist AI prompt archive entry');
           });
         }
       }).catch((err) => {
-        logger.warn({ err }, 'Failed to persist AI usage log entry');
+        logger.error({ err, taskType: request.taskType, provider: response.provider, model: response.model }, 'Failed to persist AI usage log entry');
       });
     }
 
@@ -457,11 +457,11 @@ export class AIRouter {
             totalContextTokens: convMeta.totalContextTokens,
             messageCount: convMeta.messageCount,
           }).catch((err) => {
-            logger.warn({ err }, 'Failed to persist AI prompt archive entry');
+            logger.error({ err, taskType: request.taskType, provider: response.provider, model: response.model }, 'Failed to persist AI prompt archive entry');
           });
         }
       }).catch((err) => {
-        logger.warn({ err }, 'Failed to persist AI usage log entry');
+        logger.error({ err, taskType: request.taskType, provider: response.provider, model: response.model }, 'Failed to persist AI usage log entry');
       });
     }
 

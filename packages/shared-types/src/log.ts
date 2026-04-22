@@ -10,6 +10,10 @@ export const EntityType = {
   TICKET: 'ticket',
   OPERATIONAL_TASK: 'operational_task',
   PROBE: 'probe',
+  EMAIL: 'email',
+  SYSTEM: 'system',
+  OPERATOR: 'operator',
+  CLIENT: 'client',
 } as const;
 export type EntityType = (typeof EntityType)[keyof typeof EntityType];
 
