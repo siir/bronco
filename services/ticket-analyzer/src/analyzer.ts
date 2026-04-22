@@ -3538,7 +3538,7 @@ export function createAnalysisProcessor(deps: AnalyzerDeps) {
               { ticketId, triggerType: 'POST_ANALYSIS' },
               {
                 jobId: `post-pipeline-${ticketId}-${Date.now()}`,
-                attempts: 3,
+                attempts: 4,              // 1 initial + 3 retries
                 backoff: { type: 'exponential', delay: 5000 },
               },
             );

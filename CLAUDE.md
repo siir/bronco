@@ -421,7 +421,7 @@ pnpm dev:portal           # Start ticket portal (Angular, port 4201)
 | `services/copilot-api/src/routes/email-logs.ts` | Email processing log API: list/filter logs, stats summary, retry and reclassify endpoints. |
 | `services/slack-worker/src/index.ts` | Slack worker entry: system + per-client Slack Socket Mode connections, interaction handlers. |
 | `services/scheduler-worker/src/index.ts` | Scheduler worker entry: BullMQ cron workers (log-summarize, system-analysis, mcp-discovery, model-catalog-refresh, prompt-retention), auto-invoicing, operational alerts. |
-| `services/scheduler-worker/src/system-analyzer.ts` | System analysis dispatcher (TICKET_CLOSE, POST_ANALYSIS, SCHEDULED trigger types). `analyze-post-pipeline` jobs retry up to 3× (5s/10s/20s exponential backoff) on transient Anthropic 5xx / network errors; non-transient errors short-circuit via `UnrecoverableError`. Post-pipeline failures are non-blocking (best-effort meta-analysis). |
+| `services/scheduler-worker/src/system-analyzer.ts` | System analysis dispatcher (TICKET_CLOSE, POST_ANALYSIS, SCHEDULED trigger types). `analyze-post-pipeline` jobs run up to 4 attempts total (1 initial + 3 retries at 5s / 10s / 20s exponential backoff) on transient Anthropic 5xx / network errors; non-transient errors short-circuit via `UnrecoverableError`. Post-pipeline failures are non-blocking (best-effort meta-analysis). |
 | `services/ticket-analyzer/src/client-learning-worker.ts` | Client learning extraction from resolved tickets → client memory. |
 | `services/ticket-analyzer/src/recommendation-executor.ts` | Executes system analysis recommendations (operational tasks). |
 | `services/probe-worker/src/builtin-tools.ts` | Built-in probe tool definitions (scan_app_logs, analyze_app_health). |

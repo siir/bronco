@@ -59,4 +59,15 @@ describe('isTransientApiError', () => {
   it('returns false for a plain string', () => {
     expect(isTransientApiError('error')).toBe(false);
   });
+
+  it('returns true for a plain Error with "520" in message (Cloudflare 5xx)', () => {
+    expect(isTransientApiError(new Error('received 520 from upstream'))).toBe(true);
+  });
+
+  it('returns false for cyclic cause chain without infinite recursion', () => {
+    const a: { message: string; cause?: unknown } = { message: 'outer' };
+    const b: { message: string; cause: unknown } = { message: 'inner', cause: a };
+    a.cause = b; // cyclic
+    expect(isTransientApiError(a)).toBe(false); // terminates, returns false
+  });
 });

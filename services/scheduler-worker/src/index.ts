@@ -75,12 +75,19 @@ async function main(): Promise<void> {
   );
 
   systemAnalysisWorker.on('failed', (job, err) => {
-    // Post-pipeline analysis is best-effort; exhausted retries are non-blocking.
     if (job?.name === 'analyze-post-pipeline') {
-      logger.warn({ err, jobId: job?.id }, 'Post-pipeline analysis job failed (non-blocking)');
-    } else {
-      logger.error({ err, jobId: job?.id }, 'System analysis job failed');
+      const attemptsMade = job.attemptsMade ?? 0;
+      const maxAttempts = job.opts?.attempts ?? 1;
+      if (attemptsMade >= maxAttempts) {
+        logger.warn(
+          { err, jobId: job.id, attemptsMade, maxAttempts },
+          'Post-pipeline analysis: all retries exhausted (non-blocking)',
+        );
+      }
+      // Intermediate failures already logged by processor's transient-error path — skip
+      return;
     }
+    logger.error({ err, jobId: job?.id }, 'System analysis job failed');
   });
 
   // MCP server discovery/verification worker
