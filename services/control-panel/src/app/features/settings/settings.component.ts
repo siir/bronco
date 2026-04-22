@@ -388,6 +388,33 @@ const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External
                 </div>
               }
             </app-card>
+
+            <app-card>
+              <h2 class="section-title">Strategy Version</h2>
+              <p class="hint">
+                v2 is the default. v1 is retained verbatim from before the templated knowledge doc
+                was introduced, for fallback and comparison when v2 regresses. Do not mix v2 features
+                into v1 \u2014 they evolve independently.
+              </p>
+              @if (analysisStrategyVersionLoading()) {
+                <div class="loading-wrapper"><span class="loading-text">Loading...</span></div>
+              } @else {
+                <div class="form-grid">
+                  <app-form-field label="Strategy Version" hint="v2 is default. v1 is for comparison/fallback only.">
+                    <app-select
+                      [value]="analysisStrategyVersion()"
+                      [options]="strategyVersionOptions"
+                      (valueChange)="analysisStrategyVersion.set($event)" />
+                  </app-form-field>
+                </div>
+
+                <div class="card-actions">
+                  <app-bronco-button variant="primary" (click)="saveAnalysisStrategyVersion()" [disabled]="analysisStrategyVersionSaving()">
+                    @if (analysisStrategyVersionSaving()) { Saving... } @else { Save }
+                  </app-bronco-button>
+                </div>
+              }
+            </app-card>
           </div>
         </app-tab>
 
@@ -864,6 +891,13 @@ export class SettingsComponent implements OnInit {
     { value: 'full_context', label: 'Full Context (brute force)' },
     { value: 'orchestrated', label: 'Orchestrated (parallel tasks)' },
   ];
+  analysisStrategyVersion = signal<string>('v2');
+  analysisStrategyVersionLoading = signal(true);
+  analysisStrategyVersionSaving = signal(false);
+  strategyVersionOptions = [
+    { value: 'v2', label: 'v2 (default \u2014 truncation + kd_* knowledge doc + no auto-summary)' },
+    { value: 'v1', label: 'v1 (legacy \u2014 full context per call + raw-append knowledge doc)' },
+  ];
 
   // Self Analysis tab
   selfAnalysisLoading = signal(true);
@@ -893,6 +927,7 @@ export class SettingsComponent implements OnInit {
     this.loadCategories();
     this.loadActionSafety();
     this.loadAnalysisStrategy();
+    this.loadAnalysisStrategyVersion();
     this.loadSelfAnalysis();
     this.loadSystemConfigs();
   }
@@ -1195,6 +1230,36 @@ export class SettingsComponent implements OnInit {
       error: () => {
         this.analysisStrategySaving.set(false);
         this.toast.error('Failed to save analysis strategy');
+      },
+    });
+  }
+
+  loadAnalysisStrategyVersion(): void {
+    this.analysisStrategyVersionLoading.set(true);
+    this.settingsSvc.getAnalysisStrategyVersion().subscribe({
+      next: (config) => {
+        this.analysisStrategyVersion.set(config.version);
+        this.analysisStrategyVersionLoading.set(false);
+      },
+      error: () => {
+        this.analysisStrategyVersionLoading.set(false);
+        this.toast.error('Failed to load analysis strategy version');
+      },
+    });
+  }
+
+  saveAnalysisStrategyVersion(): void {
+    this.analysisStrategyVersionSaving.set(true);
+    const config = { version: this.analysisStrategyVersion() as 'v1' | 'v2' };
+    this.settingsSvc.saveAnalysisStrategyVersion(config).subscribe({
+      next: (saved) => {
+        this.analysisStrategyVersion.set(saved.version);
+        this.analysisStrategyVersionSaving.set(false);
+        this.toast.success('Analysis strategy version saved');
+      },
+      error: () => {
+        this.analysisStrategyVersionSaving.set(false);
+        this.toast.error('Failed to save analysis strategy version');
       },
     });
   }

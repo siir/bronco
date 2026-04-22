@@ -4,7 +4,6 @@ import { TaskType } from '@bronco/shared-types';
 import type {
   AIMessage,
   AITextBlock,
-  AIToolDefinition,
   AIToolResponse,
   AIToolResultBlock,
   AIToolUseBlock,
@@ -12,47 +11,40 @@ import type {
 import {
   buildRepoNudgeSnippet,
   buildTruncatedPreview,
-  composeFinalAnalysis,
   executeAgenticToolCall,
-  fallbackFillRequiredSections,
   getToolResultMaxTokens,
-  KD_SYSTEM_PROMPT_SNIPPET,
   parseSufficiencyEvaluation,
   saveMcpToolArtifact,
   shouldTruncate,
-  writeKnowledgeDocSnapshot,
-  PREFER_EXISTING_TOOLS_SNIPPET,
-  REQUEST_NEW_TOOL_SNIPPET,
   SUFFICIENCY_EVAL_INSTRUCTIONS,
-  TRUNCATION_SYSTEM_PROMPT_SNIPPET,
-  type AgenticRepoInfo,
+  type AgenticToolContext,
   type AnalysisDeps,
   type AnalysisPipelineContext,
   type AnalysisResult,
-  type McpIntegrationInfo,
   type ReanalysisContext,
   type StrategyStep,
 } from './shared.js';
+import {
+  composeFinalAnalysis,
+  fallbackFillRequiredSections,
+  writeKnowledgeDocSnapshot,
+} from './v2-knowledge-doc.js';
+import {
+  KD_SYSTEM_PROMPT_SNIPPET,
+  PREFER_EXISTING_TOOLS_SNIPPET,
+  REQUEST_NEW_TOOL_SNIPPET,
+  TRUNCATION_SYSTEM_PROMPT_SNIPPET,
+} from './v2-prompts.js';
 import { loadKnowledgeDoc } from '@bronco/shared-utils';
 
 const logger = createLogger('ticket-analyzer');
-
-/**
- * Tool context pre-built by the dispatcher and shared across strategies.
- */
-export interface AgenticToolContext {
-  tools: AIToolDefinition[];
-  mcpIntegrations: Map<string, McpIntegrationInfo>;
-  repoIdByPrefix: Map<string, string>;
-  repos: AgenticRepoInfo[];
-}
 
 /**
  * Flat (full-context) agentic analysis. The strategist runs one loop with
  * access to all available MCP tools, calling them until it reaches a final
  * answer or hits `maxIterations`.
  */
-export async function runFlatAnalysis(
+export async function runFlatV2(
   deps: AnalysisDeps,
   ctx: AnalysisPipelineContext,
   step: StrategyStep,
@@ -155,7 +147,7 @@ export async function runFlatAnalysis(
         systemPrompt: agenticSystemPrompt,
         tools: agenticTools,
         messages,
-        context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!(clientContext || environmentContext), logId: aiCallId, strategy: 'flat' as const, ...(previousAiCallId ? { parentLogId: previousAiCallId, parentLogType: 'ai' as const } : {}) },
+        context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!(clientContext || environmentContext), logId: aiCallId, strategy: 'flat' as const, strategyVersion: 'v2' as const, ...(previousAiCallId ? { parentLogId: previousAiCallId, parentLogType: 'ai' as const } : {}) },
         maxTokens: defaultMaxTokens ?? 4096,
       });
     } catch (error) {

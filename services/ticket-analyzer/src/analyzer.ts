@@ -17,14 +17,17 @@ import {
   DEFAULT_REPO_FILE_EXTENSIONS,
   parseSufficiencyEvaluation,
   resolveAnalysisStrategy,
+  resolveAnalysisVersion,
   SUFFICIENCY_EVAL_INSTRUCTIONS,
   type AnalysisDeps,
   type AnalysisPipelineContext,
   type ReanalysisContext,
   type SufficiencyEvaluation,
 } from './analysis/shared.js';
-import { runFlatAnalysis } from './analysis/flat.js';
-import { runOrchestratedAnalysis } from './analysis/orchestrated.js';
+import { runFlatV1 } from './analysis/flat-v1.js';
+import { runFlatV2 } from './analysis/flat-v2.js';
+import { runOrchestratedV1 } from './analysis/orchestrated-v1.js';
+import { runOrchestratedV2 } from './analysis/orchestrated-v2.js';
 
 const logger = createLogger('ticket-analyzer');
 export const appLog = new AppLogger('ticket-analyzer');
@@ -2183,18 +2186,28 @@ async function executeRoutePipeline(
           break;
         }
 
-        // Build tool definitions from MCP integrations and mcp-repo
+        const strategy = await resolveAnalysisStrategy(db, step);
+        const version = await resolveAnalysisVersion(db, step);
+
+        // v1 orchestrated never supported re-analysis modes — redirect any
+        // re-analysis request on v1 to flat-v1 (matches pre-#311 behavior).
+        const effectiveStrategy = (version === 'v1' && strategy === 'orchestrated' && reanalysisCtx)
+          ? 'flat'
+          : strategy;
+        const canRunOrchestrated = effectiveStrategy === 'orchestrated';
+
+        // Build tool definitions from MCP integrations and mcp-repo. v1
+        // agents must not see kd_* tools — they predate the templated
+        // knowledge-doc infrastructure.
         const { tools: agenticTools, mcpIntegrations, repoIdByPrefix, repos: agenticRepos } = await buildAgenticTools(
           db, ticket.clientId, deps.encryptionKey, deps.mcpRepoUrl, deps.mcpPlatformUrl, deps.apiKey, deps.mcpAuthToken,
+          { includeKdTools: version === 'v2' },
         );
 
         if (agenticTools.length === 0) {
           appLog.info('No tools available for agentic analysis, skipping', { ticketId }, ticketId, 'ticket');
           break;
         }
-
-        const strategy = await resolveAnalysisStrategy(db, step);
-        const canRunOrchestrated = strategy === 'orchestrated';
 
         const analysisDeps: AnalysisDeps = {
           db, ai, appLog,
@@ -2213,8 +2226,12 @@ async function executeRoutePipeline(
         const toolCtx = { tools: agenticTools, mcpIntegrations, repoIdByPrefix, repos: agenticRepos };
 
         const result = canRunOrchestrated
-          ? await runOrchestratedAnalysis(analysisDeps, analysisCtx, step, toolCtx, { maxIterations, existingKnowledgeDoc: ticket.knowledgeDoc ?? '', reanalysisCtx })
-          : await runFlatAnalysis(analysisDeps, analysisCtx, step, toolCtx, { maxIterations, reanalysisCtx });
+          ? (version === 'v2'
+              ? await runOrchestratedV2(analysisDeps, analysisCtx, step, toolCtx, { maxIterations, existingKnowledgeDoc: ticket.knowledgeDoc ?? '', reanalysisCtx })
+              : await runOrchestratedV1(analysisDeps, analysisCtx, step, toolCtx, { maxIterations, existingKnowledgeDoc: ticket.knowledgeDoc ?? '' }))
+          : (version === 'v2'
+              ? await runFlatV2(analysisDeps, analysisCtx, step, toolCtx, { maxIterations, reanalysisCtx })
+              : await runFlatV1(analysisDeps, analysisCtx, step, toolCtx, { maxIterations, reanalysisCtx }));
 
         analysis = result.analysis;
         lastToolCallLog = result.toolCallLog;

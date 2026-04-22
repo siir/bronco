@@ -1,9 +1,16 @@
 import { randomUUID } from 'node:crypto';
-import { createLogger, loadKnowledgeDoc, withTicketLock } from '@bronco/shared-utils';
-import { TaskType } from '@bronco/shared-types';
+import {
+  createLogger,
+  initEmptyKnowledgeDoc,
+  loadKnowledgeDoc,
+  updateSection,
+  withTicketLock,
+} from '@bronco/shared-utils';
+import { KnowledgeDocSectionKey, KnowledgeDocUpdateMode, TaskType } from '@bronco/shared-types';
 import type {
   AITextBlock,
   AIToolDefinition,
+  AIToolResultBlock,
   AIToolUseBlock,
 } from '@bronco/shared-types';
 import {
@@ -11,25 +18,19 @@ import {
   buildRepoNudgeSnippet,
   buildTruncatedPreview,
   chunkArray,
-  composeFinalAnalysis,
   executeAgenticToolCall,
-  fallbackFillRequiredSections,
   getToolResultMaxTokens,
   IRRELEVANT_SIGNALS,
-  KD_SYSTEM_PROMPT_SNIPPET,
   ORCHESTRATED_SYSTEM_PROMPT,
   parseStrategistResponse,
   parseSufficiencyEvaluation,
-  PREFER_EXISTING_TOOLS_SNIPPET,
   ReanalysisMode,
-  REQUEST_NEW_TOOL_SNIPPET,
   resolveMaxParallelTasks,
   resolveOrchestratedModelMap,
   resolveTaskTools,
   saveMcpToolArtifact,
   shouldTruncate,
-  TRUNCATION_SYSTEM_PROMPT_SNIPPET,
-  writeKnowledgeDocSnapshot,
+  type AgenticToolContext,
   type AnalysisDeps,
   type AnalysisPipelineContext,
   type AnalysisResult,
@@ -38,13 +39,23 @@ import {
   type StrategyStep,
   type SubTaskResult,
 } from './shared.js';
-import type { AgenticToolContext } from './flat.js';
+import {
+  composeFinalAnalysis,
+  fallbackFillRequiredSections,
+  writeKnowledgeDocSnapshot,
+} from './v2-knowledge-doc.js';
+import {
+  KD_SYSTEM_PROMPT_SNIPPET,
+  PREFER_EXISTING_TOOLS_SNIPPET,
+  REQUEST_NEW_TOOL_SNIPPET,
+  TRUNCATION_SYSTEM_PROMPT_SNIPPET,
+} from './v2-prompts.js';
 
 const logger = createLogger('ticket-analyzer');
 
 /**
  * Fallback content when a sub-task's initial response has no text blocks.
- * Uses the first tool call's output preview so the knowledge doc still gets
+ * Uses the first tool call's output preview so the Run Log still has
  * something actionable. Empty tool-calls array → placeholder string.
  */
 function fallbackFromToolResults(toolCalls: SubTaskResult['toolCalls']): string {
@@ -54,7 +65,7 @@ function fallbackFromToolResults(toolCalls: SubTaskResult['toolCalls']): string 
   return `No summary text; first tool (${first.tool}) output preview:\n${preview}`;
 }
 
-async function executeOrchestratedSubTask(
+async function executeOrchestratedSubTaskV2(
   deps: AnalysisDeps,
   ticketId: string,
   clientId: string,
@@ -84,9 +95,10 @@ async function executeOrchestratedSubTask(
   const combinedContext = [clientContext, environmentContext].filter(Boolean).join('\n\n');
   const subTaskInstructions = [
     'Execute the requested investigation step. Call the relevant tools, analyze the results,',
-    'and write a concise structured summary of your findings in the response text (alongside',
-    'any tool calls). Do not defer the summary to a follow-up call — include it directly in',
-    'this turn.',
+    'and record each finding by calling platform__kd_add_subsection(parentSectionKey="evidence",',
+    'title, content) — do NOT dump the findings back into the response text for the orchestrator',
+    'to concatenate; the knowledge doc is the source of truth. Your response text should only be',
+    'a concise one-paragraph summary so the orchestrator can log progress.',
   ].join(' ');
   const priorArtifactsHint = task.priorArtifactIds && task.priorArtifactIds.length > 0
     ? `\n\n## Prior Artifacts You May Need\nThese artifact IDs from prior runs may be relevant. Read them via \`platform__read_tool_result_artifact\` before re-querying:\n${task.priorArtifactIds.map(id => `- ${id}`).join('\n')}`
@@ -100,7 +112,9 @@ async function executeOrchestratedSubTask(
     ? resolveTaskTools(task.tools, agenticTools)
     : { resolved: [] as AIToolDefinition[], fuzzy: new Map<string, Array<{ tool: AIToolDefinition; score: number }>>(), unmatched: [] as string[] };
 
-  // Build initial tool set: resolved + top fuzzy candidate per entry
+  // Build initial tool set: resolved + top fuzzy candidate per entry + ALWAYS include kd_* tools
+  // so every sub-task can write findings via the templated doc, regardless of what the strategist listed.
+  const kdTools = agenticTools.filter(t => t.name.startsWith('platform__kd_'));
   const initialTools = [...resolution.resolved];
   const initialToolNames = new Set(initialTools.map(t => t.name));
   const fuzzyUsed = new Map<string, { tool: AIToolDefinition; score: number; candidateIndex: number }>();
@@ -113,8 +127,16 @@ async function executeOrchestratedSubTask(
     }
   }
 
-  // If tools were requested but none matched at all, return early with guidance
-  if (task.tools.length > 0 && initialTools.length === 0) {
+  for (const kd of kdTools) {
+    if (!initialToolNames.has(kd.name)) {
+      initialTools.push(kd);
+      initialToolNames.add(kd.name);
+    }
+  }
+
+  // If tools were requested but none matched at all (kd_* tools excluded), return early with guidance
+  const nonKdInitial = initialTools.filter(t => !t.name.startsWith('platform__kd_'));
+  if (task.tools.length > 0 && nonKdInitial.length === 0) {
     const MAX_TOOLS_IN_ERROR = 10;
     const toolNames = agenticTools.map(t => t.name);
     const availableList = toolNames.length > MAX_TOOLS_IN_ERROR
@@ -147,7 +169,7 @@ async function executeOrchestratedSubTask(
         : { logId: subTaskLogId };
       const response = await ai.generateWithTools({
         taskType: TaskType.DEEP_ANALYSIS,
-        context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, strategy: 'orchestrated' as const, ...orchCtx },
+        context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, strategy: 'orchestrated' as const, strategyVersion: 'v2' as const, ...orchCtx },
         messages: [{ role: 'user', content: task.prompt }],
         tools,
         systemPrompt: subTaskSystemPrompt,
@@ -203,7 +225,6 @@ async function executeOrchestratedSubTask(
             });
           }
           if (result.isError) hasToolError = true;
-          // Write AppLog for sub-task tool calls with lineage back to this sub-task's AI call
           appLog.info(
             `Sub-task tool call: ${toolUse.name} (${elapsed}ms)`,
             {
@@ -259,7 +280,7 @@ async function executeOrchestratedSubTask(
       : { logId: pureLogId };
     const response = await ai.generate({
       taskType: TaskType.DEEP_ANALYSIS,
-      context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, strategy: 'orchestrated' as const, ...orchCtx },
+      context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, strategy: 'orchestrated' as const, strategyVersion: 'v2' as const, ...orchCtx },
       prompt: task.prompt,
       providerOverride: 'CLAUDE',
       modelOverride: model,
@@ -283,7 +304,6 @@ async function executeOrchestratedSubTask(
 
   // --- Retry with alternate fuzzy candidates if first pass seems irrelevant ---
   if (firstPass.seemsIrrelevant && fuzzyUsed.size > 0) {
-    // Try swapping in next candidate for each fuzzy-matched tool; return first non-irrelevant result
     let lastRetryResult: SubTaskResult | undefined;
     let lastRetryScore = 0;
 
@@ -309,7 +329,6 @@ async function executeOrchestratedSubTask(
     }
 
     if (lastRetryResult !== undefined) {
-      // All retries seemed irrelevant — use last retry result with warning
       return {
         content: `Warning: Tool match was uncertain (fuzzy match score: ${lastRetryScore.toFixed(2)}) — results may not be fully relevant.\n\n${lastRetryResult.content}`,
         inputTokens,
@@ -318,7 +337,6 @@ async function executeOrchestratedSubTask(
       };
     }
 
-    // No alternate candidates available — return first pass with warning
     const topScore = [...fuzzyUsed.values()].reduce((max, v) => Math.max(max, v.score), 0);
     return {
       content: `Warning: Tool match was uncertain (fuzzy match score: ${topScore.toFixed(2)}) — results may not be fully relevant.\n\n${firstPass.result.content}`,
@@ -332,11 +350,18 @@ async function executeOrchestratedSubTask(
 }
 
 /**
- * Orchestrated agentic analysis. A strategist plans iterative tasks and
- * dispatches them as parallel sub-tasks; findings are aggregated into a
- * knowledge document persisted on the ticket.
+ * Orchestrated v2 agentic analysis. The strategist plans iterative sub-tasks;
+ * sub-tasks write findings exclusively via the kd_* MCP tools under the
+ * advisory lock. The orchestrator never writes raw text into
+ * `ticket.knowledgeDoc` — the only direct write is the one-time template
+ * init at run start when the doc + sidecar are uninitialized.
+ *
+ * End of run: `fallbackFillRequiredSections` guarantees the required sections
+ * are populated, then `composeFinalAnalysis` pulls Problem Statement / Root
+ * Cause / Recommended Fix / Risks from the doc (prefixed by the agent's own
+ * executive summary) as the final AI_ANALYSIS content.
  */
-export async function runOrchestratedAnalysis(
+export async function runOrchestratedV2(
   deps: AnalysisDeps,
   ctx: AnalysisPipelineContext,
   step: StrategyStep,
@@ -356,21 +381,39 @@ export async function runOrchestratedAnalysis(
   const maxParallelTasks = await resolveMaxParallelTasks(db);
   const orchModelMap = await resolveOrchestratedModelMap(db);
 
+  // --- One-time knowledge-doc init -----------------------------------------
+  // Guarantees that both `knowledgeDoc` (template skeleton) and
+  // `knowledgeDocSectionMeta` (empty object, non-null) are populated from
+  // iteration 0 forward, so `composeFinalAnalysis` / snapshot / fallback-fill
+  // at loop end can rely on a consistent schema. This is the ONE permitted
+  // raw write inside v2 orchestrated — every subsequent doc mutation flows
+  // through the templated `kd_*` path (sub-task tool calls or shared-utils
+  // `updateSection` from the orchestrator itself for the Run Log).
+  const kdInitial = await loadKnowledgeDoc(db, ticketId);
+  const needsInit = !kdInitial?.knowledgeDoc
+    || !kdInitial.knowledgeDocSectionMeta
+    || typeof kdInitial.knowledgeDocSectionMeta !== 'object'
+    || Object.keys(kdInitial.knowledgeDocSectionMeta as Record<string, unknown>).length === 0;
+  if (needsInit) {
+    await withTicketLock(db, ticketId, async (tx) => {
+      await tx.ticket.update({
+        where: { id: ticketId },
+        data: {
+          knowledgeDoc: initEmptyKnowledgeDoc(),
+          knowledgeDocSectionMeta: {} as object,
+        },
+      });
+    });
+  }
+
   let artifactCatalog = '';
   if (isReanalysis) {
     artifactCatalog = await buildArtifactCatalog(db, ticketId, { maxEntries: 20 });
   }
-  const existingDoc = existingKnowledgeDoc ?? '';
-  const runTimestamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
-  const runNumber = (existingDoc.match(/## Analysis Run \d+/g) ?? []).length + 1;
 
-  const currentRunHeader = `## Analysis Run ${runNumber} — ${runTimestamp}\n`;
-  let knowledgeDoc = existingDoc
-    ? `${existingDoc}\n\n---\n\n${currentRunHeader}`
-    : currentRunHeader;
   let orchNextPrompt = '';
   let orchIterationsRun = 0;
-  let orchFinalAnalysis = '';
+  let agentExecutiveSummary = '';
   let orchTotalInputTokens = 0;
   let orchTotalOutputTokens = 0;
   const orchToolCallLog: Array<{ tool: string; system?: string; input: Record<string, unknown>; output: string; durationMs: number }> = [];
@@ -395,24 +438,43 @@ export async function runOrchestratedAnalysis(
   const toolListSection = `\n## Available Tools\n${availableToolNames.join(', ')}`;
   contextParts.push(toolListSection);
 
-  // Build truncated prior-run context for the strategist prompt (max 2000 chars)
+  // For re-analysis surfaces, include a compact preview of the existing doc
+  // (the fresh doc just got initialized, but prior content may exist on the
+  // ticket from an earlier run).
   let priorRunsContext = '';
-  if (existingDoc) {
-    priorRunsContext = existingDoc.length > 2000
-      ? `[Prior analysis truncated — full history available in the Knowledge tab]\n\n…${existingDoc.slice(-2000)}`
-      : existingDoc;
+  if (existingKnowledgeDoc) {
+    priorRunsContext = existingKnowledgeDoc.length > 2000
+      ? `[Prior analysis truncated — full history available in the Knowledge tab]\n\n…${existingKnowledgeDoc.slice(-2000)}`
+      : existingKnowledgeDoc;
   }
+
+  const strategistSystemPrompt = [
+    ORCHESTRATED_SYSTEM_PROMPT,
+    '',
+    '## Knowledge Document Discipline (v2)',
+    'The knowledge doc is the source of truth for this investigation. Sub-tasks you dispatch MUST call',
+    'platform__kd_add_subsection(parentSectionKey="evidence", title, content) to record each finding.',
+    'In iteration 1, your FIRST task prompt should instruct the sub-task to call',
+    'platform__kd_update_section(sectionKey="problemStatement", content=...) with a concise restatement',
+    'of the issue before any tool-call investigation begins. Before planning each iteration after the',
+    'first, assume the doc has been updated by prior sub-tasks — if you need to see what has been',
+    'recorded, instruct a sub-task to call platform__kd_read_toc / platform__kd_read_section and return',
+    'the summary.',
+    '',
+    'When setting "done": true, your finalAnalysis should be a concise executive summary. The detail',
+    'belongs in the doc — Problem Statement / Root Cause / Recommended Fix / Risks sections will be',
+    'merged into the final rendered analysis automatically.',
+    TRUNCATION_SYSTEM_PROMPT_SNIPPET,
+    PREFER_EXISTING_TOOLS_SNIPPET,
+    REQUEST_NEW_TOOL_SNIPPET,
+    KD_SYSTEM_PROMPT_SNIPPET,
+    buildRepoNudgeSnippet(clientRepos),
+  ].join('\n');
 
   for (let i = 0; i < orchMaxIterations; i++) {
     orchIterationsRun = i + 1;
     const orchestrationId = randomUUID();
     appLog.info(`Orchestrated analysis iteration ${i + 1}/${orchMaxIterations}`, { ticketId, iteration: i + 1, orchestrationId }, ticketId, 'ticket');
-
-    // Extract only the current run content (after the run header) for the strategist
-    const currentRunStart = knowledgeDoc.lastIndexOf(currentRunHeader);
-    const currentRunContent = currentRunStart >= 0
-      ? knowledgeDoc.slice(currentRunStart)
-      : knowledgeDoc;
 
     let strategistPrompt: string;
     if (i === 0) {
@@ -442,7 +504,7 @@ export async function runOrchestratedAnalysis(
           reanalysisCtx.triggerReplyText || '(no reply text available — see conversation history)',
           '',
           '## Prior Knowledge Document',
-          priorRunsContext || existingDoc || '(no prior knowledge document)',
+          priorRunsContext || existingKnowledgeDoc || '(no prior knowledge document)',
         ];
         if (artifactCatalog) {
           sections.push('', '## Prior Artifacts', artifactCatalog);
@@ -452,23 +514,20 @@ export async function runOrchestratedAnalysis(
 
         strategistPrompt = sections.join('\n');
       } else {
-        // fresh_start mode (or initial run with no reanalysisCtx): suppress priorNote
-        // when the operator explicitly requested a fresh start — the whole point is to
-        // ignore prior context. Initial runs with no prior doc naturally have empty priorNote.
         const includePriorNote = reanalysisMode !== ReanalysisMode.FRESH_START;
         const effectivePriorNote = includePriorNote ? priorNote : '';
         strategistPrompt = `Investigate this ticket. Here is the full context:\n\n${contextParts.join('\n')}${effectivePriorNote}`;
       }
     } else {
-      strategistPrompt = `Continue the investigation. Here is the knowledge document so far:\n\n${currentRunContent}\n\n## Next Investigation Step\n${orchNextPrompt}`;
+      strategistPrompt = `Continue the investigation. Sub-tasks from prior iterations have recorded their findings via platform__kd_add_subsection into the knowledge doc. Dispatch the next round of sub-tasks.\n\n## Next Investigation Step\n${orchNextPrompt}`;
     }
 
     const strategistLogId = randomUUID();
     const strategistResponse = await ai.generate({
       taskType: (step.taskTypeOverride ?? TaskType.DEEP_ANALYSIS) as TaskType,
-      context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!clientContext, orchestrationId, orchestrationIteration: i + 1, logId: strategistLogId, strategy: 'orchestrated' as const },
+      context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!clientContext, orchestrationId, orchestrationIteration: i + 1, logId: strategistLogId, strategy: 'orchestrated' as const, strategyVersion: 'v2' as const },
       prompt: strategistPrompt,
-      systemPrompt: `${ORCHESTRATED_SYSTEM_PROMPT}\n${TRUNCATION_SYSTEM_PROMPT_SNIPPET}\n${PREFER_EXISTING_TOOLS_SNIPPET}\n${REQUEST_NEW_TOOL_SNIPPET}\n${KD_SYSTEM_PROMPT_SNIPPET}${buildRepoNudgeSnippet(clientRepos)}`,
+      systemPrompt: strategistSystemPrompt,
       providerOverride: 'CLAUDE',
       modelOverride: 'claude-opus-4-6',
       maxTokens: defaultMaxTokens ?? 4096,
@@ -487,110 +546,91 @@ export async function runOrchestratedAnalysis(
       );
     }
 
-    // Append this iteration's findings under the advisory lock so concurrent
-    // kd_* tool writes from parallel sub-tasks don't race with this direct
-    // update. Re-read inside the lock to pick up any kd_* writes that landed
-    // since our last read, then apply our append to that fresh state.
-    const iterationChunk = `\n\n### Iteration ${i + 1}\n${plan.findings}`;
-    knowledgeDoc = await withTicketLock(db, ticketId, async (tx) => {
-      const current = await tx.ticket.findUnique({
-        where: { id: ticketId },
-        select: { knowledgeDoc: true },
-      });
-      const next = (current?.knowledgeDoc ?? knowledgeDoc) + iterationChunk;
-      await tx.ticket.update({ where: { id: ticketId }, data: { knowledgeDoc: next } });
-      return next;
-    });
-    await writeKnowledgeDocSnapshot(db, ticketId, i + 1);
-
     appLog.info(
       `Orchestrated iteration ${i + 1}: ${plan.tasks.length} tasks, done=${plan.done}`,
-      { ticketId, iteration: i + 1, taskCount: plan.tasks.length, done: plan.done },
+      { ticketId, iteration: i + 1, taskCount: plan.tasks.length, done: plan.done, findingsPreview: plan.findings.slice(0, 500) },
       ticketId, 'ticket',
     );
 
+    // Record a Run Log entry through the templated writer — this updates both
+    // `knowledgeDoc` and `knowledgeDocSectionMeta` atomically via
+    // `withTicketLock` (see packages/shared-utils/src/knowledge-doc.ts).
+    // This is NOT a raw knowledgeDoc write.
+    try {
+      const runLogEntry = `### Iteration ${i + 1}\n${plan.findings || '(no findings summary from strategist)'}\n`;
+      await updateSection(
+        db,
+        ticketId,
+        KnowledgeDocSectionKey.RUN_LOG,
+        runLogEntry,
+        KnowledgeDocUpdateMode.APPEND,
+      );
+    } catch (err) {
+      logger.warn({ err, ticketId, iteration: i + 1 }, 'Failed to append Run Log entry — continuing');
+    }
+
     if (plan.done) {
-      orchFinalAnalysis = plan.finalAnalysis ?? plan.findings;
+      agentExecutiveSummary = plan.finalAnalysis ?? plan.findings;
+      await writeKnowledgeDocSnapshot(db, ticketId, i + 1);
       break;
     }
 
     orchNextPrompt = plan.nextPrompt ?? '';
 
-    // Execute tasks in parallel batches
+    // Execute tasks in parallel batches. Sub-tasks write findings via kd_*
+    // tools — no local knowledgeDoc accumulation here. Sub-task response text
+    // is kept for AppLog / telemetry only; the doc is authoritative.
     const taskBatches = chunkArray(plan.tasks, maxParallelTasks);
     for (const batch of taskBatches) {
       const results = await Promise.allSettled(
-        batch.map(task => executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, environmentContext, task, agenticTools, mcpIntegrations, repoIdByPrefix, { id: orchestrationId, iteration: i + 1, parentLogId: strategistLogId }, orchModelMap, toolResultMaxTokens)),
+        batch.map(task => executeOrchestratedSubTaskV2(deps, ticketId, clientId, category, clientContext, environmentContext, task, agenticTools, mcpIntegrations, repoIdByPrefix, { id: orchestrationId, iteration: i + 1, parentLogId: strategistLogId }, orchModelMap, toolResultMaxTokens)),
       );
 
-      // Collect this batch's appends locally, then commit them under the
-      // advisory lock with a fresh DB read so we serialize with kd_* tool
-      // writes that happened during the sub-task calls.
-      let batchAppend = '';
       for (let j = 0; j < results.length; j++) {
         const result = results[j];
         const task = batch[j];
         if (result.status === 'fulfilled') {
-          batchAppend += `\n\n#### ${task.prompt}\n${result.value.content}`;
           orchTotalInputTokens += result.value.inputTokens;
           orchTotalOutputTokens += result.value.outputTokens;
           orchToolCallLog.push(...result.value.toolCalls);
+          appLog.info(
+            `Sub-task complete: ${task.prompt.slice(0, 120)}`,
+            { ticketId, iteration: i + 1, toolCallCount: result.value.toolCalls.length, contentPreview: result.value.content.slice(0, 500) },
+            ticketId, 'ticket',
+          );
         } else {
           // Retry once on failure
           try {
-            const retryResult = await executeOrchestratedSubTask(deps, ticketId, clientId, category, clientContext, environmentContext, task, agenticTools, mcpIntegrations, repoIdByPrefix, { id: orchestrationId, iteration: i + 1, parentLogId: strategistLogId }, orchModelMap, toolResultMaxTokens);
-            batchAppend += `\n\n#### ${task.prompt} (retry)\n${retryResult.content}`;
+            const retryResult = await executeOrchestratedSubTaskV2(deps, ticketId, clientId, category, clientContext, environmentContext, task, agenticTools, mcpIntegrations, repoIdByPrefix, { id: orchestrationId, iteration: i + 1, parentLogId: strategistLogId }, orchModelMap, toolResultMaxTokens);
             orchTotalInputTokens += retryResult.inputTokens;
             orchTotalOutputTokens += retryResult.outputTokens;
             orchToolCallLog.push(...retryResult.toolCalls);
+            appLog.info(
+              `Sub-task complete (retry): ${task.prompt.slice(0, 120)}`,
+              { ticketId, iteration: i + 1, toolCallCount: retryResult.toolCalls.length, contentPreview: retryResult.content.slice(0, 500) },
+              ticketId, 'ticket',
+            );
           } catch (retryErr) {
-            batchAppend += `\n\n#### ${task.prompt}\n*Failed: ${retryErr instanceof Error ? retryErr.message : String(retryErr)}*`;
             appLog.warn(`Orchestrated task failed after retry: ${task.prompt}`, { ticketId, task: task.prompt, err: retryErr }, ticketId, 'ticket');
           }
         }
       }
-
-      if (batchAppend.length > 0) {
-        knowledgeDoc = await withTicketLock(db, ticketId, async (tx) => {
-          const current = await tx.ticket.findUnique({
-            where: { id: ticketId },
-            select: { knowledgeDoc: true },
-          });
-          const next = (current?.knowledgeDoc ?? knowledgeDoc) + batchAppend;
-          await tx.ticket.update({ where: { id: ticketId }, data: { knowledgeDoc: next } });
-          return next;
-        });
-      }
     }
+
+    await writeKnowledgeDocSnapshot(db, ticketId, i + 1);
   }
 
-  if (!orchFinalAnalysis) {
-    orchFinalAnalysis = 'Orchestrated analysis reached maximum iterations without a final conclusion. Review the knowledge document for partial findings.';
-  }
+  // --- End of loop: fallback-fill + compose ------------------------------
+  await fallbackFillRequiredSections(db, ticketId, 'orchestrated-v2 loop end');
+  const kdAfter = await loadKnowledgeDoc(db, ticketId);
+  const composedAnalysis = composeFinalAnalysis(
+    kdAfter?.knowledgeDoc ?? null,
+    kdAfter?.knowledgeDocSectionMeta ?? null,
+    agentExecutiveSummary || 'Orchestrated analysis reached maximum iterations without a final conclusion. Review the knowledge document for partial findings.',
+  );
+  await writeKnowledgeDocSnapshot(db, ticketId, orchIterationsRun);
 
-  // Knowledge doc: only run fallback-fill + compose + snapshot when the
-  // agent used kd_* tools during this run (detected via non-empty
-  // knowledgeDocSectionMeta). Legacy tickets and new-format tickets where
-  // the agent ignored kd_* keep their knowledgeDoc untouched — no silent
-  // migration, no override of the raw-append legacy content.
-  const kdBeforeCompose = await loadKnowledgeDoc(db, ticketId);
-  const hasSectionMeta =
-    !!kdBeforeCompose?.knowledgeDocSectionMeta
-    && typeof kdBeforeCompose.knowledgeDocSectionMeta === 'object'
-    && Object.keys(kdBeforeCompose.knowledgeDocSectionMeta as Record<string, unknown>).length > 0;
-  if (hasSectionMeta) {
-    await fallbackFillRequiredSections(db, ticketId, 'orchestrated loop end');
-    const kdAfter = await loadKnowledgeDoc(db, ticketId);
-    orchFinalAnalysis = composeFinalAnalysis(
-      kdAfter?.knowledgeDoc ?? null,
-      kdAfter?.knowledgeDocSectionMeta ?? null,
-      orchFinalAnalysis,
-    );
-    await writeKnowledgeDocSnapshot(db, ticketId, orchIterationsRun);
-  }
-
-  // Parse sufficiency evaluation from the final analysis
-  const { analysis: cleanOrchAnalysis, evaluation: orchSufficiency } = parseSufficiencyEvaluation(orchFinalAnalysis);
+  const { analysis: cleanOrchAnalysis, evaluation: orchSufficiency } = parseSufficiencyEvaluation(composedAnalysis);
 
   return {
     analysis: cleanOrchAnalysis,
