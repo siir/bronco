@@ -379,6 +379,11 @@ interface ActiveFilterChip {
       color: var(--accent);
       font-weight: 500;
       font-size: 13px;
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .subject-link:hover {
@@ -390,6 +395,17 @@ interface ActiveFilterChip {
       color: var(--text-tertiary);
       margin-top: 2px;
       line-height: 1.3;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* Force the Subject column (the only auto-width column) to respect the
+     * column width so long subjects truncate instead of pushing Status/
+     * Category/Created off the right edge. */
+    :host ::ng-deep app-data-table table {
+      table-layout: fixed;
     }
 
     .code-chip {

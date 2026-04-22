@@ -259,7 +259,11 @@ const ALL_QUEUES = [
       font-family: ui-monospace, monospace;
       white-space: nowrap;
     }
-    .job-name { font-weight: 500; color: var(--text-primary); font-size: 14px; }
+    .job-name {
+      font-weight: 500; color: var(--text-primary); font-size: 14px;
+      display: block; min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
     .job-id { font-size: 12px; color: var(--text-tertiary); font-family: ui-monospace, monospace; }
     .job-attempts { font-family: ui-monospace, monospace; font-size: 12px; color: var(--text-tertiary); }
     .job-time { font-size: 12px; color: var(--text-tertiary); white-space: nowrap; }
@@ -272,6 +276,12 @@ const ALL_QUEUES = [
       line-height: 1.4;
       word-break: break-word;
       white-space: pre-wrap;
+    }
+
+    /* Respect column widths so the flex Name column truncates long job names
+     * instead of pushing Time/Attempts/Actions off the viewport. */
+    :host ::ng-deep app-data-table table {
+      table-layout: fixed;
     }
 
     .job-detail { padding: 4px 0; }

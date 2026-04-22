@@ -391,9 +391,21 @@ const STATUS_OPTIONS = [
     .status-pill.status-implemented { background: rgba(0,122,255,0.1); color: var(--accent); border: 1px solid rgba(0,122,255,0.25); }
     .status-pill.status-duplicate { background: rgba(142,142,147,0.15); color: var(--text-secondary); border: 1px solid rgba(142,142,147,0.3); }
 
-    .title-cell { display: flex; flex-direction: column; gap: 2px; }
-    .title { font-weight: 500; color: var(--text-primary); }
-    .requested-name { font-family: ui-monospace, monospace; font-size: 11px; color: var(--text-tertiary); }
+    .title-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .title {
+      font-weight: 500; color: var(--text-primary);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .requested-name {
+      font-family: ui-monospace, monospace; font-size: 11px; color: var(--text-tertiary);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+
+    /* Respect column widths so the flex Title column truncates long tool
+     * names/titles instead of pushing Client/Count/Updated off the right. */
+    :host ::ng-deep app-data-table table {
+      table-layout: fixed;
+    }
     .client-name { font-size: 13px; color: var(--text-secondary); }
     .count-pill {
       display: inline-block;
