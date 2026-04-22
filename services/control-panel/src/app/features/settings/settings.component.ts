@@ -5,7 +5,6 @@ import {
   ExternalServiceService,
   ExternalService,
 } from '../../core/services/external-service.service.js';
-import { UserService, ControlPanelUser } from '../../core/services/user.service.js';
 import {
   SettingsService,
   TicketStatusConfig,
@@ -18,7 +17,6 @@ import {
   SlackSystemConfig,
   PromptRetentionConfig,
   ToolRequestRateLimitConfig,
-  ToolRequestsDefaultRepoConfig,
 } from '../../core/services/settings.service.js';
 import { ExternalServiceDialogComponent } from './external-service-dialog.component.js';
 import { StatusConfigDialogComponent } from './status-config-dialog.component.js';
@@ -40,7 +38,7 @@ import {
 } from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service.js';
 
-const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External Services', 'Action Safety', 'Analysis Strategy', 'Self Analysis', 'SMTP', 'Azure DevOps', 'GitHub', 'IMAP', 'Slack', 'Prompt Retention', 'Tool Requests'] as const;
+const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External Services', 'Action Safety', 'Analysis Strategy', 'Self Analysis', 'SMTP', 'Azure DevOps', 'GitHub', 'IMAP', 'Slack', 'Prompt Retention'] as const;
 
 @Component({
   standalone: true,
@@ -71,45 +69,7 @@ const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External
         <!-- General tab -->
         <app-tab label="General">
           <div class="tab-content">
-            <app-card>
-              <h2 class="section-title">API Configuration</h2>
-              <p class="hint">The API key is stored in session storage (cleared when tab closes) and sent with every request.</p>
-              <div class="form-grid">
-                <app-form-field label="API Key">
-                  <div class="input-with-toggle">
-                    <input class="text-input" [type]="showKey() ? 'text' : 'password'" [(ngModel)]="apiKey">
-                    <button class="toggle-vis" (click)="showKey.set(!showKey())" title="Toggle visibility">
-                      {{ showKey() ? 'Hide' : 'Show' }}
-                    </button>
-                  </div>
-                </app-form-field>
-              </div>
-              <div class="card-actions">
-                <app-bronco-button variant="primary" (click)="saveKey()">
-                  Save API Key
-                </app-bronco-button>
-                <app-bronco-button variant="destructive" size="sm" (click)="clearKey()">Clear</app-bronco-button>
-              </div>
-            </app-card>
-
-            <app-card>
-              <h2 class="section-title">Super Admin</h2>
-              <p class="hint">Designate a control panel user as the super admin. This user will have elevated privileges for system-wide operations.</p>
-              <div class="form-grid">
-                <app-form-field label="Super Admin User">
-                  <app-select
-                    [value]="superAdminUserId ?? ''"
-                    [options]="superAdminOptions()"
-                    [disabled]="usersLoading()"
-                    (valueChange)="superAdminUserId = $event || null" />
-                </app-form-field>
-              </div>
-              <div class="card-actions">
-                <app-bronco-button variant="primary" (click)="saveSuperAdmin()" [disabled]="superAdminSaving()">
-                  @if (superAdminSaving()) { Saving... } @else { Save }
-                </app-bronco-button>
-              </div>
-            </app-card>
+            <p class="hint" style="padding-top:8px;">General settings are managed under the individual tabs (SMTP, GitHub, IMAP, etc.).</p>
           </div>
         </app-tab>
 
@@ -527,9 +487,24 @@ const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External
                 <app-form-field label="Token"><input class="text-input" type="password" [(ngModel)]="github.token"></app-form-field>
                 <app-form-field label="Repository"><input class="text-input" [(ngModel)]="github.repo" placeholder="owner/repo"></app-form-field>
               </div>
+              <p class="github-scope-blurb">
+                This integration is for the Bronco app itself — release notes, automatic GitHub issue creation from tool requests, and code fetching for analysis.
+                Client-specific repositories are managed under <strong>Clients → Code Repositories</strong>.
+              </p>
               <div class="card-actions">
                 <app-bronco-button variant="primary" (click)="saveGithub()" [disabled]="sysConfigSaving()">Save</app-bronco-button>
                 <app-bronco-button variant="secondary" (click)="testGithub()" [disabled]="sysConfigTesting()">{{ sysConfigTesting() ? 'Testing...' : 'Test Connection' }}</app-bronco-button>
+              </div>
+            </app-card>
+
+            <app-card>
+              <h2 class="section-title">Tool Request Rate Limit</h2>
+              <p class="hint">Caps how often the analyzer can call <code>request_tool</code> within a single analysis run. Prevents runaway requests when an agent loops on missing capabilities.</p>
+              <div class="form-grid">
+                <app-form-field label="Maximum request_tool calls per analysis run"><input class="text-input" type="number" [(ngModel)]="toolRequestRateLimit.limit" min="1" max="100" placeholder="5"></app-form-field>
+              </div>
+              <div class="card-actions">
+                <app-bronco-button variant="primary" (click)="saveToolRequestRateLimit()" [disabled]="sysConfigSaving()">Save</app-bronco-button>
               </div>
             </app-card>
           </div>
@@ -595,33 +570,6 @@ const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External
           </div>
         </app-tab>
 
-        <!-- Tool Requests Tab -->
-        <app-tab label="Tool Requests">
-          <div class="tab-content">
-            <app-card>
-              <h2 class="section-title">Tool Request Rate Limit</h2>
-              <p class="hint">Caps how often the analyzer can call <code>request_tool</code> within a single analysis run. Prevents runaway requests when an agent loops on missing capabilities.</p>
-              <div class="form-grid">
-                <app-form-field label="Maximum request_tool calls per analysis run"><input class="text-input" type="number" [(ngModel)]="toolRequestRateLimit.limit" min="1" max="100" placeholder="5"></app-form-field>
-              </div>
-              <div class="card-actions">
-                <app-bronco-button variant="primary" (click)="saveToolRequestRateLimit()" [disabled]="sysConfigSaving()">Save</app-bronco-button>
-              </div>
-            </app-card>
-
-            <app-card>
-              <h2 class="section-title">GitHub Default Repo</h2>
-              <p class="hint">Target repository when an operator clicks "Create GitHub Issue" on an approved tool request. Uses the token from the GitHub tab.</p>
-              <div class="form-grid">
-                <app-form-field label="Owner"><input class="text-input" type="text" [(ngModel)]="toolRequestsDefaultRepo.owner" placeholder="e.g. siir"></app-form-field>
-                <app-form-field label="Repo name"><input class="text-input" type="text" [(ngModel)]="toolRequestsDefaultRepo.name" placeholder="e.g. bronco"></app-form-field>
-              </div>
-              <div class="card-actions">
-                <app-bronco-button variant="primary" (click)="saveToolRequestsDefaultRepo()" [disabled]="sysConfigSaving()">Save</app-bronco-button>
-              </div>
-            </app-card>
-          </div>
-        </app-tab>
       </app-tab-group>
     </div>
 
@@ -653,7 +601,27 @@ const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External
     }
   `,
   styles: [`
-    .page-wrapper { max-width: 1200px; }
+    .page-wrapper { max-width: 1200px; overflow-x: hidden; }
+
+    :host ::ng-deep .tab-bar {
+      overflow-x: auto;
+      overflow-y: hidden;
+      flex-wrap: nowrap;
+      scrollbar-width: none;
+    }
+    :host ::ng-deep .tab-bar::-webkit-scrollbar { display: none; }
+    :host ::ng-deep .tab-btn { flex-shrink: 0; }
+
+    .github-scope-blurb {
+      margin: 12px 0 0;
+      padding: 10px 14px;
+      background: var(--bg-muted);
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      color: var(--text-tertiary);
+      line-height: 1.6;
+    }
+    .github-scope-blurb strong { color: var(--text-secondary); }
     .page-title {
       margin: 0 0 24px;
       font-size: 24px;
@@ -704,26 +672,7 @@ const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External
       max-width: 600px;
     }
 
-    .input-with-toggle {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-    }
-    .input-with-toggle .text-input { flex: 1; }
-    .toggle-vis {
-      background: none;
-      border: 1px solid var(--border-medium);
-      border-radius: var(--radius-md);
-      padding: 6px 12px;
-      font-family: var(--font-primary);
-      font-size: 12px;
-      color: var(--text-tertiary);
-      cursor: pointer;
-      white-space: nowrap;
-    }
-    .toggle-vis:hover { color: var(--text-primary); }
-
-    .text-input {
+.text-input {
       width: 100%;
       box-sizing: border-box;
       background: var(--bg-card);
@@ -840,21 +789,8 @@ export class SettingsComponent implements OnInit {
   private toast = inject(ToastService);
   private extSvc = inject(ExternalServiceService);
   private settingsSvc = inject(SettingsService);
-  private userSvc = inject(UserService);
   private router = inject(Router);
   private route = inject(ActivatedRoute);
-
-  // General tab
-  apiKey = sessionStorage.getItem('rc_api_key') ?? '';
-  showKey = signal(false);
-  adminUsers = signal<ControlPanelUser[]>([]);
-  usersLoading = signal(false);
-  superAdminUserId: string | null = null;
-  superAdminLoading = signal(true);
-  superAdminSaving = signal(false);
-  superAdminOptions = signal<Array<{ value: string; label: string }>>([
-    { value: '', label: '-- None --' },
-  ]);
 
   // External Services tab
   services = signal<ExternalService[]>([]);
@@ -920,8 +856,6 @@ export class SettingsComponent implements OnInit {
       const idx = TAB_LABELS.findIndex(l => this.toSlug(l) === tabSlug);
       if (idx >= 0) this.selectedTab.set(idx);
     }
-    this.loadUsers();
-    this.loadSuperAdmin();
     this.loadServices();
     this.loadStatuses();
     this.loadCategories();
@@ -945,72 +879,6 @@ export class SettingsComponent implements OnInit {
 
   private toSlug(label: string): string {
     return label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-  }
-
-  // ─── General tab ───
-
-  saveKey(): void {
-    sessionStorage.setItem('rc_api_key', this.apiKey);
-    this.toast.success('API key saved');
-  }
-
-  clearKey(): void {
-    this.apiKey = '';
-    sessionStorage.removeItem('rc_api_key');
-    this.toast.success('API key cleared');
-  }
-
-  loadUsers(): void {
-    this.usersLoading.set(true);
-    this.userSvc.getUsers().subscribe({
-      next: (users) => {
-        const filtered = users.filter(u => u.isActive && (u.role === 'ADMIN' || u.role === 'STANDARD'));
-        this.adminUsers.set(filtered);
-        this.superAdminOptions.set([
-          { value: '', label: '-- None --' },
-          ...filtered.map(u => ({
-            value: u.id,
-            label: `${u.name} (${u.email}) — ${u.role}`,
-          })),
-        ]);
-        this.usersLoading.set(false);
-      },
-      error: (err) => {
-        this.usersLoading.set(false);
-        if (err?.status !== 403) {
-          this.toast.error('Failed to load users');
-        }
-      },
-    });
-  }
-
-  loadSuperAdmin(): void {
-    this.superAdminLoading.set(true);
-    this.settingsSvc.getSuperAdminUserId().subscribe({
-      next: (result) => {
-        this.superAdminUserId = result.userId;
-        this.superAdminLoading.set(false);
-      },
-      error: () => {
-        this.superAdminLoading.set(false);
-        this.toast.error('Failed to load super admin setting');
-      },
-    });
-  }
-
-  saveSuperAdmin(): void {
-    this.superAdminSaving.set(true);
-    this.settingsSvc.setSuperAdminUserId(this.superAdminUserId).subscribe({
-      next: (result) => {
-        this.superAdminUserId = result.userId;
-        this.superAdminSaving.set(false);
-        this.toast.success('Super admin saved');
-      },
-      error: () => {
-        this.superAdminSaving.set(false);
-        this.toast.error('Failed to save super admin');
-      },
-    });
   }
 
   loadServices(): void {
@@ -1319,7 +1187,6 @@ export class SettingsComponent implements OnInit {
   slackConfig: SlackSystemConfig = { botToken: '', appToken: '', defaultChannelId: '', enabled: false };
   promptRetention: PromptRetentionConfig = { fullRetentionDays: 30, summaryRetentionDays: 90 };
   toolRequestRateLimit: ToolRequestRateLimitConfig = { limit: 5 };
-  toolRequestsDefaultRepo: ToolRequestsDefaultRepoConfig = { owner: '', name: '' };
 
   private loadSystemConfigs(): void {
     this.settingsSvc.getSmtpConfig().subscribe({ next: (c) => { if (c) this.smtp = { ...this.smtp, ...c }; } });
@@ -1329,7 +1196,6 @@ export class SettingsComponent implements OnInit {
     this.settingsSvc.getSlackConfig().subscribe({ next: (c) => { if (c) this.slackConfig = { ...this.slackConfig, ...c }; } });
     this.settingsSvc.getPromptRetention().subscribe({ next: (c) => { if (c) this.promptRetention = { ...this.promptRetention, ...c }; } });
     this.settingsSvc.getToolRequestRateLimit().subscribe({ next: (c) => { if (c) this.toolRequestRateLimit = { ...this.toolRequestRateLimit, ...c }; } });
-    this.settingsSvc.getToolRequestsDefaultRepo().subscribe({ next: (c) => { if (c) this.toolRequestsDefaultRepo = { ...this.toolRequestsDefaultRepo, ...c }; } });
   }
 
   saveSmtp(): void { this.sysConfigSaving.set(true); this.settingsSvc.updateSmtpConfig(this.smtp).subscribe({ next: (c) => { this.smtp = { ...this.smtp, ...c }; this.toast.success('SMTP config saved'); this.sysConfigSaving.set(false); }, error: () => { this.toast.error('Failed to save'); this.sysConfigSaving.set(false); } }); }
@@ -1350,15 +1216,4 @@ export class SettingsComponent implements OnInit {
   savePromptRetention(): void { this.sysConfigSaving.set(true); this.settingsSvc.savePromptRetention(this.promptRetention).subscribe({ next: (c: PromptRetentionConfig) => { this.promptRetention = { ...this.promptRetention, ...c }; this.toast.success('Prompt retention saved'); this.sysConfigSaving.set(false); }, error: () => { this.toast.error('Failed to save'); this.sysConfigSaving.set(false); } }); }
 
   saveToolRequestRateLimit(): void { this.sysConfigSaving.set(true); this.settingsSvc.saveToolRequestRateLimit(this.toolRequestRateLimit).subscribe({ next: (c: ToolRequestRateLimitConfig) => { this.toolRequestRateLimit = { ...this.toolRequestRateLimit, ...c }; this.toast.success('Tool request rate limit saved'); this.sysConfigSaving.set(false); }, error: () => { this.toast.error('Failed to save'); this.sysConfigSaving.set(false); } }); }
-
-  saveToolRequestsDefaultRepo(): void {
-    const owner = this.toolRequestsDefaultRepo.owner.trim();
-    const name = this.toolRequestsDefaultRepo.name.trim();
-    if (!owner || !name) { this.toast.error('Both owner and repo name are required'); return; }
-    this.sysConfigSaving.set(true);
-    this.settingsSvc.saveToolRequestsDefaultRepo({ owner, name }).subscribe({
-      next: (c: ToolRequestsDefaultRepoConfig) => { this.toolRequestsDefaultRepo = { ...this.toolRequestsDefaultRepo, ...c }; this.toast.success('Default repo saved'); this.sysConfigSaving.set(false); },
-      error: () => { this.toast.error('Failed to save'); this.sysConfigSaving.set(false); },
-    });
-  }
 }
