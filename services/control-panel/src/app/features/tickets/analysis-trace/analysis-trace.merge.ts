@@ -383,26 +383,31 @@ interface McpToolErrorEnvelope {
   guidance: string;
 }
 
-/** Returns true when the tool result content is a structured MCP error envelope. */
-export function isStructuredMcpToolError(content: string): boolean {
+/**
+ * Parses the content once and returns the structured MCP error envelope, or null
+ * if the content is not a structured envelope. Consumers that only need a boolean
+ * can coerce via `!!tryParseStructuredMcpToolError(content)`.
+ */
+export function tryParseStructuredMcpToolError(content: string): McpToolErrorEnvelope | null {
   const trimmed = content.trimStart();
   if (!trimmed.startsWith('{"_mcp_tool_error":') && !trimmed.startsWith('{\n  "_mcp_tool_error":')) {
-    return false;
+    return null;
   }
   try {
     const parsed = JSON.parse(content) as Record<string, unknown>;
-    return parsed['_mcp_tool_error'] === true;
+    if (parsed['_mcp_tool_error'] !== true) return null;
+    return parsed as unknown as McpToolErrorEnvelope;
   } catch {
-    return false;
+    return null;
   }
+}
+
+/** Returns true when the tool result content is a structured MCP error envelope. */
+export function isStructuredMcpToolError(content: string): boolean {
+  return tryParseStructuredMcpToolError(content) !== null;
 }
 
 /** Parses and returns the structured error envelope, or null if not structured. */
 export function parsedMcpToolError(content: string): McpToolErrorEnvelope | null {
-  if (!isStructuredMcpToolError(content)) return null;
-  try {
-    return JSON.parse(content) as McpToolErrorEnvelope;
-  } catch {
-    return null;
-  }
+  return tryParseStructuredMcpToolError(content);
 }

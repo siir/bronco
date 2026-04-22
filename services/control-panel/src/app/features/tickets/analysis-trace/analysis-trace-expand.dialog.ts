@@ -3,7 +3,7 @@ import { CommonModule, DecimalPipe, JsonPipe } from '@angular/common';
 import { DialogComponent, BroncoButtonComponent, IconComponent } from '../../../shared/components/index.js';
 import { TicketService } from '../../../core/services/ticket.service.js';
 import type { TraceNode, TraceToolPill } from './analysis-trace.types.js';
-import { firstUserMessageText, isStructuredMcpToolError, parsedMcpToolError, responseText } from './analysis-trace.merge.js';
+import { firstUserMessageText, parsedMcpToolError, responseText } from './analysis-trace.merge.js';
 
 export interface ExpandPayload {
   kind: 'node' | 'pill';
@@ -120,13 +120,14 @@ export interface ExpandPayload {
         </div>
       } @else if (payload()?.kind === 'pill') {
         @let p = payload()!.pill!;
+        @let se = structuredError(p);
         <div class="expand-sections">
           <div class="expand-row">
             <code class="meta-chip model-chip">{{ p.toolName }}</code>
             @if (p.durationMs != null) { <span class="meta-chip duration-chip">{{ p.durationMs | number }}ms</span> }
             @if (p.truncated) { <span class="meta-chip truncated-chip">truncated</span> }
-            @if (p.isError && !structuredError(p)) { <span class="meta-chip err-chip">error</span> }
-            @if (structuredError(p); as se) {
+            @if (p.isError && !se) { <span class="meta-chip err-chip">error</span> }
+            @if (se) {
               <span class="meta-chip err-chip">{{ se.errorClass }}</span>
               <span class="meta-chip" [class.retryable-chip]="se.retryable" [class.err-chip]="!se.retryable">
                 {{ se.retryable ? 'retryable' : 'not retryable' }}
@@ -134,7 +135,7 @@ export interface ExpandPayload {
             }
           </div>
 
-          @if (structuredError(p); as se) {
+          @if (se) {
             <section class="expand-section">
               <header><span class="expand-label">Error Details</span></header>
               <div class="structured-error-body">
@@ -154,7 +155,7 @@ export interface ExpandPayload {
           }
 
           @if (p.result) {
-            @if (structuredError(p)) {
+            @if (se) {
               <details class="raw-json-details">
                 <summary class="raw-json-summary">Show raw JSON</summary>
                 <pre class="expand-pre">{{ p.result }}</pre>
