@@ -130,6 +130,7 @@ System prompts for each task are registered in `packages/ai-provider/src/prompts
 - `SUMMARIZE_TICKET` — Summarize ticket context for analysis
 - `SUGGEST_NEXT_STEPS` — Suggest next actions for a ticket
 - `CLASSIFY_INTENT` — Classify user comment intent (approval, rejection, question)
+- `CLASSIFY_CHAT_INTENT` — Classify operator chat-reply intent (continue / refine / fresh_start / not_a_question) for the ticket Chat tab
 - `SUMMARIZE_LOGS` — Summarize application log entries
 - `ANALYZE_WORK_ITEM` — Analyze DevOps work items and compose user-facing responses
 - `DRAFT_COMMENT` — Compose DevOps comments (clarifications, execution results)
@@ -168,6 +169,7 @@ Rules:
 - **Create a new task type** when the work has a fundamentally different capability requirement, output format, or provider routing need than any existing type.
 - **`DEEP_ANALYSIS` is for single-shot ticket analysis**, not a generic fallback. Do not use it for agentic tool loops, admin operations, or plan generation.
 - **`SUMMARIZE` is for email threads.** Use `SUMMARIZE_LOGS` for monitoring data, probe results, and log entries.
+- **`CLASSIFY_INTENT` is for DevOps workflow intent.** Use `CLASSIFY_CHAT_INTENT` for the ticket Chat tab reply classifier — separate task type so operator model overrides don't cross-contaminate.
 - **`GENERATE_DEVOPS_PLAN` is for DevOps workflow plans (Ollama).** Use `GENERATE_RESOLUTION_PLAN` for code resolution plans (Claude).
 - **`RESOLVE_ISSUE` is for code generation**, not plan generation.
 - **`CUSTOM_AI_QUERY` is the correct choice** for one-off administrative AI calls that don't fit any specific task type (e.g., pricing catalog refresh).
@@ -426,7 +428,7 @@ pnpm dev:portal           # Start ticket portal (Angular, port 4201)
 | `mcp-servers/repo/src/tools/read-file.ts` | Per-repo MCP `read_file` tool — read a single file by path with optional line-range slice. |
 | `mcp-servers/repo/src/tools/list-files.ts` | Per-repo MCP `list_files` tool — list files in a directory tree, extension-filtered. |
 | `mcp-servers/repo/src/tools/prepare-repo.ts` | Per-repo MCP `prepare_repo` tool — called in parallel by `GATHER_REPO_CONTEXT` to clone/pull active repos before analysis. |
-| `services/control-panel/src/app/features/tickets/chat/chat-tab.component.ts` | Chat tab: operator-facing conversation surface with intent-based re-analysis (`continue` / `refine` / `fresh_start`) classified via `CLASSIFY_INTENT` (see [#330](https://github.com/siir/bronco/issues/330) — should migrate to `CLASSIFY_CHAT_INTENT`). Posts `CHAT_MESSAGE` ticket events. |
+| `services/control-panel/src/app/features/tickets/chat/chat-tab.component.ts` | Chat tab: operator-facing conversation surface with intent-based re-analysis (`continue` / `refine` / `fresh_start`) classified via `CLASSIFY_CHAT_INTENT`. Posts `CHAT_MESSAGE` ticket events. |
 | `services/control-panel/src/app/features/tickets/analysis-trace/analysis-trace.component.ts` | Analysis Trace tab: three-pass merge (tree build → same-prompt merge → tool-call collapse) over `ai_usage_logs` with strategy stamp rendering and Raw Logs fallback for legacy data. |
 | `packages/shared-types/src/access-type.ts` | `AccessType` + `OperatorRole` (ADMIN / STANDARD) enums — foundation for scoped-ops access control and portal-user vs operator discrimination. Used by `resolveClientScope` in `services/copilot-api/src/plugins/client-scope.ts`. |
 | `services/copilot-api/src/routes/artifacts.ts` | MCP tool artifact storage and retrieval endpoints (`/api/artifacts`). |
