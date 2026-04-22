@@ -1,7 +1,7 @@
 import { Component, inject, OnInit, OnDestroy, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { Clipboard, ClipboardModule } from '@angular/cdk/clipboard';
-import { DatePipe, DecimalPipe, SlicePipe } from '@angular/common';
+import { DatePipe, SlicePipe } from '@angular/common';
 import {
   BroncoButtonComponent,
   CardComponent,
@@ -28,7 +28,6 @@ import { ToastService } from '../../core/services/toast.service.js';
     RouterLink,
     ClipboardModule,
     DatePipe,
-    DecimalPipe,
     SlicePipe,
     BroncoButtonComponent,
     CardComponent,
@@ -233,6 +232,7 @@ import { ToastService } from '../../core/services/toast.service.js';
                           <div class="step-result-block">
                             <div class="result-toolbar">
                               <span class="result-label">Result</span>
+                              <span class="result-size">{{ getLineCount(step.detail) }} lines · {{ formatBytes(getByteSize(step.detail)) }}</span>
                               <app-bronco-button
                                 variant="icon"
                                 size="sm"
@@ -244,14 +244,10 @@ import { ToastService } from '../../core/services/toast.service.js';
                             @if (step.detail.length > 500 && !isStepExpanded(step.id)) {
                               <pre class="detail-pre">{{ step.detail.slice(0, 500) }}…</pre>
                               <app-bronco-button variant="ghost" size="sm" (click)="toggleStepExpand(step.id); $event.stopPropagation()">
-                                Show full result ({{ step.detail.length | number }} chars)
+                                Show full result
                               </app-bronco-button>
                             } @else {
-                              @if (getFormattedJson(step.id) !== null) {
-                                <pre class="detail-pre detail-pre-json">{{ getFormattedJson(step.id) }}</pre>
-                              } @else {
-                                <pre class="detail-pre">{{ step.detail }}</pre>
-                              }
+                              <pre class="detail-pre detail-pre-expanded" [class.detail-pre-json]="getFormattedJson(step.id) !== null">{{ getFormattedJson(step.id) !== null ? getFormattedJson(step.id) : step.detail }}</pre>
                               @if (step.detail.length > 500) {
                                 <app-bronco-button variant="ghost" size="sm" (click)="toggleStepExpand(step.id); $event.stopPropagation()">
                                   Collapse
@@ -296,7 +292,10 @@ import { ToastService } from '../../core/services/toast.service.js';
                         </div>
                       } @else {
                         <details class="detail-step-output">
-                          <summary>Output</summary>
+                          <summary>
+                            Output
+                            <span class="result-size">{{ getLineCount(step.detail) }} lines · {{ formatBytes(getByteSize(step.detail)) }}</span>
+                          </summary>
                           <div class="result-toolbar">
                             <span></span>
                             <app-bronco-button
@@ -310,10 +309,10 @@ import { ToastService } from '../../core/services/toast.service.js';
                           @if (step.detail.length > 500 && !isStepExpanded(step.id)) {
                             <pre class="detail-pre">{{ step.detail.slice(0, 500) }}…</pre>
                             <app-bronco-button variant="ghost" size="sm" (click)="toggleStepExpand(step.id); $event.stopPropagation()">
-                              Show full output ({{ step.detail.length | number }} chars)
+                              Show full output
                             </app-bronco-button>
                           } @else {
-                            <pre class="detail-pre">{{ step.detail }}</pre>
+                            <pre class="detail-pre detail-pre-expanded">{{ step.detail }}</pre>
                             @if (step.detail.length > 500) {
                               <app-bronco-button variant="ghost" size="sm" (click)="toggleStepExpand(step.id); $event.stopPropagation()">
                                 Collapse
@@ -597,11 +596,15 @@ import { ToastService } from '../../core/services/toast.service.js';
       border-radius: var(--radius-sm);
       font-size: 12px;
       overflow-x: auto;
-      max-height: 400px;
+      overflow-y: auto;
+      max-height: 200px;
       white-space: pre-wrap;
       word-break: break-word;
       margin: 0;
       font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    }
+    .detail-pre-expanded {
+      max-height: 60vh;
     }
     .detail-pre-json { color: var(--color-success); }
 
@@ -647,6 +650,12 @@ import { ToastService } from '../../core/services/toast.service.js';
       font-weight: 500;
       color: var(--text-tertiary);
       font-family: var(--font-primary);
+    }
+    .result-size {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      font-family: var(--font-primary);
+      margin-left: 6px;
     }
 
     .eval-result {
@@ -869,6 +878,22 @@ export class ProbeRunsComponent implements OnInit, OnDestroy {
     } else {
       this.toast.error('Failed to copy to clipboard');
     }
+  }
+
+  getLineCount(text: string | null | undefined): number {
+    if (!text) return 0;
+    return text.split('\n').length;
+  }
+
+  getByteSize(text: string | null | undefined): number {
+    if (!text) return 0;
+    return new Blob([text]).size;
+  }
+
+  formatBytes(n: number): string {
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(2)} MB`;
   }
 
   private tryParseJson(text: string): unknown {
