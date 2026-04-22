@@ -1,14 +1,18 @@
-import { Component, input, output } from '@angular/core';
+import { Component, computed, input, output } from '@angular/core';
 import { CommonModule, DecimalPipe } from '@angular/common';
 import { IconComponent } from '../../../shared/components/index.js';
 import type { TraceToolPill } from './analysis-trace.types.js';
+import { isStructuredMcpToolError, parsedMcpToolError } from './analysis-trace.merge.js';
 
 @Component({
   selector: 'app-analysis-trace-tool-pill',
   standalone: true,
   imports: [CommonModule, DecimalPipe, IconComponent],
   template: `
-    <button type="button" class="tool-pill" [class.tool-pill-error]="pill().isError" (click)="activate.emit(pill())">
+    <button type="button" class="tool-pill"
+      [class.tool-pill-error]="pill().isError"
+      [class.tool-pill-structured-error]="isStructured()"
+      (click)="activate.emit(pill())">
       <app-icon [name]="pill().isError ? 'close' : 'wrench'" size="xs" />
       <code class="tool-pill-name">{{ pill().toolName }}</code>
       @if (pill().durationMs != null) {
@@ -16,6 +20,9 @@ import type { TraceToolPill } from './analysis-trace.types.js';
       }
       @if (pill().truncated) {
         <span class="meta-chip truncated-chip">truncated</span>
+      }
+      @if (isStructured()) {
+        <span class="meta-chip err-class-chip">{{ errorClass() }}</span>
       }
       @if (pill().artifactId) {
         <app-icon name="download" size="xs" class="artifact-indicator" />
@@ -38,6 +45,7 @@ import type { TraceToolPill } from './analysis-trace.types.js';
     }
     .tool-pill:hover { background: var(--bg-hover); }
     .tool-pill-error { border-color: var(--color-error); color: var(--color-error); }
+    .tool-pill-structured-error { border-style: dashed; }
     .tool-pill-name { font-family: monospace; background: transparent; padding: 0; }
     .tool-pill-meta { font-size: 10px; color: var(--text-tertiary); }
     .meta-chip {
@@ -45,10 +53,14 @@ import type { TraceToolPill } from './analysis-trace.types.js';
       background: var(--color-warning-subtle); color: var(--color-warning);
     }
     .truncated-chip { background: var(--color-warning-subtle); color: var(--color-warning); }
+    .err-class-chip { background: var(--color-error-subtle); color: var(--color-error); }
     .artifact-indicator { color: var(--color-info); }
   `],
 })
 export class AnalysisTraceToolPillComponent {
   pill = input.required<TraceToolPill>();
   activate = output<TraceToolPill>();
+
+  isStructured = computed(() => isStructuredMcpToolError(this.pill().result ?? ''));
+  errorClass = computed(() => parsedMcpToolError(this.pill().result ?? '')?.errorClass ?? '');
 }

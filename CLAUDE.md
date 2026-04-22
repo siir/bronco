@@ -394,6 +394,7 @@ pnpm dev:portal           # Start ticket portal (Angular, port 4201)
 | `services/copilot-api/src/routes/ai-config.ts` | AI model config CRUD + resolution preview endpoints (`/api/ai-config`). |
 | `services/copilot-api/src/routes/tickets.ts` | Ticket CRUD endpoints. |
 | `services/imap-worker/src/processor.ts` | Email collector: parse, noise-filter, push to ingestion queue. |
+| `services/ticket-analyzer/src/analysis/shared.ts` | Agentic tool-call execution + structured MCP error envelopes (`_mcp_tool_error`), per-run retry-limiter, and error-class categorization consumed by v2 runners. |
 | `services/ticket-analyzer/src/analyzer.ts` | Ticket analysis with repo cloning (bare+worktree) and MCP tools. |
 | `services/ticket-analyzer/src/index.ts` | Ticket analyzer service entry (BullMQ workers, probe scheduler, health). |
 | `services/ticket-analyzer/src/probe-worker.ts` | Scheduled probe execution (cron + one-off via API). |

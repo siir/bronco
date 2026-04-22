@@ -48,6 +48,7 @@ import {
   KD_SYSTEM_PROMPT_SNIPPET,
   PREFER_EXISTING_TOOLS_SNIPPET,
   REQUEST_NEW_TOOL_SNIPPET,
+  TOOL_ERROR_SYSTEM_PROMPT_SNIPPET,
   TRUNCATION_SYSTEM_PROMPT_SNIPPET,
 } from './v2-prompts.js';
 
@@ -104,8 +105,8 @@ async function executeOrchestratedSubTaskV2(
     ? `\n\n## Prior Artifacts You May Need\nThese artifact IDs from prior runs may be relevant. Read them via \`platform__read_tool_result_artifact\` before re-querying:\n${task.priorArtifactIds.map(id => `- ${id}`).join('\n')}`
     : '';
   const subTaskSystemPrompt = combinedContext
-    ? `${subTaskInstructions}\n\n${combinedContext}\n${TRUNCATION_SYSTEM_PROMPT_SNIPPET}\n${PREFER_EXISTING_TOOLS_SNIPPET}\n${REQUEST_NEW_TOOL_SNIPPET}\n${KD_SYSTEM_PROMPT_SNIPPET}${priorArtifactsHint}`
-    : `${subTaskInstructions}\n${TRUNCATION_SYSTEM_PROMPT_SNIPPET}\n${PREFER_EXISTING_TOOLS_SNIPPET}\n${REQUEST_NEW_TOOL_SNIPPET}\n${KD_SYSTEM_PROMPT_SNIPPET}${priorArtifactsHint}`;
+    ? `${subTaskInstructions}\n\n${combinedContext}\n${TRUNCATION_SYSTEM_PROMPT_SNIPPET}\n${PREFER_EXISTING_TOOLS_SNIPPET}\n${REQUEST_NEW_TOOL_SNIPPET}\n${TOOL_ERROR_SYSTEM_PROMPT_SNIPPET}\n${KD_SYSTEM_PROMPT_SNIPPET}${priorArtifactsHint}`
+    : `${subTaskInstructions}\n${TRUNCATION_SYSTEM_PROMPT_SNIPPET}\n${PREFER_EXISTING_TOOLS_SNIPPET}\n${REQUEST_NEW_TOOL_SNIPPET}\n${TOOL_ERROR_SYSTEM_PROMPT_SNIPPET}\n${KD_SYSTEM_PROMPT_SNIPPET}${priorArtifactsHint}`;
 
   // Resolve tools using ranked matching (exact → base name → substring → fuzzy)
   const resolution = task.tools.length > 0
@@ -154,6 +155,8 @@ async function executeOrchestratedSubTaskV2(
    * Run a sub-task with the given tool set and return the result plus
    * whether any "irrelevant" signals were detected.
    */
+  const failureTracker = new Map<string, number>();
+
   async function runSubTaskPass(
     tools: AIToolDefinition[],
   ): Promise<{ result: SubTaskResult; seemsIrrelevant: boolean }> {
@@ -190,7 +193,7 @@ async function executeOrchestratedSubTaskV2(
 
         for (const toolUse of toolUseBlocks) {
           const start = Date.now();
-          const result = await executeAgenticToolCall(toolUse, mcpIntegrations, repoIdByPrefix, clientId, ticketId);
+          const result = await executeAgenticToolCall(toolUse, mcpIntegrations, repoIdByPrefix, clientId, ticketId, failureTracker);
           const elapsed = Date.now() - start;
 
           const fullResult = result.result;
@@ -467,6 +470,7 @@ export async function runOrchestratedV2(
     TRUNCATION_SYSTEM_PROMPT_SNIPPET,
     PREFER_EXISTING_TOOLS_SNIPPET,
     REQUEST_NEW_TOOL_SNIPPET,
+    TOOL_ERROR_SYSTEM_PROMPT_SNIPPET,
     KD_SYSTEM_PROMPT_SNIPPET,
     buildRepoNudgeSnippet(clientRepos),
   ].join('\n');

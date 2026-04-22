@@ -33,6 +33,7 @@ import {
   KD_SYSTEM_PROMPT_SNIPPET,
   PREFER_EXISTING_TOOLS_SNIPPET,
   REQUEST_NEW_TOOL_SNIPPET,
+  TOOL_ERROR_SYSTEM_PROMPT_SNIPPET,
   TRUNCATION_SYSTEM_PROMPT_SNIPPET,
 } from './v2-prompts.js';
 import { loadKnowledgeDoc } from '@bronco/shared-utils';
@@ -115,6 +116,7 @@ export async function runFlatV2(
   systemParts.push(TRUNCATION_SYSTEM_PROMPT_SNIPPET);
   systemParts.push(PREFER_EXISTING_TOOLS_SNIPPET);
   systemParts.push(REQUEST_NEW_TOOL_SNIPPET);
+  systemParts.push(TOOL_ERROR_SYSTEM_PROMPT_SNIPPET);
   systemParts.push(KD_SYSTEM_PROMPT_SNIPPET);
   const repoNudge = buildRepoNudgeSnippet(clientRepos);
   if (repoNudge) systemParts.push(repoNudge);
@@ -135,6 +137,7 @@ export async function runFlatV2(
   let finalAnalysis = '';
   let iterationsRun = 0;
   let previousAiCallId: string | undefined;
+  const failureTracker = new Map<string, number>();
   for (let i = 0; i < maxIterations; i++) {
     iterationsRun = i + 1;
     const aiCallId = randomUUID();
@@ -209,7 +212,7 @@ export async function runFlatV2(
 
     for (const toolUse of toolUseBlocks) {
       const start = Date.now();
-      const result = await executeAgenticToolCall(toolUse, mcpIntegrations, repoIdByPrefix, clientId, ticketId);
+      const result = await executeAgenticToolCall(toolUse, mcpIntegrations, repoIdByPrefix, clientId, ticketId, failureTracker);
       const elapsed = Date.now() - start;
 
       const fullResult = result.result;
