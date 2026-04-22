@@ -9,7 +9,7 @@ AI-augmented database and software architecture operations platform. Single-oper
 - **Monorepo**: pnpm workspaces. Shared packages in `packages/`, services in `services/`, MCP servers in `mcp-servers/`.
 - **Control plane DB**: PostgreSQL (Prisma ORM). Schema at `packages/db/prisma/schema.prisma`.
 - **Client databases**: Azure SQL Managed Instances (primary, SQL cred auth), on-prem SQL Server (future clients). Connected via MCP database server (Node.js/Express) running on Hugo in Docker Compose. The MCP server reads system configs directly from the control plane Postgres `System` table and decrypts passwords using `ENCRYPTION_KEY`.
-- **MCP Platform Server**: Exposes all Bronco platform operations (tickets, clients, people, probes, AI usage, etc.) as MCP tools. Uses Prisma directly (no HTTP hop to copilot-api). Exception: `run_tool_request_dedupe` proxies to copilot-api via HTTP because the dedupe logic depends on AIRouter and `mcp-discovery` which don't live in the mcp-platform dep graph. Runs on Hugo in Docker Compose (port 3110).
+- **MCP Platform Server**: Exposes all Bronco platform operations (tickets, clients, people, probes, AI usage, etc.) as MCP tools. Uses Prisma directly (no HTTP hop to copilot-api). Exception: `run_tool_request_dedupe` proxies to copilot-api via HTTP because the dedupe logic depends on AIRouter and `mcp-discovery` which don't live in the mcp-platform dep graph. Runs on Hugo in Docker Compose (port 3110). MCP platform/repo/database URLs are configured per-service via `MCP_PLATFORM_URL`, `MCP_REPO_URL`, `MCP_DATABASE_URL` (defaults assume the Docker Compose network: `http://mcp-platform:3110`, `http://mcp-repo:3111`, `http://mcp-database:3100`).
 - **AI routing**: Local Ollama for triage/categorize/summarize/extract; Claude API for deep analysis, code review, architecture review, bug analysis, schema review, feature analysis.
 - **Hugo** (control plane VM): Ubuntu 24.04 LTS on ESXi NUC. Runs copilot-api (Fastify), imap-worker, ticket-analyzer, devops-worker, issue-resolver, status-monitor, slack-worker, scheduler-worker, mcp-database, mcp-platform, mcp-repo, Postgres, Redis, Caddy, and cloudflared (Cloudflare Tunnel for public ingress at `itrack.siirial.com`) via Docker Compose.
 - **Mac mini (siiriaplex)**: Runs Ollama for local LLM inference.
@@ -98,6 +98,8 @@ AZDO_POLL_INTERVAL_SECONDS=120
 | `CLOSED` | closed | Ticket is closed. |
 
 `NEW`, `OPEN`, `IN_PROGRESS`, and `WAITING` are all in `OPEN_STATUSES` and are treated as "active" tickets throughout the codebase (filters, notifications, MCP queries).
+
+**Replies arriving during NEW (pre-analysis):** a reply threads onto the ticket but does NOT trigger a re-analysis job — the in-flight initial analysis will read the thread when it reaches the ingestion step. Once the initial analysis has completed, replies on active/open tickets with an existing findings email may enqueue re-analysis, including `OPEN`, `WAITING`, and `IN_PROGRESS`.
 
 ## Ticket Categories
 

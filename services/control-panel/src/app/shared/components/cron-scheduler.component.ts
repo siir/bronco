@@ -1,3 +1,7 @@
+// NOTE: this component currently computes a static UTC cron expression from the
+// operator's current timezone offset. After a DST transition the stored cron
+// will drift by one hour until the operator re-saves. TZ-aware execution is a
+// future enhancement — see #355 audit and the broader scheduler rework.
 import { Component, OnInit, input, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { FormFieldComponent } from './form-field.component.js';
