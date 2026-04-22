@@ -1136,6 +1136,9 @@ async function deepAnalysis(
       '',
       '## Available actions (use these exact "action" values)',
       '',
+      // Note: `NEW` is deliberately excluded from set_status options — NEW is a pre-analysis state
+      // assigned automatically at ingestion and auto-transitioned to OPEN at end-of-run. The AI
+      // should never regress a ticket to NEW.
       '- { "action": "set_status", "value": "OPEN|IN_PROGRESS|WAITING|RESOLVED|CLOSED", "reason": "..." }',
       '- { "action": "set_priority", "value": "LOW|MEDIUM|HIGH|CRITICAL", "reason": "..." }',
       '- { "action": "set_category", "value": "DATABASE_PERF|BUG_FIX|FEATURE_REQUEST|SCHEMA_CHANGE|CODE_REVIEW|ARCHITECTURE|GENERAL", "reason": "..." }',
@@ -2813,6 +2816,9 @@ async function executeRoutePipeline(
             `Current status: ${currentTicket.status}`, '',
             'Analysis findings:', analysis, '',
             '## Available actions (use these exact "action" values)', '',
+            // Note: `NEW` is deliberately excluded from set_status options — NEW is a pre-analysis state
+            // assigned automatically at ingestion and auto-transitioned to OPEN at end-of-run. The AI
+            // should never regress a ticket to NEW.
             '- { "action": "set_status", "value": "OPEN|IN_PROGRESS|WAITING|RESOLVED|CLOSED", "reason": "..." }',
             '- { "action": "set_priority", "value": "LOW|MEDIUM|HIGH|CRITICAL", "reason": "..." }',
             '- { "action": "set_category", "value": "DATABASE_PERF|BUG_FIX|FEATURE_REQUEST|SCHEMA_CHANGE|CODE_REVIEW|ARCHITECTURE|GENERAL", "reason": "..." }',

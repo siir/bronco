@@ -224,7 +224,7 @@ export class TicketService {
 
   private static readonly ACTIVE_STATUSES = ACTIVE_STATUS_FILTER.split(',');
 
-  /** Active ticket count (OPEN + IN_PROGRESS + WAITING), updated on every getStats() call. */
+  /** Active ticket count (NEW + OPEN + IN_PROGRESS + WAITING), updated on every getStats() call. */
   readonly activeCount = signal(0);
 
   getTickets(filters?: { clientId?: string; status?: string; category?: string; priority?: string; source?: string; analysisStatus?: string; createdFrom?: string; createdTo?: string; limit?: number; offset?: number }): Observable<Ticket[]> {
