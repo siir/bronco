@@ -112,7 +112,7 @@ async function executeOrchestratedSubTaskV1(
         : { logId: subTaskLogId };
       const response = await ai.generateWithTools({
         taskType: TaskType.DEEP_ANALYSIS,
-        context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, ...orchCtx },
+        context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, strategy: 'orchestrated' as const, strategyVersion: 'v1' as const, ...orchCtx },
         messages: [{ role: 'user', content: task.prompt }],
         tools,
         systemPrompt: subTaskSystemPrompt,
@@ -184,7 +184,7 @@ async function executeOrchestratedSubTaskV1(
           : { logId: summaryLogId, parentLogId: subTaskLogId, parentLogType: 'ai' };
         const summaryResponse = await ai.generateWithTools({
           taskType: TaskType.DEEP_ANALYSIS,
-          context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, ...summaryOrchCtx },
+          context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, strategy: 'orchestrated' as const, strategyVersion: 'v1' as const, ...summaryOrchCtx },
           messages: [
             { role: 'user', content: task.prompt },
             { role: 'assistant', content: response.contentBlocks },
@@ -236,7 +236,7 @@ async function executeOrchestratedSubTaskV1(
       : { logId: pureLogId };
     const response = await ai.generate({
       taskType: TaskType.DEEP_ANALYSIS,
-      context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, ...orchCtx },
+      context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory, strategy: 'orchestrated' as const, strategyVersion: 'v1' as const, ...orchCtx },
       prompt: task.prompt,
       providerOverride: 'CLAUDE',
       modelOverride: model,
@@ -396,7 +396,7 @@ export async function runOrchestratedV1(
     const strategistLogId = randomUUID();
     const strategistResponse = await ai.generate({
       taskType: (step.taskTypeOverride ?? TaskType.DEEP_ANALYSIS) as TaskType,
-      context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!clientContext, orchestrationId, orchestrationIteration: i + 1, logId: strategistLogId },
+      context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!clientContext, orchestrationId, orchestrationIteration: i + 1, logId: strategistLogId, strategy: 'orchestrated' as const, strategyVersion: 'v1' as const },
       prompt: strategistPrompt,
       systemPrompt: ORCHESTRATED_SYSTEM_PROMPT,
       providerOverride: 'CLAUDE',

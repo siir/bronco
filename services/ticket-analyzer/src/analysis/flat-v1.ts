@@ -134,7 +134,7 @@ export async function runFlatV1(
         systemPrompt: agenticSystemPrompt,
         tools: agenticTools,
         messages,
-        context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!(clientContext || environmentContext), logId: aiCallId, ...(previousAiCallId ? { parentLogId: previousAiCallId, parentLogType: 'ai' as const } : {}) },
+        context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!(clientContext || environmentContext), logId: aiCallId, strategy: 'flat' as const, strategyVersion: 'v1' as const, ...(previousAiCallId ? { parentLogId: previousAiCallId, parentLogType: 'ai' as const } : {}) },
         maxTokens: defaultMaxTokens ?? 4096,
       });
     } catch (error) {
