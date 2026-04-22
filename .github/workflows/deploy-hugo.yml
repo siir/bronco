@@ -338,9 +338,15 @@ jobs:
             # Migrations run automatically in the copilot-api entrypoint before the app starts.
             if [ "$COMPOSE_CHANGED" = "true" ] || [ "$ALL_SERVICES" = "true" ]; then
               docker compose up -d --no-build
+              # Full deploy — always cycle cloudflared to refresh tunnel routing
+              docker compose restart cloudflared
             else
               SVC_LIST=$(echo "$SERVICES" | jq -r '.[]' | tr '\n' ' ')
               docker compose up -d --no-build $SVC_LIST
+              # If caddy was restarted, cloudflared needs to re-resolve DNS
+              if echo "$SVC_LIST" | grep -qw caddy || echo "$SVC_LIST" | grep -qw control-panel; then
+                docker compose restart cloudflared
+              fi
             fi
 
             # Wait for copilot-api to pass its health check (includes migration completion)
