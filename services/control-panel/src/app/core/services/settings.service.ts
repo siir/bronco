@@ -153,6 +153,10 @@ export interface AnalysisStrategyConfig {
   defaultMaxTokens: number | null;
 }
 
+export interface AnalysisStrategyVersionConfig {
+  version: 'v1' | 'v2';
+}
+
 export interface SelfAnalysisConfig {
   postAnalysisTrigger: boolean;
   ticketCloseTrigger: boolean;
@@ -316,6 +320,14 @@ export class SettingsService {
   }
   saveAnalysisStrategy(config: AnalysisStrategyConfig): Observable<AnalysisStrategyConfig> {
     return this.api.put<AnalysisStrategyConfig>('/settings/analysis-strategy', config);
+  }
+
+  // --- Analysis Strategy Version ---
+  getAnalysisStrategyVersion(): Observable<AnalysisStrategyVersionConfig> {
+    return this.api.get<AnalysisStrategyVersionConfig>('/settings/analysis-strategy-version');
+  }
+  saveAnalysisStrategyVersion(config: AnalysisStrategyVersionConfig): Observable<AnalysisStrategyVersionConfig> {
+    return this.api.put<AnalysisStrategyVersionConfig>('/settings/analysis-strategy-version', config);
   }
 
   // --- Self Analysis ---

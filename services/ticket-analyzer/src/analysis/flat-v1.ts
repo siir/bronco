@@ -10,22 +10,10 @@ import type {
   AIToolUseBlock,
 } from '@bronco/shared-types';
 import {
-  buildRepoNudgeSnippet,
-  buildTruncatedPreview,
-  composeFinalAnalysis,
   executeAgenticToolCall,
-  fallbackFillRequiredSections,
-  getToolResultMaxTokens,
-  KD_SYSTEM_PROMPT_SNIPPET,
   parseSufficiencyEvaluation,
   saveMcpToolArtifact,
-  shouldTruncate,
-  writeKnowledgeDocSnapshot,
-  PREFER_EXISTING_TOOLS_SNIPPET,
-  REQUEST_NEW_TOOL_SNIPPET,
   SUFFICIENCY_EVAL_INSTRUCTIONS,
-  TRUNCATION_SYSTEM_PROMPT_SNIPPET,
-  type AgenticRepoInfo,
   type AnalysisDeps,
   type AnalysisPipelineContext,
   type AnalysisResult,
@@ -33,7 +21,6 @@ import {
   type ReanalysisContext,
   type StrategyStep,
 } from './shared.js';
-import { loadKnowledgeDoc } from '@bronco/shared-utils';
 
 const logger = createLogger('ticket-analyzer');
 
@@ -44,7 +31,6 @@ export interface AgenticToolContext {
   tools: AIToolDefinition[];
   mcpIntegrations: Map<string, McpIntegrationInfo>;
   repoIdByPrefix: Map<string, string>;
-  repos: AgenticRepoInfo[];
 }
 
 /**
@@ -52,7 +38,7 @@ export interface AgenticToolContext {
  * access to all available MCP tools, calling them until it reaches a final
  * answer or hits `maxIterations`.
  */
-export async function runFlatAnalysis(
+export async function runFlatV1(
   deps: AnalysisDeps,
   ctx: AnalysisPipelineContext,
   step: StrategyStep,
@@ -62,12 +48,11 @@ export async function runFlatAnalysis(
   const { db, ai, appLog, artifactStoragePath } = deps;
   const { ticketId, clientId, category, priority, emailSubject, emailBody, clientContext, environmentContext, codeContext, dbContext, facts, summary } = ctx;
   const { maxIterations, reanalysisCtx } = opts;
-  const { tools: agenticTools, mcpIntegrations, repoIdByPrefix, repos: clientRepos } = tools;
+  const { tools: agenticTools, mcpIntegrations, repoIdByPrefix } = tools;
 
   const stepConfig = step.config as { systemPromptOverride?: string } | null;
 
   const defaultMaxTokens = await deps.loadDefaultMaxTokens?.() ?? undefined;
-  const toolResultMaxTokens = await getToolResultMaxTokens(db);
 
   // Build system prompt with all available context
   const systemParts: string[] = [];
@@ -120,12 +105,6 @@ export async function runFlatAnalysis(
   if (dbContext) systemParts.push('', '## Previously Gathered DB Context', dbContext);
   if (stepConfig?.systemPromptOverride) systemParts.push('', stepConfig.systemPromptOverride);
   systemParts.push(SUFFICIENCY_EVAL_INSTRUCTIONS);
-  systemParts.push(TRUNCATION_SYSTEM_PROMPT_SNIPPET);
-  systemParts.push(PREFER_EXISTING_TOOLS_SNIPPET);
-  systemParts.push(REQUEST_NEW_TOOL_SNIPPET);
-  systemParts.push(KD_SYSTEM_PROMPT_SNIPPET);
-  const repoNudge = buildRepoNudgeSnippet(clientRepos);
-  if (repoNudge) systemParts.push(repoNudge);
 
   const agenticSystemPrompt = systemParts.join('\n');
 
@@ -155,7 +134,7 @@ export async function runFlatAnalysis(
         systemPrompt: agenticSystemPrompt,
         tools: agenticTools,
         messages,
-        context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!(clientContext || environmentContext), logId: aiCallId, strategy: 'flat' as const, ...(previousAiCallId ? { parentLogId: previousAiCallId, parentLogType: 'ai' as const } : {}) },
+        context: { ticketId, clientId, entityId: ticketId, entityType: 'ticket', ticketCategory: category, skipClientMemory: !!(clientContext || environmentContext), logId: aiCallId, ...(previousAiCallId ? { parentLogId: previousAiCallId, parentLogType: 'ai' as const } : {}) },
         maxTokens: defaultMaxTokens ?? 4096,
       });
     } catch (error) {
@@ -217,33 +196,29 @@ export async function runFlatAnalysis(
 
     for (const toolUse of toolUseBlocks) {
       const start = Date.now();
-      const result = await executeAgenticToolCall(toolUse, mcpIntegrations, repoIdByPrefix, clientId, ticketId);
+      const result = await executeAgenticToolCall(toolUse, mcpIntegrations, repoIdByPrefix, clientId);
       const elapsed = Date.now() - start;
-
-      const fullResult = result.result;
-      const fullSizeChars = fullResult.length;
-      const agenticArtifactId = artifactStoragePath && !result.isError ? randomUUID() : undefined;
-      const truncated = !result.isError && !!agenticArtifactId && shouldTruncate(fullResult, toolResultMaxTokens);
-      const contentForModel = truncated && agenticArtifactId
-        ? buildTruncatedPreview(fullResult, agenticArtifactId)
-        : fullResult;
-
       toolCallLog.push({
         tool: toolUse.name,
         system: (toolUse.input as Record<string, unknown>)?.system_name as string | undefined,
         input: toolUse.input,
-        output: fullResult.slice(0, 500), // truncate for metadata
+        output: result.result.slice(0, 500), // truncate for metadata
         durationMs: elapsed,
       });
       toolResults.push({
         type: 'tool_result',
         tool_use_id: toolUse.id,
-        content: contentForModel,
+        content: result.result,
         ...(result.isError ? { is_error: true } : {}),
       });
+      const agenticArtifactId = artifactStoragePath && !result.isError ? randomUUID() : undefined;
       if (artifactStoragePath && !result.isError) {
-        void saveMcpToolArtifact(db, ticketId, toolUse.name, fullResult, artifactStoragePath, agenticArtifactId).catch(error => {
-          logger.warn({ err: error, ticketId, toolName: toolUse.name }, 'Failed to persist MCP tool artifact');
+        void saveMcpToolArtifact(db, ticketId, toolUse.name, result.result, artifactStoragePath, agenticArtifactId).catch(error => {
+          logger.warn({
+            err: error,
+            ticketId,
+            toolName: toolUse.name,
+          }, 'Failed to persist MCP tool artifact');
         });
       }
       appLog.info(
@@ -254,10 +229,8 @@ export async function runFlatAnalysis(
           durationMs: elapsed,
           iteration: i + 1,
           params: toolUse.input ? JSON.stringify(toolUse.input).slice(0, 1000) : null,
-          resultPreview: fullResult?.slice(0, 2000) ?? null,
+          resultPreview: result.result?.slice(0, 2000) ?? null,
           isError: result.isError ?? false,
-          truncated,
-          fullSizeChars,
           parentLogId: aiCallId,
           parentLogType: 'ai',
           ...(agenticArtifactId ? { artifactId: agenticArtifactId } : {}),
@@ -274,28 +247,6 @@ export async function runFlatAnalysis(
 
   if (!finalAnalysis) {
     finalAnalysis = 'Agentic analysis reached maximum iterations without a final conclusion. Review the tool call log for partial findings.';
-  }
-
-  // Knowledge doc: only run the fallback-fill + compose + snapshot pipeline
-  // when the agent actually wrote to the new-format doc during this run.
-  // `knowledgeDocSectionMeta` is populated by every kd_update_section /
-  // kd_add_subsection call, so its presence is the signal that kd_* was
-  // used. Legacy tickets (and new tickets where the agent ignored kd_*)
-  // keep their existing `knowledgeDoc` untouched — zero silent migration.
-  const kdBeforeCompose = await loadKnowledgeDoc(db, ticketId);
-  const hasSectionMeta =
-    !!kdBeforeCompose?.knowledgeDocSectionMeta
-    && typeof kdBeforeCompose.knowledgeDocSectionMeta === 'object'
-    && Object.keys(kdBeforeCompose.knowledgeDocSectionMeta as Record<string, unknown>).length > 0;
-  if (hasSectionMeta) {
-    await fallbackFillRequiredSections(db, ticketId, 'flat loop end');
-    const kdAfter = await loadKnowledgeDoc(db, ticketId);
-    finalAnalysis = composeFinalAnalysis(
-      kdAfter?.knowledgeDoc ?? null,
-      kdAfter?.knowledgeDocSectionMeta ?? null,
-      finalAnalysis,
-    );
-    await writeKnowledgeDocSnapshot(db, ticketId, iterationsRun);
   }
 
   // Parse sufficiency evaluation from the analysis response

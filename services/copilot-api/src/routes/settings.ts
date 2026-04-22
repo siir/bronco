@@ -43,6 +43,7 @@ const SETTINGS_KEY_SLACK = 'system-config-slack';
 const SETTINGS_KEY_PROMPT_RETENTION = 'system-config-prompt-retention';
 const SETTINGS_KEY_ACTION_SAFETY = 'system-config-action-safety';
 const SETTINGS_KEY_ANALYSIS_STRATEGY = 'system-config-analysis-strategy';
+const SETTINGS_KEY_ANALYSIS_STRATEGY_VERSION = 'analysis-strategy-version';
 const SETTINGS_KEY_SELF_ANALYSIS = 'self_analysis_config';
 const SETTINGS_KEY_TOOL_REQUEST_RATE_LIMIT = 'tool-request-rate-limit-per-run';
 const SETTINGS_KEY_TOOL_REQUESTS_DEFAULT_REPO = 'tool-requests-github-default-repo';
@@ -1231,6 +1232,50 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
 
     return row.value as AnalysisStrategyConfig;
   });
+
+  // ─── Analysis Strategy Version ───
+
+  const analysisStrategyVersionSchema = z.object({
+    version: z.enum(['v1', 'v2']).default('v2'),
+  });
+
+  type AnalysisStrategyVersionConfig = z.output<typeof analysisStrategyVersionSchema>;
+
+  const DEFAULT_ANALYSIS_STRATEGY_VERSION: AnalysisStrategyVersionConfig = { version: 'v2' };
+
+  fastify.get('/api/settings/analysis-strategy-version', async () => {
+    const row = await fastify.db.appSetting.findUnique({ where: { key: SETTINGS_KEY_ANALYSIS_STRATEGY_VERSION } });
+    if (!row) return DEFAULT_ANALYSIS_STRATEGY_VERSION;
+    const parsed = analysisStrategyVersionSchema.safeParse(row.value);
+    if (!parsed.success) {
+      logger.warn({ key: SETTINGS_KEY_ANALYSIS_STRATEGY_VERSION, errors: parsed.error.issues }, 'Stored analysis strategy version is malformed — resetting to defaults');
+      await fastify.db.appSetting.update({
+        where: { key: SETTINGS_KEY_ANALYSIS_STRATEGY_VERSION },
+        data: { value: DEFAULT_ANALYSIS_STRATEGY_VERSION as unknown as object },
+      });
+      return DEFAULT_ANALYSIS_STRATEGY_VERSION;
+    }
+    return parsed.data;
+  });
+
+  fastify.put<{ Body: Record<string, unknown> }>(
+    '/api/settings/analysis-strategy-version',
+    { preHandler: requireRole(OperatorRole.ADMIN) },
+    async (request) => {
+      const parsed = analysisStrategyVersionSchema.safeParse(request.body);
+      if (!parsed.success) {
+        const msg = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+        return fastify.httpErrors.badRequest(`Invalid analysis strategy version config: ${msg}`);
+      }
+      const config = parsed.data;
+      const row = await fastify.db.appSetting.upsert({
+        where: { key: SETTINGS_KEY_ANALYSIS_STRATEGY_VERSION },
+        update: { value: config as unknown as object },
+        create: { key: SETTINGS_KEY_ANALYSIS_STRATEGY_VERSION, value: config as unknown as object },
+      });
+      return row.value as AnalysisStrategyVersionConfig;
+    },
+  );
 
   // ---------------------------------------------------------------------------
   // Self-Analysis Config
