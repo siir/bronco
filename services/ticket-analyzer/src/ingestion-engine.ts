@@ -9,6 +9,7 @@ import {
   TaskType,
   TicketCategory,
   TicketSource,
+  isOpenStatus,
 } from '@bronco/shared-types';
 import type {
   IngestionJob,
@@ -1009,9 +1010,9 @@ async function maybeEnqueueReanalysis(
   });
   if (!ticket) return;
 
-  // Only re-analyze tickets in WAITING or OPEN status
-  if (ticket.status !== 'WAITING' && ticket.status !== 'OPEN') {
-    log.info({ ticketId, status: ticket.status }, 'Reply on non-active ticket — re-analysis skipped');
+  // Only re-analyze tickets in an open/active status (NEW, OPEN, IN_PROGRESS, WAITING)
+  if (!isOpenStatus(ticket.status)) {
+    log.info({ ticketId, status: ticket.status }, 'Reply on closed ticket — re-analysis skipped');
     return;
   }
 

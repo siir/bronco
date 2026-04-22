@@ -59,7 +59,7 @@ const keywords: KeywordSeed[] = [
   {
     token: 'status',
     label: 'Status',
-    description: 'The current ticket status (OPEN, IN_PROGRESS, WAITING, RESOLVED, CLOSED).',
+    description: 'The current ticket status (NEW, OPEN, IN_PROGRESS, WAITING, RESOLVED, CLOSED).',
     sampleValue: 'OPEN',
     category: 'TICKET',
   },
