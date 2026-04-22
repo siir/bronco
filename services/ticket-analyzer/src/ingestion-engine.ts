@@ -665,6 +665,7 @@ async function executeIngestionPipeline(
                 subject: subject.slice(0, 200),
                 description: description || null,
                 summary: ctx.summary || null,
+                status: 'NEW',
                 source: source as never,
                 category: ctx.category as TicketCategory | null,
                 priority: ctx.priority as Priority,

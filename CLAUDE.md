@@ -86,6 +86,19 @@ AZDO_POLL_INTERVAL_SECONDS=120
 | `services/devops-worker/src/poller.ts` | Incremental work item polling |
 | `services/devops-worker/src/config.ts` | Zod config schema |
 
+## Ticket Statuses
+
+| Status | Class | Description |
+|--------|-------|-------------|
+| `NEW` | open | Pre-analysis: ticket was just created and the analyzer pipeline has not yet run. All ingestion paths set this. |
+| `OPEN` | open | Post-analysis: analysis complete, ticket is active and awaiting operator action or external response. The analyzer auto-transitions `NEW → OPEN` at end-of-run (unless the ticket was set to `WAITING` by the sufficiency check). |
+| `IN_PROGRESS` | open | Actively being worked on by the operator. |
+| `WAITING` | open | Awaiting external input or response. Set by the analyzer when sufficiency eval returns `NEEDS_USER_INPUT`. |
+| `RESOLVED` | closed | Issue has been resolved. |
+| `CLOSED` | closed | Ticket is closed. |
+
+`NEW`, `OPEN`, `IN_PROGRESS`, and `WAITING` are all in `OPEN_STATUSES` and are treated as "active" tickets throughout the codebase (filters, notifications, MCP queries).
+
 ## Ticket Categories
 
 Tickets span multiple domains, not just DBA work:

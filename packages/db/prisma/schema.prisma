@@ -986,6 +986,7 @@ enum Environment {
 }
 
 enum TicketStatus {
+  NEW
   OPEN
   IN_PROGRESS
   WAITING

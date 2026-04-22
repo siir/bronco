@@ -5,9 +5,9 @@ import { setTimeout as delay } from 'node:timers/promises';
 import type { Job } from 'bullmq';
 import { Prisma } from '@bronco/db';
 import type { PrismaClient } from '@bronco/db';
-import type { TicketCategory, Priority, TicketStatus, TicketSource, AnalysisJob } from '@bronco/shared-types';
+import type { TicketCategory, Priority, TicketSource, AnalysisJob } from '@bronco/shared-types';
 import { AIRouter } from '@bronco/ai-provider';
-import { TaskType, RouteStepType, isClosedStatus, AnalysisStatus, SufficiencyStatus, NotificationMode, ToolRequestRationaleSource } from '@bronco/shared-types';
+import { TicketStatus, TaskType, RouteStepType, isClosedStatus, AnalysisStatus, SufficiencyStatus, NotificationMode, ToolRequestRationaleSource } from '@bronco/shared-types';
 import { createLogger, AppLogger, createPrismaLogWriter, MCP_TOOL_TIMEOUT_MS, mcpUrl, callMcpToolViaSdk, notifyOperators as notifyOperatorsFn, notifyClientOperators as notifyClientOperatorsFn, getActiveOperatorRecords, getSelfAnalysisConfig, registerToolRequest } from '@bronco/shared-utils';
 import type { Mailer, ReplyOptions } from '@bronco/shared-utils';
 import { executeRecommendations } from './recommendation-executor.js';
@@ -3520,6 +3520,11 @@ export function createAnalysisProcessor(deps: AnalyzerDeps) {
       await deps.db.ticket.update({
         where: { id: ticketId },
         data: { analysisStatus: AnalysisStatus.COMPLETED, analysisError: null, lastAnalyzedAt: new Date() },
+      });
+      // Auto-transition NEW → OPEN now that analysis is complete (leave WAITING/IN_PROGRESS untouched)
+      await deps.db.ticket.updateMany({
+        where: { id: ticketId, status: TicketStatus.NEW },
+        data: { status: TicketStatus.OPEN },
       });
       appLog.info(
         `Ticket analysis pipeline completed successfully (${route ? 'route-driven' : 'default fallback'})`,
