@@ -290,7 +290,7 @@ interface ConvTreeNode {
                       @if (entry.service) { <span class="log-service">{{ entry.service }}</span> }
                       <span class="log-message">{{ entry.message }}</span>
                       @if (entry.context?.['artifactId']) {
-                        <a class="artifact-link" href="#" (click)="$event.preventDefault(); ticketService.downloadArtifact('' + entry.context!['artifactId'])"><app-icon name="download" size="xs" /> Full output</a>
+                        <button type="button" class="artifact-link" (click)="ticketService.downloadArtifact('' + entry.context!['artifactId'])"><app-icon name="download" size="xs" /> Full output</button>
                       }
                     </div>
                     @if (entry.context && hasKeys(entry.context)) {
@@ -355,7 +355,7 @@ interface ConvTreeNode {
                                 @if (entry.service) { <span class="log-service">{{ entry.service }}</span> }
                                 <span class="log-message">{{ entry.message }}</span>
                                 @if (entry.context?.['artifactId']) {
-                                  <a class="artifact-link" href="#" (click)="$event.preventDefault(); ticketService.downloadArtifact('' + entry.context!['artifactId'])"><app-icon name="download" size="xs" /> Full output</a>
+                                  <button type="button" class="artifact-link" (click)="ticketService.downloadArtifact('' + entry.context!['artifactId'])"><app-icon name="download" size="xs" /> Full output</button>
                                 }
                               }
                             </div>
@@ -665,9 +665,9 @@ interface ConvTreeNode {
                         <span class="artifact-desc">{{ a.description }}</span>
                       }
                     </div>
-                    <a class="artifact-dl" href="#" (click)="$event.preventDefault(); ticketService.downloadArtifact(a.id)">
+                    <button type="button" class="artifact-dl" (click)="ticketService.downloadArtifact(a.id)">
                       <app-icon name="download" size="sm" /> Download
-                    </a>
+                    </button>
                   </div>
                 }
               </div>

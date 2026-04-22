@@ -198,6 +198,24 @@ export interface TicketArtifact {
   createdAt: string;
 }
 
+/** Parse Content-Disposition filename, preferring RFC 5987 filename*= over plain filename=". */
+function parseContentDispositionFilename(disposition: string): string | null {
+  const star = /filename\*=(?:UTF-8'')?([^;]+)/i.exec(disposition);
+  if (star && star[1]) {
+    try { return decodeURIComponent(star[1].trim()); } catch { /* fallthrough */ }
+  }
+  const plain = /filename="?([^";]+)"?/i.exec(disposition);
+  return plain ? plain[1].trim() : null;
+}
+
+/** Strip path separators, control characters, and leading dots; cap at 255 chars. */
+function sanitizeFilename(name: string): string {
+  return name
+    .replace(/[\\/\x00-\x1f\x7f]/g, '_')
+    .replace(/^\.+/, '_')
+    .slice(0, 255) || 'artifact';
+}
+
 @Injectable({ providedIn: 'root' })
 export class TicketService {
   private api = inject(ApiService);
@@ -300,29 +318,42 @@ export class TicketService {
   }
 
   async downloadArtifact(artifactId: string): Promise<void> {
-    const res = await fetch(`/api/artifacts/${artifactId}/download`, {
-      headers: { Authorization: `Bearer ${this.auth.accessToken ?? ''}` },
-      credentials: 'include',
-    });
-    if (!res.ok) {
-      let msg = `Download failed (HTTP ${res.status})`;
-      try {
-        const body = await res.json() as { error?: string };
-        if (body.error) msg = body.error;
-      } catch { /* ignore */ }
-      this.toast.error(msg);
-      return;
+    try {
+      const token = this.auth.accessToken;
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch(`/api/artifacts/${artifactId}/download`, {
+        headers,
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        let msg = `Download failed (HTTP ${res.status})`;
+        try {
+          const body = await res.json() as { error?: string };
+          if (body.error) msg = body.error;
+        } catch { /* ignore */ }
+        this.toast.error(msg);
+        return;
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get('Content-Disposition') ?? '';
+      const raw = parseContentDispositionFilename(disposition) ?? `artifact-${artifactId}`;
+      const filename = sanitizeFilename(raw);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        a.remove();
+        URL.revokeObjectURL(url);
+      }, 0);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Download failed';
+      this.toast.error(`Download failed: ${message}`);
     }
-    const blob = await res.blob();
-    const disposition = res.headers.get('Content-Disposition') ?? '';
-    const match = /filename="([^"]+)"/.exec(disposition);
-    const filename = match ? match[1] : `artifact-${artifactId}`;
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
   }
 }
 

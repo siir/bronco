@@ -23,12 +23,11 @@ import type { ChatRunToolSummary } from './chat.types.js';
               <span class="tool-pill-meta">{{ formatSize(t.resultSize) }}</span>
             }
             @if (t.artifactId) {
-              <a class="tool-pill-download"
-                 href="#"
-                 (click)="$event.preventDefault(); ticketService.downloadArtifact(t.artifactId)"
+              <button type="button" class="tool-pill-download"
+                 (click)="ticketService.downloadArtifact(t.artifactId)"
                  title="Download raw result artifact">
                 <app-icon name="download" size="xs" />
-              </a>
+              </button>
             }
           </span>
         }
@@ -70,7 +69,11 @@ import type { ChatRunToolSummary } from './chat.types.js';
       display: inline-flex;
       align-items: center;
       color: var(--color-primary, #0969da);
-      text-decoration: none;
+      background: none;
+      border: none;
+      padding: 0;
+      cursor: pointer;
+      font: inherit;
     }
   `],
 })
