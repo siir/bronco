@@ -2,7 +2,7 @@ import tsParser from '@typescript-eslint/parser';
 import tsPlugin from '@typescript-eslint/eslint-plugin';
 
 const RESTRICTED_PATTERN = {
-  group: ['@anthropic-ai/sdk', '@anthropic-ai/sdk/*'],
+  group: ['@anthropic-ai/sdk', '@anthropic-ai/sdk/*', '@anthropic-ai/sdk/**'],
   message:
     'Import Anthropic SDK only from packages/ai-provider/src/. ' +
     'Use the AIRouter abstraction via createAIRouter() for all AI calls — ' +

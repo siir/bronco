@@ -175,7 +175,7 @@ Rules:
 
 ### Enforcement
 
-Direct imports from `@anthropic-ai/sdk` outside `packages/ai-provider/src/` are banned via ESLint's `no-restricted-imports` rule (see `eslint.config.mjs`). All AI calls MUST go through `AIRouter.generate()` / `AIRouter.generateWithTools()` so every call writes an `ai_usage_logs` row for cost tracking. Every call site MUST also pass `context: { entityId, entityType, clientId }` so the row is queryable from entity-scoped views (ticket pages, AI Usage reports). `entityType` values: `'ticket'`, `'email'`, `'system'`, `'devops_work_item'`, etc. — match the consumer query's filter. If a call is genuinely not entity-scoped (cross-ticket summarization, archive retention), pass `context: { entityType: null, entityId: null, clientId: null }` explicitly so reviewers know it's intentional.
+Direct imports from `@anthropic-ai/sdk` outside `packages/ai-provider/src/` are banned via ESLint's `no-restricted-imports` rule (see `eslint.config.mjs`). All AI calls MUST go through `AIRouter.generate()` / `AIRouter.generateWithTools()` so every call writes an `ai_usage_logs` row for cost tracking. Every call site MUST also pass `context: { entityId, entityType, clientId }` so the row is queryable from entity-scoped views (ticket pages, AI Usage reports). `entityType` values (canonical — see `EntityType` in `packages/shared-types/src/log.ts`): `'ticket'`, `'operational_task'`, `'probe'`, `'email'`, `'system'`, `'operator'`, `'client'` — match the consumer query's filter. If a call is genuinely not entity-scoped (cross-ticket summarization, archive retention), pass `context: { entityType: null, entityId: null, clientId: null }` explicitly so reviewers know it's intentional.
 
 ## Client Memory Management
 
