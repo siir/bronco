@@ -138,11 +138,6 @@ export interface ToolRequestRateLimitConfig {
   limit: number;
 }
 
-export interface ToolRequestsDefaultRepoConfig {
-  owner: string;
-  name: string;
-}
-
 export interface ActionSafetyConfig {
   actions: Record<string, 'auto' | 'approval'>;
 }
@@ -210,15 +205,6 @@ export class SettingsService {
   testOperationalAlert(): Observable<TestAlertResult> {
     return this.api.post<TestAlertResult>('/settings/operational-alerts/test', {});
   }
-
-  getSuperAdminUserId(): Observable<{ userId: string | null }> {
-    return this.api.get<{ userId: string | null }>('/settings/super-admin');
-  }
-
-  setSuperAdminUserId(userId: string | null): Observable<{ userId: string | null }> {
-    return this.api.put<{ userId: string | null }>('/settings/super-admin', { userId });
-  }
-
 
   // --- System Config: SMTP ---
   getSmtpConfig(): Observable<SmtpSystemConfig | null> {
@@ -289,21 +275,6 @@ export class SettingsService {
   }
   saveToolRequestRateLimit(config: ToolRequestRateLimitConfig): Observable<ToolRequestRateLimitConfig> {
     return this.api.put<ToolRequestRateLimitConfig>('/settings/tool-request-rate-limit', config);
-  }
-
-  // --- Tool Requests GitHub Default Repo ---
-  getToolRequestsDefaultRepo(): Observable<ToolRequestsDefaultRepoConfig | null> {
-    return this.api.get<ToolRequestsDefaultRepoConfig | null>(
-      '/settings/tool-requests-github-default-repo',
-    );
-  }
-  saveToolRequestsDefaultRepo(
-    config: ToolRequestsDefaultRepoConfig,
-  ): Observable<ToolRequestsDefaultRepoConfig> {
-    return this.api.put<ToolRequestsDefaultRepoConfig>(
-      '/settings/tool-requests-github-default-repo',
-      config,
-    );
   }
 
   // --- Action Safety ---

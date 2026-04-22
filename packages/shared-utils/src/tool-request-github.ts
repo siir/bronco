@@ -5,7 +5,6 @@ import { decrypt, looksEncrypted } from './crypto.js';
 const logger = createLogger('tool-request-github');
 
 const SETTINGS_KEY_GITHUB = 'system-config-github';
-const SETTINGS_KEY_TOOL_REQUESTS_DEFAULT_REPO = 'tool-requests-github-default-repo';
 
 export interface CreateGithubIssueInput {
   toolRequestId: string;
@@ -64,9 +63,9 @@ interface ToolRequestRow {
 
 /**
  * Creates a GitHub issue from a ToolRequest row's content. Uses the
- * `system-config-github` AppSetting for the PAT (encrypted) and the
- * `tool-requests-github-default-repo` AppSetting for the target repo
- * unless overridden by input.
+ * `system-config-github` AppSetting for both the PAT (encrypted) and the
+ * default target repo (`repo` field, "owner/name" format). Per-call
+ * `repoOwner` / `repoName` overrides take precedence.
  *
  * On success, persists `githubIssueUrl` and `implementedInIssue` on the row
  * so the admin UI can show the link without refetching.
@@ -107,31 +106,31 @@ export async function createToolRequestGithubIssue(
     }
   }
 
-  let owner = input.repoOwner?.trim();
-  let name = input.repoName?.trim();
-  if (!owner || !name) {
-    const def = await db.appSetting.findUnique({
-      where: { key: SETTINGS_KEY_TOOL_REQUESTS_DEFAULT_REPO },
-    });
-    if (def?.value && typeof def.value === 'object' && !Array.isArray(def.value)) {
-      const v = def.value as { owner?: string; name?: string };
-      owner = owner || (typeof v.owner === 'string' ? v.owner.trim() : '');
-      name = name || (typeof v.name === 'string' ? v.name.trim() : '');
-    }
-  }
-  if (!owner || !name) {
-    throw new Error('GitHub default repo not configured for tool requests');
-  }
-
   const githubRow = await db.appSetting.findUnique({ where: { key: SETTINGS_KEY_GITHUB } });
   if (!githubRow) {
     throw new Error('GitHub token not configured (system-config-github AppSetting missing)');
   }
-  const cfg = githubRow.value as { token?: string } | null;
+  const cfg = githubRow.value as { token?: string; repo?: string } | null;
   if (!cfg || typeof cfg.token !== 'string' || cfg.token.length === 0) {
     throw new Error('GitHub token missing from system-config-github');
   }
   const token = looksEncrypted(cfg.token) ? decrypt(cfg.token, encryptionKey) : cfg.token;
+
+  let owner = input.repoOwner?.trim();
+  let name = input.repoName?.trim();
+  if (!owner || !name) {
+    const repoStr = typeof cfg.repo === 'string' ? cfg.repo.trim() : '';
+    const slashIdx = repoStr.indexOf('/');
+    if (slashIdx > 0) {
+      owner = owner || repoStr.slice(0, slashIdx).trim();
+      name = name || repoStr.slice(slashIdx + 1).trim();
+    }
+  }
+  if (!owner || !name) {
+    throw new Error(
+      'GitHub default repo not configured — set the Repository field on the GitHub tab in Settings',
+    );
+  }
 
   const body = buildToolRequestIssueBody(row);
   const title = `[tool-request] ${row.displayTitle}`;

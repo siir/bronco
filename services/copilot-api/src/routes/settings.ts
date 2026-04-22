@@ -34,7 +34,6 @@ const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 const logger = createLogger('settings');
 
 const SETTINGS_KEY_OPERATIONAL_ALERTS = 'operational-alerts';
-const SETTINGS_KEY_SUPER_ADMIN = 'super-admin-user-id';
 const SETTINGS_KEY_SMTP = 'system-config-smtp';
 const SETTINGS_KEY_DEVOPS = 'system-config-devops';
 const SETTINGS_KEY_GITHUB = 'system-config-github';
@@ -46,7 +45,6 @@ const SETTINGS_KEY_ANALYSIS_STRATEGY = 'system-config-analysis-strategy';
 const SETTINGS_KEY_ANALYSIS_STRATEGY_VERSION = 'analysis-strategy-version';
 const SETTINGS_KEY_SELF_ANALYSIS = 'self_analysis_config';
 const SETTINGS_KEY_TOOL_REQUEST_RATE_LIMIT = 'tool-request-rate-limit-per-run';
-const SETTINGS_KEY_TOOL_REQUESTS_DEFAULT_REPO = 'tool-requests-github-default-repo';
 
 const REDACTED = '••••••••';
 
@@ -937,106 +935,6 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
       return row.value as unknown as { limit: number };
     },
   );
-
-  // ─── Tool Requests: default GitHub repo (ADMIN-only) ───
-
-  const toolRequestsDefaultRepoSchema = z.object({
-    owner: z.string().trim().min(1),
-    name: z.string().trim().min(1),
-  });
-
-  type ToolRequestsDefaultRepo = z.output<typeof toolRequestsDefaultRepoSchema>;
-
-  // GET /api/settings/tool-requests-github-default-repo
-  fastify.get(
-    '/api/settings/tool-requests-github-default-repo',
-    { preHandler: adminOnly },
-    async () => {
-      const row = await fastify.db.appSetting.findUnique({
-        where: { key: SETTINGS_KEY_TOOL_REQUESTS_DEFAULT_REPO },
-      });
-      if (!row) return null;
-      const parsed = toolRequestsDefaultRepoSchema.safeParse(row.value);
-      return parsed.success ? parsed.data : null;
-    },
-  );
-
-  // PUT /api/settings/tool-requests-github-default-repo
-  fastify.put<{ Body: ToolRequestsDefaultRepo }>(
-    '/api/settings/tool-requests-github-default-repo',
-    { preHandler: adminOnly },
-    async (request) => {
-      const parsed = toolRequestsDefaultRepoSchema.safeParse(request.body);
-      if (!parsed.success) {
-        const msg = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
-        return fastify.httpErrors.badRequest(`Invalid default repo config: ${msg}`);
-      }
-
-      const config = parsed.data;
-
-      const row = await fastify.db.appSetting.upsert({
-        where: { key: SETTINGS_KEY_TOOL_REQUESTS_DEFAULT_REPO },
-        update: { value: config as unknown as object },
-        create: { key: SETTINGS_KEY_TOOL_REQUESTS_DEFAULT_REPO, value: config as unknown as object },
-      });
-
-      return row.value as unknown as ToolRequestsDefaultRepo;
-    },
-  );
-
-  // ─── Super Admin ───
-
-  // GET /api/settings/super-admin — get the designated super admin user ID
-  fastify.get('/api/settings/super-admin', async () => {
-    const setting = await fastify.db.appSetting.findUnique({ where: { key: SETTINGS_KEY_SUPER_ADMIN } });
-    if (!setting || setting.value === null || setting.value === undefined) {
-      return { userId: null };
-    }
-    if (typeof setting.value !== 'string') {
-      logger.error({ value: setting.value, valueType: typeof setting.value }, 'Invalid super-admin setting value; expected string');
-      return fastify.httpErrors.internalServerError('Invalid super admin setting value');
-    }
-    return { userId: setting.value };
-  });
-
-  // PUT /api/settings/super-admin — set the designated super admin user ID
-  fastify.put<{ Body: { userId: string | null } }>('/api/settings/super-admin', async (request) => {
-    if (request.body == null) {
-      return fastify.httpErrors.badRequest('Request body is required');
-    }
-
-    const { userId } = request.body;
-
-    if (userId === null) {
-      await fastify.db.appSetting.deleteMany({ where: { key: SETTINGS_KEY_SUPER_ADMIN } });
-      return { userId: null };
-    }
-
-    if (typeof userId !== 'string' || userId === '') {
-      return fastify.httpErrors.badRequest('userId must be a non-empty string or null');
-    }
-
-    // `userId` here is a Person.id — super admin is designated on the unified
-    // Person identity. The person must have an Operator extension (control
-    // panel access) and be active. #219 Wave 2A may rename this endpoint.
-    const person = await fastify.db.person.findUnique({
-      where: { id: userId },
-      include: { operator: true },
-    });
-    if (!person) return fastify.httpErrors.notFound('User not found');
-    if (!person.isActive) return fastify.httpErrors.badRequest('Super admin must be an active user');
-    if (!person.operator) {
-      return fastify.httpErrors.badRequest('Super admin must be an operator');
-    }
-
-    await fastify.db.appSetting.upsert({
-      where: { key: SETTINGS_KEY_SUPER_ADMIN },
-      create: { key: SETTINGS_KEY_SUPER_ADMIN, value: userId },
-      update: { value: userId },
-    });
-
-    return { userId };
-  });
 
   // ─── Action Safety Configuration ───
 
