@@ -1,6 +1,7 @@
-import { Component, input } from '@angular/core';
+import { Component, inject, input } from '@angular/core';
 import { CommonModule, DecimalPipe } from '@angular/common';
 import { IconComponent } from '../../../shared/components/index.js';
+import { TicketService } from '../../../core/services/ticket.service.js';
 import type { ChatRunToolSummary } from './chat.types.js';
 
 @Component({
@@ -22,12 +23,11 @@ import type { ChatRunToolSummary } from './chat.types.js';
               <span class="tool-pill-meta">{{ formatSize(t.resultSize) }}</span>
             }
             @if (t.artifactId) {
-              <a class="tool-pill-download"
-                 [href]="artifactUrl(t.artifactId)"
-                 download
+              <button type="button" class="tool-pill-download"
+                 (click)="ticketService.downloadArtifact(t.artifactId)"
                  title="Download raw result artifact">
                 <app-icon name="download" size="xs" />
-              </a>
+              </button>
             }
           </span>
         }
@@ -69,16 +69,17 @@ import type { ChatRunToolSummary } from './chat.types.js';
       display: inline-flex;
       align-items: center;
       color: var(--color-primary, #0969da);
-      text-decoration: none;
+      background: none;
+      border: none;
+      padding: 0;
+      cursor: pointer;
+      font: inherit;
     }
   `],
 })
 export class ChatToolSummaryComponent {
+  readonly ticketService = inject(TicketService);
   tools = input<ChatRunToolSummary[]>([]);
-
-  artifactUrl(id: string): string {
-    return `/api/artifacts/${id}/download`;
-  }
 
   formatSize(bytes: number): string {
     if (bytes < 1024) return `${bytes}B`;

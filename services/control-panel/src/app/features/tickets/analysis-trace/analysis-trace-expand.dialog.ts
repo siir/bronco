@@ -148,9 +148,9 @@ export interface ExpandPayload {
           }
 
           @if (p.artifactId) {
-            <a class="artifact-download" [href]="ticketService.getArtifactDownloadUrl(p.artifactId)" download>
+            <button type="button" class="artifact-download" (click)="ticketService.downloadArtifact(p.artifactId)">
               <app-icon name="download" size="sm" /> Download full output artifact
-            </a>
+            </button>
           }
         </div>
       }
@@ -173,7 +173,7 @@ export interface ExpandPayload {
     .artifact-download {
       display: inline-flex; align-items: center; gap: 6px;
       padding: 6px 10px; border: 1px solid var(--color-info); color: var(--color-info);
-      border-radius: 4px; font-size: 13px; text-decoration: none; align-self: flex-start;
+      border-radius: 4px; font-size: 13px; background: none; cursor: pointer; font: inherit; align-self: flex-start;
     }
     .artifact-download:hover { background: var(--color-info-subtle); }
   `],
