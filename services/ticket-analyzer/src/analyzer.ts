@@ -3536,7 +3536,11 @@ export function createAnalysisProcessor(deps: AnalyzerDeps) {
             await deps.selfAnalysisQueue.add(
               'analyze-post-pipeline',
               { ticketId, triggerType: 'POST_ANALYSIS' },
-              { jobId: `post-pipeline-${ticketId}-${Date.now()}` },
+              {
+                jobId: `post-pipeline-${ticketId}-${Date.now()}`,
+                attempts: 4,              // 1 initial + 3 retries
+                backoff: { type: 'exponential', delay: 5000 },
+              },
             );
           }
         } catch (triggerErr) {
