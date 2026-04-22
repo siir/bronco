@@ -75,7 +75,12 @@ async function main(): Promise<void> {
   );
 
   systemAnalysisWorker.on('failed', (job, err) => {
-    logger.error({ err, jobId: job?.id }, 'System analysis job failed');
+    // Post-pipeline analysis is best-effort; exhausted retries are non-blocking.
+    if (job?.name === 'analyze-post-pipeline') {
+      logger.warn({ err, jobId: job?.id }, 'Post-pipeline analysis job failed (non-blocking)');
+    } else {
+      logger.error({ err, jobId: job?.id }, 'System analysis job failed');
+    }
   });
 
   // MCP server discovery/verification worker

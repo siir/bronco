@@ -36,6 +36,7 @@ export { createToolRequestGithubIssue, buildToolRequestIssueBody, ToolRequestNot
 export type { CreateGithubIssueInput, CreateGithubIssueResult } from './tool-request-github.js';
 export { withTicketLock } from './advisory-lock.js';
 export type { PrismaTx } from './advisory-lock.js';
+export { isTransientApiError } from './transient-error.js';
 export {
   initEmptyKnowledgeDoc,
   slugify,

@@ -1,7 +1,8 @@
 import type { PrismaClient } from '@bronco/db';
 import type { AIRouter } from '@bronco/ai-provider';
 import { TaskType, SystemAnalysisTriggerType } from '@bronco/shared-types';
-import { createLogger } from '@bronco/shared-utils';
+import { createLogger, isTransientApiError } from '@bronco/shared-utils';
+import { UnrecoverableError } from 'bullmq';
 
 const logger = createLogger('system-analyzer');
 
@@ -277,8 +278,12 @@ async function analyzePostPipeline(
       'Post-pipeline analysis completed',
     );
   } catch (err) {
-    logger.error({ err, ticketId }, 'Failed to analyze post-pipeline');
-    throw err;
+    if (isTransientApiError(err)) {
+      logger.warn({ err, ticketId }, 'Post-pipeline analysis: transient API error — will retry');
+      throw err; // BullMQ retries per attempts/backoff
+    }
+    logger.error({ err, ticketId }, 'Failed to analyze post-pipeline (non-retryable)');
+    throw new UnrecoverableError(err instanceof Error ? err.message : String(err));
   }
 }
 
