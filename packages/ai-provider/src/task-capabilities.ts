@@ -12,6 +12,7 @@ export const TASK_CAPABILITY_REQUIREMENTS: Record<string, string> = {
   // BASIC — small models (extraction, intent, log summarization)
   [TaskType.EXTRACT_FACTS]: CapabilityLevel.BASIC,
   [TaskType.CLASSIFY_INTENT]: CapabilityLevel.BASIC,
+  [TaskType.CLASSIFY_CHAT_INTENT]: CapabilityLevel.BASIC,
   [TaskType.SUMMARIZE_TICKET]: CapabilityLevel.BASIC,
   [TaskType.SUMMARIZE_LOGS]: CapabilityLevel.BASIC,
   [TaskType.GENERATE_TITLE]: CapabilityLevel.SIMPLE,

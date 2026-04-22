@@ -631,7 +631,7 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
   // ─── Chat Tab (#312) ────────────────────────────────────────────────────────
   // POST /api/tickets/:id/chat-message — operator sends a message in the Chat tab.
   // Creates a CHAT_MESSAGE TicketEvent, optionally classifies intent via
-  // TaskType.CLASSIFY_INTENT, and either enqueues a re-analysis job with
+  // TaskType.CLASSIFY_CHAT_INTENT, and either enqueues a re-analysis job with
   // chatReanalysisMode set, skips when the reply is pure acknowledgement, or
   // surfaces an inline mode picker when classifier confidence is low.
   const CHAT_MODE_VALUES = ['continue', 'refine', 'fresh_start', 'not_a_question'] as const;
@@ -759,12 +759,12 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
       return { decision: 'enqueued', chatMessageId: chatEvent.id, reanalysisJobId };
     }
 
-    // Otherwise — classify via CLASSIFY_INTENT
+    // Otherwise — classify via CLASSIFY_CHAT_INTENT
     let classifiedIntent: { label: ChatMode; confidence: number } = { label: 'not_a_question', confidence: 0 };
     if (opts?.ai) {
       try {
         const response = await opts.ai.generate({
-          taskType: TaskType.CLASSIFY_INTENT,
+          taskType: TaskType.CLASSIFY_CHAT_INTENT,
           promptKey: 'chat.classify-reply.system',
           prompt: text,
           context: { ticketId: ticket.id, clientId: ticket.clientId },

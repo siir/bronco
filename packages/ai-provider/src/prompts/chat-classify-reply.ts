@@ -17,7 +17,7 @@ export const CHAT_CLASSIFY_REPLY_SYSTEM: PromptDefinition = {
   name: 'Chat Reply Intent Classifier',
   description:
     'Classifies an operator reply in the Chat tab as continue / refine / fresh_start / not_a_question with a confidence score. Drives whether Chat auto-enqueues a re-analysis and in which mode.',
-  taskType: 'CLASSIFY_INTENT',
+  taskType: 'CLASSIFY_CHAT_INTENT',
   role: 'SYSTEM',
   content: `You classify an operator's chat reply on a support ticket into exactly one of four intents, returning your answer as a single JSON object.
 
