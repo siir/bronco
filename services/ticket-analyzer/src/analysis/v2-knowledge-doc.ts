@@ -90,6 +90,45 @@ export async function writeKnowledgeDocSnapshot(
 }
 
 /**
+ * Write an operator-readable stall marker to the rootCause section when the
+ * orchestrator loop terminates early because it detected no forward progress.
+ *
+ * Called BEFORE `fallbackFillRequiredSections` at end-of-run — once rootCause
+ * has real content, the generic `[agent did not populate this section — …]`
+ * fallback will skip it, so the Analysis Trace and composed email surface the
+ * *real reason* the analysis is blank instead of the generic placeholder.
+ *
+ * Swallows errors so a stall-marker write failure can't block the downstream
+ * fallback-fill pass.
+ */
+export async function writeStallMarker(
+  db: PrismaClient,
+  ticketId: string,
+  iteration: number,
+  reason: string,
+): Promise<void> {
+  const body = [
+    `WARNING: Orchestrator stalled at iteration ${iteration}: ${reason}.`,
+    '',
+    'See Run Log and iteration snapshots for context. This analysis was terminated',
+    'early by the stall detector to avoid burning further budget on a non-progressing',
+    'loop. The agent produced no investigative findings that could be composed into',
+    'a root cause — escalate, re-run with more context, or flag as a prompt issue.',
+  ].join('\n');
+  try {
+    await updateSection(
+      db,
+      ticketId,
+      KnowledgeDocSectionKey.ROOT_CAUSE,
+      body,
+      KnowledgeDocUpdateMode.REPLACE,
+    );
+  } catch (err) {
+    logger.warn({ err, ticketId, iteration, reason }, 'Failed to write stall marker to rootCause — continuing');
+  }
+}
+
+/**
  * End-of-run guard: for every required section the agent didn't populate
  * (problemStatement / rootCause / recommendedFix), write a fallback marker so
  * downstream `composeFinalAnalysis` always has something to render. Returns
