@@ -37,27 +37,54 @@ export const PREFER_EXISTING_TOOLS_SNIPPET = [
 ].join('\n');
 
 /**
- * Teaches the agent to call `request_tool` when no existing tool fits —
- * surfacing capability gaps to operators rather than improvising silently.
+ * Teaches the agent to call `request_tool` when no existing tool fits, when
+ * a tool is broken, or when a tool is inadequate — surfacing all three kinds
+ * of capability gaps to operators rather than improvising silently.
  */
 export const REQUEST_NEW_TOOL_SNIPPET = [
   '',
-  '## Requesting New Tools',
-  'If no existing tool fits the job and you are about to improvise with a',
-  'generic tool or give up on a line of investigation, call `request_tool`',
-  'with a specific name, description, suggested inputs, and why it was',
-  'needed for this ticket.',
+  '## Requesting New, Broken, or Improved Tools',
+  'Use `request_tool` to surface capability gaps. Set `kind` to the right value:',
   '',
-  'Good examples of when to call:',
-  '- You inspected a stored procedure definition via `run_custom_query` that',
-  '  a `describe_schema_object` tool would serve better',
-  '- You parsed an execution plan XML by hand because there is no',
-  '  `analyze_execution_plan` tool',
-  '- You re-queried deadlock history because there is no',
-  '  `get_deadlock_history` tool returning structured results',
+  '**kind: \'NEW_TOOL\' (default)** — no existing tool comes close.',
+  'Call when you are about to improvise with a generic tool or abandon a line',
+  'of investigation because the right tool does not exist.',
+  'Example:',
+  '  request_tool({',
+  '    kind: \'NEW_TOOL\',',
+  '    requestedName: \'analyze_execution_plan\',',
+  '    displayTitle: \'Analyze SQL Execution Plan XML\',',
+  '    description: \'Parse and summarize a SQL Server XML execution plan, surfacing costly operators, missing index hints, and parallelism warnings.\',',
+  '    rationale: \'Had to parse the plan XML by hand via run_custom_query — a dedicated tool would return structured operator costs.\',',
+  '  })',
   '',
-  'Do not request vague capabilities like "a better tool" or "an easier way."',
-  'Each request should be specific enough that someone could implement it.',
+  '**kind: \'BROKEN_TOOL\'** — an existing tool is malfunctioning.',
+  'Call when a tool you tried returns errors, times out, or returns malformed',
+  'output repeatedly across this analysis. Use the exact tool name.',
+  'Example:',
+  '  request_tool({',
+  '    kind: \'BROKEN_TOOL\',',
+  '    requestedName: \'search_code\',',
+  '    displayTitle: \'search_code failing with SSH not found\',',
+  '    description: \'Every call to search_code fails with "ssh: not found". The mcp-repo server appears to be missing the SSH binary in its container.\',',
+  '    rationale: \'Attempted search_code three times during this analysis — all calls returned the same SSH error, blocking code exploration.\',',
+  '  })',
+  '',
+  '**kind: \'IMPROVE_TOOL\'** — an existing tool works but is inadequate.',
+  'Call when a tool returns something useful but is missing a needed field,',
+  'has a confusing interface, or returns too little data to be actionable.',
+  'Use the exact tool name.',
+  'Example:',
+  '  request_tool({',
+  '    kind: \'IMPROVE_TOOL\',',
+  '    requestedName: \'get_blocking_tree\',',
+  '    displayTitle: \'get_blocking_tree: add query text to output\',',
+  '    description: \'The tool returns session IDs and wait types but omits the blocking query text, requiring a follow-up run_custom_query to fetch it.\',',
+  '    rationale: \'Had to make a second query to retrieve the blocking SQL text — including it in the blocking tree output would save the extra round-trip.\',',
+  '  })',
+  '',
+  'Do not call for vague issues. Each request must be specific enough that',
+  'an operator can act on it without guessing.',
 ].join('\n');
 
 /**

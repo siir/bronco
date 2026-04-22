@@ -1,10 +1,19 @@
 import { Injectable, inject } from '@angular/core';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { ApiService } from './api.service.js';
+import { environment } from '../../../environments/environment.js';
 
 // Keep in sync with packages/shared-types/src/tool-request.ts.
 // Control panel does not depend on @bronco/shared-types directly; these
 // literal unions mirror the enum values used by the REST API.
+export const ToolRequestKind = {
+  NEW_TOOL: 'NEW_TOOL',
+  BROKEN_TOOL: 'BROKEN_TOOL',
+  IMPROVE_TOOL: 'IMPROVE_TOOL',
+} as const;
+export type ToolRequestKind = (typeof ToolRequestKind)[keyof typeof ToolRequestKind];
+
 export const ToolRequestStatus = {
   PROPOSED: 'PROPOSED',
   APPROVED: 'APPROVED',
@@ -44,6 +53,7 @@ export interface ToolRequestListItem {
   description: string;
   suggestedInputs: Record<string, unknown> | null;
   exampleUsage: string | null;
+  kind: ToolRequestKind;
   status: ToolRequestStatus;
   requestCount: number;
   approvedAt: string | null;
@@ -127,6 +137,7 @@ export interface ToolRequestListResponse {
 
 export interface ToolRequestListFilters {
   status?: ToolRequestStatus | ToolRequestStatus[];
+  kind?: ToolRequestKind | ToolRequestKind[];
   clientId?: string;
   search?: string;
   limit?: number;
@@ -135,6 +146,7 @@ export interface ToolRequestListFilters {
 
 export interface UpdateToolRequestBody {
   status?: ToolRequestStatus;
+  kind?: ToolRequestKind;
   rejectedReason?: string;
   duplicateOfId?: string | null;
   implementedInCommit?: string;
@@ -145,20 +157,30 @@ export interface UpdateToolRequestBody {
 @Injectable({ providedIn: 'root' })
 export class ToolRequestService {
   private api = inject(ApiService);
+  private http = inject(HttpClient);
+  private baseUrl = environment.apiUrl;
 
   list(filters?: ToolRequestListFilters): Observable<ToolRequestListResponse> {
-    const params: Record<string, string | number> = {};
-    if (filters?.clientId) params['clientId'] = filters.clientId;
-    if (filters?.search) params['search'] = filters.search;
-    if (filters?.limit != null) params['limit'] = filters.limit;
-    if (filters?.offset != null) params['offset'] = filters.offset;
+    // Build HttpParams manually so that array values (kind, status) are serialized
+    // as repeated params (?kind=A&kind=B) to match the REST handler's Zod schema.
+    let params = new HttpParams();
+    if (filters?.clientId) params = params.set('clientId', filters.clientId);
+    if (filters?.search) params = params.set('search', filters.search);
+    if (filters?.limit != null) params = params.set('limit', String(filters.limit));
+    if (filters?.offset != null) params = params.set('offset', String(filters.offset));
     if (filters?.status) {
-      const arr = Array.isArray(filters.status) ? filters.status : [filters.status];
-      // ApiService joins via URLSearchParams; send comma-separated then split on server? Server schema accepts array or single.
-      // Use single status when only one; use first value otherwise (multi-status kept to a single call each in UI).
-      if (arr.length === 1) params['status'] = arr[0];
+      const statuses = Array.isArray(filters.status) ? filters.status : [filters.status];
+      for (const s of statuses) {
+        params = params.append('status', s);
+      }
     }
-    return this.api.get<ToolRequestListResponse>('/tool-requests', params);
+    if (filters?.kind) {
+      const kinds = Array.isArray(filters.kind) ? filters.kind : [filters.kind];
+      for (const k of kinds) {
+        params = params.append('kind', k);
+      }
+    }
+    return this.http.get<ToolRequestListResponse>(`${this.baseUrl}/tool-requests`, { params });
   }
 
   get(id: string): Observable<ToolRequestDetail> {

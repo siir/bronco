@@ -1,28 +1,36 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { Prisma } from '@bronco/db';
-import { ToolRequestStatus } from '@bronco/shared-types';
+import { ToolRequestKind, ToolRequestStatus } from '@bronco/shared-types';
 import { createToolRequestGithubIssue } from '@bronco/shared-utils';
 import type { ServerDeps } from '../server.js';
 
 const STATUS_VALUES = Object.values(ToolRequestStatus) as [string, ...string[]];
+const KIND_VALUES = Object.values(ToolRequestKind) as [string, ...string[]];
 
 export function registerToolRequestTools(server: McpServer, { db, config }: ServerDeps): void {
   server.tool(
     'list_tool_requests',
-    'List agent-flagged tool requests (missing capability registry). Filterable by client and status.',
+    'List agent-flagged tool requests (missing capability registry). Filterable by client, status, and kind.',
     {
       clientId: z.string().uuid().optional().describe('Filter by client ID'),
       status: z
         .array(z.enum(STATUS_VALUES))
         .optional()
         .describe('Filter by status values'),
+      kind: z
+        .array(z.enum(KIND_VALUES))
+        .optional()
+        .describe('Filter by kind values (NEW_TOOL, BROKEN_TOOL, IMPROVE_TOOL)'),
     },
     async (params) => {
       const where: Prisma.ToolRequestWhereInput = {};
       if (params.clientId) where.clientId = params.clientId;
       if (params.status && params.status.length > 0) {
         where.status = { in: params.status as ToolRequestStatus[] };
+      }
+      if (params.kind && params.kind.length > 0) {
+        where.kind = { in: params.kind as ToolRequestKind[] };
       }
 
       const rows = await db.toolRequest.findMany({
@@ -64,6 +72,7 @@ export function registerToolRequestTools(server: McpServer, { db, config }: Serv
     {
       id: z.string().uuid().describe('Tool request ID'),
       status: z.enum(STATUS_VALUES).optional().describe('New status'),
+      kind: z.enum(KIND_VALUES).optional().describe('Correct the kind if the agent labeled it wrong (NEW_TOOL, BROKEN_TOOL, IMPROVE_TOOL)'),
       rejectedReason: z.string().optional().describe('Required when setting status to REJECTED'),
       duplicateOfId: z
         .string()
@@ -110,6 +119,7 @@ export function registerToolRequestTools(server: McpServer, { db, config }: Serv
           data.approvedAt = new Date();
         }
       }
+      if (params.kind !== undefined) data.kind = params.kind as ToolRequestKind;
       if (params.rejectedReason !== undefined) data.rejectedReason = params.rejectedReason;
       if (params.duplicateOfId !== undefined) {
         data.duplicateOf = { connect: { id: params.duplicateOfId } };

@@ -1,3 +1,15 @@
+// --- Tool Request Kind (what the agent is reporting) ---
+
+export const ToolRequestKind = {
+  /** Agent wishes a new tool existed (default). */
+  NEW_TOOL: 'NEW_TOOL',
+  /** An existing tool is malfunctioning (errors, timeouts, malformed output). */
+  BROKEN_TOOL: 'BROKEN_TOOL',
+  /** An existing tool works but is inadequate (missing fields, confusing interface). */
+  IMPROVE_TOOL: 'IMPROVE_TOOL',
+} as const;
+export type ToolRequestKind = (typeof ToolRequestKind)[keyof typeof ToolRequestKind];
+
 // --- Tool Request Status (lifecycle of an agent-flagged tool gap) ---
 
 export const ToolRequestStatus = {
@@ -38,6 +50,7 @@ export interface ToolRequest {
   description: string;
   suggestedInputs: Record<string, unknown> | null;
   exampleUsage: string | null;
+  kind: ToolRequestKind;
   status: ToolRequestStatus;
   requestCount: number;
   approvedAt: Date | null;
