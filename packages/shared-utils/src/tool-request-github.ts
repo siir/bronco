@@ -62,6 +62,21 @@ interface ToolRequestRow {
 }
 
 /**
+ * Validates and parses a GitHub repo string in the form "owner/name".
+ * Throws if the string does not contain exactly two non-empty segments.
+ */
+function parseRepoString(raw: string): { owner: string; name: string } {
+  const trimmed = raw.trim();
+  const parts = trimmed.split('/');
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    throw new Error(
+      `Invalid GitHub repo format: "${raw}" — expected "owner/name" with exactly two non-empty segments. Configure this under Settings → GitHub → Repository.`,
+    );
+  }
+  return { owner: parts[0], name: parts[1] };
+}
+
+/**
  * Creates a GitHub issue from a ToolRequest row's content. Uses the
  * `system-config-github` AppSetting for both the PAT (encrypted) and the
  * default target repo (`repo` field, "owner/name" format). Per-call
@@ -120,10 +135,10 @@ export async function createToolRequestGithubIssue(
   let name = input.repoName?.trim();
   if (!owner || !name) {
     const repoStr = typeof cfg.repo === 'string' ? cfg.repo.trim() : '';
-    const slashIdx = repoStr.indexOf('/');
-    if (slashIdx > 0) {
-      owner = owner || repoStr.slice(0, slashIdx).trim();
-      name = name || repoStr.slice(slashIdx + 1).trim();
+    if (repoStr) {
+      const parsed = parseRepoString(repoStr);
+      owner = owner || parsed.owner;
+      name = name || parsed.name;
     }
   }
   if (!owner || !name) {
