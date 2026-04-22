@@ -317,7 +317,24 @@ export async function callMcpToolViaSdk(
     const texts = contentArray
       .filter((c: { type: string }) => c.type === 'text')
       .map((c: { type: string; text: string }) => c.text);
-    return texts.join('\n') || JSON.stringify(result);
+    const joined = texts.join('\n') || JSON.stringify(result);
+    // MCP tools may return normally with `isError: true` (input validation,
+    // rate-limit rejections, tool-logic errors the server returns as a result
+    // rather than throwing). Surface these as thrown exceptions so the agentic
+    // caller's catch block can classify them into the structured envelope
+    // alongside transport/timeout/auth failures. See #360.
+    if (result.isError === true) {
+      // Cap the embedded content so high-volume tools (e.g. repo_exec returning
+      // full stdout/stderr) don't bloat logs, error envelopes, and agent prompts.
+      // Classification patterns we care about (rate_limit / auth / timeout / etc.)
+      // land within the first hundred characters in practice.
+      const MAX_ERROR_BODY = 2000;
+      const truncated = joined.length > MAX_ERROR_BODY
+        ? `${joined.slice(0, MAX_ERROR_BODY)} [truncated ${joined.length - MAX_ERROR_BODY} chars]`
+        : joined;
+      throw new Error(`MCP tool returned isError: ${truncated}`);
+    }
+    return joined;
   } finally {
     if (timer !== undefined) clearTimeout(timer);
     try { await transport.close(); } catch { /* ignore close errors */ }
