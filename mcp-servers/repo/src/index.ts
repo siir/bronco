@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import express from 'express';
 import { getDb, disconnectDb } from '@bronco/db';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -7,6 +8,68 @@ import { createMcpServer } from './server.js';
 import { RepoManager } from './repo-manager.js';
 
 const logger = createLogger('mcp-repo');
+
+// --- SSH reachability probe (cached) ---
+// Checks whether `ssh -T git@github.com` authenticates, so the control
+// panel's status page can flag mcp-repo instances that have missing or
+// broken SSH keys before the operator tries to analyze a ticket whose
+// repos are SSH-only. Cached for 60s to avoid spawning ssh on every
+// health poll. See issue #367.
+const SSH_PROBE_TTL_MS = 60_000;
+let sshProbeCache: { value: boolean; at: number } | null = null;
+let sshProbeInflight: Promise<boolean> | null = null;
+
+function probeSshGithub(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const child = spawn(
+      'ssh',
+      [
+        '-T',
+        '-o', 'StrictHostKeyChecking=yes',
+        '-o', 'BatchMode=yes',
+        '-o', 'ConnectTimeout=5',
+        'git@github.com',
+      ],
+      { stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+
+    let out = '';
+    child.stdout.on('data', (chunk) => { out += chunk.toString(); });
+    child.stderr.on('data', (chunk) => { out += chunk.toString(); });
+
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      resolve(false);
+    }, 8_000);
+
+    child.on('error', () => {
+      clearTimeout(timer);
+      resolve(false);
+    });
+    // ssh -T against github exits non-zero even on success, so rely on output.
+    child.on('close', () => {
+      clearTimeout(timer);
+      resolve(/successfully authenticated/i.test(out));
+    });
+  });
+}
+
+async function getSshGithubReachable(): Promise<boolean> {
+  const now = Date.now();
+  if (sshProbeCache && now - sshProbeCache.at < SSH_PROBE_TTL_MS) {
+    return sshProbeCache.value;
+  }
+  if (sshProbeInflight) return sshProbeInflight;
+  sshProbeInflight = probeSshGithub()
+    .then((value) => {
+      sshProbeCache = { value, at: Date.now() };
+      return value;
+    })
+    .finally(() => {
+      sshProbeInflight = null;
+    });
+  return sshProbeInflight;
+}
 
 async function main(): Promise<void> {
   const config = getConfig();
@@ -20,8 +83,13 @@ async function main(): Promise<void> {
   app.use(express.json());
 
   // --- Health check (no auth) ---
-  app.get('/health', (_req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  app.get('/health', async (_req, res) => {
+    const sshGithubReachable = await getSshGithubReachable().catch(() => false);
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      sshGithubReachable,
+    });
   });
 
   // --- Auth middleware for all other routes ---
