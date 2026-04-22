@@ -2,10 +2,18 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { ToolRequestKind, ToolRequestRationaleSource } from '@bronco/shared-types';
 import type { ServerDeps } from '../server.js';
-import { normalizeRequestedName, registerToolRequest, buildClientToolCatalog } from '@bronco/shared-utils';
+import { createLogger, normalizeRequestedName, registerToolRequest, buildClientToolCatalog } from '@bronco/shared-utils';
+
+const logger = createLogger('request-tool');
 
 const SETTING_KEY = 'tool-request-rate-limit-per-run';
 const DEFAULT_LIMIT_PER_RUN = 5;
+/**
+ * Best-effort catalog lookup: if MCP servers are slow or unreachable, we skip
+ * the "not found" warning rather than blocking the agent. Slow discoveries are
+ * logged at warn level so the operator can see if this is consistently firing.
+ */
+const CATALOG_LOOKUP_TIMEOUT_MS = 3_000;
 /**
  * #306 will introduce an explicit per-run tracker. Until then, we use the
  * ticket's lastAnalyzedAt (or a 1h window) as a pragmatic run-start proxy.
@@ -183,21 +191,43 @@ export function registerRequestToolTool(server: McpServer, { db, config }: Serve
         select: { requestCount: true, status: true, kind: true },
       });
 
+      // For BROKEN_TOOL / IMPROVE_TOOL, warn if the requestedName is absent from the
+      // client's active tool catalog. The lookup is best-effort: if MCP servers are
+      // slow or unreachable we skip the warning (don't block the agent on a slow/down
+      // discovery service). Slow discoveries are logged at warn level for operator visibility.
       let kindWarning = '';
       if (kind !== ToolRequestKind.NEW_TOOL) {
-        const catalog = await buildClientToolCatalog(db, clientId, {
-          encryptionKey: config.ENCRYPTION_KEY,
-          mcpPlatformUrl: config.MCP_PLATFORM_URL,
-          mcpRepoUrl: config.MCP_REPO_URL,
-          mcpDatabaseUrl: config.MCP_DATABASE_URL,
-          platformApiKey: config.API_KEY,
-        });
-        const match = catalog.find((t) => t.toolName === normalizedName);
-        if (!match) {
-          kindWarning =
-            ` Note: "${normalizedName}" was not found in this client's active tool catalog` +
-            ` (scanned ${catalog.length} tool(s) across all MCP servers).` +
-            ` Operator will review whether this is a typo or a tool that's not yet registered.`;
+        const startMs = Date.now();
+        try {
+          const catalogPromise = buildClientToolCatalog(db, clientId, {
+            encryptionKey: config.ENCRYPTION_KEY,
+            mcpPlatformUrl: config.MCP_PLATFORM_URL,
+            mcpRepoUrl: config.MCP_REPO_URL,
+            mcpDatabaseUrl: config.MCP_DATABASE_URL,
+            platformApiKey: config.API_KEY,
+          });
+          const timeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(
+              () => reject(new Error('catalog lookup timeout')),
+              CATALOG_LOOKUP_TIMEOUT_MS,
+            ),
+          );
+          const catalog = await Promise.race([catalogPromise, timeoutPromise]);
+          const match = catalog.find((t) => t.toolName === normalizedName);
+          if (!match) {
+            kindWarning =
+              ` Note: "${normalizedName}" was not found in this client's active tool catalog` +
+              ` (scanned ${catalog.length} tool(s) across all MCP servers).` +
+              ` Operator will review whether this is a typo or a tool that's not yet registered.`;
+          }
+        } catch (err) {
+          // Best-effort — don't block the agent on slow/down MCP servers.
+          // Log at warn so the operator can see if discovery is consistently slow.
+          logger.warn(
+            { clientId, normalizedName, elapsedMs: Date.now() - startMs, err: (err as Error).message },
+            'Catalog lookup skipped for kindWarning (timeout or error)',
+          );
+          // No warning emitted — "we don't know" is better than a false positive.
         }
       }
 

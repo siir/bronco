@@ -43,7 +43,7 @@ export const PREFER_EXISTING_TOOLS_SNIPPET = [
  */
 export const REQUEST_NEW_TOOL_SNIPPET = [
   '',
-  '## Requesting New or Broken Tools',
+  '## Requesting New, Broken, or Improved Tools',
   'Use `request_tool` to surface capability gaps. Set `kind` to the right value:',
   '',
   '**kind: \'NEW_TOOL\' (default)** — no existing tool comes close.',
