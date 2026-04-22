@@ -259,6 +259,7 @@ export async function portalTicketRoutes(fastify: FastifyInstance, opts: PortalT
               clientId: portalUser.clientId,
               subject: subject.trim(),
               description: description?.trim() || null,
+              status: 'NEW',
               priority: (priority as Priority) ?? 'MEDIUM',
               source: 'MANUAL',
               ticketNumber: portalTicketNumber,

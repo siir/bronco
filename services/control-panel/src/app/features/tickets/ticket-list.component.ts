@@ -28,6 +28,7 @@ interface StatusPill {
 const STATUS_PILLS: StatusPill[] = [
   { label: 'All', value: '' },
   { label: 'Active', value: ACTIVE_STATUS_FILTER },
+  { label: 'New', value: 'NEW' },
   { label: 'Open', value: 'OPEN' },
   { label: 'In Progress', value: 'IN_PROGRESS' },
   { label: 'Resolved', value: 'RESOLVED' },

@@ -395,6 +395,7 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
             description,
             systemId,
             environmentId: environmentId ?? undefined,
+            status: 'NEW',
             priority: priority as Priority,
             source: source as TicketSource,
             category: category as TicketCategory,

@@ -5,7 +5,7 @@ import { createLogger } from '@bronco/shared-utils';
 
 const logger = createLogger('pending-actions');
 
-const VALID_STATUSES = new Set(['OPEN', 'IN_PROGRESS', 'WAITING', 'RESOLVED', 'CLOSED']);
+const VALID_STATUSES = new Set(['NEW', 'OPEN', 'IN_PROGRESS', 'WAITING', 'RESOLVED', 'CLOSED']);
 const VALID_PRIORITIES = new Set(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']);
 const VALID_CATEGORIES = new Set([
   'DATABASE_PERF', 'BUG_FIX', 'FEATURE_REQUEST', 'SCHEMA_CHANGE',
@@ -35,7 +35,7 @@ async function executePendingAction(
       await db.ticket.update({
         where: { id: ticketId },
         data: {
-          status: value as 'OPEN' | 'IN_PROGRESS' | 'WAITING' | 'RESOLVED' | 'CLOSED',
+          status: value as 'NEW' | 'OPEN' | 'IN_PROGRESS' | 'WAITING' | 'RESOLVED' | 'CLOSED',
           resolvedAt: isClosedStatus(value) ? new Date() : null,
         },
       });

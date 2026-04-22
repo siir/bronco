@@ -9,11 +9,12 @@ const settingsLogger = createLogger('settings');
 
 /** Default configs seeded lazily if the DB tables are empty. */
 const DEFAULT_STATUS_CONFIGS = [
-  { value: TicketStatus.OPEN, displayName: 'Open', description: 'Newly created ticket awaiting triage', color: '#2196f3', sortOrder: 0, statusClass: 'open' },
-  { value: TicketStatus.IN_PROGRESS, displayName: 'In Progress', description: 'Actively being worked on', color: '#ff9800', sortOrder: 1, statusClass: 'open' },
-  { value: TicketStatus.WAITING, displayName: 'Waiting', description: 'Waiting for external input or response', color: '#9c27b0', sortOrder: 2, statusClass: 'open' },
-  { value: TicketStatus.RESOLVED, displayName: 'Resolved', description: 'Issue has been resolved', color: '#4caf50', sortOrder: 3, statusClass: 'closed' },
-  { value: TicketStatus.CLOSED, displayName: 'Closed', description: 'Ticket is closed', color: '#757575', sortOrder: 4, statusClass: 'closed' },
+  { value: TicketStatus.NEW, displayName: 'New', description: 'Newly created ticket awaiting analysis', color: '#60a5fa', sortOrder: 0, statusClass: 'open' },
+  { value: TicketStatus.OPEN, displayName: 'Open', description: 'Active ticket — analysis complete, awaiting operator action or external response', color: '#2196f3', sortOrder: 1, statusClass: 'open' },
+  { value: TicketStatus.IN_PROGRESS, displayName: 'In Progress', description: 'Actively being worked on', color: '#ff9800', sortOrder: 2, statusClass: 'open' },
+  { value: TicketStatus.WAITING, displayName: 'Waiting', description: 'Waiting for external input or response', color: '#9c27b0', sortOrder: 3, statusClass: 'open' },
+  { value: TicketStatus.RESOLVED, displayName: 'Resolved', description: 'Issue has been resolved', color: '#4caf50', sortOrder: 4, statusClass: 'closed' },
+  { value: TicketStatus.CLOSED, displayName: 'Closed', description: 'Ticket is closed', color: '#757575', sortOrder: 5, statusClass: 'closed' },
 ];
 
 const DEFAULT_CATEGORY_CONFIGS = [
@@ -143,12 +144,33 @@ interface SettingsRouteOpts {
 export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRouteOpts): Promise<void> {
   // ─── Ticket Statuses ───
 
-  // GET /api/settings/statuses — list all status configs (auto-seed if empty)
+  // GET /api/settings/statuses — list all status configs (auto-seed missing defaults)
   fastify.get('/api/settings/statuses', async () => {
     let configs = await fastify.db.ticketStatusConfig.findMany({ orderBy: { sortOrder: 'asc' } });
 
-    if (configs.length === 0) {
-      await fastify.db.ticketStatusConfig.createMany({ data: DEFAULT_STATUS_CONFIGS, skipDuplicates: true });
+    const existingValues = new Set(configs.map((c) => c.value));
+    const missing = DEFAULT_STATUS_CONFIGS.filter((d) => !existingValues.has(d.value));
+    if (missing.length > 0) {
+      await fastify.db.ticketStatusConfig.createMany({ data: missing, skipDuplicates: true });
+    }
+
+    // For existing deployments where the OPEN row was seeded before the NEW status was
+    // introduced, it may still carry the old pre-PR defaults (sortOrder=0, old description).
+    // Apply the targeted update only when the row still matches those exact pre-PR values so
+    // that operator customizations are left untouched.
+    const PRE_PR_OPEN_DESCRIPTION = 'Newly created ticket awaiting triage';
+    const openRow = configs.find((c) => c.value === 'OPEN');
+    if (openRow && openRow.sortOrder === 0 && openRow.description === PRE_PR_OPEN_DESCRIPTION) {
+      await fastify.db.ticketStatusConfig.update({
+        where: { value: 'OPEN' },
+        data: {
+          sortOrder: 1,
+          description: 'Active ticket — analysis complete, awaiting operator action or external response',
+        },
+      });
+    }
+
+    if (missing.length > 0 || (openRow && openRow.sortOrder === 0 && openRow.description === PRE_PR_OPEN_DESCRIPTION)) {
       configs = await fastify.db.ticketStatusConfig.findMany({ orderBy: { sortOrder: 'asc' } });
     }
 

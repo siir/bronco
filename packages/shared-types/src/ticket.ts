@@ -1,4 +1,5 @@
 export const TicketStatus = {
+  NEW: 'NEW',
   OPEN: 'OPEN',
   IN_PROGRESS: 'IN_PROGRESS',
   WAITING: 'WAITING',
@@ -63,6 +64,7 @@ export const TicketEventType = {
 export type TicketEventType = (typeof TicketEventType)[keyof typeof TicketEventType];
 
 export type OpenTicketStatus =
+  | typeof TicketStatus.NEW
   | typeof TicketStatus.OPEN
   | typeof TicketStatus.IN_PROGRESS
   | typeof TicketStatus.WAITING;
@@ -73,6 +75,7 @@ export type ClosedTicketStatus =
 
 /** Statuses that represent an active/open ticket. */
 export const OPEN_STATUSES = Object.freeze([
+  TicketStatus.NEW,
   TicketStatus.OPEN,
   TicketStatus.IN_PROGRESS,
   TicketStatus.WAITING,

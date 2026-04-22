@@ -5,7 +5,7 @@ import { AuthService } from './auth.service.js';
 import { ToastService } from './toast.service.js';
 
 /** Comma-separated active status values for API queries. Single source of truth for the UI. */
-export const ACTIVE_STATUS_FILTER = 'OPEN,IN_PROGRESS,WAITING';
+export const ACTIVE_STATUS_FILTER = 'NEW,OPEN,IN_PROGRESS,WAITING';
 
 export interface TicketFollower {
   id: string;
