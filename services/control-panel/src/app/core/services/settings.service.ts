@@ -158,6 +158,11 @@ export interface SelfAnalysisConfig {
   scheduledEnabled: boolean;
   scheduledCron: string;
   repoUrl: string;
+  scheduleType: 'time' | 'cron';
+  scheduleHour: number | null;
+  scheduleMinute: number | null;
+  scheduleDaysOfWeek: string | null;
+  scheduleTimezone: string;
 }
 
 export interface TestResult {

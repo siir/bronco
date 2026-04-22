@@ -35,7 +35,9 @@ import {
   DropdownItemComponent,
   DialogComponent,
   IconComponent,
+  CronSchedulerComponent,
 } from '../../shared/components/index.js';
+import type { CronSchedulerValue } from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service.js';
 
 const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External Services', 'Action Safety', 'Analysis Strategy', 'Self Analysis', 'SMTP', 'Azure DevOps', 'GitHub', 'IMAP', 'Slack', 'Prompt Retention'] as const;
@@ -57,6 +59,7 @@ const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External
     DropdownItemComponent,
     DialogComponent,
     IconComponent,
+    CronSchedulerComponent,
     ExternalServiceDialogComponent,
     StatusConfigDialogComponent,
     CategoryConfigDialogComponent,
@@ -419,9 +422,15 @@ const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External
 
                 @if (selfAnalysisScheduled()) {
                   <div class="form-grid" style="margin-top: 16px;">
-                    <app-form-field label="Cron Expression" hint="Standard cron (e.g., &quot;0 9 * * 1&quot; = Monday 9am UTC)">
-                      <input class="text-input" [value]="selfAnalysisCron()" (blur)="updateSelfAnalysis({ scheduledCron: $any($event.target).value })">
-                    </app-form-field>
+                    <app-cron-scheduler
+                      [initialScheduleType]="selfAnalysisScheduleType()"
+                      [initialHour]="selfAnalysisScheduleHour()"
+                      [initialMinute]="selfAnalysisScheduleMinute()"
+                      [initialDays]="selfAnalysisScheduleDays()"
+                      [initialTimezone]="selfAnalysisScheduleTimezone()"
+                      [initialCronExpression]="selfAnalysisCron()"
+                      (valueChange)="onSelfAnalysisScheduleChange($event)"
+                    />
 
                     <app-form-field label="Repository URL" hint="Git repo URL for code-aware analysis via mcp-repo">
                       <input class="text-input" [value]="selfAnalysisRepoUrl()" (blur)="updateSelfAnalysis({ repoUrl: $any($event.target).value })">
@@ -842,6 +851,11 @@ export class SettingsComponent implements OnInit {
   selfAnalysisScheduled = signal(false);
   selfAnalysisCron = signal('0 9 * * 1');
   selfAnalysisRepoUrl = signal('https://github.com/siir/bronco');
+  selfAnalysisScheduleType = signal<'time' | 'cron'>('cron');
+  selfAnalysisScheduleHour = signal(9);
+  selfAnalysisScheduleMinute = signal(0);
+  selfAnalysisScheduleDays = signal<boolean[]>([false, false, false, false, false, false, false]);
+  selfAnalysisScheduleTimezone = signal('America/Chicago');
 
   selectedTab = signal(0);
 
@@ -1143,6 +1157,17 @@ export class SettingsComponent implements OnInit {
         this.selfAnalysisScheduled.set(config.scheduledEnabled);
         this.selfAnalysisCron.set(config.scheduledCron);
         this.selfAnalysisRepoUrl.set(config.repoUrl);
+        this.selfAnalysisScheduleType.set(config.scheduleType ?? 'cron');
+        this.selfAnalysisScheduleHour.set(config.scheduleHour ?? 9);
+        this.selfAnalysisScheduleMinute.set(config.scheduleMinute ?? 0);
+        this.selfAnalysisScheduleTimezone.set(config.scheduleTimezone ?? 'America/Chicago');
+        const days: boolean[] = [false, false, false, false, false, false, false];
+        if (config.scheduleDaysOfWeek) {
+          config.scheduleDaysOfWeek.split(',').map(Number).forEach((d) => {
+            if (d >= 0 && d <= 6) days[d] = true;
+          });
+        }
+        this.selfAnalysisScheduleDays.set(days);
         this.selfAnalysisLoading.set(false);
       },
       error: () => {
@@ -1158,6 +1183,19 @@ export class SettingsComponent implements OnInit {
     if (partial.scheduledEnabled !== undefined) this.selfAnalysisScheduled.set(partial.scheduledEnabled);
     if (partial.scheduledCron !== undefined) this.selfAnalysisCron.set(partial.scheduledCron);
     if (partial.repoUrl !== undefined) this.selfAnalysisRepoUrl.set(partial.repoUrl);
+    if (partial.scheduleType !== undefined) this.selfAnalysisScheduleType.set(partial.scheduleType);
+    if (partial.scheduleHour != null) this.selfAnalysisScheduleHour.set(partial.scheduleHour);
+    if (partial.scheduleMinute != null) this.selfAnalysisScheduleMinute.set(partial.scheduleMinute);
+    if (partial.scheduleTimezone !== undefined) this.selfAnalysisScheduleTimezone.set(partial.scheduleTimezone);
+    if (partial.scheduleDaysOfWeek !== undefined) {
+      const days: boolean[] = [false, false, false, false, false, false, false];
+      if (partial.scheduleDaysOfWeek) {
+        partial.scheduleDaysOfWeek.split(',').map(Number).forEach((d) => {
+          if (d >= 0 && d <= 6) days[d] = true;
+        });
+      }
+      this.selfAnalysisScheduleDays.set(days);
+    }
 
     this.settingsSvc.saveSelfAnalysis(partial).subscribe({
       next: (saved) => {
@@ -1172,6 +1210,22 @@ export class SettingsComponent implements OnInit {
         this.toast.error('Failed to save self-analysis config');
         this.loadSelfAnalysis();
       },
+    });
+  }
+
+  onSelfAnalysisScheduleChange(val: CronSchedulerValue): void {
+    const daysOfWeek = val.selectedDays
+      .map((checked, i) => (checked ? i : -1))
+      .filter((i) => i >= 0)
+      .join(',') || null;
+
+    this.updateSelfAnalysis({
+      scheduledCron: val.utcCron,
+      scheduleType: val.scheduleType,
+      scheduleHour: val.scheduleHour,
+      scheduleMinute: val.scheduleMinute,
+      scheduleDaysOfWeek: daysOfWeek,
+      scheduleTimezone: val.scheduleTimezone,
     });
   }
 

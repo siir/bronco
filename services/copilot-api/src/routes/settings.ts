@@ -1207,6 +1207,11 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     scheduledEnabled: z.boolean().default(false),
     scheduledCron: z.string().default('0 9 * * 1'),
     repoUrl: z.string().default('https://github.com/siir/bronco'),
+    scheduleType: z.enum(['time', 'cron']).default('cron'),
+    scheduleHour: z.number().int().min(0).max(23).nullable().default(null),
+    scheduleMinute: z.number().int().min(0).max(59).nullable().default(null),
+    scheduleDaysOfWeek: z.string().nullable().default(null),
+    scheduleTimezone: z.string().default('America/Chicago'),
   });
 
   type SelfAnalysisConfig = z.output<typeof selfAnalysisConfigSchema>;
@@ -1217,6 +1222,11 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     scheduledEnabled: false,
     scheduledCron: '0 9 * * 1',
     repoUrl: 'https://github.com/siir/bronco',
+    scheduleType: 'cron',
+    scheduleHour: null,
+    scheduleMinute: null,
+    scheduleDaysOfWeek: null,
+    scheduleTimezone: 'America/Chicago',
   };
 
   // GET /api/settings/self-analysis
