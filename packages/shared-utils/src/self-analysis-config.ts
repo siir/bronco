@@ -28,7 +28,7 @@ const DEFAULT_SELF_ANALYSIS_CONFIG: SelfAnalysisConfig = {
   scheduleHour: null,
   scheduleMinute: null,
   scheduleDaysOfWeek: null,
-  scheduleTimezone: 'America/Chicago',
+  scheduleTimezone: 'UTC',
 };
 
 const SETTINGS_KEY = 'self_analysis_config';

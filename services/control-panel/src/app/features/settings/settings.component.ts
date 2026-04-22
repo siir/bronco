@@ -1,4 +1,5 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, inject, signal, OnInit, OnDestroy } from '@angular/core';
+import { Subject, Subscription, debounceTime, switchMap } from 'rxjs';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import {
@@ -794,7 +795,7 @@ const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External
     .strategyOptions { max-width: 400px; }
   `],
 })
-export class SettingsComponent implements OnInit {
+export class SettingsComponent implements OnInit, OnDestroy {
   private toast = inject(ToastService);
   private extSvc = inject(ExternalServiceService);
   private settingsSvc = inject(SettingsService);
@@ -857,6 +858,9 @@ export class SettingsComponent implements OnInit {
   selfAnalysisScheduleDays = signal<boolean[]>([false, false, false, false, false, false, false]);
   selfAnalysisScheduleTimezone = signal(this.getBrowserTimezone());
 
+  private scheduleChangeSubject = new Subject<void>();
+  private scheduleChangeSub?: Subscription;
+
   selectedTab = signal(0);
 
   trackStatus = (s: TicketStatusConfig) => s.value;
@@ -878,6 +882,30 @@ export class SettingsComponent implements OnInit {
     this.loadAnalysisStrategyVersion();
     this.loadSelfAnalysis();
     this.loadSystemConfigs();
+
+    // Debounced scheduler-field save: collapses rapid weekday/hour/minute changes
+    // into a single PATCH and cancels in-flight requests on newer changes.
+    this.scheduleChangeSub = this.scheduleChangeSubject.pipe(
+      debounceTime(300),
+      switchMap(() => this.settingsSvc.saveSelfAnalysis({
+        scheduledCron: this.selfAnalysisCron(),
+        scheduleType: this.selfAnalysisScheduleType(),
+        scheduleHour: this.selfAnalysisScheduleHour(),
+        scheduleMinute: this.selfAnalysisScheduleMinute(),
+        scheduleDaysOfWeek: this.selfAnalysisScheduleDays()
+          .map((checked, i) => (checked ? i : -1))
+          .filter((i) => i >= 0)
+          .join(',') || null,
+        scheduleTimezone: this.selfAnalysisScheduleTimezone(),
+      })),
+    ).subscribe({
+      next: (saved) => this.applySelfAnalysisResponse(saved),
+      error: () => this.toast.error('Failed to save schedule'),
+    });
+  }
+
+  ngOnDestroy(): void {
+    this.scheduleChangeSub?.unsubscribe();
   }
 
   onTabChange(index: number): void {
@@ -1185,6 +1213,33 @@ export class SettingsComponent implements OnInit {
     });
   }
 
+  /** Apply a full server response to local signals (used by both save paths). */
+  private applySelfAnalysisResponse(saved: SelfAnalysisConfig): void {
+    this.selfAnalysisPostAnalysis.set(saved.postAnalysisTrigger);
+    this.selfAnalysisTicketClose.set(saved.ticketCloseTrigger);
+    this.selfAnalysisScheduled.set(saved.scheduledEnabled);
+    this.selfAnalysisCron.set(saved.scheduledCron);
+    this.selfAnalysisRepoUrl.set(saved.repoUrl);
+    this.selfAnalysisScheduleType.set(saved.scheduleType ?? 'cron');
+    this.selfAnalysisScheduleHour.set(saved.scheduleHour ?? 9);
+    this.selfAnalysisScheduleMinute.set(saved.scheduleMinute ?? 0);
+    this.selfAnalysisScheduleTimezone.set(saved.scheduleTimezone ?? this.getBrowserTimezone());
+    const days: boolean[] = [false, false, false, false, false, false, false];
+    if (saved.scheduleDaysOfWeek) {
+      saved.scheduleDaysOfWeek.split(',').map(Number).forEach((d) => {
+        if (d >= 0 && d <= 6) days[d] = true;
+      });
+    }
+    this.selfAnalysisScheduleDays.set(days);
+  }
+
+  /**
+   * Save a partial self-analysis config update. Used by toggle switches
+   * (postAnalysisTrigger / ticketCloseTrigger / scheduledEnabled / repoUrl)
+   * which are discrete low-frequency clicks and save immediately with a toast.
+   * Scheduler field changes (hour, minute, days, timezone) go through the
+   * debounced path in onSelfAnalysisScheduleChange instead.
+   */
   updateSelfAnalysis(partial: Partial<SelfAnalysisConfig>): void {
     if (partial.postAnalysisTrigger !== undefined) this.selfAnalysisPostAnalysis.set(partial.postAnalysisTrigger);
     if (partial.ticketCloseTrigger !== undefined) this.selfAnalysisTicketClose.set(partial.ticketCloseTrigger);
@@ -1192,8 +1247,8 @@ export class SettingsComponent implements OnInit {
     if (partial.scheduledCron !== undefined) this.selfAnalysisCron.set(partial.scheduledCron);
     if (partial.repoUrl !== undefined) this.selfAnalysisRepoUrl.set(partial.repoUrl);
     if (partial.scheduleType !== undefined) this.selfAnalysisScheduleType.set(partial.scheduleType);
-    if (partial.scheduleHour != null) this.selfAnalysisScheduleHour.set(partial.scheduleHour);
-    if (partial.scheduleMinute != null) this.selfAnalysisScheduleMinute.set(partial.scheduleMinute);
+    if (partial.scheduleHour !== undefined) this.selfAnalysisScheduleHour.set(partial.scheduleHour ?? 0);
+    if (partial.scheduleMinute !== undefined) this.selfAnalysisScheduleMinute.set(partial.scheduleMinute ?? 0);
     if (partial.scheduleTimezone !== undefined) this.selfAnalysisScheduleTimezone.set(partial.scheduleTimezone);
     if (partial.scheduleDaysOfWeek !== undefined) {
       const days: boolean[] = [false, false, false, false, false, false, false];
@@ -1207,22 +1262,7 @@ export class SettingsComponent implements OnInit {
 
     this.settingsSvc.saveSelfAnalysis(partial).subscribe({
       next: (saved) => {
-        this.selfAnalysisPostAnalysis.set(saved.postAnalysisTrigger);
-        this.selfAnalysisTicketClose.set(saved.ticketCloseTrigger);
-        this.selfAnalysisScheduled.set(saved.scheduledEnabled);
-        this.selfAnalysisCron.set(saved.scheduledCron);
-        this.selfAnalysisRepoUrl.set(saved.repoUrl);
-        this.selfAnalysisScheduleType.set(saved.scheduleType ?? 'cron');
-        this.selfAnalysisScheduleHour.set(saved.scheduleHour ?? 9);
-        this.selfAnalysisScheduleMinute.set(saved.scheduleMinute ?? 0);
-        this.selfAnalysisScheduleTimezone.set(saved.scheduleTimezone ?? this.getBrowserTimezone());
-        const days: boolean[] = [false, false, false, false, false, false, false];
-        if (saved.scheduleDaysOfWeek) {
-          saved.scheduleDaysOfWeek.split(',').map(Number).forEach((d) => {
-            if (d >= 0 && d <= 6) days[d] = true;
-          });
-        }
-        this.selfAnalysisScheduleDays.set(days);
+        this.applySelfAnalysisResponse(saved);
         this.toast.success('Self-analysis config saved');
       },
       error: () => {
@@ -1232,20 +1272,20 @@ export class SettingsComponent implements OnInit {
     });
   }
 
+  /**
+   * Called by the cron-scheduler component on every internal change (hour tick,
+   * weekday toggle, timezone change, etc.). Updates local signals immediately
+   * for optimistic UI, then pushes to the debounced save pipeline so rapid edits
+   * collapse into a single PATCH and in-flight saves are cancelled by newer ones.
+   */
   onSelfAnalysisScheduleChange(val: CronSchedulerValue): void {
-    const daysOfWeek = val.selectedDays
-      .map((checked, i) => (checked ? i : -1))
-      .filter((i) => i >= 0)
-      .join(',') || null;
-
-    this.updateSelfAnalysis({
-      scheduledCron: val.utcCron,
-      scheduleType: val.scheduleType,
-      scheduleHour: val.scheduleHour,
-      scheduleMinute: val.scheduleMinute,
-      scheduleDaysOfWeek: daysOfWeek,
-      scheduleTimezone: val.scheduleTimezone,
-    });
+    this.selfAnalysisScheduleType.set(val.scheduleType);
+    this.selfAnalysisScheduleHour.set(val.scheduleHour);
+    this.selfAnalysisScheduleMinute.set(val.scheduleMinute);
+    this.selfAnalysisScheduleDays.set(val.selectedDays);
+    this.selfAnalysisScheduleTimezone.set(val.scheduleTimezone);
+    this.selfAnalysisCron.set(val.utcCron);
+    this.scheduleChangeSubject.next();
   }
 
   // ─── System Config (SMTP, DevOps, GitHub, IMAP, Slack, Prompt Retention) ───

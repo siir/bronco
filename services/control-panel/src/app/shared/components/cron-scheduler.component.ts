@@ -78,7 +78,7 @@ export interface CronSchedulerValue {
         <app-select [value]="scheduleTimezone" [options]="timezoneOptions" (valueChange)="scheduleTimezone = $event; emit()"></app-select>
       </app-form-field>
 
-      <div class="utc-hint">Next run: {{ computedUtcTime }} UTC</div>
+      <div class="utc-hint">Runs at (UTC): {{ computedUtcTime }}</div>
     }
 
     @if (scheduleType === 'cron') {
@@ -281,7 +281,20 @@ function computeUtcPreview(hour: number, minute: number, selectedDays: boolean[]
   }
 }
 
-/** Convert a local-time schedule into a UTC cron expression using Intl for DST-aware offset. */
+/**
+ * Convert a local-time schedule into a static UTC cron expression using the
+ * timezone's CURRENT offset (at the instant of conversion). The result is a
+ * fixed UTC cron — NOT DST-aware over time.
+ *
+ * Limitation: if the operator saves a schedule during a DST period and the
+ * timezone transitions (e.g., US EST ↔ EDT), the UTC cron will drift by
+ * 1 hour from the operator's local wall-clock intent until re-saved. For
+ * precise timing across DST boundaries, operators should re-save the schedule
+ * after DST transitions, or a future refactor should move timezone
+ * interpretation to the worker using a TZ-aware scheduler.
+ *
+ * For non-DST timezones (UTC, most of Asia, etc.), this limitation doesn't apply.
+ */
 function buildUtcCronFromLocal(hour: number, minute: number, selectedDays: boolean[], timezone: string): string {
   try {
     const now = new Date();

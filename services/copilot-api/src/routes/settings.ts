@@ -1211,7 +1211,7 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     scheduleHour: z.number().int().min(0).max(23).nullable().default(null),
     scheduleMinute: z.number().int().min(0).max(59).nullable().default(null),
     scheduleDaysOfWeek: z.string().nullable().default(null),
-    scheduleTimezone: z.string().default('America/Chicago'),
+    scheduleTimezone: z.string().default('UTC'),
   });
 
   type SelfAnalysisConfig = z.output<typeof selfAnalysisConfigSchema>;
@@ -1226,7 +1226,7 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     scheduleHour: null,
     scheduleMinute: null,
     scheduleDaysOfWeek: null,
-    scheduleTimezone: 'America/Chicago',
+    scheduleTimezone: 'UTC',
   };
 
   // GET /api/settings/self-analysis
