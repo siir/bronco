@@ -855,7 +855,7 @@ export class SettingsComponent implements OnInit {
   selfAnalysisScheduleHour = signal(9);
   selfAnalysisScheduleMinute = signal(0);
   selfAnalysisScheduleDays = signal<boolean[]>([false, false, false, false, false, false, false]);
-  selfAnalysisScheduleTimezone = signal('America/Chicago');
+  selfAnalysisScheduleTimezone = signal(this.getBrowserTimezone());
 
   selectedTab = signal(0);
 
@@ -1148,6 +1148,14 @@ export class SettingsComponent implements OnInit {
 
   // ─── Self Analysis ───
 
+  private getBrowserTimezone(): string {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    } catch {
+      return 'UTC';
+    }
+  }
+
   loadSelfAnalysis(): void {
     this.selfAnalysisLoading.set(true);
     this.settingsSvc.getSelfAnalysis().subscribe({
@@ -1160,7 +1168,7 @@ export class SettingsComponent implements OnInit {
         this.selfAnalysisScheduleType.set(config.scheduleType ?? 'cron');
         this.selfAnalysisScheduleHour.set(config.scheduleHour ?? 9);
         this.selfAnalysisScheduleMinute.set(config.scheduleMinute ?? 0);
-        this.selfAnalysisScheduleTimezone.set(config.scheduleTimezone ?? 'America/Chicago');
+        this.selfAnalysisScheduleTimezone.set(config.scheduleTimezone ?? this.getBrowserTimezone());
         const days: boolean[] = [false, false, false, false, false, false, false];
         if (config.scheduleDaysOfWeek) {
           config.scheduleDaysOfWeek.split(',').map(Number).forEach((d) => {
@@ -1204,6 +1212,17 @@ export class SettingsComponent implements OnInit {
         this.selfAnalysisScheduled.set(saved.scheduledEnabled);
         this.selfAnalysisCron.set(saved.scheduledCron);
         this.selfAnalysisRepoUrl.set(saved.repoUrl);
+        this.selfAnalysisScheduleType.set(saved.scheduleType ?? 'cron');
+        this.selfAnalysisScheduleHour.set(saved.scheduleHour ?? 9);
+        this.selfAnalysisScheduleMinute.set(saved.scheduleMinute ?? 0);
+        this.selfAnalysisScheduleTimezone.set(saved.scheduleTimezone ?? this.getBrowserTimezone());
+        const days: boolean[] = [false, false, false, false, false, false, false];
+        if (saved.scheduleDaysOfWeek) {
+          saved.scheduleDaysOfWeek.split(',').map(Number).forEach((d) => {
+            if (d >= 0 && d <= 6) days[d] = true;
+          });
+        }
+        this.selfAnalysisScheduleDays.set(days);
         this.toast.success('Self-analysis config saved');
       },
       error: () => {

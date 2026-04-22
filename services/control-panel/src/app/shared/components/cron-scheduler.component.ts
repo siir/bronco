@@ -75,7 +75,7 @@ export interface CronSchedulerValue {
       </div>
 
       <app-form-field label="Timezone">
-        <app-select [value]="scheduleTimezone" [options]="commonTimezones" (valueChange)="scheduleTimezone = $event; emit()"></app-select>
+        <app-select [value]="scheduleTimezone" [options]="timezoneOptions" (valueChange)="scheduleTimezone = $event; emit()"></app-select>
       </app-form-field>
 
       <div class="utc-hint">Next run: {{ computedUtcTime }} UTC</div>
@@ -113,7 +113,7 @@ export class CronSchedulerComponent implements OnInit {
   initialHour = input<number>(8);
   initialMinute = input<number>(0);
   initialDays = input<boolean[]>([false, false, false, false, false, false, false]);
-  initialTimezone = input<string>('America/Chicago');
+  initialTimezone = input<string | undefined>(undefined);
   initialCronExpression = input<string>('0 * * * *');
 
   valueChange = output<CronSchedulerValue>();
@@ -121,7 +121,7 @@ export class CronSchedulerComponent implements OnInit {
   scheduleType: 'time' | 'cron' = 'time';
   scheduleHour = 8;
   scheduleMinute = 0;
-  scheduleTimezone = 'America/Chicago';
+  scheduleTimezone = this.getBrowserTimezone();
   selectedDays: boolean[] = [false, false, false, false, false, false, false];
   cronExpression = '0 * * * *';
   cronPreset = '';
@@ -134,7 +134,23 @@ export class CronSchedulerComponent implements OnInit {
   hourSelectOptions = HOUR_OPTIONS.map((h) => ({ value: h.value.toString(), label: h.label }));
   minuteSelectOptions = MINUTE_OPTIONS.map((m) => ({ value: m.value.toString(), label: m.label }));
   dayNames = DAY_NAMES;
-  commonTimezones = COMMON_TIMEZONES;
+
+  protected get timezoneOptions(): Array<{ value: string; label: string }> {
+    const base = [...COMMON_TIMEZONES];
+    const current = this.scheduleTimezone;
+    if (current && !base.some((o) => o.value === current)) {
+      base.unshift({ value: current, label: current });
+    }
+    return base;
+  }
+
+  private getBrowserTimezone(): string {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    } catch {
+      return 'UTC';
+    }
+  }
 
   get cronHumanReadable(): string {
     return describeCron(this.cronExpression);
@@ -149,7 +165,7 @@ export class CronSchedulerComponent implements OnInit {
     this.scheduleHour = this.initialHour();
     this.scheduleMinute = this.initialMinute();
     this.selectedDays = [...this.initialDays()];
-    this.scheduleTimezone = this.initialTimezone();
+    this.scheduleTimezone = this.initialTimezone() ?? this.getBrowserTimezone();
     this.cronExpression = this.initialCronExpression();
     const match = CRON_PRESETS.find((pr) => pr.value === this.cronExpression);
     this.cronPreset = match ? match.value : '';
