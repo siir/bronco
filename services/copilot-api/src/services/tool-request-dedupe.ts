@@ -1,15 +1,7 @@
 import { PrismaClient } from '@bronco/db';
 import type { AIRouter } from '@bronco/ai-provider';
-import { TaskType, ToolRequestStatus, IntegrationType } from '@bronco/shared-types';
-import { createLogger, decrypt, looksEncrypted } from '@bronco/shared-utils';
-import { discoverMcpServer } from './mcp-discovery.js';
-
-const logger = createLogger('tool-request-dedupe');
-
-interface SharedMcpServer {
-  name: string;
-  url: string;
-}
+import { TaskType, ToolRequestStatus } from '@bronco/shared-types';
+import { buildClientToolCatalog } from '@bronco/shared-utils';
 
 export interface DedupeOptions {
   mcpPlatformUrl?: string;
@@ -72,87 +64,14 @@ export async function runToolRequestDedupe(
   }
 
   const warnings: string[] = [];
-  const existingTools: Array<{ serverName: string; toolName: string; description: string }> = [];
-
-  const integrations = await db.clientIntegration.findMany({
-    where: {
-      clientId,
-      type: IntegrationType.MCP_DATABASE,
-      isActive: true,
-    },
-    select: { id: true, label: true, config: true },
+  const existingTools = await buildClientToolCatalog(db, clientId, {
+    encryptionKey,
+    mcpPlatformUrl: opts.mcpPlatformUrl,
+    mcpRepoUrl: opts.mcpRepoUrl,
+    mcpDatabaseUrl: opts.mcpDatabaseUrl,
+    platformApiKey: opts.platformApiKey,
+    warnings,
   });
-
-  const integrationDiscoveries = await Promise.all(
-    integrations.map(async (integ) => {
-      const cfg = typeof integ.config === 'object' && integ.config !== null && !Array.isArray(integ.config)
-        ? (integ.config as Record<string, unknown>)
-        : {};
-      const url = typeof cfg.url === 'string' ? cfg.url : undefined;
-      if (!url) {
-        warnings.push(`Integration ${integ.label ?? integ.id} missing url — skipped`);
-        return null;
-      }
-      let apiKey: string | undefined;
-      if (typeof cfg.apiKey === 'string' && cfg.apiKey.length > 0) {
-        try {
-          apiKey = looksEncrypted(cfg.apiKey) ? decrypt(cfg.apiKey, encryptionKey) : cfg.apiKey;
-        } catch (err) {
-          warnings.push(`Failed to decrypt apiKey for integration ${integ.label ?? integ.id}`);
-          logger.warn({ err, integrationId: integ.id }, 'decrypt failed');
-          return null;
-        }
-      }
-      const authHeader = cfg.authHeader === 'x-api-key' ? 'x-api-key' : 'bearer';
-      const mcpPath = typeof cfg.mcpPath === 'string' ? cfg.mcpPath : undefined;
-      try {
-        const result = await discoverMcpServer({ url, mcpPath, apiKey, authHeader });
-        return { serverName: integ.label ?? result.serverName ?? 'mcp-integration', tools: result.tools };
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        warnings.push(`Discovery failed for integration ${integ.label ?? integ.id}: ${msg}`);
-        logger.warn({ err, integrationId: integ.id }, 'MCP integration discovery failed');
-        return null;
-      }
-    }),
-  );
-
-  for (const d of integrationDiscoveries) {
-    if (!d) continue;
-    for (const t of d.tools) {
-      existingTools.push({ serverName: d.serverName, toolName: t.name, description: t.description });
-    }
-  }
-
-  const sharedServers: SharedMcpServer[] = [];
-  if (opts.mcpPlatformUrl) sharedServers.push({ name: 'platform', url: opts.mcpPlatformUrl });
-  if (opts.mcpRepoUrl) sharedServers.push({ name: 'repo', url: opts.mcpRepoUrl });
-  if (opts.mcpDatabaseUrl) sharedServers.push({ name: 'database', url: opts.mcpDatabaseUrl });
-
-  const sharedDiscoveries = await Promise.all(
-    sharedServers.map(async (server) => {
-      try {
-        const result = await discoverMcpServer({
-          url: server.url,
-          apiKey: opts.platformApiKey,
-          authHeader: 'x-api-key',
-        });
-        return { serverName: server.name, tools: result.tools };
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        warnings.push(`Discovery failed for shared ${server.name} server: ${msg}`);
-        logger.warn({ err, server: server.name }, 'Shared MCP discovery failed');
-        return null;
-      }
-    }),
-  );
-
-  for (const d of sharedDiscoveries) {
-    if (!d) continue;
-    for (const t of d.tools) {
-      existingTools.push({ serverName: d.serverName, toolName: t.name, description: t.description });
-    }
-  }
 
   const userPayload = {
     existingTools,

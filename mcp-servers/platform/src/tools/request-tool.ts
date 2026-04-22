@@ -2,7 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { ToolRequestKind, ToolRequestRationaleSource } from '@bronco/shared-types';
 import type { ServerDeps } from '../server.js';
-import { normalizeRequestedName, registerToolRequest } from '@bronco/shared-utils';
+import { normalizeRequestedName, registerToolRequest, buildClientToolCatalog } from '@bronco/shared-utils';
 
 const SETTING_KEY = 'tool-request-rate-limit-per-run';
 const DEFAULT_LIMIT_PER_RUN = 5;
@@ -23,7 +23,7 @@ function parseLimit(raw: unknown): number {
   return DEFAULT_LIMIT_PER_RUN;
 }
 
-export function registerRequestToolTool(server: McpServer, { db }: ServerDeps): void {
+export function registerRequestToolTool(server: McpServer, { db, config }: ServerDeps): void {
   server.tool(
     'request_tool',
     [
@@ -183,12 +183,19 @@ export function registerRequestToolTool(server: McpServer, { db }: ServerDeps): 
         select: { requestCount: true, status: true, kind: true },
       });
 
-      // For BROKEN_TOOL / IMPROVE_TOOL, note if the requestedName didn't match
-      // an existing kind (warn only — row persists regardless).
-      const kindWarning =
-        kind !== ToolRequestKind.NEW_TOOL && result.isNew
-          ? ` Note: "${normalizedName}" was not found in the active tool catalog — operator will review.`
-          : '';
+      let kindWarning = '';
+      if (kind !== ToolRequestKind.NEW_TOOL) {
+        const catalog = await buildClientToolCatalog(db, clientId, {
+          encryptionKey: config.ENCRYPTION_KEY,
+        });
+        const match = catalog.find((t) => t.toolName === normalizedName);
+        if (!match) {
+          kindWarning =
+            ` Note: "${normalizedName}" was not found in this client's active tool catalog` +
+            ` (scanned ${catalog.length} tool(s) across all MCP servers).` +
+            ` Operator will review whether this is a typo or a tool that's not yet registered.`;
+        }
+      }
 
       return {
         content: [
