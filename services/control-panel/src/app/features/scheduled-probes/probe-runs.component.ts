@@ -1,7 +1,7 @@
 import { Component, inject, OnInit, OnDestroy, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { Clipboard, ClipboardModule } from '@angular/cdk/clipboard';
-import { DatePipe, DecimalPipe, SlicePipe } from '@angular/common';
+import { DatePipe, SlicePipe } from '@angular/common';
 import {
   BroncoButtonComponent,
   CardComponent,
@@ -28,7 +28,6 @@ import { ToastService } from '../../core/services/toast.service.js';
     RouterLink,
     ClipboardModule,
     DatePipe,
-    DecimalPipe,
     SlicePipe,
     BroncoButtonComponent,
     CardComponent,
@@ -233,6 +232,7 @@ import { ToastService } from '../../core/services/toast.service.js';
                           <div class="step-result-block">
                             <div class="result-toolbar">
                               <span class="result-label">Result</span>
+                              <span class="result-size">{{ getLineCount(step.id) }} lines · {{ formatBytes(getByteSize(step.id)) }}</span>
                               <app-bronco-button
                                 variant="icon"
                                 size="sm"
@@ -244,14 +244,11 @@ import { ToastService } from '../../core/services/toast.service.js';
                             @if (step.detail.length > 500 && !isStepExpanded(step.id)) {
                               <pre class="detail-pre">{{ step.detail.slice(0, 500) }}…</pre>
                               <app-bronco-button variant="ghost" size="sm" (click)="toggleStepExpand(step.id); $event.stopPropagation()">
-                                Show full result ({{ step.detail.length | number }} chars)
+                                Show full result
                               </app-bronco-button>
                             } @else {
-                              @if (getFormattedJson(step.id) !== null) {
-                                <pre class="detail-pre detail-pre-json">{{ getFormattedJson(step.id) }}</pre>
-                              } @else {
-                                <pre class="detail-pre">{{ step.detail }}</pre>
-                              }
+                              @let formattedJson = getFormattedJson(step.id);
+                              <pre class="detail-pre detail-pre-expanded" [class.detail-pre-json]="formattedJson !== null">{{ formattedJson ?? step.detail }}</pre>
                               @if (step.detail.length > 500) {
                                 <app-bronco-button variant="ghost" size="sm" (click)="toggleStepExpand(step.id); $event.stopPropagation()">
                                   Collapse
@@ -296,7 +293,10 @@ import { ToastService } from '../../core/services/toast.service.js';
                         </div>
                       } @else {
                         <details class="detail-step-output">
-                          <summary>Output</summary>
+                          <summary>
+                            Output
+                            <span class="result-size">{{ getLineCount(step.id) }} lines · {{ formatBytes(getByteSize(step.id)) }}</span>
+                          </summary>
                           <div class="result-toolbar">
                             <span></span>
                             <app-bronco-button
@@ -310,10 +310,10 @@ import { ToastService } from '../../core/services/toast.service.js';
                           @if (step.detail.length > 500 && !isStepExpanded(step.id)) {
                             <pre class="detail-pre">{{ step.detail.slice(0, 500) }}…</pre>
                             <app-bronco-button variant="ghost" size="sm" (click)="toggleStepExpand(step.id); $event.stopPropagation()">
-                              Show full output ({{ step.detail.length | number }} chars)
+                              Show full output
                             </app-bronco-button>
                           } @else {
-                            <pre class="detail-pre">{{ step.detail }}</pre>
+                            <pre class="detail-pre detail-pre-expanded">{{ step.detail }}</pre>
                             @if (step.detail.length > 500) {
                               <app-bronco-button variant="ghost" size="sm" (click)="toggleStepExpand(step.id); $event.stopPropagation()">
                                 Collapse
@@ -597,11 +597,15 @@ import { ToastService } from '../../core/services/toast.service.js';
       border-radius: var(--radius-sm);
       font-size: 12px;
       overflow-x: auto;
-      max-height: 400px;
+      overflow-y: auto;
+      max-height: 200px;
       white-space: pre-wrap;
       word-break: break-word;
       margin: 0;
       font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    }
+    .detail-pre-expanded {
+      max-height: 60vh;
     }
     .detail-pre-json { color: var(--color-success); }
 
@@ -648,6 +652,12 @@ import { ToastService } from '../../core/services/toast.service.js';
       color: var(--text-tertiary);
       font-family: var(--font-primary);
     }
+    .result-size {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      font-family: var(--font-primary);
+      margin-left: 6px;
+    }
 
     .eval-result {
       font-size: 13px;
@@ -673,6 +683,10 @@ export class ProbeRunsComponent implements OnInit, OnDestroy {
   expandedStepIds = new Set<string>();
   /** Precomputed formatted JSON per step id; null means content is not JSON. */
   private formattedJsonCache = new Map<string, string | null>();
+  /** Precomputed line count per step id. */
+  private lineCountCache = new Map<string, number>();
+  /** Precomputed byte size per step id. */
+  private byteSizeCache = new Map<string, number>();
 
   filterStatus = '';
   page = 0;
@@ -750,6 +764,8 @@ export class ProbeRunsComponent implements OnInit, OnDestroy {
     this.expandedRun.set(null);
     this.expandedStepIds.clear();
     this.formattedJsonCache.clear();
+    this.lineCountCache.clear();
+    this.byteSizeCache.clear();
   }
 
   toggleExpand(run: ProbeRun): void {
@@ -764,12 +780,18 @@ export class ProbeRunsComponent implements OnInit, OnDestroy {
     this.probeService.getRun(this.probeId, run.id).subscribe({
       next: (r) => {
         this.formattedJsonCache.clear();
+        this.lineCountCache.clear();
+        this.byteSizeCache.clear();
         for (const step of r.steps ?? []) {
           if (step.detail) {
             const parsed = this.tryParseJson(step.detail.trim());
             this.formattedJsonCache.set(step.id, parsed !== null ? JSON.stringify(parsed, null, 2) : null);
+            this.lineCountCache.set(step.id, step.detail.split('\n').length);
+            this.byteSizeCache.set(step.id, new Blob([step.detail]).size);
           } else {
             this.formattedJsonCache.set(step.id, null);
+            this.lineCountCache.set(step.id, 0);
+            this.byteSizeCache.set(step.id, 0);
           }
         }
         if (this.expandedRunId() === run.id) this.expandedRun.set(r);
@@ -869,6 +891,20 @@ export class ProbeRunsComponent implements OnInit, OnDestroy {
     } else {
       this.toast.error('Failed to copy to clipboard');
     }
+  }
+
+  getLineCount(stepId: string): number {
+    return this.lineCountCache.get(stepId) ?? 0;
+  }
+
+  getByteSize(stepId: string): number {
+    return this.byteSizeCache.get(stepId) ?? 0;
+  }
+
+  formatBytes(n: number): string {
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(2)} MB`;
   }
 
   private tryParseJson(text: string): unknown {
