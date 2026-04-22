@@ -187,6 +187,10 @@ export function registerRequestToolTool(server: McpServer, { db, config }: Serve
       if (kind !== ToolRequestKind.NEW_TOOL) {
         const catalog = await buildClientToolCatalog(db, clientId, {
           encryptionKey: config.ENCRYPTION_KEY,
+          mcpPlatformUrl: config.MCP_PLATFORM_URL,
+          mcpRepoUrl: config.MCP_REPO_URL,
+          mcpDatabaseUrl: config.MCP_DATABASE_URL,
+          platformApiKey: config.API_KEY,
         });
         const match = catalog.find((t) => t.toolName === normalizedName);
         if (!match) {
