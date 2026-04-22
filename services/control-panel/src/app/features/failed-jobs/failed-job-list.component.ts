@@ -105,7 +105,7 @@ const ALL_QUEUES = [
 
         <app-data-column key="name" header="Name" [sortable]="false" mobilePriority="primary">
           <ng-template #cell let-row>
-            <span class="job-name">{{ row.name }}</span>
+            <span class="job-name" [title]="row.name">{{ row.name }}</span>
           </ng-template>
         </app-data-column>
 

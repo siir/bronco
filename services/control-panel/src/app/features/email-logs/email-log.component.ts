@@ -76,9 +76,9 @@ import { ToastService } from '../../core/services/toast.service.js';
           <app-data-column key="from" header="From" [sortable]="false">
             <ng-template #cell let-log>
               <div class="from-cell">
-                <span class="from-name">{{ log.fromName || log.from }}</span>
+                <span class="from-name" [title]="log.fromName || log.from">{{ log.fromName || log.from }}</span>
                 @if (log.fromName && log.fromName !== log.from) {
-                  <span class="from-address">{{ log.from }}</span>
+                  <span class="from-address" [title]="log.from">{{ log.from }}</span>
                 }
               </div>
             </ng-template>
@@ -86,7 +86,7 @@ import { ToastService } from '../../core/services/toast.service.js';
 
           <app-data-column key="subject" header="Subject" [sortable]="false" width="300px">
             <ng-template #cell let-log>
-              <span class="subject-text">{{ log.subject }}</span>
+              <span class="subject-text" [title]="log.subject">{{ log.subject }}</span>
             </ng-template>
           </app-data-column>
 

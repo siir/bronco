@@ -31,8 +31,16 @@ export async function artifactRoutes(fastify: FastifyInstance, opts: { config: C
     if (!artifact) return fastify.httpErrors.notFound('Artifact not found');
 
     const filePath = join(storagePath, artifact.storagePath);
+    const filename = artifact.filename;
+    const asciiFallback = filename.replace(/[^\x20-\x7e]/g, '_');
+    const encodedUtf8 = encodeURIComponent(filename)
+      .replace(/['()]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
+      .replace(/\*/g, '%2A');
     reply.header('Content-Type', artifact.mimeType);
-    reply.header('Content-Disposition', `attachment; filename="${artifact.filename}"`);
+    reply.header(
+      'Content-Disposition',
+      `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodedUtf8}`,
+    );
     return reply.send(createReadStream(filePath));
   });
 

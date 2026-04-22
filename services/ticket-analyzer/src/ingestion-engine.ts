@@ -1010,13 +1010,18 @@ async function maybeEnqueueReanalysis(
   });
   if (!ticket) return;
 
-  // Only re-analyze tickets in an open/active status (NEW, OPEN, IN_PROGRESS, WAITING)
+  // Only re-analyze tickets in an open/active status (NEW, OPEN, IN_PROGRESS, WAITING).
+  // NOTE: NEW passes this check but is effectively excluded by step 2 below — a NEW
+  // ticket has no completed analysis (no findings email), so re-analysis is skipped there.
   if (!isOpenStatus(ticket.status)) {
     log.info({ ticketId, status: ticket.status }, 'Reply on closed ticket — re-analysis skipped');
     return;
   }
 
   // 2. Check the ticket has had a completed analysis (findings email was sent to requester).
+  // NEW tickets are intentionally excluded here: the initial analyzer pipeline hasn't finished yet,
+  // so there's nothing to "re-" analyze. The reply is already threaded onto the ticket and will
+  // be picked up when the initial job reads the thread.
   const findingsEmail = await db.ticketEvent.findFirst({
     where: {
       ticketId,

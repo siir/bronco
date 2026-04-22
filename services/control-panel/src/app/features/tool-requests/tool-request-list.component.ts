@@ -129,8 +129,8 @@ const KIND_OPTIONS = [
         <app-data-column key="displayTitle" header="Title" [sortable]="false">
           <ng-template #cell let-row>
             <div class="title-cell">
-              <span class="title">{{ row.displayTitle }}</span>
-              <span class="requested-name">{{ row.requestedName }}</span>
+              <span class="title" [title]="row.displayTitle">{{ row.displayTitle }}</span>
+              <span class="requested-name" [title]="row.requestedName">{{ row.requestedName }}</span>
               @if (row.suggestedDuplicateOfId) {
                 <span class="suggestion-pill suggestion-duplicate" title="AI dedupe flagged this as a duplicate">⚠ Suggested duplicate</span>
               }
