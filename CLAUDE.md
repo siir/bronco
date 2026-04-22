@@ -173,6 +173,10 @@ Rules:
 - **`CUSTOM_AI_QUERY` is the correct choice** for one-off administrative AI calls that don't fit any specific task type (e.g., pricing catalog refresh).
 - When adding a new task type: add to `packages/shared-types/src/ai.ts`, `packages/ai-provider/src/model-config-resolver.ts` (default provider), `packages/ai-provider/src/task-capabilities.ts`, and update this section of CLAUDE.md.
 
+### Enforcement
+
+Direct imports from `@anthropic-ai/sdk` outside `packages/ai-provider/src/` are banned via ESLint's `no-restricted-imports` rule (see `eslint.config.mjs`). All AI calls MUST go through `AIRouter.generate()` / `AIRouter.generateWithTools()` so every call writes an `ai_usage_logs` row for cost tracking. Every call site MUST also pass `context: { entityId, entityType, clientId }` so the row is queryable from entity-scoped views (ticket pages, AI Usage reports). `entityType` values (canonical — see `EntityType` in `packages/shared-types/src/log.ts`): `'ticket'`, `'operational_task'`, `'probe'`, `'email'`, `'system'`, `'operator'`, `'client'` — match the consumer query's filter. If a call is genuinely not entity-scoped (cross-ticket summarization, archive retention), pass `context: { entityType: null, entityId: null, clientId: null }` explicitly so reviewers know it's intentional.
+
 ## Client Memory Management
 
 Per-client operational knowledge (playbooks, procedures, architectural guidance) stored in the DB and automatically injected into AI analysis contexts. Enables AI to leverage client-specific expertise when analyzing tickets.

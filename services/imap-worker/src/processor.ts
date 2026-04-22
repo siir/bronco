@@ -139,6 +139,27 @@ export function createEmailProcessor(db: PrismaClient, ingestQueue: Queue<Ingest
     // --- AI-based noise classification (only for new emails, not replies) ---
     const isReply = !!inReplyTo || (Array.isArray(references) ? references.length > 0 : !!references);
     if (!isReply && ai) {
+      // Create the EmailProcessingLog row early so we have a real UUID (PK) to use
+      // as entityId in AiUsageLog — AiUsageLog.entityId is @db.Uuid and cannot hold
+      // an RFC822 Message-ID string. We upsert on messageId so the later recordEmailLog()
+      // calls will simply update this row with the final classification and status.
+      const earlyLog = await db.emailProcessingLog.upsert({
+        where: { messageId },
+        create: {
+          messageId,
+          from: fromAddress,
+          fromName,
+          subject,
+          receivedAt: new Date(),
+          classification,
+          status: logStatus, // will be updated by the final recordEmailLog() call
+          processingMs: 0,
+          metadata: { body: '', inReplyTo: null, references: [], hasAttachments: false },
+        },
+        update: {},
+        select: { id: true },
+      });
+
       try {
         const classifyRes = await ai.generate({
           taskType: TaskType.CLASSIFY_EMAIL,
@@ -151,6 +172,16 @@ Body (first 500 chars): ${textBody.slice(0, 500)}
 Respond with ONLY one word: ACTIONABLE or NOISE`,
           systemPrompt: 'You classify emails as ACTIONABLE (support/work requests) or NOISE (automated, marketing, vendor promos). Respond with one word only.',
           maxTokens: 10,
+          context: {
+            entityType: 'email',
+            entityId: earlyLog.id, // real UUID from EmailProcessingLog PK
+            // clientId is not yet resolved at pre-ingest classification stage —
+            // person/domain lookups happen after this block. Resolving them here
+            // would require an extra DB round-trip before every classify call.
+            // Accept null for now; per-client cost attribution for CLASSIFY_EMAIL
+            // can be added in a future refactor if operationally important.
+            clientId: null,
+          },
         });
         const classificationResult = classifyRes.content.trim().toUpperCase();
         const firstToken = classificationResult.split(/\s+/)[0].replace(/[^A-Z]/g, '');
