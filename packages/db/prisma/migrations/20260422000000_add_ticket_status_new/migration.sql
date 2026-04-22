@@ -1,12 +1,5 @@
 -- AlterEnum
+-- NOTE: Postgres requires new enum values to be committed before they can be used.
+-- The backfill UPDATE that relies on 'NEW' lives in 20260422000500_backfill_new_ticket_status
+-- so that it runs in a separate transaction after this one commits.
 ALTER TYPE "ticket_status" ADD VALUE 'NEW';
-
--- Backfill: OPEN tickets with no AI_ANALYSIS event recorded (i.e., pre-analysis) → NEW
-UPDATE tickets
-SET status = 'NEW'
-WHERE status = 'OPEN'
-  AND NOT EXISTS (
-    SELECT 1 FROM ticket_events
-    WHERE ticket_events.ticket_id = tickets.id
-      AND event_type = 'AI_ANALYSIS'
-  );
