@@ -530,11 +530,6 @@ export function classifyMcpError(err: unknown): { errorClass: McpToolErrorClass;
   const lower = msg.toLowerCase();
 
   // Order matters — check specific patterns before generic ones.
-  // MCP-level isError results (surfaced by callMcpToolViaSdk throwing) —
-  // the tool ran but rejected the input or returned a logical failure.
-  if (lower.includes('mcp tool returned iserror')) {
-    return { errorClass: 'tool_logic', retryable: false };
-  }
   if (lower.includes('timeout') || lower.includes('timed out') || lower.includes('etimedout')) {
     return { errorClass: 'timeout', retryable: true };
   }
@@ -555,6 +550,14 @@ export function classifyMcpError(err: unknown): { errorClass: McpToolErrorClass;
   }
   // JSON-RPC errors from the MCP SDK
   if (lower.includes('jsonrpc') || lower.includes('json-rpc')) return { errorClass: 'tool_logic', retryable: false };
+  // MCP-level isError results (surfaced by callMcpToolViaSdk throwing when the
+  // tool returned isError: true). This is a generic catch-all — the specific
+  // pattern checks above (rate_limit / auth / timeout / etc.) win first so an
+  // MCP-level "rate limit reached" still classifies as rate_limit, not
+  // tool_logic.
+  if (lower.includes('mcp tool returned iserror')) {
+    return { errorClass: 'tool_logic', retryable: false };
+  }
   return { errorClass: 'unknown', retryable: false };
 }
 

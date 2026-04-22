@@ -324,7 +324,15 @@ export async function callMcpToolViaSdk(
     // caller's catch block can classify them into the structured envelope
     // alongside transport/timeout/auth failures. See #360.
     if (result.isError === true) {
-      throw new Error(`MCP tool returned isError: ${joined}`);
+      // Cap the embedded content so high-volume tools (e.g. repo_exec returning
+      // full stdout/stderr) don't bloat logs, error envelopes, and agent prompts.
+      // Classification patterns we care about (rate_limit / auth / timeout / etc.)
+      // land within the first hundred characters in practice.
+      const MAX_ERROR_BODY = 2000;
+      const truncated = joined.length > MAX_ERROR_BODY
+        ? `${joined.slice(0, MAX_ERROR_BODY)} [truncated ${joined.length - MAX_ERROR_BODY} chars]`
+        : joined;
+      throw new Error(`MCP tool returned isError: ${truncated}`);
     }
     return joined;
   } finally {
