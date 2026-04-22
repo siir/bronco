@@ -151,6 +151,11 @@ Body (first 500 chars): ${textBody.slice(0, 500)}
 Respond with ONLY one word: ACTIONABLE or NOISE`,
           systemPrompt: 'You classify emails as ACTIONABLE (support/work requests) or NOISE (automated, marketing, vendor promos). Respond with one word only.',
           maxTokens: 10,
+          context: {
+            entityType: 'email',
+            entityId: messageId,
+            clientId: null, // client not yet resolved at pre-ingest classification stage
+          },
         });
         const classificationResult = classifyRes.content.trim().toUpperCase();
         const firstToken = classificationResult.split(/\s+/)[0].replace(/[^A-Z]/g, '');
