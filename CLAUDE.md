@@ -99,7 +99,7 @@ AZDO_POLL_INTERVAL_SECONDS=120
 
 `NEW`, `OPEN`, `IN_PROGRESS`, and `WAITING` are all in `OPEN_STATUSES` and are treated as "active" tickets throughout the codebase (filters, notifications, MCP queries).
 
-**Replies arriving during NEW (pre-analysis):** a reply threads onto the ticket but does NOT trigger a re-analysis job — the in-flight initial analysis will read the thread when it reaches the ingestion step. Re-analysis is reserved for `WAITING` and `OPEN` tickets.
+**Replies arriving during NEW (pre-analysis):** a reply threads onto the ticket but does NOT trigger a re-analysis job — the in-flight initial analysis will read the thread when it reaches the ingestion step. Once the initial analysis has completed, replies on active/open tickets with an existing findings email may enqueue re-analysis, including `OPEN`, `WAITING`, and `IN_PROGRESS`.
 
 ## Ticket Categories
 

@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
-import { join, dirname } from 'node:path';
+import { join, dirname, basename } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import type { Config } from '../config.js';
 
@@ -32,7 +32,12 @@ export async function artifactRoutes(fastify: FastifyInstance, opts: { config: C
 
     const filePath = join(storagePath, artifact.storagePath);
     const filename = artifact.filename;
-    const asciiFallback = filename.replace(/[^\x20-\x7e]/g, '_');
+    // Sanitize the ASCII fallback: strip path separators (basename), control chars,
+    // quotes, and backslashes to prevent Content-Disposition header injection.
+    // Non-ASCII survives via filename*=UTF-8'' (RFC 5987).
+    const asciiFallback = basename(filename)
+      .replace(/[\x00-\x1f\x7f"\\]/g, '_')
+      .replace(/[^\x20-\x7e]/g, '_');
     const encodedUtf8 = encodeURIComponent(filename)
       .replace(/['()]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
       .replace(/\*/g, '%2A');
