@@ -158,11 +158,17 @@ export async function runToolRequestDedupe(
     existingTools,
     pendingRequests: requests.map((r) => ({
       id: r.id,
+      kind: r.kind,
       requestedName: r.requestedName,
       displayTitle: r.displayTitle,
       description: r.description,
       rationales: r.rationales.map((ra) => ra.rationale),
     })),
+    dedupeRules: [
+      'When grouping duplicates, only merge requests that share the same kind.',
+      'A BROKEN_TOOL report for "search_code" is NOT a duplicate of a NEW_TOOL request for "search_code".',
+      'Format each candidate as "[<kind>] <requestedName> — <displayTitle>" in your reasoning.',
+    ],
   };
   const userPrompt = JSON.stringify(userPayload, null, 2);
 

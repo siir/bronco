@@ -1661,6 +1661,14 @@ enum ToolRequestRationaleSource {
   @@map("tool_request_rationale_source")
 }
 
+enum ToolRequestKind {
+  NEW_TOOL
+  BROKEN_TOOL
+  IMPROVE_TOOL
+
+  @@map("tool_request_kind")
+}
+
 model ToolRequest {
   id                  String            @id @default(uuid()) @db.Uuid
   clientId            String            @map("client_id") @db.Uuid
@@ -1672,6 +1680,7 @@ model ToolRequest {
   description         String            @db.Text
   suggestedInputs     Json?             @map("suggested_inputs")
   exampleUsage        String?           @db.Text @map("example_usage")
+  kind                ToolRequestKind   @default(NEW_TOOL) @map("kind")
   status              ToolRequestStatus @default(PROPOSED)
   requestCount        Int               @default(1) @map("request_count")
   approvedAt          DateTime?         @map("approved_at")

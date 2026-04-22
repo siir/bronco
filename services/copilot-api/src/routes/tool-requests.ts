@@ -1,17 +1,21 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { Prisma } from '@bronco/db';
-import { ToolRequestStatus } from '@bronco/shared-types';
+import { ToolRequestKind, ToolRequestStatus } from '@bronco/shared-types';
 import type { AIRouter } from '@bronco/ai-provider';
 import { ToolRequestNotFoundError, ToolRequestNotEligibleError } from '@bronco/shared-utils';
 import { runToolRequestDedupe } from '../services/tool-request-dedupe.js';
 import { createToolRequestGithubIssue } from '../services/tool-request-github.js';
 
 const STATUS_VALUES = Object.values(ToolRequestStatus) as [string, ...string[]];
+const KIND_VALUES = Object.values(ToolRequestKind) as [string, ...string[]];
 
 const listQuerySchema = z.object({
   status: z
     .union([z.enum(STATUS_VALUES), z.array(z.enum(STATUS_VALUES))])
+    .optional(),
+  kind: z
+    .union([z.enum(KIND_VALUES), z.array(z.enum(KIND_VALUES))])
     .optional(),
   clientId: z.string().uuid().optional(),
   search: z.string().optional(),
@@ -21,6 +25,7 @@ const listQuerySchema = z.object({
 
 const updateBodySchema = z.object({
   status: z.enum(STATUS_VALUES).optional(),
+  kind: z.enum(KIND_VALUES).optional(),
   rejectedReason: z.string().optional(),
   duplicateOfId: z.string().uuid().nullable().optional(),
   implementedInCommit: z.string().optional(),
@@ -67,12 +72,16 @@ export async function toolRequestRoutes(
         parsed.error.errors[0]?.message ?? 'Invalid query parameters',
       );
     }
-    const { status, clientId, search, limit, offset } = parsed.data;
+    const { status, kind, clientId, search, limit, offset } = parsed.data;
 
     const where: Prisma.ToolRequestWhereInput = {};
     if (status) {
       const statuses = Array.isArray(status) ? status : [status];
       where.status = { in: statuses as ToolRequestStatus[] };
+    }
+    if (kind) {
+      const kinds = Array.isArray(kind) ? kind : [kind];
+      where.kind = { in: kinds as ToolRequestKind[] };
     }
     if (clientId) where.clientId = clientId;
     if (search) {
@@ -204,6 +213,7 @@ export async function toolRequestRoutes(
         return fastify.httpErrors.badRequest('duplicateOfId is required when marking duplicate');
       }
     }
+    if (body.kind !== undefined) data.kind = body.kind as ToolRequestKind;
     if (body.rejectedReason !== undefined) data.rejectedReason = body.rejectedReason;
     if (body.duplicateOfId !== undefined) {
       data.duplicateOf =

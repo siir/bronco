@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { ToolRequestRationaleSource } from '@bronco/shared-types';
+import { ToolRequestKind, ToolRequestRationaleSource } from '@bronco/shared-types';
 import type { ServerDeps } from '../server.js';
 import { normalizeRequestedName, registerToolRequest } from '@bronco/shared-utils';
 
@@ -11,6 +11,8 @@ const DEFAULT_LIMIT_PER_RUN = 5;
  * ticket's lastAnalyzedAt (or a 1h window) as a pragmatic run-start proxy.
  */
 const FALLBACK_RUN_WINDOW_MS = 60 * 60 * 1000;
+
+const KIND_VALUES = Object.values(ToolRequestKind) as [string, ...string[]];
 
 function parseLimit(raw: unknown): number {
   if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) return Math.floor(raw);
@@ -25,10 +27,11 @@ export function registerRequestToolTool(server: McpServer, { db }: ServerDeps): 
   server.tool(
     'request_tool',
     [
-      'Flag a missing tool capability discovered during analysis.',
-      'Call when no existing tool fits and you are about to improvise with a',
-      'generic tool or abandon a line of investigation. Describe the tool you',
-      'wish existed so an operator can evaluate and implement it.',
+      'Flag a missing, broken, or improvable tool capability discovered during analysis.',
+      'Use kind=NEW_TOOL (default) when no existing tool fits.',
+      'Use kind=BROKEN_TOOL when an existing tool is malfunctioning (errors, timeouts, malformed output).',
+      'Use kind=IMPROVE_TOOL when an existing tool works but is inadequate.',
+      'Describe the tool or problem specifically so an operator can evaluate and act on it.',
     ].join(' '),
     {
       ticketId: z.string().uuid().describe('Ticket being analyzed when the gap was encountered'),
@@ -36,20 +39,35 @@ export function registerRequestToolTool(server: McpServer, { db }: ServerDeps): 
         .string()
         .min(3)
         .max(100)
-        .describe('Proposed snake_case tool name (e.g. "analyze_execution_plan")'),
+        .describe(
+          'For NEW_TOOL: proposed snake_case name (e.g. "analyze_execution_plan"). ' +
+          'For BROKEN_TOOL / IMPROVE_TOOL: exact name of the failing/inadequate tool.',
+        ),
       displayTitle: z
         .string()
         .min(3)
         .max(200)
-        .describe('Short human-readable title for the missing tool'),
+        .describe('Short human-readable title for the request'),
       description: z
         .string()
         .min(20)
-        .describe('What the tool should do, inputs, outputs, and expected shape'),
+        .describe(
+          'For NEW_TOOL: what the tool should do, inputs, outputs. ' +
+          'For BROKEN_TOOL: observed failure details. ' +
+          'For IMPROVE_TOOL: what improvement is needed and why.',
+        ),
       rationale: z
         .string()
         .min(20)
-        .describe('Why this tool was needed for THIS ticket — specific to current work'),
+        .describe('Why this was needed for THIS ticket — specific to current work'),
+      kind: z
+        .enum(KIND_VALUES)
+        .default(ToolRequestKind.NEW_TOOL)
+        .describe(
+          'NEW_TOOL (default): no existing tool fits. ' +
+          'BROKEN_TOOL: existing tool is failing. ' +
+          'IMPROVE_TOOL: existing tool is inadequate.',
+        ),
       suggestedInputs: z
         .record(z.unknown())
         .optional()
@@ -145,6 +163,8 @@ export function registerRequestToolTool(server: McpServer, { db }: ServerDeps): 
         };
       }
 
+      const kind = (params.kind ?? ToolRequestKind.NEW_TOOL) as ToolRequestKind;
+
       const result = await registerToolRequest(db, {
         clientId,
         ticketId: params.ticketId,
@@ -155,12 +175,20 @@ export function registerRequestToolTool(server: McpServer, { db }: ServerDeps): 
         suggestedInputs: params.suggestedInputs,
         exampleUsage: params.exampleUsage,
         source: ToolRequestRationaleSource.INLINE_AGENT_REQUEST,
+        kind,
       });
 
       const existing = await db.toolRequest.findUnique({
         where: { id: result.toolRequestId },
-        select: { requestCount: true, status: true },
+        select: { requestCount: true, status: true, kind: true },
       });
+
+      // For BROKEN_TOOL / IMPROVE_TOOL, note if the requestedName didn't match
+      // an existing kind (warn only — row persists regardless).
+      const kindWarning =
+        kind !== ToolRequestKind.NEW_TOOL && result.isNew
+          ? ` Note: "${normalizedName}" was not found in the active tool catalog — operator will review.`
+          : '';
 
       return {
         content: [
@@ -171,11 +199,14 @@ export function registerRequestToolTool(server: McpServer, { db }: ServerDeps): 
                 toolRequestId: result.toolRequestId,
                 isNew: result.isNew,
                 normalizedName,
+                kind: existing?.kind ?? kind,
                 requestCount: existing?.requestCount ?? 1,
                 status: existing?.status ?? 'PROPOSED',
-                message: result.isNew
-                  ? 'Recorded new tool request. Continue analysis with available tools.'
-                  : 'Appended rationale to existing tool request. Continue analysis with available tools.',
+                message:
+                  (result.isNew
+                    ? 'Recorded new tool request. Continue analysis with available tools.'
+                    : 'Appended rationale to existing tool request. Continue analysis with available tools.') +
+                  kindWarning,
               },
               null,
               2,
