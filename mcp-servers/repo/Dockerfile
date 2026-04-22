@@ -21,7 +21,7 @@ RUN pnpm --filter @bronco/shared-utils run build
 RUN pnpm --filter @bronco/mcp-repo run build
 
 FROM base AS production
-RUN apk add --no-cache git tree file
+RUN apk add --no-cache git openssh-client tree file
 COPY --from=build /app /app
 RUN pnpm prune --prod
 RUN mkdir -p /var/lib/mcp-repo/repos \
