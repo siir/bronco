@@ -5,6 +5,100 @@ import { decrypt, looksEncrypted } from './crypto.js';
 const logger = createLogger('tool-request-github');
 
 const SETTINGS_KEY_GITHUB = 'system-config-github';
+const SETTINGS_KEY_GITHUB_DEFAULT_REPO = 'tool-requests-github-default-repo';
+
+interface ResolvedGithubCreds {
+  /** Decrypted PAT, ready to send as `Authorization: Bearer <token>`. */
+  token: string;
+  /** Optional host override (GitHub Enterprise). Defaults to github.com. */
+  host?: string;
+  /** For logging/debugging: where the credential came from. */
+  source: 'integration-platform' | 'app-setting';
+}
+
+/**
+ * Resolve the platform-level GitHub credentials used for tool-request issue
+ * creation. Prefers a platform-scoped GITHUB integration (clientId IS NULL);
+ * falls back to the legacy `system-config-github` AppSetting so deploys that
+ * haven't been migrated keep working.
+ *
+ * Returns null if no source is configured. Callers should throw with a
+ * helpful message in that case.
+ *
+ * Dual-read is intentional (issue #368): for one release we read from both
+ * sources so the operator can migrate at their own pace. The AppSetting can be
+ * removed in a later release.
+ *
+ * NOTE: `github_app` kind is not yet supported here; the caller will see a
+ * thrown error. PAT remains the v1 flow.
+ */
+async function resolvePlatformGithubCreds(
+  db: PrismaClient,
+  encryptionKey: string,
+): Promise<ResolvedGithubCreds | null> {
+  // 1. Prefer the default platform-scoped GITHUB integration — use label: 'default'
+  //    so selection is deterministic when multiple platform-scoped rows exist.
+  const integration = await db.clientIntegration.findFirst({
+    where: { type: 'GITHUB', clientId: null, isActive: true, label: 'default' },
+  });
+  if (integration) {
+    const cfg = integration.config as Record<string, unknown> | null;
+    if (cfg && cfg.kind === 'pat' && typeof cfg.encryptedToken === 'string' && cfg.encryptedToken.length > 0) {
+      const token = looksEncrypted(cfg.encryptedToken)
+        ? decrypt(cfg.encryptedToken, encryptionKey)
+        : cfg.encryptedToken;
+      return {
+        token,
+        host: typeof cfg.host === 'string' ? cfg.host : undefined,
+        source: 'integration-platform',
+      };
+    }
+    if (cfg && cfg.kind === 'github_app') {
+      // Surface a clear error rather than silently falling back — if the
+      // operator configured a github_app integration, they intended for it to
+      // be used.
+      throw new Error(
+        'Platform GITHUB integration uses kind="github_app" but tool-request issue creation does not yet support GitHub App token-minting. Configure a PAT integration or use the legacy system-config-github AppSetting for now.',
+      );
+    }
+    logger.warn(
+      { integrationId: integration.id },
+      'Platform GITHUB integration found but config is malformed — falling back to system-config-github AppSetting',
+    );
+  }
+
+  // 2. Legacy AppSetting fallback
+  const githubRow = await db.appSetting.findUnique({ where: { key: SETTINGS_KEY_GITHUB } });
+  if (!githubRow) return null;
+  const cfg = githubRow.value as { token?: string } | null;
+  if (!cfg || typeof cfg.token !== 'string' || cfg.token.length === 0) return null;
+  const token = looksEncrypted(cfg.token) ? decrypt(cfg.token, encryptionKey) : cfg.token;
+  return { token, source: 'app-setting' };
+}
+
+/**
+ * Resolve the default "owner/name" target repo for tool-request issues. Prefers
+ * the `tool-requests-github-default-repo` AppSetting, then falls back to the
+ * legacy `system-config-github.repo` field (for backward compat with deploys
+ * that only set the latter).
+ */
+async function resolveDefaultRepoString(db: PrismaClient): Promise<string | null> {
+  const override = await db.appSetting.findUnique({ where: { key: SETTINGS_KEY_GITHUB_DEFAULT_REPO } });
+  if (override) {
+    const v = override.value;
+    if (typeof v === 'string' && v.trim().length > 0) return v.trim();
+    if (v && typeof v === 'object' && 'repo' in v && typeof (v as { repo?: unknown }).repo === 'string') {
+      const r = (v as { repo: string }).repo.trim();
+      if (r) return r;
+    }
+  }
+  const legacy = await db.appSetting.findUnique({ where: { key: SETTINGS_KEY_GITHUB } });
+  if (legacy) {
+    const v = legacy.value as { repo?: string } | null;
+    if (v && typeof v.repo === 'string' && v.repo.trim().length > 0) return v.repo.trim();
+  }
+  return null;
+}
 
 export interface CreateGithubIssueInput {
   toolRequestId: string;
@@ -121,20 +215,17 @@ export async function createToolRequestGithubIssue(
     }
   }
 
-  const githubRow = await db.appSetting.findUnique({ where: { key: SETTINGS_KEY_GITHUB } });
-  if (!githubRow) {
-    throw new Error('GitHub token not configured (system-config-github AppSetting missing)');
+  const creds = await resolvePlatformGithubCreds(db, encryptionKey);
+  if (!creds) {
+    throw new Error(
+      'GitHub credentials not configured — add a GITHUB integration under Clients → Integrations (platform-scoped integrations are created via API) or set the legacy system-config-github AppSetting',
+    );
   }
-  const cfg = githubRow.value as { token?: string; repo?: string } | null;
-  if (!cfg || typeof cfg.token !== 'string' || cfg.token.length === 0) {
-    throw new Error('GitHub token missing from system-config-github');
-  }
-  const token = looksEncrypted(cfg.token) ? decrypt(cfg.token, encryptionKey) : cfg.token;
 
   let owner = input.repoOwner?.trim();
   let name = input.repoName?.trim();
   if (!owner || !name) {
-    const repoStr = typeof cfg.repo === 'string' ? cfg.repo.trim() : '';
+    const repoStr = await resolveDefaultRepoString(db);
     if (repoStr) {
       const parsed = parseRepoString(repoStr);
       owner = owner || parsed.owner;
@@ -143,20 +234,26 @@ export async function createToolRequestGithubIssue(
   }
   if (!owner || !name) {
     throw new Error(
-      'GitHub default repo not configured — set the Repository field on the GitHub tab in Settings',
+      'GitHub default repo not configured — set the `tool-requests-github-default-repo` AppSetting, configure the legacy `system-config-github.repo` field, or pass repoOwner/repoName',
     );
   }
 
   const body = buildToolRequestIssueBody(row);
   const title = `[tool-request] ${row.displayTitle}`;
 
-  const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues`;
+  // Build the API base URL so GHES hosts are supported. GHES uses
+  // `https://<host>/api/v3` whereas github.com uses `https://api.github.com`.
+  const apiBase =
+    !creds.host || creds.host === 'github.com'
+      ? 'https://api.github.com'
+      : `https://${creds.host}/api/v3`;
+  const url = `${apiBase}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues`;
   const labels = input.labels && input.labels.length > 0 ? input.labels : ['tool-request'];
 
   const res = await fetch(url, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${creds.token}`,
       Accept: 'application/vnd.github+json',
       'X-GitHub-Api-Version': '2022-11-28',
       'Content-Type': 'application/json',
@@ -183,7 +280,7 @@ export async function createToolRequestGithubIssue(
   });
 
   logger.info(
-    { toolRequestId: row.id, repo: `${owner}/${name}`, issueNumber: issue.number },
+    { toolRequestId: row.id, repo: `${owner}/${name}`, issueNumber: issue.number, credSource: creds.source },
     'Created GitHub issue for tool request',
   );
 

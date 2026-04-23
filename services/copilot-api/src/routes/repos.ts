@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { PROTECTED_BRANCH_NAMES } from '@bronco/shared-types';
+import { IntegrationType, PROTECTED_BRANCH_NAMES } from '@bronco/shared-types';
 
 class BranchPrefixError extends Error {
   statusCode = 400;
@@ -26,6 +26,33 @@ function validateBranchPrefix(prefix: string | undefined): void {
 
 function isPrismaError(err: unknown, code: string): boolean {
   return err instanceof Error && 'code' in err && (err as { code: string }).code === code;
+}
+
+/**
+ * Validate that a provided githubIntegrationId refers to a GITHUB-type
+ * ClientIntegration and that its scope is compatible with the repo's client
+ * (either the same client, or platform-scoped / clientId IS NULL).
+ *
+ * Returns an error message (caller should respond with 400) or null on success.
+ */
+async function validateGithubIntegration(
+  fastify: FastifyInstance,
+  githubIntegrationId: string,
+  repoClientId: string,
+): Promise<string | null> {
+  const integ = await fastify.db.clientIntegration.findUnique({
+    where: { id: githubIntegrationId },
+    select: { type: true, clientId: true },
+  });
+  if (!integ) return 'Referenced githubIntegrationId not found';
+  if (integ.type !== IntegrationType.GITHUB) {
+    return `githubIntegrationId must reference a GITHUB integration (got ${integ.type})`;
+  }
+  // Allow client-scoped match, or platform-scoped (null clientId).
+  if (integ.clientId !== null && integ.clientId !== repoClientId) {
+    return 'githubIntegrationId belongs to a different client';
+  }
+  return null;
 }
 
 export async function repoRoutes(fastify: FastifyInstance): Promise<void> {
@@ -67,11 +94,12 @@ export async function repoRoutes(fastify: FastifyInstance): Promise<void> {
       defaultBranch?: string;
       branchPrefix?: string;
       environmentId?: string | null;
+      githubIntegrationId?: string | null;
     };
   }>('/api/repos', async (request, reply) => {
     validateBranchPrefix(request.body.branchPrefix);
 
-    const { clientId, environmentId } = request.body;
+    const { clientId, environmentId, githubIntegrationId } = request.body;
     if (environmentId !== undefined && environmentId !== null) {
       const env = await fastify.db.clientEnvironment.findUnique({
         where: { id: environmentId },
@@ -79,6 +107,11 @@ export async function repoRoutes(fastify: FastifyInstance): Promise<void> {
       });
       if (!env) return fastify.httpErrors.badRequest('Referenced environment not found');
       if (env.clientId !== clientId) return fastify.httpErrors.forbidden('environmentId belongs to a different client');
+    }
+
+    if (githubIntegrationId) {
+      const err = await validateGithubIntegration(fastify, githubIntegrationId, clientId);
+      if (err) return fastify.httpErrors.badRequest(err);
     }
 
     try {
@@ -107,23 +140,38 @@ export async function repoRoutes(fastify: FastifyInstance): Promise<void> {
       defaultBranch?: string;
       branchPrefix?: string;
       environmentId?: string | null;
+      githubIntegrationId?: string | null;
       isActive?: boolean;
     };
   }>('/api/repos/:id', async (request) => {
     validateBranchPrefix(request.body.branchPrefix);
 
-    if (request.body.environmentId !== undefined && request.body.environmentId !== null) {
+    const needsExistingRepo =
+      (request.body.environmentId !== undefined && request.body.environmentId !== null) ||
+      (request.body.githubIntegrationId !== undefined && request.body.githubIntegrationId !== null);
+
+    let existingRepoClientId: string | undefined;
+    if (needsExistingRepo) {
       const repo = await fastify.db.codeRepo.findUnique({
         where: { id: request.params.id },
         select: { clientId: true },
       });
       if (!repo) return fastify.httpErrors.notFound('Code repo not found');
+      existingRepoClientId = repo.clientId;
+    }
+
+    if (request.body.environmentId !== undefined && request.body.environmentId !== null) {
       const env = await fastify.db.clientEnvironment.findUnique({
         where: { id: request.body.environmentId },
         select: { clientId: true },
       });
       if (!env) return fastify.httpErrors.badRequest('Referenced environment not found');
-      if (env.clientId !== repo.clientId) return fastify.httpErrors.forbidden('environmentId belongs to a different client');
+      if (env.clientId !== existingRepoClientId) return fastify.httpErrors.forbidden('environmentId belongs to a different client');
+    }
+
+    if (request.body.githubIntegrationId !== undefined && request.body.githubIntegrationId !== null && existingRepoClientId) {
+      const err = await validateGithubIntegration(fastify, request.body.githubIntegrationId, existingRepoClientId);
+      if (err) return fastify.httpErrors.badRequest(err);
     }
 
     try {

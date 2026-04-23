@@ -153,6 +153,49 @@ import { DialogComponent, FormFieldComponent, TextInputComponent, TextareaCompon
           (checkedChange)="slack.enabled = $event" />
       }
 
+      @if (type === 'GITHUB') {
+        <app-form-field label="Credential Kind" hint="Personal Access Token or GitHub App installation (app support is stubbed — token minting comes in a follow-up)">
+          <app-select
+            [value]="github.kind"
+            [options]="githubKindOptions"
+            [disabled]="editing"
+            (valueChange)="setGithubKind($event)" />
+        </app-form-field>
+
+        @if (github.kind === 'pat') {
+          <app-form-field label="Personal Access Token" [hint]="editing ? 'Leave blank to keep existing token' : 'fine-grained or classic PAT'">
+            <app-text-input
+              [value]="github.encryptedToken"
+              type="password"
+              [placeholder]="editing ? '(unchanged)' : 'ghp_... or github_pat_...'"
+              (valueChange)="github.encryptedToken = $event" />
+          </app-form-field>
+        }
+
+        @if (github.kind === 'github_app') {
+          <app-form-field label="App ID">
+            <app-text-input [value]="github.appId" placeholder="123456" (valueChange)="github.appId = $event" />
+          </app-form-field>
+          <app-form-field label="Installation ID">
+            <app-text-input [value]="github.installationId" placeholder="87654321" (valueChange)="github.installationId = $event" />
+          </app-form-field>
+          <app-form-field label="Private Key (PEM)" [hint]="editing ? 'Leave blank to keep existing key' : 'paste the full -----BEGIN RSA PRIVATE KEY----- block'">
+            <app-textarea
+              [value]="github.encryptedPrivateKey"
+              [rows]="6"
+              [placeholder]="editing ? '(unchanged)' : '-----BEGIN RSA PRIVATE KEY-----'"
+              (valueChange)="github.encryptedPrivateKey = $event" />
+          </app-form-field>
+        }
+
+        <app-form-field label="Host" hint="Defaults to github.com. Set for GitHub Enterprise Server (e.g. github.enterprise.example.com).">
+          <app-text-input
+            [value]="github.host"
+            placeholder="github.com"
+            (valueChange)="github.host = $event" />
+        </app-form-field>
+      }
+
       <app-form-field label="Notes">
         <app-textarea [value]="notes" [rows]="2" (valueChange)="notes = $event" />
       </app-form-field>
@@ -213,6 +256,14 @@ export class IntegrationDialogComponent implements OnInit {
   azdo = { orgUrl: '', project: '', encryptedPat: '', assignedUser: '', pollIntervalSeconds: 120 };
   mcp: { url: string; healthPath: string | null; mcpPath: string; apiKey: string; authHeader: string } = { url: '', healthPath: '', mcpPath: '', apiKey: '', authHeader: 'bearer' };
   slack = { encryptedBotToken: '', encryptedAppToken: '', defaultChannelId: '', enabled: true };
+  github: { kind: 'pat' | 'github_app'; encryptedToken: string; appId: string; installationId: string; encryptedPrivateKey: string; host: string } = {
+    kind: 'pat',
+    encryptedToken: '',
+    appId: '',
+    installationId: '',
+    encryptedPrivateKey: '',
+    host: '',
+  };
   showAdvanced = false;
   discoveredTools: Array<{ name: string; description: string }> = [];
   disabledTools = new Set<string>();
@@ -224,6 +275,7 @@ export class IntegrationDialogComponent implements OnInit {
     { value: 'AZURE_DEVOPS', label: 'Azure DevOps' },
     { value: 'MCP_DATABASE', label: 'MCP Database' },
     { value: 'SLACK', label: 'Slack' },
+    { value: 'GITHUB', label: 'GitHub' },
   ];
 
   authHeaderOptions = [
@@ -231,11 +283,17 @@ export class IntegrationDialogComponent implements OnInit {
     { value: 'x-api-key', label: 'x-api-key' },
   ];
 
+  githubKindOptions = [
+    { value: 'pat', label: 'Personal Access Token (PAT)' },
+    { value: 'github_app', label: 'GitHub App installation (stub — token minting not yet implemented)' },
+  ];
+
   private readonly secretFields: Record<string, string[]> = {
     IMAP: ['encryptedPassword'],
     AZURE_DEVOPS: ['encryptedPat'],
     MCP_DATABASE: ['apiKey'],
     SLACK: ['encryptedBotToken', 'encryptedAppToken'],
+    GITHUB: ['encryptedToken', 'encryptedPrivateKey'],
   };
 
   ngOnInit(): void {
@@ -277,8 +335,22 @@ export class IntegrationDialogComponent implements OnInit {
         case 'SLACK':
           Object.assign(this.slack, config);
           break;
+        case 'GITHUB': {
+          const kind = config['kind'];
+          if (kind === 'pat' || kind === 'github_app') this.github.kind = kind;
+          if (typeof config['appId'] === 'string') this.github.appId = config['appId'];
+          if (typeof config['installationId'] === 'string') this.github.installationId = config['installationId'];
+          if (typeof config['host'] === 'string') this.github.host = config['host'];
+          // encryptedToken / encryptedPrivateKey are cleared by the secretFields
+          // blanking above — the UI shows "(unchanged)" placeholder on edit.
+          break;
+        }
       }
     }
+  }
+
+  setGithubKind(value: string): void {
+    if (value === 'pat' || value === 'github_app') this.github.kind = value;
   }
 
   onTypeChange(): void {
@@ -286,6 +358,7 @@ export class IntegrationDialogComponent implements OnInit {
     this.azdo = { orgUrl: '', project: '', encryptedPat: '', assignedUser: '', pollIntervalSeconds: 120 };
     this.mcp = { url: '', healthPath: '', mcpPath: '', apiKey: '', authHeader: 'bearer' };
     this.slack = { encryptedBotToken: '', encryptedAppToken: '', defaultChannelId: '', enabled: true };
+    this.github = { kind: 'pat', encryptedToken: '', appId: '', installationId: '', encryptedPrivateKey: '', host: '' };
     this.showAdvanced = false;
     this.discoveredTools = [];
     this.disabledTools = new Set();
@@ -329,6 +402,26 @@ export class IntegrationDialogComponent implements OnInit {
       case 'SLACK':
         config = { ...this.slack };
         break;
+      case 'GITHUB': {
+        // Assemble the discriminated-union payload. The API schema validates
+        // `kind` at /api/integrations.
+        if (this.github.kind === 'pat') {
+          config = {
+            kind: 'pat',
+            encryptedToken: this.github.encryptedToken,
+          };
+        } else {
+          config = {
+            kind: 'github_app',
+            appId: this.github.appId,
+            installationId: this.github.installationId,
+            encryptedPrivateKey: this.github.encryptedPrivateKey,
+          };
+        }
+        const host = this.github.host.trim();
+        if (host && host !== 'github.com') config['host'] = host;
+        break;
+      }
     }
 
     if (this.type === 'MCP_DATABASE') {
