@@ -681,11 +681,15 @@ export async function runOrchestratedV2(
 
     orchNextPrompt = plan.nextPrompt ?? '';
 
-    // Stall-detection accumulators for this iteration. `subTaskCount` is the
-    // number of tasks we actually dispatched (after the chunking loop runs);
-    // `iterationKdWrites` counts kd_update_section + kd_add_subsection calls
-    // across this iteration's sub-task tool-call logs.
-    let iterationSubTaskCount = 0;
+    // Stall-detection accumulators for this iteration.
+    // `iterationDispatchAttempts` is the number of tasks the strategist
+    // planned (i.e. actually dispatched to the execution loop), regardless
+    // of whether they succeeded or failed. Counting attempts — not successful
+    // completions — means a batch where all tasks fail still registers as
+    // "tasks were dispatched" and does not falsely trip the zero-dispatch
+    // stall rule. `iterationKdWrites` counts kd_update_section +
+    // kd_add_subsection calls across this iteration's sub-task tool-call logs.
+    const iterationDispatchAttempts = plan.tasks.length;
     let iterationKdWrites = 0;
 
     // Execute tasks in parallel batches. Sub-tasks write findings via kd_*
@@ -704,7 +708,6 @@ export async function runOrchestratedV2(
           orchTotalInputTokens += result.value.inputTokens;
           orchTotalOutputTokens += result.value.outputTokens;
           orchToolCallLog.push(...result.value.toolCalls);
-          iterationSubTaskCount += 1;
           iterationKdWrites += countKdWrites(result.value.toolCalls);
           appLog.info(
             `Sub-task complete: ${task.prompt.slice(0, 120)}`,
@@ -718,7 +721,6 @@ export async function runOrchestratedV2(
             orchTotalInputTokens += retryResult.inputTokens;
             orchTotalOutputTokens += retryResult.outputTokens;
             orchToolCallLog.push(...retryResult.toolCalls);
-            iterationSubTaskCount += 1;
             iterationKdWrites += countKdWrites(retryResult.toolCalls);
             appLog.info(
               `Sub-task complete (retry): ${task.prompt.slice(0, 120)}`,
@@ -741,7 +743,7 @@ export async function runOrchestratedV2(
     // don't burn further budget on a non-progressing agent; the fallback +
     // compose path below will render a real stall marker.
     const stallCheck = updateStallState(stallState, {
-      subTaskCount: iterationSubTaskCount,
+      subTaskCount: iterationDispatchAttempts,
       kdWrites: iterationKdWrites,
       responseHash: hashOrchestratorResponse(strategistResponse.content),
     });

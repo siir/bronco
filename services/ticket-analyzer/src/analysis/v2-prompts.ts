@@ -166,6 +166,6 @@ export const NO_STALL_SYSTEM_PROMPT_SNIPPET = [
   'return a plan that is only "I need to review the knowledge document" — if you need to',
   'check what has been recorded, dispatch a sub-task that calls `platform__kd_read_toc`',
   'and/or `platform__kd_read_section` and uses the result to decide the next investigation',
-  'step. An empty `tasks` array on a non-terminal turn will trip the stall detector and',
-  'the orchestrator will terminate early.',
+  'step. Repeated empty `tasks` arrays across consecutive turns will trip the stall',
+  'detector and the orchestrator will terminate early.',
 ].join('\n');

@@ -98,6 +98,10 @@ export async function writeKnowledgeDocSnapshot(
  * fallback will skip it, so the Analysis Trace and composed email surface the
  * *real reason* the analysis is blank instead of the generic placeholder.
  *
+ * If rootCause already has content (the agent wrote partial findings before
+ * stalling), the marker is appended rather than replacing the existing text,
+ * so real investigative findings are preserved for the operator.
+ *
  * Swallows errors so a stall-marker write failure can't block the downstream
  * fallback-fill pass.
  */
@@ -108,7 +112,7 @@ export async function writeStallMarker(
   reason: string,
 ): Promise<void> {
   const body = [
-    `WARNING: Orchestrator stalled at iteration ${iteration}: ${reason}.`,
+    `⚠️ Orchestrator stalled at iteration ${iteration}: ${reason}.`,
     '',
     'See Run Log and iteration snapshots for context. This analysis was terminated',
     'early by the stall detector to avoid burning further budget on a non-progressing',
@@ -116,12 +120,20 @@ export async function writeStallMarker(
     'a root cause — escalate, re-run with more context, or flag as a prompt issue.',
   ].join('\n');
   try {
+    const ticket = await loadKnowledgeDoc(db, ticketId);
+    const existing = ticket
+      ? readSection(ticket.knowledgeDoc, ticket.knowledgeDocSectionMeta, KnowledgeDocSectionKey.ROOT_CAUSE).content.trim()
+      : '';
+    // If the agent already wrote partial findings, append so real content is
+    // preserved. If the section is empty, use REPLACE so the marker is the
+    // first and only text (avoids a blank line before the marker).
+    const mode = existing.length > 0 ? KnowledgeDocUpdateMode.APPEND : KnowledgeDocUpdateMode.REPLACE;
     await updateSection(
       db,
       ticketId,
       KnowledgeDocSectionKey.ROOT_CAUSE,
       body,
-      KnowledgeDocUpdateMode.REPLACE,
+      mode,
     );
   } catch (err) {
     logger.warn({ err, ticketId, iteration, reason }, 'Failed to write stall marker to rootCause — continuing');
