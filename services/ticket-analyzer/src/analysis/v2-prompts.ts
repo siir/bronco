@@ -149,3 +149,23 @@ export const KD_SYSTEM_PROMPT_SNIPPET = [
   '',
   'Your final analysis text (in the response) should be a concise executive summary — the detail lives in the knowledge doc. The AI_ANALYSIS composer will pull Root Cause + Recommended Fix + Risks from the doc to render the analysis view.',
 ].join('\n');
+
+/**
+ * Anti-stall snippet appended to the orchestrated-v2 strategist system prompt.
+ * The observed failure mode (issue #366) is the orchestrator repeatedly asking
+ * to re-read the KD without dispatching a sub-task or writing any section, so
+ * we require every non-terminal turn to produce concrete forward progress.
+ * This is advisory only — the runtime stall detector in orchestrated-v2.ts is
+ * the hard guard.
+ */
+export const NO_STALL_SYSTEM_PROMPT_SNIPPET = [
+  '',
+  '## Forward Progress Required',
+  'Every non-terminal iteration MUST produce concrete forward progress: either dispatch',
+  'at least one sub-task in `tasks`, or set `done: true` with a `finalAnalysis`. Do not',
+  'return a plan that is only "I need to review the knowledge document" — if you need to',
+  'check what has been recorded, dispatch a sub-task that calls `platform__kd_read_toc`',
+  'and/or `platform__kd_read_section` and uses the result to decide the next investigation',
+  'step. Repeated empty `tasks` arrays across consecutive turns will trip the stall',
+  'detector and the orchestrator will terminate early.',
+].join('\n');

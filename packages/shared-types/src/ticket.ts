@@ -176,6 +176,14 @@ export interface TicketCreatedJob {
   clientId: string;
   source: TicketSource;
   category: TicketCategory | null;
+  /**
+   * When true, this ticket-created event was triggered by an operator clicking
+   * "Retry Analysis" rather than by an initial ingestion. The route dispatcher
+   * uses this flag to enqueue the downstream ticket-analysis job with a
+   * `reanalysis-<ticketId>-<ts>` jobId instead of `analysis-<ticketId>`, so
+   * BullMQ does not silently dedupe against the completed initial run. See #375.
+   */
+  reanalysis?: boolean;
 }
 
 /** BullMQ job payload for the 'ticket-analysis' queue. */

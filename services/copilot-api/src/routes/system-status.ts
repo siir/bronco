@@ -708,7 +708,16 @@ export async function systemStatusRoutes(
       getDockerContainers(),
       fastify.db.externalService.findMany({ where: { isMonitored: true }, orderBy: { createdAt: 'asc' } }),
       fastify.db.clientIntegration.findMany({
-        where: { type: IntegrationType.MCP_DATABASE, isActive: true, client: { isActive: true } },
+        // MCP_DATABASE integrations are always client-scoped. Filter clientId
+        // not-null so the Prisma type reflects that (client: {...} filter alone
+        // doesn't narrow the type since clientId is nullable at the schema
+        // level post-#368).
+        where: {
+          type: IntegrationType.MCP_DATABASE,
+          isActive: true,
+          clientId: { not: null },
+          client: { isActive: true },
+        },
         select: { id: true, label: true, config: true, metadata: true, client: { select: { name: true, shortCode: true } } },
         orderBy: { client: { name: 'asc' } },
       }),
@@ -721,8 +730,13 @@ export async function systemStatusRoutes(
 
     // Start MCP checks concurrently with the main health checks (not sequentially after).
     // Each check is wrapped in try/catch so one bad config doesn't crash all checks.
+    // Narrow to rows with a present client relation — the `client: { isActive: true }`
+    // filter above ensures this at the DB level, but Prisma's generated types
+    // still mark the relation as optional (clientId is nullable at the schema
+    // level post-#368).
+    const scopedMcp = mcpIntegrations.filter((i): i is typeof i & { client: NonNullable<typeof i.client> } => i.client !== null);
     const mcpPromise = Promise.all(
-      mcpIntegrations.map(async (i): Promise<McpServerStatus> => {
+      scopedMcp.map(async (i): Promise<McpServerStatus> => {
         const cfg = typeof i.config === 'object' && i.config !== null && !Array.isArray(i.config) ? i.config as Record<string, unknown> : {};
         const meta = typeof i.metadata === 'object' && i.metadata !== null && !Array.isArray(i.metadata) ? i.metadata as Record<string, unknown> : null;
         try {

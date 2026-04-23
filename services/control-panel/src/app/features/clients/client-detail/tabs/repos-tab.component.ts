@@ -98,7 +98,7 @@ import { RepoDialogComponent } from '../../../repos/repo-dialog.component.js';
     .repo-url {
       font-family: ui-monospace, 'SF Mono', Menlo, monospace;
       font-size: 12px;
-      color: var(--text-secondary);
+      color: var(--text-code);
       background: var(--bg-code);
       padding: 1px 6px;
       border-radius: var(--radius-sm);

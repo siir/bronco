@@ -13,7 +13,7 @@ import {
 import { McpServerInfoComponent } from '../../../../shared/components/mcp-server-info.component.js';
 import { IntegrationDialogComponent } from '../../../integrations/integration-dialog.component.js';
 
-const SENSITIVE_KEYS = ['encryptedPassword', 'encryptedPat', 'encryptedBotToken', 'encryptedAppToken', 'password', 'pat', 'token', 'secret', 'apiKey'];
+const SENSITIVE_KEYS = ['encryptedPassword', 'encryptedPat', 'encryptedBotToken', 'encryptedAppToken', 'encryptedToken', 'encryptedPrivateKey', 'password', 'pat', 'token', 'secret', 'apiKey', 'privateKey'];
 
 @Component({
   selector: 'app-client-integrations-tab',
@@ -237,6 +237,7 @@ export class ClientIntegrationsTabComponent implements OnInit {
       case 'AZURE_DEVOPS': return '\u2699'; // ⚙
       case 'MCP_DATABASE': return '\u{1F5C4}'; // 🗄
       case 'SLACK': return '\u{1F4AC}';     // 💬
+      case 'GITHUB': return '\u{1F5C2}';    // 🗂 (until a real GitHub octocat icon is available)
       default: return '\u{1F50C}';          // 🔌
     }
   }

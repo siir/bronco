@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   createLogger,
   initEmptyKnowledgeDoc,
@@ -43,9 +43,11 @@ import {
   composeFinalAnalysis,
   fallbackFillRequiredSections,
   writeKnowledgeDocSnapshot,
+  writeStallMarker,
 } from './v2-knowledge-doc.js';
 import {
   KD_SYSTEM_PROMPT_SNIPPET,
+  NO_STALL_SYSTEM_PROMPT_SNIPPET,
   PREFER_EXISTING_TOOLS_SNIPPET,
   REQUEST_NEW_TOOL_SNIPPET,
   TOOL_ERROR_SYSTEM_PROMPT_SNIPPET,
@@ -695,11 +697,98 @@ const ORCHESTRATED_V2_STRATEGIST_PROMPT = [
   REQUEST_NEW_TOOL_SNIPPET,
   TOOL_ERROR_SYSTEM_PROMPT_SNIPPET,
   KD_SYSTEM_PROMPT_SNIPPET,
+  NO_STALL_SYSTEM_PROMPT_SNIPPET,
 ].join('\n');
 
 // ---------------------------------------------------------------------------
 // Main orchestrated v2 entry point
 // ---------------------------------------------------------------------------
+
+/**
+ * Tool names that count as a knowledge-doc write. Reads (kd_read_toc /
+ * kd_read_section) do NOT count — the stall detector (#366) treats pure
+ * reads as no-progress. Update in lockstep with MCP platform's kd_* tool
+ * registration in `mcp-servers/platform/src/tools/knowledge-doc.ts`.
+ */
+const KD_WRITE_TOOL_NAMES: ReadonlySet<string> = new Set([
+  'platform__kd_update_section',
+  'platform__kd_add_subsection',
+]);
+
+function countKdWrites(toolCalls: ReadonlyArray<{ tool: string }>): number {
+  let n = 0;
+  for (const tc of toolCalls) {
+    if (KD_WRITE_TOOL_NAMES.has(tc.tool)) n++;
+  }
+  return n;
+}
+
+/**
+ * Cheap fingerprint of an orchestrator response. Used to detect N consecutive
+ * iterations that return nearly-identical plans (the #366 symptom). We strip
+ * whitespace + lowercase before hashing so that trivial cosmetic deltas don't
+ * mask a stuck agent; we take only the first 4k chars so huge pasted contexts
+ * don't dominate the fingerprint.
+ */
+function hashOrchestratorResponse(content: string): string {
+  const normalized = content.slice(0, 4000).replace(/\s+/g, ' ').trim().toLowerCase();
+  return createHash('sha1').update(normalized).digest('hex');
+}
+
+/**
+ * Stall-detection state for a single orchestrated-v2 run. The three rules map
+ * 1:1 to #366:
+ *   1. `consecutiveNoProgress >= 2` — two iterations in a row with zero
+ *      sub-task dispatches AND zero KD writes.
+ *   2. `consecutiveSameHash >= 3` — three iterations in a row with identical
+ *      (normalized) strategist response hashes.
+ *   3. `totalKdWrites === 0 && completedIterations >= 3` — the agent has had
+ *      three full turns without touching the doc.
+ *
+ * Returns a human-readable reason string when any rule fires, otherwise null.
+ * State is mutated in-place so the caller can keep running counters across the
+ * loop; call this at the end of every iteration after the sub-task batch (and
+ * its KD writes) has been accounted for.
+ */
+interface StallState {
+  consecutiveNoProgress: number;
+  consecutiveSameHash: number;
+  lastResponseHash: string | null;
+  totalKdWrites: number;
+  completedIterations: number;
+}
+
+function updateStallState(
+  state: StallState,
+  iteration: { subTaskCount: number; kdWrites: number; responseHash: string },
+): string | null {
+  state.completedIterations += 1;
+  state.totalKdWrites += iteration.kdWrites;
+
+  if (iteration.subTaskCount === 0 && iteration.kdWrites === 0) {
+    state.consecutiveNoProgress += 1;
+  } else {
+    state.consecutiveNoProgress = 0;
+  }
+
+  if (state.lastResponseHash !== null && state.lastResponseHash === iteration.responseHash) {
+    state.consecutiveSameHash += 1;
+  } else {
+    state.consecutiveSameHash = 1;
+  }
+  state.lastResponseHash = iteration.responseHash;
+
+  if (state.consecutiveNoProgress >= 2) {
+    return `${state.consecutiveNoProgress} consecutive iterations with zero sub-task dispatch and zero knowledge-doc writes`;
+  }
+  if (state.consecutiveSameHash >= 3) {
+    return `${state.consecutiveSameHash} consecutive iterations with identical strategist response fingerprints`;
+  }
+  if (state.totalKdWrites === 0 && state.completedIterations >= 3) {
+    return `zero knowledge-doc writes across ${state.completedIterations} iterations`;
+  }
+  return null;
+}
 
 /**
  * Orchestrated v2 agentic analysis. The strategist plans iterative sub-tasks;
@@ -842,6 +931,17 @@ export async function runOrchestratedV2(
       initialStrategistPrompt = `Investigate this ticket. Here is the full context:\n\n${contextParts.join('\n')}${effectivePriorNote}`;
     }
   }
+
+  // Stall-detection state — see updateStallState for the three rules (#366).
+  const stallState: StallState = {
+    consecutiveNoProgress: 0,
+    consecutiveSameHash: 0,
+    lastResponseHash: null,
+    totalKdWrites: 0,
+    completedIterations: 0,
+  };
+  let stallReason: string | null = null;
+  let stallIteration = 0;
 
   // ---------------------------------------------------------------------------
   // Strategist message loop
@@ -1047,6 +1147,15 @@ export async function runOrchestratedV2(
         logger.warn({ err, ticketId, iteration: i + 1 }, 'Failed to append Run Log entry — continuing');
       }
 
+      // Stall-detection accumulators for this iteration.
+      // `iterationDispatchAttempts` is the number of sub-tasks dispatched
+      // (counts attempts, not completions, so a batch where all fail still
+      // registers as "tasks were dispatched" and doesn't falsely trip the
+      // zero-dispatch rule). `iterationKdWrites` counts kd_update_section +
+      // kd_add_subsection calls across this iteration's sub-task tool-call logs.
+      const iterationDispatchAttempts = plan.subtasks.length;
+      let iterationKdWrites = 0;
+
       // Execute sub-tasks in parallel batches
       const subtaskBatches = chunkArray(plan.subtasks, maxParallelTasks);
       const allSubTaskResults: SubTaskRunResult[] = [];
@@ -1085,6 +1194,7 @@ export async function runOrchestratedV2(
             orchTotalInputTokens += result.value.inputTokens;
             orchTotalOutputTokens += result.value.outputTokens;
             orchToolCallLog.push(...result.value.toolCalls);
+            iterationKdWrites += countKdWrites(result.value.toolCalls);
             allSubTaskResults.push(result.value);
             appLog.info(
               `Sub-task ${subtask.id} complete (${result.value.stopReason}): ${result.value.summary.slice(0, 200)}`,
@@ -1127,6 +1237,7 @@ export async function runOrchestratedV2(
               orchTotalInputTokens += retryResult.inputTokens;
               orchTotalOutputTokens += retryResult.outputTokens;
               orchToolCallLog.push(...retryResult.toolCalls);
+              iterationKdWrites += countKdWrites(retryResult.toolCalls);
               allSubTaskResults.push(retryResult);
               appLog.info(
                 `Sub-task ${subtask.id} complete (retry, ${retryResult.stopReason}): ${retryResult.summary.slice(0, 200)}`,
@@ -1197,6 +1308,37 @@ export async function runOrchestratedV2(
       }
 
       await writeKnowledgeDocSnapshot(db, ticketId, i + 1);
+
+      // --- Stall detection (#366) ------------------------------------------
+      // After the sub-task batch completes and KD writes have been counted,
+      // feed per-iteration signals into the stall state machine. The response
+      // hash is computed from the serialised dispatch plan (the strategist's
+      // intent for this iteration) rather than a raw text response, since the
+      // v2 strategist uses generateWithTools and its "response" is tool calls.
+      const dispatchPlanHash = hashOrchestratorResponse(JSON.stringify(plan.subtasks));
+      const stallCheck = updateStallState(stallState, {
+        subTaskCount: iterationDispatchAttempts,
+        kdWrites: iterationKdWrites,
+        responseHash: dispatchPlanHash,
+      });
+      if (stallCheck !== null) {
+        stallReason = stallCheck;
+        stallIteration = i + 1;
+        appLog.warn(
+          `Orchestrator stall detected at iteration ${i + 1}: ${stallCheck}. Terminating loop early.`,
+          {
+            ticketId,
+            iteration: i + 1,
+            stallReason: stallCheck,
+            consecutiveNoProgress: stallState.consecutiveNoProgress,
+            consecutiveSameHash: stallState.consecutiveSameHash,
+            totalKdWrites: stallState.totalKdWrites,
+          },
+          ticketId,
+          'ticket',
+        );
+        break;
+      }
     } else if (innerDone) {
       // Strategist ended the inner loop but without a decision — treat as done
       await writeKnowledgeDocSnapshot(db, ticketId, i + 1);
@@ -1214,13 +1356,27 @@ export async function runOrchestratedV2(
     }
   }
 
-  // --- End of loop: fallback-fill + compose ---
-  await fallbackFillRequiredSections(db, ticketId, 'orchestrated-v2 loop end');
+  // --- End of loop: stall marker (if any) + fallback-fill + compose ------
+  // When the stall detector fired we write a real rootCause marker BEFORE the
+  // generic fallback-fill runs. `fallbackFillRequiredSections` only touches
+  // empty required sections, so populating rootCause first means the operator
+  // sees the actual stall reason in the composed analysis instead of the
+  // generic `[agent did not populate this section — …]` placeholder.
+  if (stallReason) {
+    await writeStallMarker(db, ticketId, stallIteration, stallReason);
+  }
+  const fallbackReason = stallReason
+    ? `orchestrated-v2 stalled at iteration ${stallIteration}`
+    : 'orchestrated-v2 loop end';
+  await fallbackFillRequiredSections(db, ticketId, fallbackReason);
   const kdAfter = await loadKnowledgeDoc(db, ticketId);
+  const fallbackExecutiveSummary = stallReason
+    ? `Orchestrated analysis terminated early by stall detector at iteration ${stallIteration}: ${stallReason}. No substantive findings were produced — see the Root Cause section for details.`
+    : 'Orchestrated analysis reached maximum iterations without a final conclusion. Review the knowledge document for partial findings.';
   const composedAnalysis = composeFinalAnalysis(
     kdAfter?.knowledgeDoc ?? null,
     kdAfter?.knowledgeDocSectionMeta ?? null,
-    agentExecutiveSummary || 'Orchestrated analysis reached maximum iterations without a final conclusion. Review the knowledge document for partial findings.',
+    agentExecutiveSummary || fallbackExecutiveSummary,
   );
   await writeKnowledgeDocSnapshot(db, ticketId, orchIterationsRun);
 
