@@ -151,7 +151,7 @@ const PROVIDER_OPTIONS = [
     .key-mask {
       font-family: ui-monospace, 'SF Mono', Menlo, monospace;
       font-size: 12px;
-      color: var(--text-secondary);
+      color: var(--text-code);
       background: var(--bg-code);
       padding: 1px 6px;
       border-radius: var(--radius-sm);

@@ -571,7 +571,28 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     },
   );
 
-  // POST /api/tickets/:id/reanalyze — re-enqueue ticket for route dispatch
+  // POST /api/tickets/:id/reanalyze — re-enqueue ticket for route dispatch.
+  //
+  // #375: BullMQ dedupes job IDs across all states (completed, active, waiting,
+  // etc.). The previous implementation used a deterministic jobId
+  // (`ticket-created-reanalyze-<ticketId>`) and the downstream route dispatcher
+  // in turn enqueued with `analysis-<ticketId>` — also deterministic. A Retry
+  // Analysis click on a ticket whose prior analysis had completed was therefore
+  // a silent no-op at the analysisQueue layer: queue.add() returned the old
+  // completed Job without creating a new one, the API still wrote the
+  // SYSTEM_NOTE audit event, and the UI showed "analysis running" while
+  // nothing ran.
+  //
+  // Fix:
+  //   - Use a timestamped `ticket-created-reanalyze-<ticketId>-<ts>` jobId so
+  //     every click creates a distinct outer ticket-created job.
+  //   - Pass `reanalysis: true` through to the route dispatcher so it routes
+  //     the downstream analysis enqueue to `reanalysis-<ticketId>-<ts>` as
+  //     well (see route-dispatcher.ts).
+  //   - Verify BullMQ actually created a NEW job by inspecting Job.timestamp;
+  //     if we somehow get back a dedupe hit, return 409 so the frontend can
+  //     show a real error rather than optimistic success.
+  //   - Only write the SYSTEM_NOTE audit row AFTER the enqueue confirms.
   fastify.post<{ Params: { id: string } }>('/api/tickets/:id/reanalyze', async (request, reply) => {
     const ticket = await fastify.db.ticket.findUnique({
       where: { id: request.params.id },
@@ -580,34 +601,39 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     if (!ticket) return fastify.httpErrors.notFound('Ticket not found');
     if (!opts?.ticketCreatedQueue) return fastify.httpErrors.serviceUnavailable('Ticket queue not available');
 
-    const jobId = `ticket-created-reanalyze-${ticket.id}`;
-    const existingJob = await opts.ticketCreatedQueue.getJob(jobId);
-    let queued = true;
+    const enqueuedAt = Date.now();
+    const jobId = `ticket-created-reanalyze-${ticket.id}-${enqueuedAt}`;
 
-    if (existingJob) {
-      const state = await existingJob.getState();
-      if (state === 'completed' || state === 'failed') {
-        await existingJob.remove();
-      } else {
-        queued = false;
-      }
-    }
+    await fastify.db.ticket.update({
+      where: { id: ticket.id },
+      data: { analysisStatus: AnalysisStatus.PENDING, analysisError: null },
+    });
 
-    if (queued) {
-      await fastify.db.ticket.update({
-        where: { id: ticket.id },
-        data: { analysisStatus: AnalysisStatus.PENDING, analysisError: null },
-      });
+    const enqueuedJob = await opts.ticketCreatedQueue.add('ticket-created', {
+      ticketId: ticket.id,
+      clientId: ticket.clientId,
+      source: (ticket.source ?? TicketSource.MANUAL) as TicketCreatedJob['source'],
+      category: ticket.category ?? null,
+      reanalysis: true,
+    }, {
+      jobId,
+      attempts: 4,
+      backoff: { type: 'exponential', delay: 30_000 },
+      removeOnComplete: { age: 3600, count: 1000 },
+      removeOnFail: { age: 24 * 3600, count: 1000 },
+    });
 
-      await opts.ticketCreatedQueue.add('ticket-created', {
+    // Belt-and-braces dedupe check. With a timestamped jobId this should never
+    // trigger, but catching it here means we never lie to the UI.
+    const DEDUPE_THRESHOLD_MS = 5_000;
+    if (enqueuedJob.timestamp && enqueuedAt - enqueuedJob.timestamp > DEDUPE_THRESHOLD_MS) {
+      return reply.code(409).send({
+        queued: false,
         ticketId: ticket.id,
-        clientId: ticket.clientId,
-        source: (ticket.source ?? TicketSource.MANUAL) as TicketCreatedJob['source'],
-        category: ticket.category ?? null,
-      }, {
         jobId,
-        attempts: 4,
-        backoff: { type: 'exponential', delay: 30_000 },
+        error:
+          'Analysis job with this ID already exists — was not re-enqueued. ' +
+          'Check the Analysis Trace tab for current state.',
       });
     }
 
@@ -615,9 +641,7 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
       data: {
         ticketId: ticket.id,
         eventType: TicketEventType.SYSTEM_NOTE,
-        content: queued
-          ? 'Analysis pipeline re-triggered by operator.'
-          : 'Re-analysis skipped — a job is already queued or running.',
+        content: 'Analysis pipeline re-triggered by operator.',
         actor: 'operator',
       },
     });
@@ -625,7 +649,7 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     const updated = await fastify.db.ticket.findUnique({ where: { id: ticket.id } });
 
     reply.code(202);
-    return { queued, ticketId: ticket.id, jobId, ticket: updated };
+    return { queued: true, ticketId: ticket.id, jobId, ticket: updated };
   });
 
   // ─── Chat Tab (#312) ────────────────────────────────────────────────────────
@@ -685,6 +709,10 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
       jobId,
       attempts: 4,
       backoff: { type: 'exponential', delay: 30_000 },
+      // #375: age completed jobs out of Redis so the dedupe state doesn't
+      // accumulate indefinitely.
+      removeOnComplete: { age: 3600, count: 1000 },
+      removeOnFail: { age: 24 * 3600, count: 1000 },
     });
     await fastify.db.ticket.update({
       where: { id: ticketId },

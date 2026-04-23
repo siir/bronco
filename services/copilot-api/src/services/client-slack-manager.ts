@@ -55,8 +55,10 @@ export class ClientSlackManager {
    * Safe to call multiple times — disconnects stale connections and reconnects changed ones.
    */
   async refreshConnections(): Promise<void> {
+    // SLACK integrations are always client-scoped (platform scope only exists
+    // for GITHUB today). Filter clientId not-null defensively.
     const integrations = await this.db.clientIntegration.findMany({
-      where: { type: IntegrationType.SLACK, isActive: true },
+      where: { type: IntegrationType.SLACK, isActive: true, clientId: { not: null } },
       select: { id: true, clientId: true, config: true },
     });
 
@@ -73,6 +75,7 @@ export class ClientSlackManager {
 
     // Connect new integrations; reconnect if config has changed; disconnect if disabled
     for (const integ of integrations) {
+      if (!integ.clientId) continue; // defensive — clientId: not null filter should guarantee this
       const cfg = integ.config as Record<string, unknown>;
       const enabled = cfg['enabled'] !== false;
       const currentSnapshot = JSON.stringify(cfg);

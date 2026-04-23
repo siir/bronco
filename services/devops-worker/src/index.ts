@@ -160,6 +160,13 @@ async function main(): Promise<void> {
       logger.warn({ integrationId }, 'Integration not found or inactive — cannot create processor');
       return undefined;
     }
+    // AZURE_DEVOPS integrations are always client-scoped (platform-scoped only
+    // exists for GITHUB today). Skip if the row is somehow platform-scoped to
+    // satisfy the nullable-clientId type without crashing.
+    if (!integ.client) {
+      logger.warn({ integrationId }, 'AZURE_DEVOPS integration is missing a client — skipping');
+      return undefined;
+    }
 
     const rawCfg = integ.config as {
       orgUrl?: string;
@@ -313,11 +320,12 @@ async function main(): Promise<void> {
   async function initPerClientProcessors(): Promise<void> {
     try {
       const integrations = await db.clientIntegration.findMany({
-        where: { type: 'AZURE_DEVOPS', isActive: true },
+        where: { type: 'AZURE_DEVOPS', isActive: true, clientId: { not: null } },
         include: { client: { select: { name: true, shortCode: true } } },
       });
 
       for (const integ of integrations) {
+        if (!integ.client) continue; // defensive — clientId: not null filter should guarantee this
         const rawCfg = integ.config as {
           orgUrl?: string;
           project?: string;
@@ -392,11 +400,12 @@ async function main(): Promise<void> {
   const pollPerClient = async () => {
     try {
       const integrations = await db.clientIntegration.findMany({
-        where: { type: 'AZURE_DEVOPS', isActive: true },
+        where: { type: 'AZURE_DEVOPS', isActive: true, clientId: { not: null } },
         include: { client: { select: { name: true, shortCode: true } } },
       });
 
       for (const integ of integrations) {
+        if (!integ.client) continue; // defensive — clientId: not null filter should guarantee this
         const rawCfg = integ.config as {
           orgUrl?: string;
           project?: string;

@@ -54,11 +54,33 @@ const slackConfigSchema = z.object({
   enabled: z.boolean(),
 }).passthrough();
 
+const githubHostSchema = z.string().min(1).optional();
+
+const githubPatConfigSchema = z.object({
+  kind: z.literal('pat'),
+  encryptedToken: z.string().min(1),
+  host: githubHostSchema,
+}).passthrough();
+
+const githubAppConfigSchema = z.object({
+  kind: z.literal('github_app'),
+  appId: z.string().min(1),
+  installationId: z.string().min(1),
+  encryptedPrivateKey: z.string().min(1),
+  host: githubHostSchema,
+}).passthrough();
+
+const githubConfigSchema = z.discriminatedUnion('kind', [
+  githubPatConfigSchema,
+  githubAppConfigSchema,
+]);
+
 const configSchemaByType: Record<string, z.ZodType> = {
   [IntegrationType.IMAP]: imapConfigSchema,
   [IntegrationType.AZURE_DEVOPS]: azureDevOpsConfigSchema,
   [IntegrationType.MCP_DATABASE]: mcpDatabaseConfigSchema,
   [IntegrationType.SLACK]: slackConfigSchema,
+  [IntegrationType.GITHUB]: githubConfigSchema,
 };
 
 function validateIntegrationConfig(type: string, config: unknown): string | null {
@@ -81,6 +103,11 @@ const SECRET_FIELDS: Record<string, string[]> = {
   [IntegrationType.AZURE_DEVOPS]: ['encryptedPat'],
   [IntegrationType.MCP_DATABASE]: ['apiKey'],
   [IntegrationType.SLACK]: ['encryptedBotToken', 'encryptedAppToken'],
+  // GitHub stores credentials under a discriminated union — both kinds have
+  // secret fields (encryptedToken for PAT, encryptedPrivateKey for app).
+  // encryptConfigSecrets() just checks each field name; fields absent from the
+  // incoming config are skipped harmlessly.
+  [IntegrationType.GITHUB]: ['encryptedToken', 'encryptedPrivateKey'],
 };
 
 function encryptConfigSecrets(
@@ -109,20 +136,29 @@ interface IntegrationRouteOpts {
 
 export async function integrationRoutes(fastify: FastifyInstance, opts: IntegrationRouteOpts): Promise<void> {
   const { encryptionKey, mcpDiscoveryQueue, onSlackIntegrationChange } = opts;
-  fastify.get<{ Querystring: { clientId?: string; type?: string } }>(
+  fastify.get<{ Querystring: { clientId?: string; type?: string; scope?: string } }>(
     '/api/integrations',
     async (request) => {
-      const { clientId, type } = request.query;
+      const { clientId, type, scope } = request.query;
       if (type && !VALID_INTEGRATION_TYPES.includes(type as IntegrationType)) {
         return fastify.httpErrors.badRequest(
           `Invalid type. Must be one of: ${VALID_INTEGRATION_TYPES.join(', ')}`,
         );
       }
+      // `scope=platform` narrows to platform-scoped (clientId IS NULL) rows.
+      // `scope=client` narrows to client-scoped rows (clientId IS NOT NULL).
+      // A `clientId` query param takes precedence when both are set.
+      const where: Record<string, unknown> = {};
+      if (clientId) {
+        where.clientId = clientId;
+      } else if (scope === 'platform') {
+        where.clientId = null;
+      } else if (scope === 'client') {
+        where.clientId = { not: null };
+      }
+      if (type) where.type = type;
       return fastify.db.clientIntegration.findMany({
-        where: {
-          ...(clientId && { clientId }),
-          ...(type && { type: type as never }),
-        },
+        where,
         include: {
           client: { select: { name: true, shortCode: true } },
         },
@@ -144,7 +180,7 @@ export async function integrationRoutes(fastify: FastifyInstance, opts: Integrat
 
   fastify.post<{
     Body: {
-      clientId: string;
+      clientId?: string | null;
       type: string;
       label?: string;
       config: Record<string, unknown>;
@@ -162,8 +198,19 @@ export async function integrationRoutes(fastify: FastifyInstance, opts: Integrat
     if (configError) {
       return fastify.httpErrors.badRequest(`Invalid config for ${request.body.type}: ${configError}`);
     }
-    const { clientId, environmentId } = request.body;
+    const { clientId, environmentId, type } = request.body;
+    // Platform-scoped integrations are only supported for GITHUB today.
+    // Other types always require a client.
+    const isPlatformScoped = clientId === null || clientId === undefined;
+    if (isPlatformScoped && type !== IntegrationType.GITHUB) {
+      return fastify.httpErrors.badRequest(
+        `clientId is required for ${type} integrations. Only GITHUB integrations may be platform-scoped.`,
+      );
+    }
     if (environmentId !== undefined && environmentId !== null) {
+      if (!clientId) {
+        return fastify.httpErrors.badRequest('environmentId cannot be set on a platform-scoped integration');
+      }
       const env = await fastify.db.clientEnvironment.findUnique({
         where: { id: environmentId },
         select: { clientId: true },
@@ -174,7 +221,11 @@ export async function integrationRoutes(fastify: FastifyInstance, opts: Integrat
     const encryptedConfig = encryptConfigSecrets(request.body.type, request.body.config, encryptionKey);
     try {
       const integration = await fastify.db.clientIntegration.create({
-        data: { ...request.body, config: encryptedConfig } as never,
+        data: {
+          ...request.body,
+          clientId: clientId ?? null,
+          config: encryptedConfig,
+        } as never,
       });
       // Trigger async MCP discovery for MCP_DATABASE integrations
       if (request.body.type === IntegrationType.MCP_DATABASE) {
@@ -208,7 +259,7 @@ export async function integrationRoutes(fastify: FastifyInstance, opts: Integrat
   }>('/api/integrations/:id', async (request) => {
     let existingType: string | undefined;
     const needsExisting = request.body.config !== undefined || request.body.environmentId !== undefined;
-    let existingClientId: string | undefined;
+    let existingClientId: string | null | undefined;
     if (needsExisting) {
       const existing = await fastify.db.clientIntegration.findUnique({
         where: { id: request.params.id },
@@ -233,7 +284,10 @@ export async function integrationRoutes(fastify: FastifyInstance, opts: Integrat
         request.body.config = encryptConfigSecrets(existing.type, mergedConfig, encryptionKey);
       }
     }
-    if (request.body.environmentId !== undefined && request.body.environmentId !== null && existingClientId) {
+    if (request.body.environmentId !== undefined && request.body.environmentId !== null) {
+      if (!existingClientId) {
+        return fastify.httpErrors.badRequest('environmentId cannot be set on a platform-scoped integration');
+      }
       const env = await fastify.db.clientEnvironment.findUnique({
         where: { id: request.body.environmentId },
         select: { clientId: true },

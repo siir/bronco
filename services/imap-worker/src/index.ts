@@ -99,11 +99,12 @@ async function main(): Promise<void> {
     // 2. Poll per-client IMAP integrations from the database
     try {
       const imapIntegrations = await db.clientIntegration.findMany({
-        where: { type: 'IMAP', isActive: true },
+        where: { type: 'IMAP', isActive: true, clientId: { not: null } },
         include: { client: { select: { name: true, shortCode: true } } },
       });
 
       for (const integ of imapIntegrations) {
+        if (!integ.client) continue; // defensive — clientId: not null filter should guarantee this
         const rawCfg = integ.config as { host?: string; port?: number; user?: string; encryptedPassword?: string };
         let password = rawCfg.encryptedPassword;
         if (password) {

@@ -1063,16 +1063,31 @@ async function maybeEnqueueReanalysis(
     return;
   }
 
-  // 4. Dedupe: use deterministic jobId to prevent duplicate reanalysis jobs
-  const reanalysisJobId = `reanalysis-${ticketId}`;
-  const existingJob = await analysisQueue.getJob(reanalysisJobId);
-  if (existingJob) {
-    const state = await existingJob.getState();
-    if (state === 'waiting' || state === 'delayed' || state === 'active') {
-      log.info({ ticketId, jobId: reanalysisJobId, state }, 'Re-analysis job already pending for this ticket — skipping');
+  // 4. Dedupe: scan for any in-flight re-analysis jobs for this ticket.
+  //
+  // #375: previously this path used a deterministic `reanalysis-<ticketId>` ID
+  // and removed the old Job if it was in a terminal state. That worked in
+  // practice because `removeOnComplete` wasn't set and completed jobs stayed
+  // in Redis, but it made the call order fragile: if BullMQ had already been
+  // asked to add the same ID elsewhere, the add() would silently dedupe.
+  // Switching to a timestamped ID removes that failure mode outright; we
+  // still skip enqueue if an active/waiting/delayed re-analysis exists so
+  // rapid-fire replies don't queue up redundant work.
+  const activeStates = new Set(['waiting', 'delayed', 'active', 'prioritized', 'waiting-children']);
+  const inflight = await analysisQueue.getJobs(['waiting', 'delayed', 'active', 'prioritized', 'waiting-children']);
+  const inflightMatch = inflight.find((j) => {
+    if (!j.id) return false;
+    return j.id.startsWith(`reanalysis-${ticketId}-`) || j.id === `reanalysis-${ticketId}`;
+  });
+  if (inflightMatch) {
+    const state = await inflightMatch.getState();
+    if (activeStates.has(state)) {
+      log.info(
+        { ticketId, jobId: inflightMatch.id, state },
+        'Re-analysis job already pending for this ticket — skipping',
+      );
       return;
     }
-    try { await existingJob.remove(); } catch { /* job may have been cleaned up already */ }
   }
 
   // 5. Find the trigger event (most recent EMAIL_INBOUND for this ticket)
@@ -1082,7 +1097,9 @@ async function maybeEnqueueReanalysis(
     select: { id: true },
   });
 
-  // All conditions met — enqueue re-analysis
+  // All conditions met — enqueue re-analysis with a unique, timestamped ID
+  // so BullMQ cannot silently collapse this into a previously completed job.
+  const reanalysisJobId = `reanalysis-${ticketId}-${Date.now()}`;
   await analysisQueue.add('analyze-ticket', {
     ticketId,
     clientId: ticket.clientId ?? undefined,
@@ -1092,9 +1109,11 @@ async function maybeEnqueueReanalysis(
     jobId: reanalysisJobId,
     attempts: 4,
     backoff: { type: 'exponential', delay: 30_000 },
+    removeOnComplete: { age: 3600, count: 1000 },
+    removeOnFail: { age: 24 * 3600, count: 1000 },
   });
 
-  log.info({ ticketId, triggerEventId: triggerEvent?.id }, 'Enqueued re-analysis for reply on analyzed ticket');
+  log.info({ ticketId, jobId: reanalysisJobId, triggerEventId: triggerEvent?.id }, 'Enqueued re-analysis for reply on analyzed ticket');
 }
 
 // ---------------------------------------------------------------------------
