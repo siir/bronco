@@ -41,9 +41,8 @@ export class IntegrationService {
   }
 
   /**
-   * Typed helper for the repo form's GitHub Integration dropdown. Returns all
-   * GITHUB integrations visible to a given client: the client's own
-   * integrations plus any platform-scoped ones.
+   * Typed helper for the repo form's GitHub Integration dropdown. Returns
+   * GITHUB integrations scoped to the given client.
    */
   getGithubIntegrationsForClient(clientId: string): Observable<ClientIntegration[]> {
     return this.api.get<ClientIntegration[]>('/integrations', { clientId, type: 'GITHUB' });

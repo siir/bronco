@@ -20,10 +20,11 @@ export async function resolveCloneUrl(
   encryptionKey: string,
   repo: { id: string; repoUrl: string; githubIntegrationId: string | null; clientId: string },
 ): Promise<string> {
-  // Only apply HTTPS-token rewriting to URLs that look like HTTPS GitHub (or GHES).
-  // SSH URLs ("git@github.com:owner/repo.git") are left alone and will clone
-  // via the legacy SSH-key path if one is mounted.
-  if (!repo.repoUrl.startsWith('https://') && !repo.repoUrl.startsWith('http://')) {
+  // Only apply token rewriting to HTTPS URLs. Plain HTTP URLs must be left
+  // untouched so credentials are never embedded into a clone URL that would be
+  // sent over an unencrypted connection. SSH URLs ("git@github.com:owner/repo.git")
+  // are also left alone and will clone via the legacy SSH-key path if one is mounted.
+  if (!repo.repoUrl.startsWith('https://')) {
     return repo.repoUrl;
   }
 
@@ -33,9 +34,22 @@ export async function resolveCloneUrl(
       where: { id: repo.githubIntegrationId },
       select: { id: true, type: true, config: true, isActive: true, clientId: true },
     });
-    if (direct && direct.isActive && direct.type === IntegrationType.GITHUB) {
+    // Guard against cross-tenant credential use: only use an integration if it is
+    // platform-scoped (clientId IS NULL) or belongs to the same client as the repo.
+    const matchesClient = direct ? direct.clientId === null || direct.clientId === repo.clientId : false;
+    if (direct && direct.isActive && direct.type === IntegrationType.GITHUB && matchesClient) {
       const rewritten = applyCredentialsToUrl(repo.repoUrl, direct.config, encryptionKey, { repoId: repo.id, source: 'repo' });
       if (rewritten) return rewritten;
+    } else if (direct && !matchesClient) {
+      logger.warn(
+        {
+          repoId: repo.id,
+          repoClientId: repo.clientId,
+          integrationId: direct.id,
+          integrationClientId: direct.clientId,
+        },
+        'Repo has githubIntegrationId for a different client — falling back to platform default',
+      );
     } else if (direct) {
       logger.warn(
         { repoId: repo.id, integrationId: direct.id, type: direct.type, active: direct.isActive },
@@ -44,11 +58,11 @@ export async function resolveCloneUrl(
     }
   }
 
-  // 2. Platform-scoped GITHUB integration
+  // 2. Platform-scoped GITHUB integration — prefer the "default" label so
+  //    selection is deterministic when multiple platform-scoped rows exist.
   const platform = await db.clientIntegration.findFirst({
-    where: { type: IntegrationType.GITHUB, clientId: null, isActive: true },
+    where: { type: IntegrationType.GITHUB, clientId: null, isActive: true, label: 'default' },
     select: { id: true, config: true },
-    orderBy: { createdAt: 'asc' },
   });
   if (platform) {
     const rewritten = applyCredentialsToUrl(repo.repoUrl, platform.config, encryptionKey, { repoId: repo.id, source: 'platform' });

@@ -1,6 +1,7 @@
 import { Component, DestroyRef, inject, OnInit, input, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { forkJoin } from 'rxjs';
+import { forkJoin, of } from 'rxjs';
+import { catchError } from 'rxjs/operators';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RepoService, type CodeRepo } from '../../core/services/repo.service.js';
 import { IntegrationService, type ClientIntegration } from '../../core/services/integration.service.js';
@@ -112,20 +113,15 @@ export class RepoDialogComponent implements OnInit {
     }
 
     // Load GITHUB integrations visible to this client (client-scoped + platform-scoped).
-    // Using forkJoin keeps both requests independent; if one fails the dropdown
-    // still renders with whatever loaded successfully.
+    // Each request is guarded with catchError so a failure on one source still allows
+    // the dropdown to render with whatever loaded successfully from the other source.
     forkJoin({
-      client: this.integrationService.getGithubIntegrationsForClient(this.clientId()),
-      platform: this.integrationService.getPlatformGithubIntegrations(),
+      client: this.integrationService.getGithubIntegrationsForClient(this.clientId()).pipe(catchError(() => of([] as ClientIntegration[]))),
+      platform: this.integrationService.getPlatformGithubIntegrations().pipe(catchError(() => of([] as ClientIntegration[]))),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: ({ client, platform }) => {
-          this.githubIntegrationOptions.set(this.buildOptions(client, platform));
-        },
-        error: () => {
-          // Non-fatal — user can still save with Platform default selected.
-        },
+      .subscribe(({ client, platform }) => {
+        this.githubIntegrationOptions.set(this.buildOptions(client, platform));
       });
   }
 
@@ -133,7 +129,7 @@ export class RepoDialogComponent implements OnInit {
     const options: Array<{ value: string; label: string }> = [{ value: '', label: '(Platform default)' }];
     for (const i of clientScoped) {
       if (!i.isActive) continue;
-      options.push({ value: i.id, label: `${i.label}${i.label === 'default' ? '' : ''} — client` });
+      options.push({ value: i.id, label: `${i.label} — client` });
     }
     for (const i of platformScoped) {
       if (!i.isActive) continue;

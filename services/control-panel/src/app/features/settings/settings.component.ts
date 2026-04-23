@@ -504,8 +504,8 @@ const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External
               <p class="github-scope-blurb">
                 <strong>Migration note (#368):</strong> GitHub is now a first-class Integration type. Tool-request issue creation reads from a
                 platform-scoped <code>GITHUB</code> integration when one exists, and falls back to this AppSetting otherwise (dual-read for one release).
-                To migrate, create a <code>GITHUB</code> integration under any client's Integrations tab with PAT credentials — choose "platform" scope when
-                the UI surfaces that option. The existing token here will continue to work until migration is complete.
+                To migrate in v1, create a platform-scoped <code>GITHUB</code> integration with PAT credentials via <code>POST /api/integrations</code>.
+                The existing token here will continue to work until migration is complete.
               </p>
               <div class="card-actions">
                 <app-bronco-button variant="primary" (click)="saveGithub()" [disabled]="sysConfigSaving()">Save</app-bronco-button>

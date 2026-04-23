@@ -36,10 +36,10 @@ async function resolvePlatformGithubCreds(
   db: PrismaClient,
   encryptionKey: string,
 ): Promise<ResolvedGithubCreds | null> {
-  // 1. Prefer platform-scoped GITHUB integration
+  // 1. Prefer the default platform-scoped GITHUB integration — use label: 'default'
+  //    so selection is deterministic when multiple platform-scoped rows exist.
   const integration = await db.clientIntegration.findFirst({
-    where: { type: 'GITHUB', clientId: null, isActive: true },
-    orderBy: { createdAt: 'asc' },
+    where: { type: 'GITHUB', clientId: null, isActive: true, label: 'default' },
   });
   if (integration) {
     const cfg = integration.config as Record<string, unknown> | null;
@@ -218,7 +218,7 @@ export async function createToolRequestGithubIssue(
   const creds = await resolvePlatformGithubCreds(db, encryptionKey);
   if (!creds) {
     throw new Error(
-      'GitHub credentials not configured — add a platform-scoped GITHUB integration (Settings → Integrations) or set the legacy system-config-github AppSetting',
+      'GitHub credentials not configured — add a GITHUB integration under Clients → Integrations (platform-scoped integrations are created via API) or set the legacy system-config-github AppSetting',
     );
   }
 
@@ -234,7 +234,7 @@ export async function createToolRequestGithubIssue(
   }
   if (!owner || !name) {
     throw new Error(
-      'GitHub default repo not configured — set the `tool-requests-github-default-repo` AppSetting or pass repoOwner/repoName',
+      'GitHub default repo not configured — set the `tool-requests-github-default-repo` AppSetting, configure the legacy `system-config-github.repo` field, or pass repoOwner/repoName',
     );
   }
 

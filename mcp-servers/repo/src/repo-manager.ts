@@ -64,10 +64,12 @@ export class RepoManager {
     });
 
     if (await this.pathExists(barePath)) {
-      // Update the origin URL in case credentials rotated (or an integration
-      // was added/removed since the last fetch). We log at debug because this
-      // fires on every refresh.
-      if (cloneUrl !== repo.repoUrl) {
+      // Compare against the current remote URL rather than `repo.repoUrl` so we
+      // also reset stale tokenized remotes back to the plain URL when an integration
+      // is removed (not just when a new token is injected).
+      const { stdout: originUrlStdout } = await execFileAsync('git', ['remote', 'get-url', 'origin'], { cwd: barePath });
+      const originUrl = originUrlStdout.trim();
+      if (originUrl !== cloneUrl) {
         await execFileAsync('git', ['remote', 'set-url', 'origin', cloneUrl], { cwd: barePath });
       }
       logger.info({ repoId, barePath }, 'Fetching updates for bare clone');
@@ -76,6 +78,15 @@ export class RepoManager {
       logger.info({ repoId, barePath, usedGithubIntegration: cloneUrl !== repo.repoUrl }, 'Cloning bare repository');
       await mkdir(this.config.REPO_WORKSPACE_PATH, { recursive: true });
       await execFileAsync('git', ['clone', '--bare', cloneUrl, barePath]);
+    }
+
+    // Scrub the token-embedded URL from .git/config so the PAT is not stored on
+    // disk at rest. We reset the remote to the plain URL immediately after the
+    // clone/fetch completes; future operations will re-inject via the in-memory
+    // cloneUrl resolved above.  This does NOT break subsequent git operations on
+    // the bare repo because all fetched objects are already in the object store.
+    if (cloneUrl !== repo.repoUrl) {
+      await execFileAsync('git', ['remote', 'set-url', 'origin', repo.repoUrl], { cwd: barePath });
     }
 
     return barePath;

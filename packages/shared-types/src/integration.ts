@@ -46,8 +46,11 @@ export interface SlackIntegrationConfig {
  *
  * NOTE: `github_app` support is stubbed for v1 — the Zod schema accepts it and
  * the data round-trips, but token-minting (JWT → installation token exchange)
- * is a follow-up. mcp-repo / tool-request-github will log a TODO and fall
- * through to PAT / legacy paths when they encounter `kind: 'github_app'`.
+ * is a follow-up (#369). mcp-repo falls through to the next resolution level
+ * (platform default / SSH) when it encounters `kind: 'github_app'`.
+ * tool-request-github throws a clear error rather than silently falling back,
+ * because an operator who configured a github_app integration almost certainly
+ * intended it to be used.
  */
 export interface GithubPatCredentials {
   kind: 'pat';
