@@ -32,7 +32,7 @@ RUN mkdir -p /var/lib/mcp-repo/repos \
 # Without this the container has no known_hosts at all and every SSH-URL
 # clone aborts before reaching auth. See issue #367.
 RUN mkdir -p /home/node/.ssh \
-    && ssh-keyscan -t rsa,ed25519 github.com gitlab.com bitbucket.org \
+    && ssh-keyscan -T 5 -t rsa,ed25519 github.com gitlab.com bitbucket.org \
          >> /home/node/.ssh/known_hosts 2>/dev/null \
     && chown -R node:node /home/node/.ssh \
     && chmod 700 /home/node/.ssh \

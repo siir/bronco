@@ -24,7 +24,7 @@ if command -v ssh >/dev/null 2>&1; then
     -o ConnectTimeout=5 \
     git@github.com 2>&1 || true)
 
-  if echo "$probe_output" | grep -q "successfully authenticated"; then
+  if echo "$probe_output" | grep -qi "successfully authenticated"; then
     echo "[mcp-repo] SSH to github.com authenticated — SSH-URL clones should work" >&2
   else
     echo "[mcp-repo] WARNING: SSH to github.com not authenticating — SSH-URL repos will fail to clone. HTTPS-URL repos are unaffected." >&2

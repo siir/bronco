@@ -54,21 +54,29 @@ function probeSshGithub(): Promise<boolean> {
   });
 }
 
-async function getSshGithubReachable(): Promise<boolean> {
+// Returns the cached SSH reachability value immediately (never waits for a live
+// probe on the hot path). If the cache is cold or stale, kicks off a background
+// refresh and returns `null` (unknown) until the first result arrives.  This
+// keeps /health non-blocking so it always responds well within the docker-compose
+// healthcheck timeout even when the 60-second cache has just expired.
+function getSshGithubReachable(): boolean | null {
   const now = Date.now();
   if (sshProbeCache && now - sshProbeCache.at < SSH_PROBE_TTL_MS) {
     return sshProbeCache.value;
   }
-  if (sshProbeInflight) return sshProbeInflight;
-  sshProbeInflight = probeSshGithub()
-    .then((value) => {
-      sshProbeCache = { value, at: Date.now() };
-      return value;
-    })
-    .finally(() => {
-      sshProbeInflight = null;
-    });
-  return sshProbeInflight;
+  // Cache is cold or stale — kick off a refresh in the background if one is
+  // not already running, then return null (unknown) for this request.
+  if (!sshProbeInflight) {
+    sshProbeInflight = probeSshGithub()
+      .then((value) => {
+        sshProbeCache = { value, at: Date.now() };
+        return value;
+      })
+      .finally(() => {
+        sshProbeInflight = null;
+      });
+  }
+  return null;
 }
 
 async function main(): Promise<void> {
@@ -83,8 +91,12 @@ async function main(): Promise<void> {
   app.use(express.json());
 
   // --- Health check (no auth) ---
-  app.get('/health', async (_req, res) => {
-    const sshGithubReachable = await getSshGithubReachable().catch(() => false);
+  // getSshGithubReachable() is synchronous and non-blocking: it returns the
+  // cached value (true/false) or null when no result is available yet (probe
+  // still running or cache cold).  Never awaits a live SSH probe here so the
+  // healthcheck always responds quickly regardless of TTL expiry.
+  app.get('/health', (_req, res) => {
+    const sshGithubReachable = getSshGithubReachable();
     res.json({
       status: 'ok',
       timestamp: new Date().toISOString(),
