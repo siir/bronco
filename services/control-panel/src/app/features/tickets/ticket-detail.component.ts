@@ -3,6 +3,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CommonModule, DatePipe, DecimalPipe, JsonPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { HttpErrorResponse } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { TicketService, Ticket, TicketEvent, type PendingAction, type UnifiedLogEntry, type TicketCostSummary, type AiHelpResponse, type TicketArtifact } from '../../core/services/ticket.service.js';
 import { LogSummaryService, type LogSummary } from '../../core/services/log-summary.service.js';
@@ -1445,13 +1446,37 @@ export class TicketDetailComponent implements OnInit {
   reanalyze(): void {
     this.reanalyzing.set(true);
     this.ticketService.reanalyze(this.id()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => {
+      next: (resp) => {
         this.reanalyzing.set(false);
+        // #375: only claim "analysis running" when the backend actually created
+        // a new job. A `queued: false` response (shouldn't normally fire now
+        // that jobIds are timestamped, but we check defensively) means the
+        // enqueue was a no-op and the UI must not pretend otherwise.
+        if (resp && resp.queued === false) {
+          this.toast.error(
+            'Analysis was not re-queued. A previous job is still being tracked — check the Analysis Trace tab or try again in a moment.',
+          );
+          return;
+        }
         this.toast.success('Analysis re-queued');
         this.load();
       },
-      error: () => {
+      error: (err: HttpErrorResponse) => {
         this.reanalyzing.set(false);
+        // #375: 409 Conflict = BullMQ dedupe hit at enqueue time. Show a clear
+        // message instead of a generic "Failed to re-queue analysis" so the
+        // operator knows the click was received but did not fire a new job.
+        if (err?.status === 409) {
+          const bodyMessage = typeof err.error === 'object' && err.error !== null
+            ? (err.error as { error?: string; message?: string }).error
+              ?? (err.error as { error?: string; message?: string }).message
+            : undefined;
+          this.toast.error(
+            bodyMessage
+              ?? 'Analysis job with this ID already exists — was not re-enqueued. Check the Analysis Trace tab for current state.',
+          );
+          return;
+        }
         this.toast.error('Failed to re-queue analysis');
       },
     });
