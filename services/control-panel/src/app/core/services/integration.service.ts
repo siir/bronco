@@ -19,7 +19,8 @@ export interface McpDiscoveryMetadata {
 
 export interface ClientIntegration {
   id: string;
-  clientId: string;
+  /** null = platform-scoped (e.g. platform-wide GITHUB integration). */
+  clientId: string | null;
   type: string;
   label: string;
   config: Record<string, unknown>;
@@ -37,6 +38,19 @@ export class IntegrationService {
 
   getIntegrations(clientId?: string): Observable<ClientIntegration[]> {
     return this.api.get<ClientIntegration[]>('/integrations', clientId ? { clientId } : {});
+  }
+
+  /**
+   * Typed helper for the repo form's GitHub Integration dropdown. Returns all
+   * GITHUB integrations visible to a given client: the client's own
+   * integrations plus any platform-scoped ones.
+   */
+  getGithubIntegrationsForClient(clientId: string): Observable<ClientIntegration[]> {
+    return this.api.get<ClientIntegration[]>('/integrations', { clientId, type: 'GITHUB' });
+  }
+
+  getPlatformGithubIntegrations(): Observable<ClientIntegration[]> {
+    return this.api.get<ClientIntegration[]>('/integrations', { scope: 'platform', type: 'GITHUB' });
   }
 
   getIntegration(id: string): Observable<ClientIntegration> {

@@ -10,6 +10,8 @@ export interface CodeRepo {
   defaultBranch: string;
   branchPrefix: string;
   description?: string;
+  /** FK to a GITHUB-type ClientIntegration. null = use platform default / legacy SSH. */
+  githubIntegrationId?: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;

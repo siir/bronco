@@ -501,6 +501,12 @@ const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External
                 This integration is for the Bronco app itself — release notes, automatic GitHub issue creation from tool requests, and code fetching for analysis.
                 Client-specific repositories are managed under <strong>Clients → Code Repositories</strong>.
               </p>
+              <p class="github-scope-blurb">
+                <strong>Migration note (#368):</strong> GitHub is now a first-class Integration type. Tool-request issue creation reads from a
+                platform-scoped <code>GITHUB</code> integration when one exists, and falls back to this AppSetting otherwise (dual-read for one release).
+                To migrate, create a <code>GITHUB</code> integration under any client's Integrations tab with PAT credentials — choose "platform" scope when
+                the UI surfaces that option. The existing token here will continue to work until migration is complete.
+              </p>
               <div class="card-actions">
                 <app-bronco-button variant="primary" (click)="saveGithub()" [disabled]="sysConfigSaving()">Save</app-bronco-button>
                 <app-bronco-button variant="secondary" (click)="testGithub()" [disabled]="sysConfigTesting()">{{ sysConfigTesting() ? 'Testing...' : 'Test Connection' }}</app-bronco-button>
