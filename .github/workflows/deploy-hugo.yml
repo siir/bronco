@@ -336,15 +336,39 @@ jobs:
 
             # Restart services
             # Migrations run automatically in the copilot-api entrypoint before the app starts.
+            wait_for_caddy() {
+              echo "Waiting for caddy to become reachable on localhost:80..."
+              for attempt in $(seq 1 30); do
+                if curl -sf http://localhost:80 >/dev/null 2>&1; then
+                  echo "caddy is reachable."
+                  return 0
+                fi
+                sleep 2
+              done
+              echo "caddy did not become reachable on localhost:80 in time." >&2
+              docker compose ps >&2
+              return 1
+            }
+
             if [ "$COMPOSE_CHANGED" = "true" ] || [ "$ALL_SERVICES" = "true" ]; then
               docker compose up -d --no-build
               # Full deploy — always cycle cloudflared to refresh tunnel routing
+              wait_for_caddy
               docker compose restart cloudflared
             else
-              SVC_LIST=$(echo "$SERVICES" | jq -r '.[]' | tr '\n' ' ')
+              # Translate image names to compose service names (control-panel image → caddy service)
+              SVC_LIST=$(
+                echo "$SERVICES" | jq -r '.[]' | while read -r svc; do
+                  case "$svc" in
+                    control-panel) echo "caddy" ;;
+                    *) echo "$svc" ;;
+                  esac
+                done | tr '\n' ' '
+              )
               docker compose up -d --no-build $SVC_LIST
               # If caddy was restarted, cloudflared needs to re-resolve DNS
-              if echo "$SVC_LIST" | grep -qw caddy || echo "$SVC_LIST" | grep -qw control-panel; then
+              if echo "$SVC_LIST" | grep -qw caddy; then
+                wait_for_caddy
                 docker compose restart cloudflared
               fi
             fi
