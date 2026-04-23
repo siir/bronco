@@ -26,6 +26,22 @@ COPY --from=build /app /app
 RUN pnpm prune --prod
 RUN mkdir -p /var/lib/mcp-repo/repos \
     && chown -R node:node /var/lib/mcp-repo
+
+# Pre-populate SSH known_hosts for the common git forges so the first
+# `git clone git@…` attempt does not fail with "Host key verification failed".
+# Without this the container has no known_hosts at all and every SSH-URL
+# clone aborts before reaching auth. See issue #367.
+RUN mkdir -p /home/node/.ssh \
+    && ssh-keyscan -T 5 -t rsa,ed25519 github.com gitlab.com bitbucket.org \
+         >> /home/node/.ssh/known_hosts 2>/dev/null \
+    && chown -R node:node /home/node/.ssh \
+    && chmod 700 /home/node/.ssh \
+    && chmod 644 /home/node/.ssh/known_hosts
+
+COPY --chown=node:node mcp-servers/repo/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 EXPOSE 3111
 USER node
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["node", "mcp-servers/repo/dist/index.js"]

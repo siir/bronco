@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import express from 'express';
 import { getDb, disconnectDb } from '@bronco/db';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -7,6 +8,76 @@ import { createMcpServer } from './server.js';
 import { RepoManager } from './repo-manager.js';
 
 const logger = createLogger('mcp-repo');
+
+// --- SSH reachability probe (cached) ---
+// Checks whether `ssh -T git@github.com` authenticates, so the control
+// panel's status page can flag mcp-repo instances that have missing or
+// broken SSH keys before the operator tries to analyze a ticket whose
+// repos are SSH-only. Cached for 60s to avoid spawning ssh on every
+// health poll. See issue #367.
+const SSH_PROBE_TTL_MS = 60_000;
+let sshProbeCache: { value: boolean; at: number } | null = null;
+let sshProbeInflight: Promise<boolean> | null = null;
+
+function probeSshGithub(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const child = spawn(
+      'ssh',
+      [
+        '-T',
+        '-o', 'StrictHostKeyChecking=yes',
+        '-o', 'BatchMode=yes',
+        '-o', 'ConnectTimeout=5',
+        'git@github.com',
+      ],
+      { stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+
+    let out = '';
+    child.stdout.on('data', (chunk) => { out += chunk.toString(); });
+    child.stderr.on('data', (chunk) => { out += chunk.toString(); });
+
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      resolve(false);
+    }, 8_000);
+
+    child.on('error', () => {
+      clearTimeout(timer);
+      resolve(false);
+    });
+    // ssh -T against github exits non-zero even on success, so rely on output.
+    child.on('close', () => {
+      clearTimeout(timer);
+      resolve(/successfully authenticated/i.test(out));
+    });
+  });
+}
+
+// Returns the cached SSH reachability value immediately (never waits for a live
+// probe on the hot path). If the cache is cold or stale, kicks off a background
+// refresh and returns `null` (unknown) until the first result arrives.  This
+// keeps /health non-blocking so it always responds well within the docker-compose
+// healthcheck timeout even when the 60-second cache has just expired.
+function getSshGithubReachable(): boolean | null {
+  const now = Date.now();
+  if (sshProbeCache && now - sshProbeCache.at < SSH_PROBE_TTL_MS) {
+    return sshProbeCache.value;
+  }
+  // Cache is cold or stale — kick off a refresh in the background if one is
+  // not already running, then return null (unknown) for this request.
+  if (!sshProbeInflight) {
+    sshProbeInflight = probeSshGithub()
+      .then((value) => {
+        sshProbeCache = { value, at: Date.now() };
+        return value;
+      })
+      .finally(() => {
+        sshProbeInflight = null;
+      });
+  }
+  return null;
+}
 
 async function main(): Promise<void> {
   const config = getConfig();
@@ -20,8 +91,17 @@ async function main(): Promise<void> {
   app.use(express.json());
 
   // --- Health check (no auth) ---
+  // getSshGithubReachable() is synchronous and non-blocking: it returns the
+  // cached value (true/false) or null when no result is available yet (probe
+  // still running or cache cold).  Never awaits a live SSH probe here so the
+  // healthcheck always responds quickly regardless of TTL expiry.
   app.get('/health', (_req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+    const sshGithubReachable = getSshGithubReachable();
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      sshGithubReachable,
+    });
   });
 
   // --- Auth middleware for all other routes ---
