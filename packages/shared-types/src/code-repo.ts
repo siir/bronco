@@ -48,6 +48,13 @@ export interface CodeRepo {
   description: string | null;
   fileExtensions: string[];
   environmentId: string | null;
+  /**
+   * Optional FK to a GITHUB-type ClientIntegration. When set, mcp-repo uses that
+   * integration's credentials to clone over HTTPS. When null, mcp-repo falls
+   * back to the platform-scoped GITHUB integration, and finally to the legacy
+   * SSH key path.
+   */
+  githubIntegrationId: string | null;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;

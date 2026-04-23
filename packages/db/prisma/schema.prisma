@@ -537,12 +537,20 @@ model CodeRepo {
 
   environmentId String? @map("environment_id") @db.Uuid
 
-  client      Client             @relation(fields: [clientId], references: [id])
-  environment ClientEnvironment? @relation(fields: [environmentId], references: [id])
-  issueJobs   IssueJob[]
+  /// Optional FK to a GITHUB-type ClientIntegration. When set, mcp-repo uses
+  /// that integration's credentials to clone over HTTPS. When null, mcp-repo
+  /// falls back to the platform-scoped GITHUB integration, and finally to the
+  /// legacy SSH key path.
+  githubIntegrationId String? @map("github_integration_id") @db.Uuid
+
+  client            Client             @relation(fields: [clientId], references: [id])
+  environment       ClientEnvironment? @relation(fields: [environmentId], references: [id])
+  githubIntegration ClientIntegration? @relation(fields: [githubIntegrationId], references: [id], onDelete: SetNull)
+  issueJobs         IssueJob[]
 
   @@unique([clientId, repoUrl])
   @@index([environmentId])
+  @@index([githubIntegrationId])
   @@map("code_repos")
 }
 
@@ -630,7 +638,11 @@ model ExternalService {
 
 model ClientIntegration {
   id        String          @id @default(uuid()) @db.Uuid
-  clientId  String          @map("client_id") @db.Uuid
+  /// Nullable: null = platform-scoped (e.g. the single platform-wide GITHUB
+  /// integration used by tool-request issue creation and issue-resolver
+  /// pushes). A partial unique index (see migration) enforces one platform
+  /// integration per (type, label).
+  clientId  String?         @map("client_id") @db.Uuid
   type      IntegrationType
   label     String          @default("default") // e.g. "prod", "dev", "staging"
   config    Json
@@ -642,9 +654,10 @@ model ClientIntegration {
 
   environmentId String? @map("environment_id") @db.Uuid
 
-  client      Client             @relation(fields: [clientId], references: [id])
+  client      Client?            @relation(fields: [clientId], references: [id])
   environment ClientEnvironment? @relation(fields: [environmentId], references: [id])
   scheduledProbes ScheduledProbe[]
+  codeRepos       CodeRepo[]
 
   @@unique([clientId, type, label])
   @@index([environmentId])
@@ -1093,6 +1106,7 @@ enum IntegrationType {
   AZURE_DEVOPS
   MCP_DATABASE
   SLACK
+  GITHUB
 
   @@map("integration_type")
 }

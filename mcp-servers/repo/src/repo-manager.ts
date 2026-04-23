@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 import type { PrismaClient } from '@bronco/db';
 import { createLogger } from '@bronco/shared-utils';
 import type { Config } from './config.js';
+import { resolveCloneUrl } from './github-clone-url.js';
 
 const execFileAsync = promisify(execFile);
 const logger = createLogger('repo-manager');
@@ -51,13 +52,30 @@ export class RepoManager {
 
     const barePath = join(this.config.REPO_WORKSPACE_PATH, `${repoId}.git`);
 
+    // Resolve the clone URL through the GITHUB integration chain (repo-level →
+    // platform-scoped → legacy/unchanged). Rebuild on every call so rotated
+    // tokens and newly-configured integrations take effect without restarting
+    // this service.
+    const cloneUrl = await resolveCloneUrl(this.db, this.config.ENCRYPTION_KEY, {
+      id: repo.id,
+      repoUrl: repo.repoUrl,
+      githubIntegrationId: repo.githubIntegrationId,
+      clientId: repo.clientId,
+    });
+
     if (await this.pathExists(barePath)) {
+      // Update the origin URL in case credentials rotated (or an integration
+      // was added/removed since the last fetch). We log at debug because this
+      // fires on every refresh.
+      if (cloneUrl !== repo.repoUrl) {
+        await execFileAsync('git', ['remote', 'set-url', 'origin', cloneUrl], { cwd: barePath });
+      }
       logger.info({ repoId, barePath }, 'Fetching updates for bare clone');
       await execFileAsync('git', ['fetch', '--all'], { cwd: barePath });
     } else {
-      logger.info({ repoId, barePath }, 'Cloning bare repository');
+      logger.info({ repoId, barePath, usedGithubIntegration: cloneUrl !== repo.repoUrl }, 'Cloning bare repository');
       await mkdir(this.config.REPO_WORKSPACE_PATH, { recursive: true });
-      await execFileAsync('git', ['clone', '--bare', repo.repoUrl, barePath]);
+      await execFileAsync('git', ['clone', '--bare', cloneUrl, barePath]);
     }
 
     return barePath;

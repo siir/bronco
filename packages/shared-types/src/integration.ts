@@ -3,6 +3,7 @@ export const IntegrationType = {
   AZURE_DEVOPS: 'AZURE_DEVOPS',
   MCP_DATABASE: 'MCP_DATABASE',
   SLACK: 'SLACK',
+  GITHUB: 'GITHUB',
 } as const;
 export type IntegrationType = (typeof IntegrationType)[keyof typeof IntegrationType];
 
@@ -34,15 +35,56 @@ export interface SlackIntegrationConfig {
   enabled: boolean;
 }
 
+/**
+ * GitHub credentials — discriminated union supporting both PAT and GitHub App
+ * installation tokens. Host defaults to `github.com` when omitted, which unlocks
+ * GitHub Enterprise Server targets.
+ *
+ * Tokens and private keys are stored encrypted (AES-256-GCM via shared-utils).
+ * The `encryptedToken` / `encryptedPrivateKey` fields hold ciphertext at rest;
+ * callers must decrypt before use.
+ *
+ * NOTE: `github_app` support is stubbed for v1 — the Zod schema accepts it and
+ * the data round-trips, but token-minting (JWT → installation token exchange)
+ * is a follow-up. mcp-repo / tool-request-github will log a TODO and fall
+ * through to PAT / legacy paths when they encounter `kind: 'github_app'`.
+ */
+export interface GithubPatCredentials {
+  kind: 'pat';
+  /** Encrypted PAT — ciphertext. Decrypt with shared-utils.decrypt before use. */
+  encryptedToken: string;
+  /** Defaults to `github.com`. Set for GitHub Enterprise Server. */
+  host?: string;
+}
+
+export interface GithubAppCredentials {
+  kind: 'github_app';
+  appId: string;
+  installationId: string;
+  /** Encrypted private key (PEM) — ciphertext. */
+  encryptedPrivateKey: string;
+  host?: string;
+}
+
+export type GithubCredentials = GithubPatCredentials | GithubAppCredentials;
+
+export type GithubIntegrationConfig = GithubCredentials;
+
 export type IntegrationConfig =
   | ImapIntegrationConfig
   | AzureDevOpsIntegrationConfig
   | McpDatabaseIntegrationConfig
-  | SlackIntegrationConfig;
+  | SlackIntegrationConfig
+  | GithubIntegrationConfig;
 
+/**
+ * ClientIntegration — integration config. clientId is nullable for
+ * platform-scoped integrations (e.g. the single platform-wide GITHUB
+ * integration used by tool-request issue creation and issue-resolver pushes).
+ */
 export interface ClientIntegration {
   id: string;
-  clientId: string;
+  clientId: string | null;
   type: IntegrationType;
   label: string;
   config: IntegrationConfig;
