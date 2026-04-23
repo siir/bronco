@@ -79,6 +79,7 @@ export const DISPATCH_SUBTASKS_TOOL: AIToolDefinition = {
       subtasks: {
         type: 'array',
         description: 'Array of sub-task descriptors. Run in parallel; max 5 per dispatch.',
+        maxItems: 5,
         items: {
           type: 'object',
           properties: {

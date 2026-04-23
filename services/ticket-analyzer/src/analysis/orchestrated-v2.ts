@@ -91,17 +91,18 @@ function fallbackFromToolResults(toolCalls: SubTaskRunResult['toolCalls']): stri
 }
 
 /**
- * Read a KD section and format it as a context block for injection into a
- * sub-task's user prompt. Returns empty string when the section is empty.
+ * Read a KD section from an already-loaded ticket document and format it as a
+ * context block for injection into a sub-task's user prompt.
+ * Returns empty string when the section is empty.
+ * The caller is responsible for loading the ticket once via `loadKnowledgeDoc`
+ * to avoid N separate DB queries when multiple sections are requested.
  */
-async function formatKdSectionAsContext(
-  db: Parameters<typeof readSection>[0] extends never ? never : Parameters<typeof loadKnowledgeDoc>[0],
-  ticketId: string,
+function formatKdSectionFromDoc(
+  knowledgeDoc: string,
+  sectionMeta: unknown,
   sectionKey: string,
-): Promise<string> {
-  const ticket = await loadKnowledgeDoc(db, ticketId);
-  if (!ticket?.knowledgeDoc) return '';
-  const { content } = readSection(ticket.knowledgeDoc, ticket.knowledgeDocSectionMeta, sectionKey as KnowledgeDocSectionKey);
+): string {
+  const { content } = readSection(knowledgeDoc, sectionMeta, sectionKey as KnowledgeDocSectionKey);
   if (!content.trim()) return '';
   return `### Knowledge Doc — ${sectionKey}\n${content.trim()}`;
 }
@@ -157,12 +158,17 @@ async function runSubTaskLoop(
   // Compose the user prompt for this sub-task
   const contextParts: string[] = [];
   if (contextKdSections.length > 0) {
-    const sectionBlocks = await Promise.all(
-      contextKdSections.map(key => formatKdSectionAsContext(deps.db, ticketId, key)),
-    );
-    const nonEmpty = sectionBlocks.filter(Boolean);
-    if (nonEmpty.length > 0) {
-      contextParts.push('## Context from Knowledge Document\n\n' + nonEmpty.join('\n\n'));
+    // Load the knowledge doc once and read all requested sections from it —
+    // avoids N separate DB round-trips when multiple section keys are requested.
+    const kdTicket = await loadKnowledgeDoc(deps.db, ticketId);
+    if (kdTicket?.knowledgeDoc) {
+      const sectionBlocks = contextKdSections.map(key =>
+        formatKdSectionFromDoc(kdTicket.knowledgeDoc!, kdTicket.knowledgeDocSectionMeta, key),
+      );
+      const nonEmpty = sectionBlocks.filter(Boolean);
+      if (nonEmpty.length > 0) {
+        contextParts.push('## Context from Knowledge Document\n\n' + nonEmpty.join('\n\n'));
+      }
     }
   }
   const budgetLine = `## Budget\nMax ${SUB_TASK_ITERATION_CAP} iterations, max ${SUB_TASK_TOKEN_BUDGET.toLocaleString()} tokens total, max ${SUB_TASK_CALL_BUDGET} tool calls. Call \`finalize_subtask\` once you are done — do not wait until budget is exhausted.`;
@@ -189,7 +195,9 @@ async function runSubTaskLoop(
       }
     : { logId: subTaskLogId };
 
+  let lastIterationRun = 0;
   for (let iteration = 0; iteration < SUB_TASK_ITERATION_CAP; iteration++) {
+    lastIterationRun = iteration + 1;
     const tokensSoFar = totalInputTokens + totalOutputTokens;
     if (tokensSoFar >= SUB_TASK_TOKEN_BUDGET) {
       appLog.info(
@@ -269,52 +277,6 @@ async function runSubTaskLoop(
     // Append assistant turn to conversation
     messages.push({ role: 'assistant', content: response.contentBlocks });
 
-    // Check for finalize_subtask call — break before executing other tools
-    const finalizeCall = response.contentBlocks.find(
-      (b): b is AIToolUseBlock => b.type === 'tool_use' && b.name === 'finalize_subtask',
-    );
-    if (finalizeCall) {
-      const input = finalizeCall.input as { summary?: string; updatedKdSections?: string[] };
-      const summary = typeof input.summary === 'string' ? input.summary : '(sub-task called finalize_subtask without a summary)';
-      const updatedKdSections = Array.isArray(input.updatedKdSections)
-        ? (input.updatedKdSections as unknown[]).filter((x): x is string => typeof x === 'string')
-        : [];
-
-      // Emit a synthetic tool_result so the conversation stays well-formed (not strictly
-      // required for our flow since we break here, but keeps the message history valid
-      // if it were ever inspected).
-      messages.push({
-        role: 'user',
-        content: [
-          {
-            type: 'tool_result',
-            tool_use_id: finalizeCall.id,
-            content: 'Sub-task finalized. Control returned to orchestrator.',
-          } satisfies AIToolResultBlock,
-        ],
-      });
-
-      appLog.info(
-        `Sub-task ${subTaskId} finalized at iteration ${iteration + 1}: ${summary.slice(0, 200)}`,
-        { ticketId, subTaskId, iteration: iteration + 1, updatedKdSections, summaryPreview: summary.slice(0, 500) },
-        ticketId,
-        'ticket',
-      );
-
-      return {
-        subTaskId,
-        intent,
-        summary,
-        updatedKdSections,
-        iterationsUsed: iteration + 1,
-        tokensUsed: totalInputTokens + totalOutputTokens,
-        stopReason: SubTaskStopReason.FINALIZED,
-        inputTokens: totalInputTokens,
-        outputTokens: totalOutputTokens,
-        toolCalls: toolCallLog,
-      };
-    }
-
     if (response.stopReason !== 'tool_use') {
       // Model ended turn without calling any tool (not even finalize_subtask)
       const textSummary = response.contentBlocks
@@ -344,7 +306,13 @@ async function runSubTaskLoop(
       };
     }
 
-    // Execute all tool calls (excluding finalize_subtask which was already handled above)
+    // Separate finalize_subtask from regular tool calls.
+    // Execute all regular tools FIRST so that kd_* writes and data-gathering calls
+    // are not silently dropped when finalize_subtask appears in the same assistant
+    // turn. The finalize result is handled after the regular tool loop completes.
+    const finalizeCall = response.contentBlocks.find(
+      (b): b is AIToolUseBlock => b.type === 'tool_use' && b.name === 'finalize_subtask',
+    );
     const toolUseBlocks = response.contentBlocks.filter(
       (b): b is AIToolUseBlock => b.type === 'tool_use' && b.name !== 'finalize_subtask',
     );
@@ -417,17 +385,63 @@ async function runSubTaskLoop(
 
     totalToolCalls += toolResults.length;
 
-    // Append tool results as next user turn
-    messages.push({ role: 'user', content: toolResults });
+    // Append regular tool results as next user turn (may be empty if only finalize_subtask was called)
+    if (toolResults.length > 0) {
+      messages.push({ role: 'user', content: toolResults });
+    }
+
+    // Now handle finalize_subtask — all sibling tool calls have been executed above
+    // so their KD writes are flushed before we return control to the orchestrator.
+    if (finalizeCall) {
+      const input = finalizeCall.input as { summary?: string; updatedKdSections?: string[] };
+      const summary = typeof input.summary === 'string' ? input.summary : '(sub-task called finalize_subtask without a summary)';
+      const updatedKdSections = Array.isArray(input.updatedKdSections)
+        ? (input.updatedKdSections as unknown[]).filter((x): x is string => typeof x === 'string')
+        : [];
+
+      // Emit a synthetic tool_result so the conversation stays well-formed.
+      messages.push({
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: finalizeCall.id,
+            content: 'Sub-task finalized. Control returned to orchestrator.',
+          } satisfies AIToolResultBlock,
+        ],
+      });
+
+      appLog.info(
+        `Sub-task ${subTaskId} finalized at iteration ${iteration + 1}: ${summary.slice(0, 200)}`,
+        { ticketId, subTaskId, iteration: iteration + 1, updatedKdSections, summaryPreview: summary.slice(0, 500) },
+        ticketId,
+        'ticket',
+      );
+
+      return {
+        subTaskId,
+        intent,
+        summary,
+        updatedKdSections,
+        iterationsUsed: iteration + 1,
+        tokensUsed: totalInputTokens + totalOutputTokens,
+        stopReason: SubTaskStopReason.FINALIZED,
+        inputTokens: totalInputTokens,
+        outputTokens: totalOutputTokens,
+        toolCalls: toolCallLog,
+      };
+    }
   }
 
-  // Budget exhausted — compose best-effort summary from last tool calls
+  // Budget exhausted — compose best-effort summary from last tool calls.
+  // `lastIterationRun` is the actual number of iterations that started (including
+  // the one that hit a budget ceiling at the top of the loop).
   const partialSummary = toolCallLog.length > 0
     ? fallbackFromToolResults(toolCallLog)
     : '(sub-task exhausted budget without producing a summary)';
 
   appLog.info(
-    `Sub-task ${subTaskId} exhausted budget (iterationsUsed=${SUB_TASK_ITERATION_CAP}, toolCalls=${totalToolCalls})`,
+    `Sub-task ${subTaskId} exhausted budget (iterationsUsed=${lastIterationRun}, toolCalls=${totalToolCalls})`,
     { ticketId, subTaskId, tokensUsed: totalInputTokens + totalOutputTokens, totalToolCalls },
     ticketId,
     'ticket',
@@ -438,7 +452,7 @@ async function runSubTaskLoop(
     intent,
     summary: partialSummary,
     updatedKdSections: [],
-    iterationsUsed: SUB_TASK_ITERATION_CAP,
+    iterationsUsed: lastIterationRun,
     tokensUsed: totalInputTokens + totalOutputTokens,
     stopReason: SubTaskStopReason.BUDGET_EXHAUSTED,
     inputTokens: totalInputTokens,
@@ -971,6 +985,7 @@ export async function runOrchestratedV2(
     // --- Inner tool loop: call generateWithTools until strategist dispatches or completes ---
     let innerDone = false;
     let dispatchSubtasksInput: { subtasks: Array<{ id: string; intent: string; tools?: string[]; contextKdSectionKeys?: string[]; model?: string }> } | null = null;
+    let dispatchCallId: string | null = null; // track the tool_use_id of the current dispatch_subtasks call
     let completeAnalysisInput: { finalAnalysis: string } | null = null;
 
     for (let innerIter = 0; innerIter < 20; innerIter++) {
@@ -1034,10 +1049,24 @@ export async function runOrchestratedV2(
       }
 
       if (dispatchCall) {
+        dispatchCallId = dispatchCall.id; // capture current iteration's tool_use_id
         const rawInput = dispatchCall.input as { subtasks?: unknown };
         const rawSubtasks = Array.isArray(rawInput.subtasks) ? rawInput.subtasks : [];
+        // Clamp to 5 sub-tasks per dispatch regardless of what the model emits.
+        // This mirrors the maxItems:5 constraint in the schema and is a hard
+        // safety valve against runaway parallelism.
+        const MAX_SUBTASKS_PER_DISPATCH = 5;
+        const clampedSubtasks = (rawSubtasks as Array<Record<string, unknown>>).slice(0, MAX_SUBTASKS_PER_DISPATCH);
+        if (rawSubtasks.length > MAX_SUBTASKS_PER_DISPATCH) {
+          appLog.warn(
+            `Orchestrated iteration ${i + 1}: strategist dispatched ${rawSubtasks.length} sub-tasks (max ${MAX_SUBTASKS_PER_DISPATCH}); excess silently dropped`,
+            { ticketId, iteration: i + 1, requested: rawSubtasks.length, clamped: MAX_SUBTASKS_PER_DISPATCH },
+            ticketId,
+            'ticket',
+          );
+        }
         dispatchSubtasksInput = {
-          subtasks: (rawSubtasks as Array<Record<string, unknown>>).map(st => ({
+          subtasks: clampedSubtasks.map(st => ({
             id: typeof st['id'] === 'string' ? st['id'] : randomUUID(),
             intent: typeof st['intent'] === 'string' ? st['intent'] : '',
             tools: Array.isArray(st['tools']) ? (st['tools'] as string[]) : [],
@@ -1092,24 +1121,50 @@ export async function runOrchestratedV2(
         );
         const elapsed = Date.now() - start;
 
+        // Apply the same truncation + artifact path used for sub-task tool results
+        // so large kd_read_section / artifact reads don't balloon strategist history.
+        const fullResult = result.result;
+        const fullSizeChars = fullResult.length;
+        const threshold = toolResultMaxTokens ?? 4000;
+        const artifactId = deps.artifactStoragePath && !result.isError ? randomUUID() : undefined;
+        const truncated = !result.isError && !!artifactId && shouldTruncate(fullResult, threshold);
+        const contentForModel = truncated && artifactId
+          ? buildTruncatedPreview(fullResult, artifactId)
+          : fullResult;
+
         orchToolCallLog.push({
           tool: toolUse.name,
           system: (toolUse.input as Record<string, unknown>)?.system_name as string | undefined,
           input: toolUse.input,
-          output: result.result.slice(0, 500),
+          output: fullResult.slice(0, 500),
           durationMs: elapsed,
         });
 
         toolResults.push({
           type: 'tool_result',
           tool_use_id: toolUse.id,
-          content: result.result,
+          content: contentForModel,
           ...(result.isError ? { is_error: true } : {}),
         });
 
+        if (deps.artifactStoragePath && !result.isError) {
+          void saveMcpToolArtifact(deps.db, ticketId, toolUse.name, fullResult, deps.artifactStoragePath, artifactId).catch(err => {
+            logger.warn({ err, ticketId, toolName: toolUse.name }, 'Failed to persist strategist MCP tool artifact');
+          });
+        }
+
         appLog.info(
           `Strategist tool call: ${toolUse.name} (${elapsed}ms)`,
-          { ticketId, tool: toolUse.name, durationMs: elapsed, iteration: i + 1, innerIter: innerIter + 1 },
+          {
+            ticketId,
+            tool: toolUse.name,
+            durationMs: elapsed,
+            iteration: i + 1,
+            innerIter: innerIter + 1,
+            truncated,
+            fullSizeChars,
+            ...(artifactId ? { artifactId } : {}),
+          },
           ticketId,
           'ticket',
         );
@@ -1270,12 +1325,10 @@ export async function runOrchestratedV2(
         }
       }
 
-      // Append sub-task results to strategist messages as tool_result for the dispatch_subtasks call
-      const dispatchCallBlock = strategistMessages
-        .flatMap(m => (m.role === 'assistant' && Array.isArray(m.content) ? (m.content as AIToolUseBlock[]) : []))
-        .find((b): b is AIToolUseBlock => b.type === 'tool_use' && b.name === 'dispatch_subtasks');
-
-      if (dispatchCallBlock) {
+      // Append sub-task results to strategist messages as tool_result for the dispatch_subtasks call.
+      // Use the captured `dispatchCallId` from this iteration (not a history scan) to ensure
+      // the tool_result is threaded onto the correct dispatch_subtasks tool_use block.
+      if (dispatchCallId) {
         const resultPayload = allSubTaskResults.map(r => ({
           sub_task_id: r.subTaskId,
           intent: r.intent,
@@ -1291,7 +1344,7 @@ export async function runOrchestratedV2(
           content: [
             {
               type: 'tool_result',
-              tool_use_id: dispatchCallBlock.id,
+              tool_use_id: dispatchCallId,
               content: JSON.stringify(resultPayload, null, 2),
             } satisfies AIToolResultBlock,
           ],
