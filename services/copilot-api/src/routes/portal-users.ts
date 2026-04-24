@@ -76,8 +76,25 @@ export async function portalUserRoutes(fastify: FastifyInstance): Promise<void> 
       // Client A could reset an operator's password via this route.
       const existingPerson = await fastify.db.person.findUnique({
         where: { emailLower },
-        include: {
-          clientUsers: true,
+        // Explicit select — passwordHash is needed to detect whether the
+        // existing Person already has credentials (Case B upgrade-path check).
+        // emailLower is not returned. clientUsers are fetched to find whether
+        // this client already has a link (cuHere), and operator to prevent
+        // portal admins from claiming an Operator identity.
+        select: {
+          id: true,
+          passwordHash: true,
+          clientUsers: {
+            select: {
+              id: true,
+              clientId: true,
+              userType: true,
+              lastLoginAt: true,
+              createdAt: true,
+              updatedAt: true,
+              isPrimary: true,
+            },
+          },
           operator: { select: { id: true } },
         },
       });
@@ -214,11 +231,17 @@ export async function portalUserRoutes(fastify: FastifyInstance): Promise<void> 
       if (!cu) return reply.code(404).send({ error: 'User not found' });
 
       await fastify.db.$transaction(async (tx) => {
-        await tx.clientUser.delete({ where: { id: cu.id } });
+        // Revoke tokens BEFORE deleting the ClientUser. The FK on
+        // person_refresh_tokens.client_user_id is ON DELETE SET NULL, so
+        // deleting cu first would null out clientUserId and the updateMany
+        // below would match nothing, leaving active tokens un-revoked.
         await tx.personRefreshToken.updateMany({
-          where: { personId: id, accessType: 'CLIENT_USER', revokedAt: null },
+          where: { clientUserId: cu.id, revokedAt: null },
           data: { revokedAt: new Date() },
         });
+        // Scope revocation to the specific ClientUser being removed so that a
+        // multi-tenant Person is not logged out of other clients.
+        await tx.clientUser.delete({ where: { id: cu.id } });
 
         // If the Person has no remaining ClientUser anywhere AND no Operator
         // record, they now have no way to authenticate — but their stored

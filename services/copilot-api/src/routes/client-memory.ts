@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { ClientMemoryResolver } from '@bronco/ai-provider';
 import { MemoryType, MemorySource, TicketCategory } from '@bronco/shared-types';
+import { resolveClientScope, scopeToWhere } from '../plugins/client-scope.js';
 
 const VALID_MEMORY_TYPES = new Set(Object.values(MemoryType));
 const VALID_SOURCES = new Set(Object.values(MemorySource));
@@ -36,9 +37,19 @@ export async function clientMemoryRoutes(
     if (!parsed.success) {
       throw fastify.httpErrors.badRequest(parsed.error.errors[0]?.message ?? 'Invalid query parameters');
     }
+    const scope = await resolveClientScope(request);
+    const scopeWhere = scopeToWhere(scope);
     const { clientId, category, memoryType, isActive } = parsed.data;
-    const where: Record<string, unknown> = {};
-    if (clientId) where.clientId = clientId;
+    const where: Record<string, unknown> = { ...scopeWhere };
+    // If a specific clientId is requested, it must fall within the caller's scope
+    if (clientId) {
+      const allowed =
+        scope.type === 'all' ||
+        (scope.type === 'single' && scope.clientId === clientId) ||
+        (scope.type === 'assigned' && scope.clientIds.includes(clientId));
+      if (allowed) where.clientId = clientId;
+      // If not allowed, scopeWhere already constrains results; no additional filter needed
+    }
     if (category) where.category = category;
     if (memoryType) where.memoryType = memoryType;
     if (isActive !== undefined) where.isActive = isActive === 'true';
@@ -52,8 +63,9 @@ export async function clientMemoryRoutes(
 
   // Get single memory entry
   fastify.get<{ Params: { id: string } }>('/api/client-memory/:id', async (request) => {
-    const entry = await fastify.db.clientMemory.findUnique({
-      where: { id: request.params.id },
+    const scope = await resolveClientScope(request);
+    const entry = await fastify.db.clientMemory.findFirst({
+      where: { id: request.params.id, ...scopeToWhere(scope) },
       include: { client: { select: { id: true, name: true, shortCode: true } } },
     });
     if (!entry) return fastify.httpErrors.notFound('Client memory entry not found');
@@ -77,6 +89,14 @@ export async function clientMemoryRoutes(
 
     if (!clientId || !title?.trim() || !content?.trim()) {
       return fastify.httpErrors.badRequest('clientId, title, and content are required');
+    }
+
+    const scope = await resolveClientScope(request);
+    if (
+      scope.type === 'single' && scope.clientId !== clientId ||
+      scope.type === 'assigned' && !scope.clientIds.includes(clientId)
+    ) {
+      return fastify.httpErrors.forbidden('clientId not in your scope');
     }
     if (!VALID_MEMORY_TYPES.has(memoryType as MemoryType)) {
       return fastify.httpErrors.badRequest(`Invalid memoryType. Must be one of: ${[...VALID_MEMORY_TYPES].join(', ')}`);
@@ -131,6 +151,14 @@ export async function clientMemoryRoutes(
       source?: string;
     };
   }>('/api/client-memory/:id', async (request) => {
+    // Scope guard: fetch existing entry with scope filter (404 if out of scope)
+    const scope = await resolveClientScope(request);
+    const guard = await fastify.db.clientMemory.findFirst({
+      where: { id: request.params.id, ...scopeToWhere(scope) },
+      select: { id: true },
+    });
+    if (!guard) return fastify.httpErrors.notFound('Client memory entry not found');
+
     const { memoryType, category, source, title, content, ...rest } = request.body;
 
     if (memoryType && !VALID_MEMORY_TYPES.has(memoryType as MemoryType)) {
@@ -180,7 +208,10 @@ export async function clientMemoryRoutes(
 
   // Delete memory entry
   fastify.delete<{ Params: { id: string } }>('/api/client-memory/:id', async (request, reply) => {
-    const entry = await fastify.db.clientMemory.findUnique({ where: { id: request.params.id } });
+    const scope = await resolveClientScope(request);
+    const entry = await fastify.db.clientMemory.findFirst({
+      where: { id: request.params.id, ...scopeToWhere(scope) },
+    });
     if (!entry) return fastify.httpErrors.notFound('Client memory entry not found');
 
     await fastify.db.clientMemory.delete({ where: { id: request.params.id } });

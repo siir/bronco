@@ -145,9 +145,10 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
     const email = rawEmail.trim();
     const emailLower = email.toLowerCase();
 
+    // Only need id + operator presence for the conflict check.
     const existing = await fastify.db.person.findUnique({
       where: { emailLower },
-      include: { operator: true },
+      select: { id: true, operator: { select: { id: true } } },
     });
     if (existing?.operator) {
       return reply.code(409).send({ error: 'A user with this email already exists' });
@@ -181,9 +182,19 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
         return person;
       });
 
+      // Explicit select — response shape only; never return passwordHash/emailLower.
       const created = await fastify.db.person.findUnique({
         where: { id: person.id },
-        include: { operator: true },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          isActive: true,
+          createdAt: true,
+          operator: {
+            select: { role: true, clientId: true, lastLoginAt: true, slackUserId: true },
+          },
+        },
       });
 
       return reply.code(201).send({
@@ -228,9 +239,14 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: 'Cannot demote your own account' });
     }
 
+    // Explicit select — only the fields needed for the guard + mutation are
+    // fetched; passwordHash/emailLower are never read here.
     const target = await fastify.db.person.findUnique({
       where: { id },
-      include: { operator: true },
+      select: {
+        id: true,
+        operator: { select: { id: true } },
+      },
     });
     // Guard: /api/users is the control-panel-operator admin surface. A Person
     // without an Operator extension is a portal-only contact and belongs to
@@ -243,7 +259,11 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
     const email = rawEmail?.trim();
     const emailLower = email?.toLowerCase();
     if (emailLower) {
-      const existing = await fastify.db.person.findUnique({ where: { emailLower } });
+      // Only id needed for the conflict check.
+      const existing = await fastify.db.person.findUnique({
+        where: { emailLower },
+        select: { id: true },
+      });
       if (existing && existing.id !== id) {
         return reply.code(409).send({ error: 'Email is already in use' });
       }
@@ -275,9 +295,19 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
       return person;
     });
 
+    // Explicit select — response shape only; never return passwordHash/emailLower.
     const reloaded = await fastify.db.person.findUnique({
       where: { id: updated.id },
-      include: { operator: true },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        isActive: true,
+        createdAt: true,
+        operator: {
+          select: { role: true, clientId: true, lastLoginAt: true, slackUserId: true },
+        },
+      },
     });
 
     return {
@@ -307,9 +337,10 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
 
       // Same guard as PATCH: reject Persons without an Operator extension.
       // /api/users is the operator admin surface only.
+      // Explicit select — only operator presence is needed for the guard.
       const target = await fastify.db.person.findUnique({
         where: { id },
-        include: { operator: true },
+        select: { id: true, operator: { select: { id: true } } },
       });
       if (!target || !target.operator) return fastify.httpErrors.notFound('User not found');
 
@@ -332,9 +363,10 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
 
       // Same guard as PATCH/DELETE: only reset passwords for Persons who are
       // control-panel operators. Portal contacts use /api/people.
+      // Explicit select — operator presence is the only field needed here.
       const target = await fastify.db.person.findUnique({
         where: { id },
-        include: { operator: true },
+        select: { id: true, operator: { select: { id: true } } },
       });
       if (!target || !target.operator) {
         return reply.code(404).send({ error: 'User not found' });

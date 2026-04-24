@@ -13,6 +13,25 @@ import type { AiUsageEntry, AiArchiveEntry, AiCostLookup } from './types.js';
 const log = createLogger('ai-router');
 
 /**
+ * Hardcoded fallback rates for known Anthropic (Claude) models.
+ * Used when the ai_model_costs table doesn't have a row for the model —
+ * which commonly happens for Haiku calls made before the catalog was seeded.
+ *
+ * Rates are per 1M tokens (USD). Source: Anthropic pricing page (2025-01).
+ * TODO(#385): Remove once all deployments have seeded ai_model_costs with these models.
+ * Key is a substring of the model ID for prefix-matching.
+ */
+const CLAUDE_FALLBACK_RATES: Array<{ pattern: RegExp; inputCostPer1m: number; outputCostPer1m: number }> = [
+  // claude-haiku-4-5 (e.g. claude-haiku-4-5-20251001) — $0.80/$4.00 per 1M tokens
+  { pattern: /claude-haiku-4-5/i, inputCostPer1m: 0.80, outputCostPer1m: 4.00 },
+  // claude-haiku-3 — $0.25/$1.25 per 1M tokens
+  { pattern: /claude-haiku-3/i, inputCostPer1m: 0.25, outputCostPer1m: 1.25 },
+  // claude-3-5-haiku / claude-3-haiku aliases
+  { pattern: /claude-3[-.]5-haiku/i, inputCostPer1m: 0.80, outputCostPer1m: 4.00 },
+  { pattern: /claude-3-haiku/i, inputCostPer1m: 0.25, outputCostPer1m: 1.25 },
+];
+
+/**
  * Minimal database interface required by createAIRouter.
  * Matches the relevant Prisma model delegates so any PrismaClient works
  * without importing the generated client into this shared package.
@@ -275,7 +294,21 @@ export function createAIRouter(
       }
       costCacheAt = now;
     }
-    return costCache.get(`${provider}:${model}`) ?? null;
+    const dbRate = costCache.get(`${provider}:${model}`);
+    if (dbRate) return dbRate;
+
+    // Fallback: use hardcoded rates for known Anthropic Haiku model IDs that may
+    // not yet be seeded in ai_model_costs. This prevents cost_usd from staying NULL
+    // on Haiku calls (DETECT_TOOL_GAPS etc.) when the catalog hasn't been seeded.
+    if (provider === 'CLAUDE') {
+      for (const { pattern, inputCostPer1m, outputCostPer1m } of CLAUDE_FALLBACK_RATES) {
+        if (pattern.test(model)) {
+          return { inputCostPer1m, outputCostPer1m };
+        }
+      }
+    }
+
+    return null;
   };
 
   const clientMemoryResolver = new ClientMemoryResolver(async (clientId) => {

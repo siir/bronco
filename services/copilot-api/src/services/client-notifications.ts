@@ -83,17 +83,30 @@ export async function notifyClientContactDM(
   const entry = opts.clientSlackManager.getClientEntry(clientId);
   if (!entry) return;
 
-  // TODO: #219 Wave 2 — Person no longer carries slackUserId in the unified
-  // model. Resolve via Operator extension for now; Wave 2 may add a per-user
-  // Slack field on ClientUser for non-operator client contacts.
-  const operator = await opts.db.operator.findFirst({
-    where: { personId: contactId, slackUserId: { not: null } },
+  // Resolve the Slack user ID for this contact, preferring the ClientUser
+  // record (client portal users) and falling back to the Operator record
+  // (platform operators).  Fixes the #297 regression where only Operator rows
+  // were checked, leaving self-registered ClientUsers unreachable via DM.
+  let resolvedSlackUserId: string | null = null;
+
+  const clientUser = await opts.db.clientUser.findFirst({
+    where: { personId: contactId, clientId, slackUserId: { not: null } },
     select: { slackUserId: true },
   });
-  if (!operator?.slackUserId) return;
+  if (clientUser?.slackUserId) {
+    resolvedSlackUserId = clientUser.slackUserId;
+  } else {
+    const operator = await opts.db.operator.findFirst({
+      where: { personId: contactId, slackUserId: { not: null } },
+      select: { slackUserId: true },
+    });
+    if (operator?.slackUserId) resolvedSlackUserId = operator.slackUserId;
+  }
+
+  if (!resolvedSlackUserId) return;
 
   try {
-    await entry.client.sendDM(operator.slackUserId, message);
+    await entry.client.sendDM(resolvedSlackUserId, message);
     logger.info({ clientId, contactId }, 'Client contact DM sent');
   } catch (err) {
     logger.warn({ err, clientId, contactId }, 'Failed to send client contact DM');

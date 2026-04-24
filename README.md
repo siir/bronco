@@ -459,14 +459,14 @@ The MCP server is deployed to an Azure App Service on a vnet-integrated App Serv
 For manual setup:
 1. Create an App Service Plan on a subnet with access to client SQL Servers
 2. Create a Web App with Node.js runtime
-3. Configure environment variables: `SYSTEMS_CONFIG_PATH`, `API_KEY`, `MCP_AUTH_TOKEN`, `PORT`
+3. Configure environment variables: `SYSTEMS_CONFIG_PATH`, `API_KEY`, `PORT`
 4. Upload the systems config JSON file
 5. Download the publish profile and add it as `MCP_PUBLISH_PROFILE` GitHub secret
 
 **Networking considerations:**
 - The App Service must be on a subnet in the same vnet (or a peered vnet) that has the VPN/ExpressRoute connection to client SQL Server networks
 - The MCP server reads system configs from a local JSON file (`SYSTEMS_CONFIG_PATH`), not from the control plane Postgres — no `DATABASE_URL` is needed
-- Ingress should be restricted -- consider using Entra ID authentication or at minimum the `MCP_AUTH_TOKEN` / `API_KEY` headers
+- Ingress should be restricted -- consider using Entra ID authentication or at minimum the `API_KEY` header (`x-api-key`)
 
 ### Claude Code Configuration
 
@@ -481,7 +481,7 @@ Edit `.claude/settings.json`:
       "type": "url",
       "url": "https://<your-app>.azurewebsites.net/mcp",
       "headers": {
-        "Authorization": "Bearer <your-MCP_AUTH_TOKEN>"
+        "x-api-key": "<your-API_KEY>"
       }
     }
   }
@@ -603,8 +603,7 @@ pnpm clean                    # Remove all dist/ folders
 | `ENCRYPTION_KEY` | copilot-api, imap-worker | 64-char hex string for AES-256-GCM credential encryption |
 | `CLAUDE_API_KEY` | copilot-api | Anthropic API key |
 | `OLLAMA_BASE_URL` | copilot-api | Ollama server URL (default: `http://siiriaplex:11434`) |
-| `API_KEY` | copilot-api, mcp-database | Shared API key for service-to-service auth |
-| `MCP_AUTH_TOKEN` | mcp-database | Bearer token for Claude Code MCP connection |
+| `API_KEY` | copilot-api, mcp-database, mcp-platform, mcp-repo | Shared API key for service-to-service and MCP auth (`x-api-key` header) |
 | `MCP_DATABASE_URL` | imap-worker | URL of the Azure-hosted MCP Database Server (for DB-context analysis) |
 | `IMAP_HOST` | imap-worker | IMAP server hostname |
 | `IMAP_PORT` | imap-worker | IMAP server port (default 993) |

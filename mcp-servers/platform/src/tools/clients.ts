@@ -1,6 +1,13 @@
+/**
+ * Security note: `search_clients` returns all non-internal clients with no per-request client-scope filter.
+ * This is safe because the MCP platform server is operator-only (Tailscale + Cloudflare Access).
+ * If the server is ever exposed to non-operator principals, add a scope layer first.
+ * See mcp-servers/platform/README.md — "Security Model" for details and the implementation template.
+ */
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { ServerDeps } from '../server.js';
+import { SAFE_PERSON_SELECT } from './selects.js';
 
 export function registerClientTools(server: McpServer, { db }: ServerDeps): void {
   server.tool(
@@ -97,7 +104,7 @@ export function registerClientTools(server: McpServer, { db }: ServerDeps): void
               id: true,
               userType: true,
               isPrimary: true,
-              person: { select: { id: true, name: true, email: true, phone: true } },
+              person: { select: SAFE_PERSON_SELECT },
             },
           },
           integrations: {

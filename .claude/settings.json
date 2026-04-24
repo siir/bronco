@@ -4,7 +4,7 @@
       "type": "url",
       "url": "https://your-mcp-database.azurecontainerapps.io/mcp",
       "headers": {
-        "Authorization": "Bearer YOUR_MCP_AUTH_TOKEN_HERE"
+        "x-api-key": "YOUR_API_KEY_HERE"
       }
     }
   },

@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { resolveClientScope } from '../plugins/client-scope.js';
 
 const TAG_RE = /^[a-z0-9-]+$/;
 
@@ -11,7 +12,14 @@ export async function clientEnvironmentRoutes(fastify: FastifyInstance): Promise
   // GET /api/clients/:id/environments
   fastify.get<{ Params: { id: string } }>(
     '/api/clients/:id/environments',
-    async (request) => {
+    async (request, reply) => {
+      const scope = await resolveClientScope(request);
+      if (
+        scope.type === 'single' && scope.clientId !== request.params.id ||
+        scope.type === 'assigned' && !scope.clientIds.includes(request.params.id)
+      ) {
+        return reply.code(403).send({ error: 'clientId not in your scope' });
+      }
       return fastify.db.clientEnvironment.findMany({
         where: { clientId: request.params.id },
         orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
@@ -31,6 +39,13 @@ export async function clientEnvironmentRoutes(fastify: FastifyInstance): Promise
       sortOrder?: number;
     };
   }>('/api/clients/:id/environments', async (request, reply) => {
+    const scope = await resolveClientScope(request);
+    if (
+      scope.type === 'single' && scope.clientId !== request.params.id ||
+      scope.type === 'assigned' && !scope.clientIds.includes(request.params.id)
+    ) {
+      return reply.code(403).send({ error: 'clientId not in your scope' });
+    }
     const { name, tag, description, operationalInstructions, isDefault, sortOrder } = request.body;
 
     const trimmedName = name?.trim();
@@ -87,6 +102,13 @@ export async function clientEnvironmentRoutes(fastify: FastifyInstance): Promise
       sortOrder?: number;
     };
   }>('/api/clients/:id/environments/:envId', async (request, reply) => {
+    const scope = await resolveClientScope(request);
+    if (
+      scope.type === 'single' && scope.clientId !== request.params.id ||
+      scope.type === 'assigned' && !scope.clientIds.includes(request.params.id)
+    ) {
+      return reply.code(403).send({ error: 'clientId not in your scope' });
+    }
     const { name, tag, description, operationalInstructions, isDefault, isActive, sortOrder } = request.body;
 
     if (name !== undefined && !name.trim()) {
@@ -133,6 +155,13 @@ export async function clientEnvironmentRoutes(fastify: FastifyInstance): Promise
   fastify.delete<{ Params: { id: string; envId: string } }>(
     '/api/clients/:id/environments/:envId',
     async (request, reply) => {
+      const scope = await resolveClientScope(request);
+      if (
+        scope.type === 'single' && scope.clientId !== request.params.id ||
+        scope.type === 'assigned' && !scope.clientIds.includes(request.params.id)
+      ) {
+        return reply.code(403).send({ error: 'clientId not in your scope' });
+      }
       // Verify the environment belongs to this client before modifying any linked resources
       const env = await fastify.db.clientEnvironment.findFirst({
         where: { id: request.params.envId, clientId: request.params.id },
