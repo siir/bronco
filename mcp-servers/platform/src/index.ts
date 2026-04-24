@@ -33,12 +33,11 @@ async function main(): Promise<void> {
     const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined;
 
     const validApiKey = config.API_KEY && apiKey === config.API_KEY;
-    const validBearer = config.MCP_AUTH_TOKEN && bearerToken === config.MCP_AUTH_TOKEN;
 
-    // If neither auth method is configured, allow all (dev mode)
-    if (!config.API_KEY && !config.MCP_AUTH_TOKEN) return next();
+    // If no auth is configured, allow all (dev mode)
+    if (!config.API_KEY) return next();
 
-    if (validApiKey || validBearer) return next();
+    if (validApiKey) return next();
 
     res.status(401).json({ error: 'Unauthorized' });
   });

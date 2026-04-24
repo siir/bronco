@@ -7,7 +7,6 @@ const configSchema = z.object({
   REDIS_URL: z.string().default('redis://localhost:6379'),
   PORT: z.coerce.number().default(3110),
   API_KEY: z.string().optional(),
-  MCP_AUTH_TOKEN: z.string().optional(),
   COPILOT_API_URL: z.string().default('http://copilot-api:3000'),
   MCP_PLATFORM_URL: z.string().default('http://mcp-platform:3110'),
   MCP_REPO_URL: z.string().default('http://mcp-repo:3111'),

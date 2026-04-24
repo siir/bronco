@@ -122,7 +122,6 @@ services:
       REPO_RETENTION_DAYS: ${REPO_RETENTION_DAYS:-14}
       ARTIFACT_STORAGE_PATH: ${ARTIFACT_STORAGE_PATH:-/mnt/qnap/artifacts}
       API_KEY: ${API_KEY}
-      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-}
       HEALTH_PORT: "3106"
     volumes:
       - ticket_analyzer_repos:/var/lib/ticket-analyzer/repos
@@ -257,7 +256,6 @@ services:
       DATABASE_URL: postgresql://bronco:${POSTGRES_PASSWORD_URLENCODED}@postgres:5432/bronco
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       API_KEY: ${API_KEY}
-      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-}
       PORT: "3100"
       LOG_LEVEL: info
     healthcheck:
@@ -290,7 +288,6 @@ services:
       HEALTH_PORT: "3108"
       MCP_PLATFORM_URL: http://mcp-platform:3110
       MCP_REPO_URL: http://mcp-repo:3111
-      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-}
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3108/health || exit 1"]
       interval: 15s
@@ -340,7 +337,6 @@ services:
       REDIS_URL: redis://redis:6379
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       API_KEY: ${API_KEY}
-      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-}
       COPILOT_API_URL: http://copilot-api:3000
       MCP_PLATFORM_URL: http://mcp-platform:3110
       MCP_REPO_URL: http://mcp-repo:3111
@@ -370,7 +366,6 @@ services:
       DATABASE_URL: postgresql://bronco:${POSTGRES_PASSWORD_URLENCODED}@postgres:5432/bronco
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       API_KEY: ${API_KEY}
-      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-}
       PORT: "3111"
       WORKTREE_TTL_MINUTES: "30"
       REPO_WORKSPACE_PATH: /var/lib/mcp-repo/repos

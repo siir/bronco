@@ -54,8 +54,7 @@ pnpm dev:analyzer
 | `EMAIL_SENDER_NAME` | No | Support Team | Display name for outbound emails |
 | `MCP_DATABASE_URL` | No | http://mcp-database:3100 | MCP database server URL (for DB analysis) |
 | `MCP_REPO_URL` | No | http://mcp-repo:3111 | MCP repo server URL (for code repository access) |
-| `API_KEY` | No | — | API key for authenticated MCP calls |
-| `MCP_AUTH_TOKEN` | No | — | Auth token for MCP server requests |
+| `API_KEY` | No | — | API key for authenticated MCP calls (`x-api-key` header) |
 | `ARTIFACT_STORAGE_PATH` | No | — | File storage for analysis artifacts |
 | `REPO_WORKSPACE_PATH` | No | /tmp/bronco-repos | Local dir for repo clones (code analysis) |
 | `REPO_RETENTION_DAYS` | No | 14 | Days before stale repo clones are cleaned |

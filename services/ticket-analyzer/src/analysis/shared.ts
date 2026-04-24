@@ -240,7 +240,6 @@ export async function buildAgenticTools(
   mcpRepoUrl: string,
   mcpPlatformUrl: string,
   apiKey?: string,
-  mcpAuthToken?: string,
   options?: { includeKdTools?: boolean },
 ): Promise<{
   tools: AIToolDefinition[];
@@ -307,9 +306,9 @@ export async function buildAgenticTools(
   // Discover mcp-repo tools for client repositories
   const repos = await db.codeRepo.findMany({ where: { clientId, isActive: true } });
   if (repos.length > 0) {
-    // Resolve auth for mcp-repo — prefer MCP_AUTH_TOKEN, fall back to API_KEY
-    const repoAuth = mcpAuthToken || apiKey;
-    const repoAuthHeader = mcpAuthToken ? 'bearer' : 'x-api-key';
+    // Resolve auth for mcp-repo using API_KEY
+    const repoAuth = apiKey;
+    const repoAuthHeader = 'x-api-key';
 
     // Register shared mcp-repo integration for list_repos and repo_cleanup
     mcpIntegrations.set('repo', { label: 'mcp-repo', url: mcpRepoUrl, mcpPath: '/mcp', apiKey: repoAuth, authHeader: repoAuthHeader });
@@ -416,8 +415,8 @@ export async function buildAgenticTools(
   }
 
   // Register platform MCP server for read_tool_result_artifact
-  const platformAuth = mcpAuthToken || apiKey;
-  const platformAuthHeader = mcpAuthToken ? 'bearer' : 'x-api-key';
+  const platformAuth = apiKey;
+  const platformAuthHeader = 'x-api-key';
   mcpIntegrations.set('platform', {
     label: 'mcp-platform',
     url: mcpPlatformUrl,
@@ -1183,7 +1182,6 @@ export interface AnalysisDeps {
   mcpRepoUrl: string;
   mcpPlatformUrl: string;
   apiKey?: string;
-  mcpAuthToken?: string;
   artifactStoragePath?: string;
   loadDefaultMaxTokens?: () => Promise<number | undefined>;
 }

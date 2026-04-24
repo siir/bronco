@@ -11,9 +11,6 @@ const configSchema = z.object({
   PORT: z.coerce.number().default(3100),
   API_KEY: z.string().optional(),
   LOG_LEVEL: z.string().default('info'),
-
-  // MCP auth token — required for Claude Code to connect via SSE
-  MCP_AUTH_TOKEN: z.string().optional(),
 });
 
 export type Config = z.output<typeof configSchema>;

@@ -100,7 +100,7 @@ pnpm dev:mcp-db
 #   SYSTEMS_CONFIG_PATH pointing to a JSON file with system connection configs
 ```
 
-The server starts on port 3100 by default. In dev mode (no `API_KEY` or `MCP_AUTH_TOKEN` set), all routes are unauthenticated.
+The server starts on port 3100 by default. In dev mode (no `API_KEY` set), all routes are unauthenticated.
 
 ## Deployment (Azure App Service)
 
@@ -131,7 +131,7 @@ After deploying, update `.claude/settings.json` in the repo root:
       "type": "url",
       "url": "https://<your-app>.azurewebsites.net/mcp",
       "headers": {
-        "Authorization": "Bearer <MCP_AUTH_TOKEN>"
+        "x-api-key": "<API_KEY>"
       }
     }
   }
@@ -144,8 +144,7 @@ After deploying, update `.claude/settings.json` in the repo root:
 |----------|----------|---------|-------------|
 | `SYSTEMS_CONFIG_PATH` | Yes | -- | Path to JSON file with system connection configs |
 | `PORT` | No | 3100 | HTTP listen port |
-| `API_KEY` | No | -- | API key for REST bridge auth |
-| `MCP_AUTH_TOKEN` | No | -- | Bearer token for MCP endpoint auth |
+| `API_KEY` | No | -- | API key for all endpoint auth (`x-api-key` header) |
 | `LOG_LEVEL` | No | info | Pino log level |
 
 ## Source Layout

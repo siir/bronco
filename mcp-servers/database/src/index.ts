@@ -46,18 +46,15 @@ async function main(): Promise<void> {
   app.use((req, res, next) => {
     if (req.path === '/health') return next();
 
-    // Check API key (for bridge routes) or MCP auth token (for MCP route)
+    // Check API key header
     const apiKey = req.headers['x-api-key'] as string | undefined;
-    const authHeader = req.headers['authorization'] as string | undefined;
-    const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined;
 
     const validApiKey = config.API_KEY && apiKey === config.API_KEY;
-    const validBearer = config.MCP_AUTH_TOKEN && bearerToken === config.MCP_AUTH_TOKEN;
 
-    // If neither auth method is configured, allow all (dev mode)
-    if (!config.API_KEY && !config.MCP_AUTH_TOKEN) return next();
+    // If no auth is configured, allow all (dev mode)
+    if (!config.API_KEY) return next();
 
-    if (validApiKey || validBearer) return next();
+    if (validApiKey) return next();
 
     res.status(401).json({ error: 'Unauthorized' });
   });
