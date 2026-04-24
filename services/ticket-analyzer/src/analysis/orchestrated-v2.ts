@@ -75,8 +75,12 @@ const logger = createLogger('ticket-analyzer');
  * can be large (accumulated findings + executive summary), so a low default
  * causes truncation and triggers the raw-text fallback (issue #383).
  *
- * Note: `defaultMaxTokens` from `AiModelConfig` takes precedence when set by
- * the operator, so this constant is only the hard-coded floor/fallback.
+ * Note: this file always sets `maxTokens` explicitly on each strategist request.
+ * `deps.loadDefaultMaxTokens()` is consulted first; it reads the
+ * `system-config-analysis-strategy` AppSetting's `defaultMaxTokens` field.
+ * This constant is the hard-coded fallback when that setting is absent or zero.
+ * Because `maxTokens` is always explicitly set, `AiModelConfig.maxTokens`
+ * per-task/per-client overrides do NOT apply to strategist calls.
  */
 const STRATEGIST_MAX_TOKENS = 8192;
 
