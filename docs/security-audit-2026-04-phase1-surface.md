@@ -6,17 +6,17 @@ Related: siir/bronco#296
 
 ## Auth plumbing (reference)
 
-Global hook (`services/copilot-api/src/plugins/auth.ts`) runs `onRequest` for every request:
+Global hook (`services/copilot-api/src/plugins/auth.ts`) runs `onRequest` for every request, in this order:
 
 - Public routes (skip auth): `/api/health`, `/api/auth/login`, `/api/auth/refresh`, `/api/portal/auth/login`, `/api/portal/auth/refresh`, `/api/portal/auth/register`.
-- `x-api-key` header matching `API_KEY` env → service-to-service; `request.user === undefined` and `request.portalUser === undefined` (treated as fully trusted).
-- `/api/portal/**` → verified against `portalJwtSecret` → `request.portalUser`.
-- Everything else → verified against `jwtSecret` → `request.user` (operator).
+- `x-api-key` header matching `API_KEY` env → service-to-service short-circuit **before any JWT verification**; `request.user === undefined` and `request.portalUser === undefined` (treated as fully trusted by `requireRole`, but not as an authenticated portal user).
+- `/api/portal/**` requests that did NOT already match the API-key branch → verified against `portalJwtSecret` → `request.portalUser`.
+- Everything else that did NOT already match a public, API-key, or portal branch → verified against `jwtSecret` → `request.user` (operator).
 
 Route groups registered in `services/copilot-api/src/routes/index.ts`:
 
 1. **Public** (`authRoutes`, `healthRoutes`) — plugin-level auth (login/refresh/register are public).
-2. **Portal** (`portalAuthRoutes`, `portalTicketRoutes`, `portalUserRoutes`) — portal JWT required.
+2. **Portal** (`portalAuthRoutes`, `portalTicketRoutes`, `portalUserRoutes`) — portal JWT required for portal-user access; API-key requests bypass JWT entirely and typically still 401 inside handlers that call `requirePortalUser`.
 3. **Client-scoped ops** guard `requireRole(ADMIN, STANDARD)` — `clientRoutes`, `peopleRoutes`, `ticketRoutes`, `knowledgeDocRoutes`, `artifactRoutes`, `aiUsageRoutes`, `ticketFilterPresetRoutes`, `pendingActionRoutes`.
 4. **Operator control panel** guard `requireRole(ADMIN, STANDARD)` — every other non-portal feature route.
 5. **Admin-only** guard `requireRole(ADMIN)` — `toolRequestRoutes`.
@@ -27,7 +27,7 @@ Tenant scoping helpers (`services/copilot-api/src/plugins/client-scope.ts`):
 - `resolveClientScope(request)` returns one of `{type:'all'}` (platform ADMIN / API-key), `{type:'assigned', clientIds}` (platform STANDARD via OperatorClient), `{type:'single', clientId}` (client-scoped operator OR portal user).
 - `scopeToWhere(scope)` converts to a `{clientId: string | {in:[...]}}` fragment or `{}` for `all`.
 
-MCP platform server (`mcp-servers/platform/src/index.ts`) has a SINGLE auth layer: valid `x-api-key` (`API_KEY`) OR valid `Authorization: Bearer <MCP_AUTH_TOKEN>`. **There is NO per-caller tenant scoping or role check on ANY MCP tool — the surface is entirely trusted to its callers (copilot-api, ticket-analyzer, issue-resolver, scheduler-worker, etc.).** Every MCP tool below executes with full DB access.
+MCP platform server (`mcp-servers/platform/src/index.ts`) has a SINGLE auth layer: valid `x-api-key` matching `API_KEY`. (The legacy `Authorization: Bearer <MCP_AUTH_TOKEN>` path was removed in #90 Layer 1.) **There is NO per-caller tenant scoping or role check on ANY MCP tool — the surface is entirely trusted to its callers (copilot-api, ticket-analyzer, issue-resolver, scheduler-worker, etc.).** Every MCP tool below executes with full DB access.
 
 ## Summary
 
@@ -37,6 +37,16 @@ MCP platform server (`mcp-servers/platform/src/index.ts`) has a SINGLE auth laye
 - **Portal surfaces** (`/api/portal/**`) are strictly scoped to `portalUser.clientId` and `userType`; `portalUserRoutes` enforces `requirePortalAdmin` internally.
 - **Operator management** (`/api/operators`, `/api/users`) have internal `preHandler` gates above the outer `ADMIN, STANDARD` group — both enforce ADMIN-only.
 - **Auth plugin allows API-key requests to bypass `requireRole`** — MCP platform server and workers lean on this; any route with a role guard is effectively unscoped for API-key callers.
+
+### Vulnerability class labels used below
+
+- **Class 1** — caller-controlled tenant or parent identifier is accepted without verifying the caller is authorized for that tenant/object.
+- **Class 2** — cross-tenant mutation caused by matching or updating a shared record without re-checking mutation scope.
+- **Class 3** — response includes a broader object graph than intended; verify the selected fields do not leak sensitive data (e.g. `passwordHash`, `emailLower`).
+- **Class 4** — non-deterministic `findFirst` selection (e.g. `clientUser.findFirst({ where: { personId } })` without `orderBy`) resolves a different tenant context per request.
+- **Class 5** — relationship or assignment validation is incomplete; the referenced record exists, but authorization or tenant compatibility is not enforced.
+- **Class 6** — privileged or sensitive field mutation is possible through an insufficiently scoped update path.
+- **Class 10** — missing object-level tenant scope enforcement on read/write operations, enabling cross-tenant access to existing records (IDOR-style access control failure).
 
 ### Top flags for Phase 2 attention
 
@@ -497,7 +507,7 @@ Full enumeration of remaining routes in other files — these are all under `out
 ## Gaps in auth plumbing
 
 - **MCP platform has no notion of "caller identity" or tenant scope.** It's entirely trusted. Every audit check in Phase 2 should re-verify whether trust is justified given each MCP caller (ticket-analyzer AI agent loop runs with user ticket content in context — see `mcp-servers/platform/src/tools/request-tool.ts` chain).
-- **`requireRole` bypasses role check for API-key callers.** Any REST endpoint gated only by `requireRole(ADMIN, STANDARD)` is effectively unscoped for service-to-service traffic. The MCP platform server does NOT call any REST endpoint on copilot-api, but `run_tool_request_dedupe` does, and it uses API-key. Inventory other cross-service REST calls.
+- **`requireRole` bypasses role check for API-key callers.** Any REST endpoint gated only by `requireRole(ADMIN, STANDARD)` is effectively unscoped for service-to-service traffic. The MCP platform server generally does not call copilot-api REST endpoints, but `run_tool_request_dedupe` is an exception: it proxies back to copilot-api using the service API key. Inventory other cross-service REST calls.
 - **`Operator.clientId !== null`** model means a client-scoped operator authenticates with the same operator JWT as a platform operator. The outer `requireRole(ADMIN, STANDARD)` guard allows both. Per-route use of `resolveClientScope` is the ONLY defense against a client-scoped operator reaching another tenant's routes. Many routes don't call it.
 - **`/api/operators` PATCH** accepts `clientId` in body — a client-scoped operator cannot actually reach this route (inner ADMIN guard), but confirm the guard ordering ensures the inner `preHandler` runs before any handler logic. (It does — Fastify `addHook('preHandler')` runs before route handler.)
 - **`/api/clients/:id` PATCH** sets `notificationMode` with `!request.user` check — this accepts API-key callers (no user). Verify that's intentional vs. should require an explicit operator.
