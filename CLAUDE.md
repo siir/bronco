@@ -477,6 +477,41 @@ Every new service or worker **must** integrate with the operational infrastructu
 8. **docker-compose.yml** — Add the service entry with env vars, health check, and named volume (if needed for persistent state).
 9. **deploy-hugo.yml** — Add to the build matrix and the `docker pull` list in the deploy script.
 
+## Hugo Host Prerequisites
+
+One-time setup steps required on the Hugo control-plane VM. These are manual host-level changes — not applied by any CI/CD workflow or Docker Compose service.
+
+### UDP Receive Buffer (cloudflared / QUIC)
+
+cloudflared logs the following warning on every startup when the OS UDP receive buffer is too small:
+
+```
+failed to sufficiently increase receive buffer size (was: 208 kiB, wanted: 7168 kiB, got: 416 kiB).
+See https://github.com/quic-go/quic-go/wiki/UDP-Buffer-Sizes for details.
+```
+
+An undersized UDP buffer increases QUIC packet loss under network variability, which can escalate to stream timeouts and stale tunnel connections (see issue #381).
+
+**Fix** — create `/etc/sysctl.d/99-cloudflared.conf` on Hugo with:
+
+```
+# Increase UDP receive/send buffer to satisfy cloudflared/quic-go requirements.
+# Eliminates "failed to sufficiently increase receive buffer size" warning and
+# reduces QUIC drift under sustained network variability.
+net.core.rmem_max=7500000
+net.core.wmem_max=7500000
+```
+
+Then reload:
+
+```bash
+sudo sysctl --system
+```
+
+**Verification** — restart cloudflared (`docker restart bronco-cloudflared-1`) and confirm the warning is gone from `docker logs bronco-cloudflared-1 --tail 20`.
+
+This is a persistent change (survives reboots). It does not affect other services on the host.
+
 ## Overnight Issue Resolution Workflow
 
 Instructions for cloud sessions (launched via `claude --remote`) that fix batches of GitHub issues autonomously. These sessions load CLAUDE.md but do not have access to custom commands or agents.
