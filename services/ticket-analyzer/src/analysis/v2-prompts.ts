@@ -37,9 +37,9 @@ export const PREFER_EXISTING_TOOLS_SNIPPET = [
 ].join('\n');
 
 /**
- * Teaches the agent to call `platform__request_tool` when no existing tool
- * fits, when a tool is broken, or when a tool is inadequate — surfacing all
- * three kinds of capability gaps to operators rather than improvising silently.
+ * Teaches the agent to call `platform__request_tool` when no existing tool fits,
+ * when a tool is broken, or when a tool is inadequate — surfacing all three kinds
+ * of capability gaps to operators rather than improvising silently.
  */
 export const REQUEST_NEW_TOOL_SNIPPET = [
   '',
