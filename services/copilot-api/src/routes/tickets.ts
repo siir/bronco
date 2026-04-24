@@ -27,6 +27,29 @@ const VALID_SUFFICIENCY_STATUSES: Set<string> = new Set(Object.values(Sufficienc
 const VALID_LOG_LEVELS: Set<string> = new Set(Object.values(LogLevel));
 
 export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteOpts): Promise<void> {
+  /**
+   * Assert that a ticket exists and belongs to the caller's tenant.
+   * Returns the ticket's id when found, or a 404 error object for routes that
+   * only need existence + scope verification (not the full ticket row).
+   * Returns null when out-of-scope or missing (caller must return the error).
+   *
+   * Use this for routes that do NOT need additional ticket fields — they can
+   * call this first, then proceed knowing the ticket is in-scope.
+   * Routes that already load the ticket with broader selects (PATCH, reanalyze,
+   * ai-help) embed the scope check in their own findFirst/include query.
+   */
+  async function assertTicketInScope(
+    request: Parameters<typeof resolveClientScope>[0],
+    ticketId: string,
+  ): Promise<{ id: string } | null> {
+    const scope = await resolveClientScope(request);
+    const scopeWhere = scopeToWhere(scope);
+    return fastify.db.ticket.findFirst({
+      where: { id: ticketId, ...scopeWhere },
+      select: { id: true },
+    });
+  }
+
   fastify.get<{ Querystring: { clientId?: string; status?: string; category?: string; priority?: string; source?: string; analysisStatus?: string; createdFrom?: string; createdTo?: string; environmentId?: string; assignedOperatorId?: string; limit?: string; offset?: string } }>(
     '/api/tickets',
     async (request) => {
@@ -451,13 +474,9 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     if (!VALID_EVENT_TYPES.has(eventType)) return fastify.httpErrors.badRequest(`Invalid eventType: ${eventType}`);
 
     // Scope guard: verify the ticket exists and belongs to the caller's tenant.
-    const scope = await resolveClientScope(request);
-    const scopeWhere = scopeToWhere(scope);
-    const ticketGuard = await fastify.db.ticket.findFirst({
-      where: { id: request.params.id, ...scopeWhere },
-      select: { id: true },
-    });
-    if (!ticketGuard) return fastify.httpErrors.notFound('Ticket not found');
+    if (!await assertTicketInScope(request, request.params.id)) {
+      return fastify.httpErrors.notFound('Ticket not found');
+    }
 
     const event = await fastify.db.ticketEvent.create({
       data: {
@@ -942,13 +961,9 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     }
 
     // Scope guard: verify the ticket exists and belongs to the caller's tenant.
-    const scope = await resolveClientScope(request);
-    const scopeWhere = scopeToWhere(scope);
-    const ticketGuard = await fastify.db.ticket.findFirst({
-      where: { id: request.params.id, ...scopeWhere },
-      select: { id: true },
-    });
-    if (!ticketGuard) return fastify.httpErrors.notFound('Ticket not found');
+    if (!await assertTicketInScope(request, request.params.id)) {
+      return fastify.httpErrors.notFound('Ticket not found');
+    }
 
     const where: Record<string, unknown> = {
       entityId: request.params.id,
@@ -985,13 +1000,9 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     }
 
     // Scope guard: verify the ticket exists and belongs to the caller's tenant.
-    const scope = await resolveClientScope(request);
-    const scopeWhere = scopeToWhere(scope);
-    const ticketGuard = await fastify.db.ticket.findFirst({
-      where: { id: request.params.id, ...scopeWhere },
-      select: { id: true },
-    });
-    if (!ticketGuard) return fastify.httpErrors.notFound('Ticket not found');
+    if (!await assertTicketInScope(request, request.params.id)) {
+      return fastify.httpErrors.notFound('Ticket not found');
+    }
 
     const [logs, total] = await Promise.all([
       fastify.db.aiUsageLog.findMany({
@@ -1042,13 +1053,9 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     }
 
     // Scope guard: verify the ticket exists and belongs to the caller's tenant.
-    const scope = await resolveClientScope(request);
-    const scopeWhere = scopeToWhere(scope);
-    const ticketGuard = await fastify.db.ticket.findFirst({
-      where: { id: request.params.id, ...scopeWhere },
-      select: { id: true },
-    });
-    if (!ticketGuard) return fastify.httpErrors.notFound('Ticket not found');
+    if (!await assertTicketInScope(request, request.params.id)) {
+      return fastify.httpErrors.notFound('Ticket not found');
+    }
 
     const ticketId = request.params.id;
     const wantArchive = includeArchive === 'true';
@@ -1210,13 +1217,9 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     Params: { id: string };
   }>('/api/tickets/:id/cost-summary', async (request) => {
     // Scope guard: verify the ticket exists and belongs to the caller's tenant.
-    const scope = await resolveClientScope(request);
-    const scopeWhere = scopeToWhere(scope);
-    const ticketGuard = await fastify.db.ticket.findFirst({
-      where: { id: request.params.id, ...scopeWhere },
-      select: { id: true },
-    });
-    if (!ticketGuard) return fastify.httpErrors.notFound('Ticket not found');
+    if (!await assertTicketInScope(request, request.params.id)) {
+      return fastify.httpErrors.notFound('Ticket not found');
+    }
 
     const ticketId = request.params.id;
 
