@@ -325,7 +325,6 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
     }
 
     const shouldSetPassword = (hasPortalAccess === true || !!password) && !!password;
-    const passwordHash = shouldSetPassword ? await bcrypt.hash(password!, 10) : undefined;
 
     const result = await fastify.db.$transaction(async (tx) => {
       // #407 Medium 6 — cross-tenant Person mutation gap.
@@ -340,6 +339,10 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
       // If the caller needs to update global Person fields (name, isActive,
       // passwordHash), they should use PATCH /api/people/:id, which enforces
       // assertPersonMutationScope before touching Person-level data.
+      //
+      // Bcrypt hashing is deferred to here so we only pay the CPU cost on the
+      // new-Person path — the hash is never needed when re-using an existing Person.
+      const passwordHash = shouldSetPassword && !existingPerson ? await bcrypt.hash(password!, 10) : undefined;
       const person = existingPerson
         ? existingPerson
         : await tx.person.create({
