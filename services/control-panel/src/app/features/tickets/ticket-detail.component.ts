@@ -216,8 +216,8 @@ interface ConvTreeNode {
                       <span class="cost-summary-value">{{ cs.toolCallCount }}</span>
                     </div>
                     <div class="cost-summary-item">
-                      <span class="cost-summary-label">Total Duration</span>
-                      <span class="cost-summary-value">{{ formatDuration(cs.totalDurationMs) }}</span>
+                      <span class="cost-summary-label">Wall-clock</span>
+                      <span class="cost-summary-value">{{ formatDuration(cs.wallClockMs) }}</span>
                     </div>
                   </div>
                   @if (cs.breakdown.length > 0) {
