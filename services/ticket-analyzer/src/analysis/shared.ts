@@ -617,8 +617,8 @@ function guidanceFor(errorClass: McpToolErrorClass, toolName: string, retryable:
   switch (errorClass) {
     case 'transport':
       return retryable
-        ? `${toolName} hit a transient transport error (network blip, connection refused, DNS hiccup). Retry at most once. If it fails again, suspect infrastructure and consider request_tool with kind=BROKEN_TOOL.`
-        : `The MCP server backing ${toolName} is unreachable or the underlying infrastructure is broken (e.g. missing binary, persistent connection failure). Do not retry. Consider whether your investigation can proceed without this tool class, or call request_tool with kind=BROKEN_TOOL to flag the outage.`;
+        ? `${toolName} hit a transient transport error (network blip, connection refused, DNS hiccup). Retry at most once. If it fails again, suspect infrastructure and consider platform__request_tool with kind=BROKEN_TOOL.`
+        : `The MCP server backing ${toolName} is unreachable or the underlying infrastructure is broken (e.g. missing binary, persistent connection failure). Do not retry. Consider whether your investigation can proceed without this tool class, or call platform__request_tool with kind=BROKEN_TOOL to flag the outage.`;
     case 'auth':
       return `${toolName} rejected the call with an auth error. This is an operator-level configuration issue. Do not retry. Move on with what you have and mention the auth gap in your analysis.`;
     case 'tool_not_registered':

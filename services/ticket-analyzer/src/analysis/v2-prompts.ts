@@ -37,20 +37,20 @@ export const PREFER_EXISTING_TOOLS_SNIPPET = [
 ].join('\n');
 
 /**
- * Teaches the agent to call `request_tool` when no existing tool fits, when
- * a tool is broken, or when a tool is inadequate — surfacing all three kinds
+ * Teaches the agent to call `platform__request_tool` when no existing tool fits,
+ * when a tool is broken, or when a tool is inadequate — surfacing all three kinds
  * of capability gaps to operators rather than improvising silently.
  */
 export const REQUEST_NEW_TOOL_SNIPPET = [
   '',
   '## Requesting New, Broken, or Improved Tools',
-  'Use `request_tool` to surface capability gaps. Set `kind` to the right value:',
+  'Use `platform__request_tool` to surface capability gaps. Set `kind` to the right value:',
   '',
   '**kind: \'NEW_TOOL\' (default)** — no existing tool comes close.',
   'Call when you are about to improvise with a generic tool or abandon a line',
   'of investigation because the right tool does not exist.',
   'Example:',
-  '  request_tool({',
+  '  platform__request_tool({',
   '    kind: \'NEW_TOOL\',',
   '    requestedName: \'analyze_execution_plan\',',
   '    displayTitle: \'Analyze SQL Execution Plan XML\',',
@@ -62,7 +62,7 @@ export const REQUEST_NEW_TOOL_SNIPPET = [
   'Call when a tool you tried returns errors, times out, or returns malformed',
   'output repeatedly across this analysis. Use the exact tool name.',
   'Example:',
-  '  request_tool({',
+  '  platform__request_tool({',
   '    kind: \'BROKEN_TOOL\',',
   '    requestedName: \'search_code\',',
   '    displayTitle: \'search_code failing with SSH not found\',',
@@ -75,7 +75,7 @@ export const REQUEST_NEW_TOOL_SNIPPET = [
   'has a confusing interface, or returns too little data to be actionable.',
   'Use the exact tool name.',
   'Example:',
-  '  request_tool({',
+  '  platform__request_tool({',
   '    kind: \'IMPROVE_TOOL\',',
   '    requestedName: \'get_blocking_tree\',',
   '    displayTitle: \'get_blocking_tree: add query text to output\',',
@@ -115,7 +115,7 @@ export const TOOL_ERROR_SYSTEM_PROMPT_SNIPPET = [
   '  or abandon this line of investigation and note the gap in your analysis.',
   '- If multiple tools in the same class fail (e.g. every repo tool returns',
   '  `transport` errors), suspect infrastructure. Stop calling that class and',
-  '  flag the outage via `request_tool` with `kind: "BROKEN_TOOL"`.',
+  '  flag the outage via `platform__request_tool` with `kind: "BROKEN_TOOL"`.',
   '- After 2 failures of the same `(tool, input)` pair, the runner blocks further',
   '  attempts automatically — you will get `errorClass: "repeated_failure"`.',
 ].join('\n');
