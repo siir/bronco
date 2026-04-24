@@ -3423,11 +3423,12 @@ export function createAnalysisProcessor(deps: AnalyzerDeps) {
           triggerReplyText = triggerEvent?.content ?? '';
         }
         // If no trigger event found, use the most recent inbound email, comment, or chat message.
-        // Skip system-authored events (actor prefix 'system:') — these are auto-posted findings
-        // comments or recommendation notes that should never be treated as a user reply (#384).
+        // Skip system-authored events (bare 'system' default or 'system:*' prefix) — these are
+        // auto-posted findings comments or recommendation notes that should never be treated as
+        // a user reply (#384).
         if (!triggerReplyText) {
           const latestReply = conversationHistory
-            .filter((e) => (e.eventType === 'EMAIL_INBOUND' || e.eventType === 'COMMENT' || e.eventType === 'CHAT_MESSAGE') && !e.actor?.startsWith('system:'))
+            .filter((e) => (e.eventType === 'EMAIL_INBOUND' || e.eventType === 'COMMENT' || e.eventType === 'CHAT_MESSAGE') && e.actor !== 'system' && !e.actor?.startsWith('system:'))
             .pop();
           if (!latestReply) {
             appLog.info(
@@ -3438,7 +3439,12 @@ export function createAnalysisProcessor(deps: AnalyzerDeps) {
             );
             await deps.db.ticket.update({
               where: { id: ticketId },
-              data: { analysisStatus: AnalysisStatus.COMPLETED, analysisError: null, lastAnalyzedAt: new Date() },
+              data: {
+                analysisStatus: AnalysisStatus.COMPLETED,
+                analysisError: null,
+                lastAnalyzedAt: new Date(),
+                reanalysisCount: { decrement: 1 },
+              },
             });
             return;
           }
