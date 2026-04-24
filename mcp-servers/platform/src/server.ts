@@ -9,6 +9,12 @@ export interface ServerDeps {
   config: Config;
   probeQueue: Queue;
   issueResolveQueue: Queue;
+  /**
+   * Caller identity from the X-Caller-Name request header.
+   * Null when the header is absent (grace-mode: request proceeds with a WARN).
+   * Used by the tool-dispatch guard to enforce per-caller allowlists.
+   */
+  callerName: string | null;
 }
 
 export function createMcpServer(deps: ServerDeps): McpServer {

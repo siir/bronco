@@ -15,6 +15,12 @@ const configSchema = z.object({
   MCP_DATABASE_URL: z.string().default('http://mcp-database:3100'),
   LOG_LEVEL: z.string().default('info'),
   ARTIFACT_STORAGE_PATH: z.string().default('/mnt/qnap/artifacts'),
+  /**
+   * When true, requests missing the X-Caller-Name header are rejected with 401.
+   * Defaults to false for safe rollout — missing header logs WARN but proceeds.
+   * Flip to true in Hugo .env once all callers are confirmed to send the header.
+   */
+  REQUIRE_CALLER_NAME: z.coerce.boolean().default(false),
 });
 
 export type Config = z.output<typeof configSchema>;
