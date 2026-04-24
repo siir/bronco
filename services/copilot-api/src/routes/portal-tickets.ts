@@ -58,8 +58,10 @@ export async function portalTicketRoutes(fastify: FastifyInstance, opts: PortalT
     // Once ticket_events gains an author_person_id column and it is backfilled,
     // replace this with an ID-based query and remove the email fallback.
     // legacy actor-email fallback — remove once events have authorPersonId backfilled
+    // Constrained to COMMENT events only to avoid unintended access grants from other
+    // event types that may incidentally store a raw email in the actor field.
     const commentCount = await fastify.db.ticketEvent.count({
-      where: { ticketId, actor: portalUser.email },
+      where: { ticketId, actor: portalUser.email, eventType: 'COMMENT' },
     });
     return commentCount > 0;
   }
@@ -110,7 +112,9 @@ export async function portalTicketRoutes(fastify: FastifyInstance, opts: PortalT
           { followers: { some: { personId: portalUser.personId } } },
           { metadata: { path: ['portalCreatorId'], equals: portalUser.personId } },
           // legacy actor-email fallback — remove once events have authorPersonId backfilled
-          { events: { some: { actor: portalUser.email } } },
+          // Constrained to COMMENT events only to avoid unintended access grants from other
+          // event types that may incidentally store a raw email in the actor field.
+          { events: { some: { actor: portalUser.email, eventType: 'COMMENT' } } },
         ];
       }
 
@@ -150,7 +154,9 @@ export async function portalTicketRoutes(fastify: FastifyInstance, opts: PortalT
         { followers: { some: { personId: portalUser.personId } } },
         { metadata: { path: ['portalCreatorId'], equals: portalUser.personId } },
         // legacy actor-email fallback — remove once events have authorPersonId backfilled
-        { events: { some: { actor: portalUser.email } } },
+        // Constrained to COMMENT events only to avoid unintended access grants from other
+        // event types that may incidentally store a raw email in the actor field.
+        { events: { some: { actor: portalUser.email, eventType: 'COMMENT' } } },
       ];
     }
 
