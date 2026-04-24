@@ -544,14 +544,18 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       await fastify.db.$transaction(async (tx) => {
-        await tx.clientUser.delete({ where: { id: cu.id } });
-
-        // Scope revocation to the specific ClientUser being removed so that a
-        // multi-tenant Person is not logged out of other clients.
+        // Revoke tokens BEFORE deleting the ClientUser. The FK on
+        // person_refresh_tokens.client_user_id is ON DELETE SET NULL, so
+        // deleting cu first would null out clientUserId and the updateMany
+        // below would match nothing, leaving active tokens un-revoked.
         await tx.personRefreshToken.updateMany({
           where: { clientUserId: cu.id, revokedAt: null },
           data: { revokedAt: new Date() },
         });
+
+        // Scope revocation to the specific ClientUser being removed so that a
+        // multi-tenant Person is not logged out of other clients.
+        await tx.clientUser.delete({ where: { id: cu.id } });
 
         // If Person has no remaining ClientUser AND no Operator, null the passwordHash
         // so they cannot log in even if re-added later with stale credentials.

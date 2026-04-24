@@ -214,13 +214,17 @@ export async function portalUserRoutes(fastify: FastifyInstance): Promise<void> 
       if (!cu) return reply.code(404).send({ error: 'User not found' });
 
       await fastify.db.$transaction(async (tx) => {
-        await tx.clientUser.delete({ where: { id: cu.id } });
-        // Scope revocation to the specific ClientUser being removed so that a
-        // multi-tenant Person is not logged out of other clients.
+        // Revoke tokens BEFORE deleting the ClientUser. The FK on
+        // person_refresh_tokens.client_user_id is ON DELETE SET NULL, so
+        // deleting cu first would null out clientUserId and the updateMany
+        // below would match nothing, leaving active tokens un-revoked.
         await tx.personRefreshToken.updateMany({
           where: { clientUserId: cu.id, revokedAt: null },
           data: { revokedAt: new Date() },
         });
+        // Scope revocation to the specific ClientUser being removed so that a
+        // multi-tenant Person is not logged out of other clients.
+        await tx.clientUser.delete({ where: { id: cu.id } });
 
         // If the Person has no remaining ClientUser anywhere AND no Operator
         // record, they now have no way to authenticate — but their stored
