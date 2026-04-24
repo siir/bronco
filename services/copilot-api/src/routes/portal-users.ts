@@ -215,8 +215,10 @@ export async function portalUserRoutes(fastify: FastifyInstance): Promise<void> 
 
       await fastify.db.$transaction(async (tx) => {
         await tx.clientUser.delete({ where: { id: cu.id } });
+        // Scope revocation to the specific ClientUser being removed so that a
+        // multi-tenant Person is not logged out of other clients.
         await tx.personRefreshToken.updateMany({
-          where: { personId: id, accessType: 'CLIENT_USER', revokedAt: null },
+          where: { clientUserId: cu.id, revokedAt: null },
           data: { revokedAt: new Date() },
         });
 

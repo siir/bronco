@@ -32,7 +32,7 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
     const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS);
 
     await fastify.db.personRefreshToken.create({
-      data: { jti, personId, accessType: AccessType.CLIENT_USER, expiresAt },
+      data: { jti, personId, accessType: AccessType.CLIENT_USER, clientUserId, expiresAt },
     });
 
     return signPortalRefreshToken(fastify.portalJwtSecret, personId, clientUserId, jti);
