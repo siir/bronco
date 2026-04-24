@@ -8,7 +8,7 @@ Related: siir/bronco#296 (parent), siir/bronco#407 (Phase 2 tracker)
 
 Phase 3 is the **operator-driven verification** phase — walking the threat model from the #296 audit with real tokens at each auth tier and confirming the fixes from Phase 2 actually block the attacks they were designed to block. This cannot be automated safely in CI (requires real credentials + DB state), so this doc is the structured checklist the operator runs against staging or a dedicated test environment.
 
-Phase 1 (surface enumeration) landed as PR #406. Phase 2 (per-class sweep) is the #407 arc — 10 of 11 items closed at time of writing. Phase 4 (response-field audit) ships alongside this doc. Phase 3 completion signoff happens when every row in the test-plan table below is verified with `observed == expected`.
+Phase 1 (surface enumeration) landed as PR #406. Phase 2 (per-class sweep) is the #407 arc — 10 of 11 items closed at time of writing. Phase 3 completion signoff happens when every row in the test-plan table below is verified with `observed == expected`. A Phase 4 response-field audit is planned as a follow-up artifact once Phase 3 is green.
 
 ## Prerequisites
 
@@ -84,7 +84,7 @@ Responses described as:
 | C4 | `POST /api/portal/tickets/:id/comments` on a ticket they're not associated with | 403 or 404 | #412 |
 | C5 | `GET /api/tickets` (non-portal endpoint) | 401 or 403 (portal JWT doesn't satisfy operator requireRole) | Pre-audit (requireRole rejects portal users) |
 | C6 | `GET /api/operators` | 401 or 403 | Pre-audit |
-| C7 | `PATCH /api/portal/users/:myId` with body `name: 'changed'` | Verify behavior: if client-scoped admin endpoint should restrict to ClientUser-scoped fields, this should not mutate `Person.name` — else 403 | #295 (pre-audit, Wave 2A) |
+| C7 | `PATCH /api/portal/auth/profile` with body `name: 'changed'` | Verify behavior: reachable self-edit must not mutate `Person.name` (field ignored/rejected or persisted profile remains unchanged) | #295 (pre-audit, Wave 2A) |
 | C8 | Hit the admin `/api/tool-requests` page endpoints | 403 (admin-only outer guard + portal-JWT rejected) | Pre-audit |
 | C9 | `POST /api/portal/auth/register` with email of an existing Person | 400 / 409 (register reject; must use login instead) | Pre-audit (#286 round 4) |
 
@@ -120,7 +120,7 @@ These should ALL succeed; tests here make sure Phase 2 fixes didn't accidentally
 | F1 | `GET /api/tickets` with no Authorization header | 401 |
 | F2 | `GET /api/portal/tickets` with no Authorization header | 401 |
 | F3 | `POST /api/auth/login` | 200 (or 401 with bad creds) — public route |
-| F4 | `POST /api/portal/auth/register` | Depends on Person-exists check (400/409 vs 201) |
+| F4 | `POST /api/portal/auth/register` | 409 if Person exists; 400 for validation/domain/client lookup failures; 200 on successful registration/login |
 | F5 | `GET /api/health` | 200 — public |
 
 ### G. Service API-key caller (API_KEY env — bypasses requireRole)
@@ -157,7 +157,7 @@ Forbidden strings in **any** response body:
 | H9 | `POST /api/auth/refresh` | AdminBob |
 | H10 | `POST /api/portal/auth/login` — portal login response | UserUma |
 | H11 | `POST /api/portal/auth/refresh` | UserUma |
-| H12 | `GET /api/portal/users/me` | UserUma |
+| H12 | `GET /api/portal/auth/me` | UserUma |
 | H13 | Any MCP platform tool that returns a Person or ClientUser (platform MCP bearer, via `x-api-key`) | API-key + `X-Caller-Name: copilot-api` once MCP scoping lands |
 
 For each of the above, run:
@@ -189,4 +189,4 @@ Any deviation → new fix PR → re-run the affected row until green.
 
 ## Closing #296 audit
 
-Once Phase 3 is green, Phase 4 (response-field audit) has shipped, and #407 items 1–11 are closed, #296 can be closed with a final summary comment linking to the Phase 1/3/4 docs and the #407 tracker.
+Once Phase 3 is green and #407 items 1–11 are closed, #296 can be closed with a final summary comment linking to the Phase 1 and Phase 3 docs, the #407 tracker, and the separate Phase 4 response-field audit artifact if/when that follow-up is completed.
