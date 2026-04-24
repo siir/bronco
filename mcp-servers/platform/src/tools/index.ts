@@ -24,7 +24,7 @@ import { registerKnowledgeDocTools } from './knowledge-doc.js';
 const logger = createLogger('mcp-platform:auth');
 
 /**
- * Wrap an McpServer so that every tool call is checked against the per-caller
+ * Wrap a McpServer so that every tool call is checked against the per-caller
  * allowlist before the real handler runs.
  *
  * When callerName is null (header absent, grace mode) the check is skipped.

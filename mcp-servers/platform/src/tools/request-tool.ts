@@ -31,7 +31,7 @@ function parseLimit(raw: unknown): number {
   return DEFAULT_LIMIT_PER_RUN;
 }
 
-export function registerRequestToolTool(server: McpServer, { db, config }: ServerDeps): void {
+export function registerRequestToolTool(server: McpServer, { db, config, callerName }: ServerDeps): void {
   server.tool(
     'request_tool',
     [
@@ -205,6 +205,7 @@ export function registerRequestToolTool(server: McpServer, { db, config }: Serve
             mcpRepoUrl: config.MCP_REPO_URL,
             mcpDatabaseUrl: config.MCP_DATABASE_URL,
             platformApiKey: config.API_KEY,
+            callerName: callerName ?? undefined,
           });
           const timeoutPromise = new Promise<never>((_, reject) =>
             setTimeout(

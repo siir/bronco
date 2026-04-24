@@ -160,6 +160,12 @@ export interface ClientCatalogOpts {
   mcpRepoUrl?: string;
   mcpDatabaseUrl?: string;
   platformApiKey?: string;
+  /**
+   * Sent as X-Caller-Name to shared MCP servers (platform, repo, database) during discovery.
+   * Defaults to 'copilot-api' if omitted. Pass the actual caller identity when calling
+   * from a context other than copilot-api (e.g. ticket-analyzer via mcp-platform).
+   */
+  callerName?: string;
   /** If provided, discovery warnings (skipped integrations, failed lookups) are pushed here. */
   warnings?: string[];
 }
@@ -262,7 +268,7 @@ export async function buildClientToolCatalog(
           url: server.url,
           apiKey: opts?.platformApiKey,
           authHeader: 'x-api-key',
-          callerName: 'copilot-api',
+          callerName: opts?.callerName ?? 'copilot-api',
         });
         return { serverName: server.name, tools: result.tools };
       } catch (err) {
