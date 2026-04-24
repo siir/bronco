@@ -4,11 +4,20 @@ import { mkdir } from 'node:fs/promises';
 import { join, dirname, basename } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import type { Config } from '../config.js';
+import { resolveClientScope, scopeToWhere } from '../plugins/client-scope.js';
 
 export async function artifactRoutes(fastify: FastifyInstance, opts: { config: Config }): Promise<void> {
   const storagePath = opts.config.ARTIFACT_STORAGE_PATH;
 
   fastify.get<{ Params: { ticketId: string } }>('/api/tickets/:ticketId/artifacts', async (request) => {
+    const scope = await resolveClientScope(request);
+    // Verify the ticket exists and is in the caller's scope before listing its artifacts.
+    const ticket = await fastify.db.ticket.findFirst({
+      where: { id: request.params.ticketId, ...scopeToWhere(scope) },
+      select: { id: true },
+    });
+    if (!ticket) return fastify.httpErrors.notFound('Ticket not found');
+
     const artifacts = await fastify.db.artifact.findMany({
       where: { ticketId: request.params.ticketId },
       orderBy: { createdAt: 'desc' },
@@ -17,16 +26,34 @@ export async function artifactRoutes(fastify: FastifyInstance, opts: { config: C
   });
 
   fastify.get<{ Params: { id: string } }>('/api/artifacts/:id', async (request) => {
-    const artifact = await fastify.db.artifact.findUnique({
-      where: { id: request.params.id },
+    const scope = await resolveClientScope(request);
+    // Load the artifact with its ticket's clientId so we can enforce scope.
+    const artifact = await fastify.db.artifact.findFirst({
+      where: {
+        id: request.params.id,
+        OR: [
+          // Artifact is ticket-linked — enforce ticket scope.
+          { ticket: { ...scopeToWhere(scope) } },
+          // Artifact has no ticket (finding-only or unlinked) — allow all authenticated callers.
+          { ticketId: null },
+        ],
+      },
     });
     if (!artifact) return fastify.httpErrors.notFound('Artifact not found');
     return artifact;
   });
 
   fastify.get<{ Params: { id: string } }>('/api/artifacts/:id/download', async (request, reply) => {
-    const artifact = await fastify.db.artifact.findUnique({
-      where: { id: request.params.id },
+    const scope = await resolveClientScope(request);
+    // Load the artifact with its ticket's clientId so we can enforce scope.
+    const artifact = await fastify.db.artifact.findFirst({
+      where: {
+        id: request.params.id,
+        OR: [
+          { ticket: { ...scopeToWhere(scope) } },
+          { ticketId: null },
+        ],
+      },
     });
     if (!artifact) return fastify.httpErrors.notFound('Artifact not found');
 
@@ -56,6 +83,18 @@ export async function artifactRoutes(fastify: FastifyInstance, opts: { config: C
       if (!file) return fastify.httpErrors.badRequest('No file provided');
 
       const { ticketId, findingId, description } = request.query;
+
+      // If a ticketId is provided, verify the caller has scope over that ticket
+      // before accepting the upload. Returns 404 to prevent ticket-ID enumeration.
+      if (ticketId) {
+        const scope = await resolveClientScope(request);
+        const ticket = await fastify.db.ticket.findFirst({
+          where: { id: ticketId, ...scopeToWhere(scope) },
+          select: { id: true },
+        });
+        if (!ticket) return fastify.httpErrors.notFound('Ticket not found');
+      }
+
       const datePrefix = new Date().toISOString().slice(0, 7); // YYYY-MM
       const relativePath = join(datePrefix, `${Date.now()}-${file.filename}`);
       const fullPath = join(storagePath, relativePath);
