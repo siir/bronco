@@ -45,16 +45,30 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
   }
 
   async function resolveForLogin(emailLower: string, preferredClientId?: string): Promise<ResolvedPortalUser | null> {
+    // Explicit select — pull only the fields required for login: passwordHash
+    // for bcrypt.compare and safe display fields for session construction.
+    // emailLower is never returned to callers.
     const person = await fastify.db.person.findUnique({
       where: { emailLower },
-      include: {
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        passwordHash: true,
+        isActive: true,
         clientUsers: {
           // Deterministic order when the caller didn't specify clientId:
           // primary contacts first, then oldest-created. Without this
           // Prisma's ordering is undefined and multi-client Persons could
           // land in the wrong tenant.
           orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
-          include: { client: { select: { id: true, name: true, shortCode: true } } },
+          select: {
+            id: true,
+            clientId: true,
+            userType: true,
+            isPrimary: true,
+            client: { select: { id: true, name: true, shortCode: true } },
+          },
         },
       },
     });
@@ -404,7 +418,11 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
 
       const emailLower = email?.toLowerCase();
       if (emailLower) {
-        const existing = await fastify.db.person.findUnique({ where: { emailLower } });
+        // Only id needed for the conflict check — don't pull the hash.
+        const existing = await fastify.db.person.findUnique({
+          where: { emailLower },
+          select: { id: true },
+        });
         if (existing && existing.id !== portalUser.personId) {
           return reply.code(409).send({ error: 'Email is already in use' });
         }
@@ -416,6 +434,9 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
           ...(name && { name: name.trim() }),
           ...(email && { email, emailLower: email.toLowerCase() }),
         },
+        // Explicit select — this is the response payload; never return
+        // passwordHash or emailLower.
+        select: { id: true, email: true, name: true },
       });
 
       return {
@@ -447,7 +468,12 @@ export async function portalAuthRoutes(fastify: FastifyInstance): Promise<void> 
         return reply.code(400).send({ error: 'New password must be at least 8 characters' });
       }
 
-      const person = await fastify.db.person.findUnique({ where: { id: portalUser.personId } });
+      // Explicit select — only passwordHash is needed here; never pull the
+      // full Person row for a credential-check-only path.
+      const person = await fastify.db.person.findUnique({
+        where: { id: portalUser.personId },
+        select: { passwordHash: true },
+      });
       if (!person || !person.passwordHash) {
         return reply.code(401).send({ error: 'User not found' });
       }

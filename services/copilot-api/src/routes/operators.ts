@@ -121,9 +121,10 @@ export async function operatorRoutes(fastify: FastifyInstance): Promise<void> {
     const email = rawEmail.trim();
     const emailLower = email.toLowerCase();
 
+    // Only need id (for upsert) + operator presence (for conflict check).
     const existingPerson = await fastify.db.person.findUnique({
       where: { emailLower },
-      include: { operator: true },
+      select: { id: true, operator: { select: { id: true } } },
     });
     if (existingPerson?.operator) {
       return reply.code(409).send({ error: 'An operator with this email already exists' });
@@ -193,7 +194,11 @@ export async function operatorRoutes(fastify: FastifyInstance): Promise<void> {
     const email = rawEmail?.trim();
     const emailLower = email?.toLowerCase();
     if (emailLower) {
-      const existing = await fastify.db.person.findUnique({ where: { emailLower } });
+      // Only id needed for the conflict check.
+      const existing = await fastify.db.person.findUnique({
+        where: { emailLower },
+        select: { id: true },
+      });
       if (existing && existing.id !== target.personId) {
         return reply.code(409).send({ error: 'Email is already in use by another operator' });
       }
