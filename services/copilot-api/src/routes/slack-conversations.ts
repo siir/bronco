@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { resolveClientScope, scopeToWhere } from '../plugins/client-scope.js';
 
 export async function slackConversationRoutes(fastify: FastifyInstance): Promise<void> {
   // --- List conversations ---
@@ -28,9 +29,25 @@ export async function slackConversationRoutes(fastify: FastifyInstance): Promise
       return fastify.httpErrors.badRequest('limit and offset must be non-negative integers');
     }
 
-    const where: Record<string, unknown> = {};
+    // Scope enforcement: restrict to caller's client(s)
+    const callerScope = await resolveClientScope(request);
+    const scopeWhere = scopeToWhere(callerScope);
+
+    const where: Record<string, unknown> = {
+      // Apply scope — conversations with clientId=null are only visible to 'all' callers
+      ...scopeWhere,
+    };
     if (operatorId) where.operatorId = operatorId;
-    if (clientId) where.clientId = clientId;
+
+    // If a clientId filter is requested, validate it is within the caller's scope
+    const effectiveClientId =
+      clientId &&
+      (callerScope.type === 'all' ||
+        (callerScope.type === 'single' && callerScope.clientId === clientId) ||
+        (callerScope.type === 'assigned' && callerScope.clientIds.includes(clientId)))
+        ? clientId
+        : undefined;
+    if (effectiveClientId) where.clientId = effectiveClientId;
 
     if (startDate || endDate) {
       const createdAt: Record<string, Date> = {};
@@ -77,8 +94,11 @@ export async function slackConversationRoutes(fastify: FastifyInstance): Promise
   fastify.get<{ Params: { id: string } }>('/api/slack-conversations/:id', async (request) => {
     const { id } = request.params;
 
-    const conversation = await fastify.db.slackConversationLog.findUnique({
-      where: { id },
+    const callerScope = await resolveClientScope(request);
+    const scopeWhere = scopeToWhere(callerScope);
+
+    const conversation = await fastify.db.slackConversationLog.findFirst({
+      where: { id, ...scopeWhere },
       include: {
         operator: { select: { id: true, person: { select: { name: true } } } },
         client: { select: { id: true, name: true, shortCode: true } },

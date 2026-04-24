@@ -4,6 +4,7 @@ import { createReadStream, existsSync } from 'node:fs';
 import { unlink } from 'node:fs/promises';
 import { Prisma } from '@bronco/db';
 import { aggregateDailyUsage, generateInvoicePdf, nextInvoiceNumber, ensureInvoiceDir } from '../services/invoice-generator.js';
+import { resolveClientScope } from '../plugins/client-scope.js';
 
 interface InvoiceRouteOpts {
   invoiceStoragePath: string;
@@ -14,7 +15,15 @@ export async function invoiceRoutes(fastify: FastifyInstance, opts: InvoiceRoute
   ensureInvoiceDir(invoiceStoragePath);
 
   // GET /api/clients/:id/invoices — list invoices for client
-  fastify.get<{ Params: { id: string } }>('/api/clients/:id/invoices', async (request) => {
+  fastify.get<{ Params: { id: string } }>('/api/clients/:id/invoices', async (request, reply) => {
+    const scope = await resolveClientScope(request);
+    if (
+      (scope.type === 'single' && scope.clientId !== request.params.id) ||
+      (scope.type === 'assigned' && !scope.clientIds.includes(request.params.id))
+    ) {
+      return reply.code(403).send({ error: 'clientId not in your scope' });
+    }
+
     const rows = await fastify.db.invoice.findMany({
       where: { clientId: request.params.id },
       orderBy: { invoiceNumber: 'desc' },
@@ -33,6 +42,14 @@ export async function invoiceRoutes(fastify: FastifyInstance, opts: InvoiceRoute
     Params: { id: string };
     Body: { periodStart: string; periodEnd: string; finalize?: boolean };
   }>('/api/clients/:id/invoices/generate', async (request, reply) => {
+    const scope = await resolveClientScope(request);
+    if (
+      (scope.type === 'single' && scope.clientId !== request.params.id) ||
+      (scope.type === 'assigned' && !scope.clientIds.includes(request.params.id))
+    ) {
+      return reply.code(403).send({ error: 'clientId not in your scope' });
+    }
+
     const client = await fastify.db.client.findUnique({
       where: { id: request.params.id },
       select: { name: true, billingMarkupPercent: true },
@@ -112,6 +129,14 @@ export async function invoiceRoutes(fastify: FastifyInstance, opts: InvoiceRoute
   fastify.get<{ Params: { id: string; invoiceId: string } }>(
     '/api/clients/:id/invoices/:invoiceId/download',
     async (request, reply) => {
+      const scope = await resolveClientScope(request);
+      if (
+        (scope.type === 'single' && scope.clientId !== request.params.id) ||
+        (scope.type === 'assigned' && !scope.clientIds.includes(request.params.id))
+      ) {
+        return reply.code(403).send({ error: 'clientId not in your scope' });
+      }
+
       const invoice = await fastify.db.invoice.findFirst({
         where: { id: request.params.invoiceId, clientId: request.params.id },
       });
@@ -129,6 +154,14 @@ export async function invoiceRoutes(fastify: FastifyInstance, opts: InvoiceRoute
   fastify.patch<{ Params: { id: string; invoiceId: string }; Body: { status: string } }>(
     '/api/clients/:id/invoices/:invoiceId',
     async (request, reply) => {
+      const scope = await resolveClientScope(request);
+      if (
+        (scope.type === 'single' && scope.clientId !== request.params.id) ||
+        (scope.type === 'assigned' && !scope.clientIds.includes(request.params.id))
+      ) {
+        return reply.code(403).send({ error: 'clientId not in your scope' });
+      }
+
       const { status } = request.body;
       if (status !== 'draft' && status !== 'final') {
         return reply.code(400).send({ error: 'status must be "draft" or "final"' });
@@ -149,6 +182,14 @@ export async function invoiceRoutes(fastify: FastifyInstance, opts: InvoiceRoute
   fastify.delete<{ Params: { id: string; invoiceId: string } }>(
     '/api/clients/:id/invoices/:invoiceId',
     async (request, reply) => {
+      const scope = await resolveClientScope(request);
+      if (
+        (scope.type === 'single' && scope.clientId !== request.params.id) ||
+        (scope.type === 'assigned' && !scope.clientIds.includes(request.params.id))
+      ) {
+        return reply.code(403).send({ error: 'clientId not in your scope' });
+      }
+
       const invoice = await fastify.db.invoice.findFirst({
         where: { id: request.params.invoiceId, clientId: request.params.id },
       });

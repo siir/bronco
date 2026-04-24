@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { EmailClassification, EmailProcessingStatus } from '@bronco/shared-types';
+import { resolveClientScope, scopeToWhere } from '../plugins/client-scope.js';
 
 const VALID_CLASSIFICATIONS = new Set<string>(Object.values(EmailClassification));
 const VALID_STATUSES = new Set<string>(Object.values(EmailProcessingStatus));
@@ -34,7 +35,16 @@ export async function emailLogRoutes(fastify: FastifyInstance): Promise<void> {
       return fastify.httpErrors.badRequest('limit and offset must be non-negative integers');
     }
 
-    const where: Record<string, unknown> = {};
+    // Scope enforcement: restrict to caller's client(s)
+    const callerScope = await resolveClientScope(request);
+    const scopeWhere = scopeToWhere(callerScope);
+
+    const where: Record<string, unknown> = {
+      // Apply scope — for 'assigned'/'single' callers, restrict to their clientId(s).
+      // Note: some email logs may have clientId=null (emails that couldn't be matched to a client).
+      // Those are only visible to 'all' scope callers.
+      ...scopeWhere,
+    };
 
     if (classification) {
       if (!VALID_CLASSIFICATIONS.has(classification)) {
@@ -54,7 +64,15 @@ export async function emailLogRoutes(fastify: FastifyInstance): Promise<void> {
       where.status = status;
     }
 
-    if (clientId) where.clientId = clientId;
+    // If a clientId filter is requested, validate it is within the caller's scope
+    const effectiveClientId =
+      clientId &&
+      (callerScope.type === 'all' ||
+        (callerScope.type === 'single' && callerScope.clientId === clientId) ||
+        (callerScope.type === 'assigned' && callerScope.clientIds.includes(clientId)))
+        ? clientId
+        : undefined;
+    if (effectiveClientId) where.clientId = effectiveClientId;
 
     if (fromDate || toDate) {
       const receivedAt: Record<string, Date> = {};
@@ -138,7 +156,11 @@ export async function emailLogRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post<{ Params: { id: string } }>('/api/email-logs/:id/retry', async (request) => {
     const { id } = request.params;
 
-    const log = await fastify.db.emailProcessingLog.findUnique({ where: { id } });
+    const callerScope = await resolveClientScope(request);
+    const scopeWhere = scopeToWhere(callerScope);
+    const log = await fastify.db.emailProcessingLog.findFirst({
+      where: { id, ...scopeWhere },
+    });
     if (!log) return fastify.httpErrors.notFound('Email processing log not found');
 
     if (log.status !== EmailProcessingStatus.FAILED && log.classification !== EmailClassification.NOISE && log.classification !== EmailClassification.AUTO_REPLY) {
@@ -168,7 +190,11 @@ export async function emailLogRoutes(fastify: FastifyInstance): Promise<void> {
       );
     }
 
-    const log = await fastify.db.emailProcessingLog.findUnique({ where: { id } });
+    const callerScope = await resolveClientScope(request);
+    const scopeWhere = scopeToWhere(callerScope);
+    const log = await fastify.db.emailProcessingLog.findFirst({
+      where: { id, ...scopeWhere },
+    });
     if (!log) return fastify.httpErrors.notFound('Email processing log not found');
 
     const updated = await fastify.db.emailProcessingLog.update({
