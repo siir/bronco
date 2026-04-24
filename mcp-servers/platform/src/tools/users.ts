@@ -1,3 +1,9 @@
+/**
+ * Security note: `search_users` exposes operator account emails and roles with no per-request scope filter.
+ * This is safe because the MCP platform server is operator-only (Tailscale + Cloudflare Access).
+ * If the server is ever exposed to non-operator principals, add a scope layer first.
+ * See mcp-servers/platform/README.md — "Security Model" for details and the implementation template.
+ */
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { ServerDeps } from '../server.js';
