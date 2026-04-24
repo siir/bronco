@@ -326,8 +326,9 @@ export class ClientSlackManager {
   private async resolvePerson(clientId: string, slackUserId: string): Promise<{ id: string; name: string; email: string } | null> {
     // 1. Try ClientUser.slackUserId (client contacts / self-registered portal users).
     //    Scoped to the inbound message's clientId to prevent cross-workspace collisions.
-    const clientUser = await this.db.clientUser.findFirst({
-      where: { slackUserId, clientId },
+    //    Uses the composite unique index on (clientId, slackUserId) for a deterministic lookup.
+    const clientUser = await this.db.clientUser.findUnique({
+      where: { clientId_slackUserId: { clientId, slackUserId } },
       select: { person: { select: { id: true, name: true, email: true } } },
     });
     if (clientUser?.person) return clientUser.person;

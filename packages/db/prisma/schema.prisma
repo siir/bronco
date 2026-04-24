@@ -90,6 +90,7 @@ model ClientUser {
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@unique([personId, clientId])
+  @@unique([clientId, slackUserId])
   @@index([personId])
   @@index([clientId])
   @@map("client_users")
