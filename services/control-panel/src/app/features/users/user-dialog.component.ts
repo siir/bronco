@@ -114,7 +114,7 @@ export class UserDialogComponent {
         email: this.email,
         role: this.role,
         isActive: this.isActive,
-        ...(this.slackUserId !== undefined && { slackUserId: this.slackUserId }),
+        ...(this.slackUserId !== (u.slackUserId ?? '') && { slackUserId: this.slackUserId }),
       }).subscribe({
         next: () => {
           this.haptic.success();
