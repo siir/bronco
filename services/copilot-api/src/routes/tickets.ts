@@ -1186,14 +1186,22 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
           ],
         },
       }),
-      // Wall-clock duration: MAX(created_at) - MIN(created_at) across all AI calls for this ticket.
-      // More accurate than SUM(duration_ms) for parallel sub-tasks.
-      fastify.db.aiUsageLog.aggregate({
-        where: { entityId: ticketId, entityType: 'ticket' },
-        _min: { createdAt: true },
-        _max: { createdAt: true },
-        _sum: { inputTokens: true, outputTokens: true },
-      }),
+      // Wall-clock duration: (first call start) → (last call end).
+      // Start time = MIN(created_at - duration_ms), i.e. when the first call was initiated.
+      // End time   = MAX(created_at), i.e. when the last call completed.
+      // Using start time rather than MIN(created_at) avoids under-reporting when the first
+      // call has a long duration_ms that began well before other calls completed.
+      // More accurate than SUM(duration_ms) for parallel sub-tasks (avoids double-counting).
+      fastify.db.$queryRaw<[{ start_ms: bigint | null; end_ms: bigint | null; input_tokens: bigint | null; output_tokens: bigint | null }]>`
+        SELECT
+          MIN(EXTRACT(EPOCH FROM created_at) * 1000 - COALESCE(duration_ms, 0))::bigint AS start_ms,
+          MAX(EXTRACT(EPOCH FROM created_at) * 1000)::bigint AS end_ms,
+          SUM(input_tokens)::bigint AS input_tokens,
+          SUM(output_tokens)::bigint AS output_tokens
+        FROM ai_usage_logs
+        WHERE entity_id = ${ticketId}::uuid
+          AND entity_type = 'ticket'
+      `,
     ]);
 
     const totals = rows.reduce(
@@ -1205,17 +1213,19 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
       { totalCostUsd: 0, callCount: 0 },
     );
 
-    const minAt = wallClockResult._min.createdAt;
-    const maxAt = wallClockResult._max.createdAt;
-    const wallClockMs = minAt && maxAt ? maxAt.getTime() - minAt.getTime() : 0;
+    const wc = wallClockResult[0];
+    const wallClockMs =
+      wc?.start_ms != null && wc?.end_ms != null
+        ? Number(wc.end_ms) - Number(wc.start_ms)
+        : 0;
 
     return {
       entityId: ticketId,
       totalCostUsd: totals.totalCostUsd,
       callCount: totals.callCount,
       toolCallCount,
-      totalInputTokens: wallClockResult._sum.inputTokens ?? 0,
-      totalOutputTokens: wallClockResult._sum.outputTokens ?? 0,
+      totalInputTokens: wc?.input_tokens != null ? Number(wc.input_tokens) : 0,
+      totalOutputTokens: wc?.output_tokens != null ? Number(wc.output_tokens) : 0,
       wallClockMs,
       breakdown: rows.map(r => ({
         provider: r.provider,

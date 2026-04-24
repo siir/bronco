@@ -1,5 +1,6 @@
 import { Component, DestroyRef, inject, input, output, signal, computed, effect } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Subscription } from 'rxjs';
 import { CommonModule } from '@angular/common';
 import { BroncoButtonComponent, IconComponent } from '../../../shared/components/index.js';
 import { TicketService, type TicketEvent, type UnifiedLogEntry, type TicketCostSummary } from '../../../core/services/ticket.service.js';
@@ -139,6 +140,9 @@ export class AnalysisTraceComponent {
   loading = signal(false);
   costSummary = signal<TicketCostSummary | null>(null);
 
+  /** Tracks the in-flight cost request so it can be canceled when ticketId changes. */
+  private costSub: Subscription | null = null;
+
   filters = signal<TraceFilters>({
     showAi: true,
     showAppLogs: true,
@@ -169,8 +173,12 @@ export class AnalysisTraceComponent {
   private load(ticketId: string): void {
     this.loading.set(true);
 
-    // Load cost summary in parallel — non-blocking, doesn't gate the trace render
-    this.ticketService.getCostSummary(ticketId)
+    // Cancel any prior in-flight cost request and clear stale data before fetching for the new ticket.
+    this.costSub?.unsubscribe();
+    this.costSummary.set(null);
+
+    // Load cost summary in parallel — non-blocking, doesn't gate the trace render.
+    this.costSub = this.ticketService.getCostSummary(ticketId)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (cs) => this.costSummary.set(cs),
