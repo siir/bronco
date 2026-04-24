@@ -149,6 +149,8 @@ export function registerTicketTools(server: McpServer, { db }: ServerDeps): void
           followers: {
             select: {
               id: true,
+              ticketId: true,
+              personId: true,
               followerType: true,
               createdAt: true,
               person: { select: SAFE_PERSON_SELECT },
