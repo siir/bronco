@@ -384,14 +384,14 @@ services:
     image: ${CLOUDFLARED_IMAGE:-cloudflare/cloudflared:latest}
     restart: unless-stopped
     command: tunnel --no-autoupdate --metrics 0.0.0.0:2000 run --token ${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN must be set in .env — create a tunnel at one.dash.cloudflare.com}
-    # Healthcheck uses the cloudflared metrics /ready endpoint (exposed on port 2000 via --metrics).
-    # /ready returns HTTP 200 when at least one tunnel connection is registered and non-200 when all
-    # connections are down, allowing Docker to restart the container when QUIC drift causes the
-    # tunnel to go stale.
-    # Uses CMD (not CMD-SHELL) so the healthcheck only depends on wget being in the image PATH
-    # and does not require /bin/sh or grep. wget is present in the cloudflared image base layer.
+    # Liveness-only healthcheck: the cloudflared image is distroless — no sh, no wget, no curl.
+    # The only binary available on PATH is cloudflared itself, so `--version` is used as a
+    # shallow "is the process alive" probe. This is NOT a drift-detection probe (the tunnel
+    # could be registered-but-stale and this would still return 0). Drift detection against
+    # the metrics /ready endpoint (exposed on port 2000 via --metrics) is tracked as a
+    # follow-up — would need a sidecar probe or a variant cloudflared image with wget/curl.
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:2000/ready"]
+      test: ["CMD", "cloudflared", "--version"]
       interval: 30s
       timeout: 10s
       retries: 3
