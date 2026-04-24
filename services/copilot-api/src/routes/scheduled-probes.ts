@@ -167,12 +167,24 @@ export async function scheduledProbeRoutes(
   fastify.get<{
     Querystring: { clientId?: string };
   }>('/api/scheduled-probes', async (request) => {
+    const scope = await resolveClientScope(request);
+    const scopeWhere = scopeToWhere(scope);
     const { clientId } = request.query;
-    const where: Record<string, unknown> = {};
-    if (clientId) where.clientId = clientId;
+
+    // If a clientId filter is requested, validate it is within the caller's scope
+    const effectiveClientId =
+      clientId &&
+      (scope.type === 'all' ||
+        (scope.type === 'single' && scope.clientId === clientId) ||
+        (scope.type === 'assigned' && scope.clientIds.includes(clientId)))
+        ? clientId
+        : undefined;
 
     return fastify.db.scheduledProbe.findMany({
-      where,
+      where: {
+        ...scopeWhere,
+        ...(effectiveClientId && { clientId: effectiveClientId }),
+      },
       orderBy: [{ createdAt: 'desc' }],
       include: {
         client: { select: { id: true, name: true, shortCode: true } },
@@ -188,8 +200,9 @@ export async function scheduledProbeRoutes(
 
   // Get single probe
   fastify.get<{ Params: { id: string } }>('/api/scheduled-probes/:id', async (request) => {
-    const probe = await fastify.db.scheduledProbe.findUnique({
-      where: { id: request.params.id },
+    const scope = await resolveClientScope(request);
+    const probe = await fastify.db.scheduledProbe.findFirst({
+      where: { id: request.params.id, ...scopeToWhere(scope) },
       include: {
         client: { select: { id: true, name: true, shortCode: true } },
         integration: { select: { id: true, label: true, type: true, config: true, metadata: true } },
@@ -207,6 +220,15 @@ export async function scheduledProbeRoutes(
     }
 
     const data = parsed.data;
+
+    // Scope enforcement: validate the caller is authorized for the target client
+    const scope = await resolveClientScope(request);
+    if (
+      (scope.type === 'single' && scope.clientId !== data.clientId) ||
+      (scope.type === 'assigned' && !scope.clientIds.includes(data.clientId))
+    ) {
+      return fastify.httpErrors.forbidden('clientId not in your scope');
+    }
 
     // Timezone-based schedule validation
     if (data.scheduleTimezone) {
@@ -334,15 +356,19 @@ export async function scheduledProbeRoutes(
       updates.scheduleDaysOfWeek !== undefined ||
       updates.cronExpression !== undefined;
 
+    // Scope guard: ensure the caller is authorized for this probe's client
+    const scope = await resolveClientScope(request);
+    const probeForScope = await fastify.db.scheduledProbe.findFirst({
+      where: { id: request.params.id, ...scopeToWhere(scope) },
+      select: { id: true, scheduleHour: true, scheduleMinute: true, scheduleDaysOfWeek: true, scheduleTimezone: true },
+    });
+    if (!probeForScope) return fastify.httpErrors.notFound('Scheduled probe not found');
+
     // If any schedule fields changed and the probe uses timezone scheduling, we must
     // fetch the existing record to merge with the incoming partial update before recomputing cron
     let existingProbe: { scheduleHour: number | null; scheduleMinute: number | null; scheduleDaysOfWeek: string | null; scheduleTimezone: string | null } | null = null;
     if (scheduleFieldsChanged) {
-      existingProbe = await fastify.db.scheduledProbe.findUnique({
-        where: { id: request.params.id },
-        select: { scheduleHour: true, scheduleMinute: true, scheduleDaysOfWeek: true, scheduleTimezone: true },
-      });
-      if (!existingProbe) return fastify.httpErrors.notFound('Scheduled probe not found');
+      existingProbe = probeForScope;
     }
 
     // Resolve effective timezone schedule fields by merging incoming updates with existing values
@@ -433,8 +459,15 @@ export async function scheduledProbeRoutes(
 
   // Delete probe
   fastify.delete<{ Params: { id: string } }>('/api/scheduled-probes/:id', async (request, reply) => {
+    const scope = await resolveClientScope(request);
+    const probe = await fastify.db.scheduledProbe.findFirst({
+      where: { id: request.params.id, ...scopeToWhere(scope) },
+      select: { id: true },
+    });
+    if (!probe) return fastify.httpErrors.notFound('Scheduled probe not found');
+
     try {
-      await fastify.db.scheduledProbe.delete({ where: { id: request.params.id } });
+      await fastify.db.scheduledProbe.delete({ where: { id: probe.id } });
     } catch (err) {
       if (isPrismaError(err, 'P2025')) {
         return fastify.httpErrors.notFound('Scheduled probe not found');
@@ -446,8 +479,9 @@ export async function scheduledProbeRoutes(
 
   // Trigger immediate execution
   fastify.post<{ Params: { id: string } }>('/api/scheduled-probes/:id/run', async (request) => {
-    const probe = await fastify.db.scheduledProbe.findUnique({
-      where: { id: request.params.id },
+    const scope = await resolveClientScope(request);
+    const probe = await fastify.db.scheduledProbe.findFirst({
+      where: { id: request.params.id, ...scopeToWhere(scope) },
     });
     if (!probe) return fastify.httpErrors.notFound('Scheduled probe not found');
 
@@ -467,7 +501,11 @@ export async function scheduledProbeRoutes(
     const offset = Math.max(parseInt(request.query.offset ?? '0', 10) || 0, 0);
     const statusFilter = request.query.status;
 
-    const probe = await fastify.db.scheduledProbe.findUnique({ where: { id: probeId }, select: { id: true } });
+    const scope = await resolveClientScope(request);
+    const probe = await fastify.db.scheduledProbe.findFirst({
+      where: { id: probeId, ...scopeToWhere(scope) },
+      select: { id: true },
+    });
     if (!probe) return fastify.httpErrors.notFound('Scheduled probe not found');
 
     const where: Record<string, unknown> = { probeId };
@@ -500,6 +538,14 @@ export async function scheduledProbeRoutes(
   // Get current running probe run
   fastify.get<{ Params: { id: string } }>('/api/scheduled-probes/:id/runs/current', async (request) => {
     const probeId = request.params.id;
+    // Scope guard: verify caller can access this probe before returning its runs
+    const scope = await resolveClientScope(request);
+    const probeExists = await fastify.db.scheduledProbe.findFirst({
+      where: { id: probeId, ...scopeToWhere(scope) },
+      select: { id: true },
+    });
+    if (!probeExists) return fastify.httpErrors.notFound('Scheduled probe not found');
+
     const run = await fastify.db.probeRun.findFirst({
       where: { probeId, status: 'running' },
       orderBy: { startedAt: 'desc' },
@@ -510,6 +556,14 @@ export async function scheduledProbeRoutes(
 
   // Get single run with steps
   fastify.get<{ Params: { id: string; runId: string } }>('/api/scheduled-probes/:id/runs/:runId', async (request) => {
+    // Scope guard: verify caller can access the parent probe
+    const scope = await resolveClientScope(request);
+    const probeExists = await fastify.db.scheduledProbe.findFirst({
+      where: { id: request.params.id, ...scopeToWhere(scope) },
+      select: { id: true },
+    });
+    if (!probeExists) return fastify.httpErrors.notFound('Scheduled probe not found');
+
     const run = await fastify.db.probeRun.findUnique({
       where: { id: request.params.runId },
       include: { steps: { orderBy: { stepOrder: 'asc' } } },
@@ -523,7 +577,11 @@ export async function scheduledProbeRoutes(
   // Purge run history (keep most recent 5)
   fastify.delete<{ Params: { id: string } }>('/api/scheduled-probes/:id/runs', async (request) => {
     const probeId = request.params.id;
-    const probe = await fastify.db.scheduledProbe.findUnique({ where: { id: probeId }, select: { id: true } });
+    const scope = await resolveClientScope(request);
+    const probe = await fastify.db.scheduledProbe.findFirst({
+      where: { id: probeId, ...scopeToWhere(scope) },
+      select: { id: true },
+    });
     if (!probe) return fastify.httpErrors.notFound('Scheduled probe not found');
 
     const recentRuns = await fastify.db.probeRun.findMany({

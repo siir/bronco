@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { Queue } from 'bullmq';
 import { PROTECTED_BRANCH_NAMES, SufficiencyStatus } from '@bronco/shared-types';
+import { resolveClientScope, scopeToWhere } from '../plugins/client-scope.js';
 
 /** Matches the payload shape expected by the issue-resolver worker. */
 interface IssueResolvePayload {
@@ -21,8 +22,19 @@ export async function issueJobRoutes(fastify: FastifyInstance, opts: IssueJobRou
     '/api/issue-jobs',
     async (request) => {
       const { ticketId, repoId, status, limit = 50, offset = 0 } = request.query;
+
+      // Scope enforcement: filter jobs to only those whose ticket belongs to the caller's client(s)
+      const scope = await resolveClientScope(request);
+      const clientScopeWhere = scopeToWhere(scope);
+      // IssueJob has no direct clientId; scope via the ticket relation
+      const ticketClientWhere =
+        Object.keys(clientScopeWhere).length > 0
+          ? { ticket: { clientId: clientScopeWhere.clientId as string | { in: string[] } } }
+          : {};
+
       return fastify.db.issueJob.findMany({
         where: {
+          ...ticketClientWhere,
           ...(ticketId && { ticketId }),
           ...(repoId && { repoId }),
           ...(status && { status: status as never }),
@@ -40,8 +52,15 @@ export async function issueJobRoutes(fastify: FastifyInstance, opts: IssueJobRou
 
   // Get a single issue job by ID
   fastify.get<{ Params: { id: string } }>('/api/issue-jobs/:id', async (request) => {
-    const job = await fastify.db.issueJob.findUnique({
-      where: { id: request.params.id },
+    const scope = await resolveClientScope(request);
+    const clientScopeWhere = scopeToWhere(scope);
+    const ticketClientWhere =
+      Object.keys(clientScopeWhere).length > 0
+        ? { ticket: { clientId: clientScopeWhere.clientId as string | { in: string[] } } }
+        : {};
+
+    const job = await fastify.db.issueJob.findFirst({
+      where: { id: request.params.id, ...ticketClientWhere },
       include: {
         ticket: { select: { subject: true, description: true, category: true, clientId: true } },
         repo: { select: { name: true, repoUrl: true, branchPrefix: true, defaultBranch: true } },
@@ -53,8 +72,15 @@ export async function issueJobRoutes(fastify: FastifyInstance, opts: IssueJobRou
 
   // Get the plan for an issue job
   fastify.get<{ Params: { id: string } }>('/api/issue-jobs/:id/plan', async (request) => {
-    const job = await fastify.db.issueJob.findUnique({
-      where: { id: request.params.id },
+    const scope = await resolveClientScope(request);
+    const clientScopeWhere = scopeToWhere(scope);
+    const ticketClientWhere =
+      Object.keys(clientScopeWhere).length > 0
+        ? { ticket: { clientId: clientScopeWhere.clientId as string | { in: string[] } } }
+        : {};
+
+    const job = await fastify.db.issueJob.findFirst({
+      where: { id: request.params.id, ...ticketClientWhere },
       select: {
         id: true,
         status: true,
@@ -88,6 +114,15 @@ export async function issueJobRoutes(fastify: FastifyInstance, opts: IssueJobRou
       select: { id: true, subject: true, description: true, category: true, clientId: true, sufficiencyStatus: true },
     });
     if (!ticket) return fastify.httpErrors.notFound('Ticket not found');
+
+    // Scope enforcement: validate the caller is authorized for the ticket's client
+    const scope = await resolveClientScope(request);
+    if (
+      (scope.type === 'single' && scope.clientId !== ticket.clientId) ||
+      (scope.type === 'assigned' && !scope.clientIds.includes(ticket.clientId))
+    ) {
+      return fastify.httpErrors.forbidden('clientId not in your scope');
+    }
 
     // Sufficiency gate
     if (!force) {
@@ -158,8 +193,15 @@ export async function issueJobRoutes(fastify: FastifyInstance, opts: IssueJobRou
       operatorId?: string;
     };
   }>('/api/issue-jobs/:id/approve', async (request) => {
-    const job = await fastify.db.issueJob.findUnique({
-      where: { id: request.params.id },
+    const scope = await resolveClientScope(request);
+    const clientScopeWhere = scopeToWhere(scope);
+    const ticketClientWhere =
+      Object.keys(clientScopeWhere).length > 0
+        ? { ticket: { clientId: clientScopeWhere.clientId as string | { in: string[] } } }
+        : {};
+
+    const job = await fastify.db.issueJob.findFirst({
+      where: { id: request.params.id, ...ticketClientWhere },
       select: { id: true, status: true, plan: true, ticketId: true },
     });
     if (!job) return fastify.httpErrors.notFound('Issue job not found');
@@ -234,8 +276,15 @@ export async function issueJobRoutes(fastify: FastifyInstance, opts: IssueJobRou
       feedback: string;
     };
   }>('/api/issue-jobs/:id/reject', async (request) => {
-    const job = await fastify.db.issueJob.findUnique({
-      where: { id: request.params.id },
+    const scope = await resolveClientScope(request);
+    const clientScopeWhere = scopeToWhere(scope);
+    const ticketClientWhere =
+      Object.keys(clientScopeWhere).length > 0
+        ? { ticket: { clientId: clientScopeWhere.clientId as string | { in: string[] } } }
+        : {};
+
+    const job = await fastify.db.issueJob.findFirst({
+      where: { id: request.params.id, ...ticketClientWhere },
       select: { id: true, status: true, plan: true },
     });
     if (!job) return fastify.httpErrors.notFound('Issue job not found');
