@@ -29,8 +29,6 @@ async function main(): Promise<void> {
     if (req.path === '/health') return next();
 
     const apiKey = req.headers['x-api-key'] as string | undefined;
-    const authHeader = req.headers['authorization'] as string | undefined;
-    const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined;
 
     const validApiKey = config.API_KEY && apiKey === config.API_KEY;
 

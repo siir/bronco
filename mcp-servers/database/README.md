@@ -34,7 +34,7 @@ copilot-api (Hugo)     ──HTTPS──▶  POST /tools/* ─┘               
 
 ## REST Bridge Endpoints
 
-All require `x-api-key` header (or `Authorization: Bearer` for MCP).
+All require the `x-api-key` header.
 
 | Method | Path | Body |
 |--------|------|------|
