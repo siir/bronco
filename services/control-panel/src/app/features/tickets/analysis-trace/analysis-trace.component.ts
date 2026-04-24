@@ -2,7 +2,7 @@ import { Component, DestroyRef, inject, input, output, signal, computed, effect 
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { BroncoButtonComponent, IconComponent } from '../../../shared/components/index.js';
-import { TicketService, type TicketEvent, type UnifiedLogEntry } from '../../../core/services/ticket.service.js';
+import { TicketService, type TicketEvent, type UnifiedLogEntry, type TicketCostSummary } from '../../../core/services/ticket.service.js';
 import { AnalysisTraceNodeComponent, type TraceExpandEvent } from './analysis-trace-node.component.js';
 import { AnalysisTraceExpandDialogComponent, type ExpandPayload } from './analysis-trace-expand.dialog.js';
 import { runMergePipeline, DEFAULT_MAX_DEPTH } from './analysis-trace.merge.js';
@@ -17,9 +17,12 @@ const PAGE_SIZE = 400;
   imports: [CommonModule, BroncoButtonComponent, IconComponent, AnalysisTraceNodeComponent, AnalysisTraceExpandDialogComponent],
   template: `
     <div class="analysis-trace">
-      <!-- Strategy stamp -->
+      <!-- Strategy stamp + cost summary -->
       <div class="strategy-strip">
         <span class="strategy-badge strategy-{{ stamp().strategy }}">{{ stampText() }}</span>
+        @if (costSummary(); as cs) {
+          <span class="cost-badge" title="AI cost for this ticket">{{ formatCostBadge(cs) }}</span>
+        }
       </div>
 
       <!-- Filters -->
@@ -83,6 +86,12 @@ const PAGE_SIZE = 400;
     .strategy-flat { background: var(--color-info-subtle); color: var(--color-info); }
     .strategy-orchestrated { background: var(--color-success-subtle); color: var(--color-success); }
     .strategy-legacy { background: var(--bg-muted); color: var(--text-tertiary); }
+    .cost-badge {
+      font-size: 12px; font-weight: 500;
+      padding: 4px 10px; border-radius: 12px;
+      background: var(--bg-muted); color: var(--text-secondary);
+      white-space: nowrap;
+    }
     .filter-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
     .filter-spacer { flex: 1; }
     .chip {
@@ -128,6 +137,7 @@ export class AnalysisTraceComponent {
 
   entries = signal<UnifiedLogEntry[]>([]);
   loading = signal(false);
+  costSummary = signal<TicketCostSummary | null>(null);
 
   filters = signal<TraceFilters>({
     showAi: true,
@@ -158,6 +168,15 @@ export class AnalysisTraceComponent {
 
   private load(ticketId: string): void {
     this.loading.set(true);
+
+    // Load cost summary in parallel — non-blocking, doesn't gate the trace render
+    this.ticketService.getCostSummary(ticketId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (cs) => this.costSummary.set(cs),
+        error: () => { /* non-fatal — cost badge just won't render */ },
+      });
+
     // Unified logs are returned oldest→newest. For tickets with more than PAGE_SIZE
     // entries, the first page would miss the latest analysis run (including its
     // strategy stamp). Do an initial fetch to discover the total, then re-fetch the
@@ -185,6 +204,32 @@ export class AnalysisTraceComponent {
         },
         error: () => this.loading.set(false),
       });
+  }
+
+  /** Format the cost badge label, e.g. "38 calls · $1.05 · 14m 48s · 174k in / 30k out". */
+  formatCostBadge(cs: TicketCostSummary): string {
+    const parts: string[] = [`${cs.callCount} calls`];
+    if (cs.totalCostUsd > 0) parts.push(`$${cs.totalCostUsd.toFixed(2)}`);
+    if (cs.wallClockMs > 0) parts.push(this.formatDuration(cs.wallClockMs));
+    if (cs.totalInputTokens > 0 || cs.totalOutputTokens > 0) {
+      parts.push(`${this.formatTokens(cs.totalInputTokens)} in / ${this.formatTokens(cs.totalOutputTokens)} out`);
+    }
+    return parts.join(' · ');
+  }
+
+  /** Format a millisecond duration as a human-readable string, e.g. "14m 48s" or "38s". */
+  formatDuration(ms: number): string {
+    const totalSec = Math.round(ms / 1000);
+    const minutes = Math.floor(totalSec / 60);
+    const seconds = totalSec % 60;
+    if (minutes === 0) return `${seconds}s`;
+    return `${minutes}m ${seconds}s`;
+  }
+
+  /** Format a token count using k abbreviation for readability, e.g. "174k" or "830". */
+  formatTokens(count: number): string {
+    if (count >= 1000) return `${Math.round(count / 1000)}k`;
+    return String(count);
   }
 
   toggle(field: keyof TraceFilters): void {

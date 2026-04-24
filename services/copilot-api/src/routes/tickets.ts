@@ -1168,7 +1168,7 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
   }>('/api/tickets/:id/cost-summary', async (request) => {
     const ticketId = request.params.id;
 
-    const [rows, toolCallCount, totalDurationResult] = await Promise.all([
+    const [rows, toolCallCount, wallClockResult] = await Promise.all([
       fastify.db.aiUsageLog.groupBy({
         by: ['provider', 'model'],
         where: { entityId: ticketId, entityType: 'ticket' },
@@ -1186,9 +1186,13 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
           ],
         },
       }),
+      // Wall-clock duration: MAX(created_at) - MIN(created_at) across all AI calls for this ticket.
+      // More accurate than SUM(duration_ms) for parallel sub-tasks.
       fastify.db.aiUsageLog.aggregate({
         where: { entityId: ticketId, entityType: 'ticket' },
-        _sum: { durationMs: true },
+        _min: { createdAt: true },
+        _max: { createdAt: true },
+        _sum: { inputTokens: true, outputTokens: true },
       }),
     ]);
 
@@ -1201,16 +1205,24 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
       { totalCostUsd: 0, callCount: 0 },
     );
 
+    const minAt = wallClockResult._min.createdAt;
+    const maxAt = wallClockResult._max.createdAt;
+    const wallClockMs = minAt && maxAt ? maxAt.getTime() - minAt.getTime() : 0;
+
     return {
       entityId: ticketId,
       totalCostUsd: totals.totalCostUsd,
       callCount: totals.callCount,
       toolCallCount,
-      totalDurationMs: totalDurationResult._sum.durationMs ?? 0,
+      totalInputTokens: wallClockResult._sum.inputTokens ?? 0,
+      totalOutputTokens: wallClockResult._sum.outputTokens ?? 0,
+      wallClockMs,
       breakdown: rows.map(r => ({
         provider: r.provider,
         model: r.model,
         callCount: r._count,
+        totalInputTokens: r._sum.inputTokens ?? 0,
+        totalOutputTokens: r._sum.outputTokens ?? 0,
         totalCostUsd: r._sum.costUsd ?? 0,
         totalDurationMs: r._sum.durationMs ?? 0,
       })),
