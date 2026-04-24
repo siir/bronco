@@ -28,13 +28,13 @@ export async function clientAiCredentialRoutes(
   }
 
   // GET /api/clients/:id/ai-credentials
-  fastify.get<{ Params: { id: string } }>('/api/clients/:id/ai-credentials', async (request) => {
+  fastify.get<{ Params: { id: string } }>('/api/clients/:id/ai-credentials', async (request, reply) => {
     const scope = await resolveClientScope(request);
     if (
       scope.type === 'single' && scope.clientId !== request.params.id ||
       scope.type === 'assigned' && !scope.clientIds.includes(request.params.id)
     ) {
-      return fastify.httpErrors.forbidden('clientId not in your scope');
+      return reply.code(403).send({ error: 'clientId not in your scope' });
     }
     const rows = await fastify.db.clientAiCredential.findMany({
       where: { clientId: request.params.id },

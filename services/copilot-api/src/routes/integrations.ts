@@ -162,7 +162,10 @@ export async function integrationRoutes(fastify: FastifyInstance, opts: Integrat
           callerScope.type === 'all' ||
           (callerScope.type === 'single' && callerScope.clientId === clientId) ||
           (callerScope.type === 'assigned' && callerScope.clientIds.includes(clientId));
-        where.clientId = clientIdAllowed ? clientId : '__none__';
+        if (!clientIdAllowed) {
+          return fastify.httpErrors.forbidden('Requested clientId is outside your scope');
+        }
+        where.clientId = clientId;
       } else if (scope === 'platform') {
         where.clientId = null;
       } else if (scope === 'client') {
@@ -327,6 +330,10 @@ export async function integrationRoutes(fastify: FastifyInstance, opts: Integrat
       select: { type: true, config: true, clientId: true },
     });
     if (!existing) return fastify.httpErrors.notFound('Integration not found');
+    // Platform-scoped integrations are shared infrastructure — only ADMIN/API-key callers may mutate them.
+    if (existing.clientId === null && callerScope.type !== 'all') {
+      return fastify.httpErrors.forbidden('Platform-scoped integrations can only be modified by global administrators');
+    }
     const existingType = existing.type;
     const existingClientId = existing.clientId;
 
@@ -396,9 +403,13 @@ export async function integrationRoutes(fastify: FastifyInstance, opts: Integrat
         ] };
     const integration = await fastify.db.clientIntegration.findFirst({
       where: { id: request.params.id, ...scopeFilter },
-      select: { id: true, type: true },
+      select: { id: true, type: true, clientId: true },
     });
     if (!integration) return fastify.httpErrors.notFound('Integration not found');
+    // Platform-scoped integrations are shared infrastructure — only ADMIN/API-key callers may trigger operational actions.
+    if (integration.clientId === null && callerScope.type !== 'all') {
+      return fastify.httpErrors.forbidden('Only admin callers can verify platform-scoped integrations');
+    }
     if (integration.type !== IntegrationType.MCP_DATABASE) {
       return fastify.httpErrors.badRequest('Verification is only supported for MCP_DATABASE integrations');
     }
@@ -418,9 +429,13 @@ export async function integrationRoutes(fastify: FastifyInstance, opts: Integrat
         ] };
     const integration = await fastify.db.clientIntegration.findFirst({
       where: { id: request.params.id, ...scopeFilter },
-      select: { id: true, type: true },
+      select: { id: true, type: true, clientId: true },
     });
     if (!integration) return fastify.httpErrors.notFound('Integration not found');
+    // Platform-scoped integrations are shared infrastructure — only ADMIN/API-key callers may delete them.
+    if (integration.clientId === null && callerScope.type !== 'all') {
+      return fastify.httpErrors.forbidden('Platform-scoped integrations can only be deleted by global administrators');
+    }
 
     try {
       const deleted = await fastify.db.clientIntegration.delete({
