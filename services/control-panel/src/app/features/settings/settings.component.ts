@@ -41,7 +41,52 @@ import {
 import type { CronSchedulerValue } from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service.js';
 
-const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External Services', 'Action Safety', 'Analysis', 'Integrations'] as const;
+const TAB_LABELS = [
+  'General',
+  'Ticket Statuses',
+  'Ticket Categories',
+  'External Services',
+  'Action Safety',
+  'Analysis',
+  'Integrations',
+] as const;
+
+const TAB_SLUGS = [
+  'general',
+  'ticket-statuses',
+  'ticket-categories',
+  'external-services',
+  'action-safety',
+  'analysis',
+  'integrations',
+] as const satisfies readonly string[];
+
+/** Old tab slugs from before the Settings reorganization (PR #389). Maps old slug → new canonical slug. */
+const LEGACY_TAB_SLUGS: Readonly<Record<string, (typeof TAB_SLUGS)[number]>> = {
+  'analysis-strategy': 'analysis',
+  'self-analysis': 'analysis',
+  'prompt-retention': 'analysis',
+  'tool-request-rate-limit': 'analysis',
+  smtp: 'integrations',
+  'azure-dev-ops': 'integrations',
+  github: 'integrations',
+  imap: 'integrations',
+  slack: 'integrations',
+} as const;
+
+function resolveTabSlug(tab: string | null | undefined): (typeof TAB_SLUGS)[number] | null {
+  if (!tab) return null;
+  const normalized = tab.trim().toLowerCase();
+  const canonical = LEGACY_TAB_SLUGS[normalized] ?? normalized;
+  return (TAB_SLUGS as readonly string[]).includes(canonical)
+    ? (canonical as (typeof TAB_SLUGS)[number])
+    : null;
+}
+
+function getTabIndexFromSlug(tab: string | null | undefined): number {
+  const resolved = resolveTabSlug(tab);
+  return resolved ? TAB_SLUGS.indexOf(resolved) : 0;
+}
 
 @Component({
   standalone: true,
@@ -846,9 +891,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     const tabSlug = this.route.snapshot.queryParamMap.get('tab');
-    if (tabSlug) {
-      const idx = TAB_LABELS.findIndex(l => this.toSlug(l) === tabSlug);
-      if (idx >= 0) this.selectedTab.set(idx);
+    if (tabSlug && resolveTabSlug(tabSlug) !== null) {
+      this.selectedTab.set(getTabIndexFromSlug(tabSlug));
     }
     this.loadServices();
     this.loadStatuses();
@@ -886,17 +930,13 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   onTabChange(index: number): void {
     this.selectedTab.set(index);
-    const slug = this.toSlug(TAB_LABELS[index] ?? '');
+    const slug = TAB_SLUGS[index] ?? null;
     this.router.navigate([], {
       relativeTo: this.route,
-      queryParams: { tab: slug || null },
+      queryParams: { tab: slug },
       queryParamsHandling: 'merge',
       replaceUrl: true,
     });
-  }
-
-  private toSlug(label: string): string {
-    return label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   }
 
   loadServices(): void {
