@@ -3422,12 +3422,27 @@ export function createAnalysisProcessor(deps: AnalyzerDeps) {
           });
           triggerReplyText = triggerEvent?.content ?? '';
         }
-        // If no trigger event found, use the most recent inbound email, comment, or chat message
+        // If no trigger event found, use the most recent inbound email, comment, or chat message.
+        // Skip system-authored events (actor prefix 'system:') — these are auto-posted findings
+        // comments or recommendation notes that should never be treated as a user reply (#384).
         if (!triggerReplyText) {
           const latestReply = conversationHistory
-            .filter((e) => e.eventType === 'EMAIL_INBOUND' || e.eventType === 'COMMENT' || e.eventType === 'CHAT_MESSAGE')
+            .filter((e) => (e.eventType === 'EMAIL_INBOUND' || e.eventType === 'COMMENT' || e.eventType === 'CHAT_MESSAGE') && !e.actor?.startsWith('system:'))
             .pop();
-          triggerReplyText = latestReply?.content ?? '';
+          if (!latestReply) {
+            appLog.info(
+              'Re-analysis skipped — no non-system trigger event found (most recent reply is system-authored)',
+              { ticketId },
+              ticketId,
+              'ticket',
+            );
+            await deps.db.ticket.update({
+              where: { id: ticketId },
+              data: { analysisStatus: AnalysisStatus.COMPLETED, analysisError: null, lastAnalyzedAt: new Date() },
+            });
+            return;
+          }
+          triggerReplyText = latestReply.content ?? '';
         }
         const reanalysisContext: ReanalysisContext = {
           conversationHistory: formatConversationHistory(conversationHistory),
