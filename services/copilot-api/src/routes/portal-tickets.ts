@@ -27,11 +27,11 @@ interface PortalTicketOpts {
 export async function portalTicketRoutes(fastify: FastifyInstance, opts: PortalTicketOpts): Promise<void> {
   /**
    * Check if a ticket is visible to the portal user.
-   * ADMIN users can see all client tickets.
+   * ADMIN users can see all client tickets for their client.
    * USER users can see tickets where:
-   * - requester email matches their email
-   * - they previously commented (actor matches email)
-   * - ticket metadata has their portalCreatorId
+   * - they are a follower (matched by personId)
+   * - ticket metadata has their portalCreatorId (personId)
+   * - they have commented on the ticket (legacy: matched by actor email, see TODO)
    */
   async function canAccessTicket(ticketId: string, portalUser: PortalUser): Promise<boolean> {
     const ticket = await fastify.db.ticket.findUnique({
@@ -39,21 +39,25 @@ export async function portalTicketRoutes(fastify: FastifyInstance, opts: PortalT
       select: {
         clientId: true,
         metadata: true,
-        followers: { select: { person: { select: { email: true } } } },
+        // Select personId directly — ID-based match, not email-string equality
+        followers: { select: { personId: true } },
       },
     });
 
     if (!ticket || ticket.clientId !== portalUser.clientId) return false;
     if (portalUser.userType === ClientUserType.ADMIN) return true;
 
-    // Check if user is a follower (any type)
-    if (ticket.followers.some((f) => f.person?.email === portalUser.email)) return true;
+    // Check if user is a follower (matched by personId, not email)
+    if (ticket.followers.some((f) => f.personId === portalUser.personId)) return true;
 
-    // Check metadata portalCreatorId
+    // Check metadata portalCreatorId (already ID-based)
     const meta = ticket.metadata as Record<string, unknown> | null;
     if (meta?.['portalCreatorId'] === portalUser.personId) return true;
 
-    // Check if user has commented on this ticket
+    // TODO: TicketEvent.actor is a free-text string with no authorPersonId FK.
+    // Once ticket_events gains an author_person_id column and it is backfilled,
+    // replace this with an ID-based query and remove the email fallback.
+    // legacy actor-email fallback — remove once events have authorPersonId backfilled
     const commentCount = await fastify.db.ticketEvent.count({
       where: { ticketId, actor: portalUser.email },
     });
@@ -97,11 +101,15 @@ export async function portalTicketRoutes(fastify: FastifyInstance, opts: PortalT
         where['category'] = category;
       }
 
-      // USER type: only see their own tickets
+      // USER type: only see their own tickets (matched by personId, not email)
+      // TODO: The third clause (events.actor) is a legacy email-string match because
+      // TicketEvent.actor is a free-text field with no authorPersonId FK. Remove once
+      // ticket_events gains an author_person_id column and it is backfilled.
       if (portalUser.userType !== ClientUserType.ADMIN) {
         where['OR'] = [
-          { followers: { some: { person: { email: portalUser.email } } } },
+          { followers: { some: { personId: portalUser.personId } } },
           { metadata: { path: ['portalCreatorId'], equals: portalUser.personId } },
+          // legacy actor-email fallback — remove once events have authorPersonId backfilled
           { events: { some: { actor: portalUser.email } } },
         ];
       }
@@ -133,10 +141,15 @@ export async function portalTicketRoutes(fastify: FastifyInstance, opts: PortalT
 
     const where: Record<string, unknown> = { clientId: portalUser.clientId };
 
+    // USER type: only see their own tickets (matched by personId, not email)
+    // TODO: The third clause (events.actor) is a legacy email-string match because
+    // TicketEvent.actor is a free-text field with no authorPersonId FK. Remove once
+    // ticket_events gains an author_person_id column and it is backfilled.
     if (portalUser.userType !== ClientUserType.ADMIN) {
       where['OR'] = [
-        { followers: { some: { person: { email: portalUser.email } } } },
+        { followers: { some: { personId: portalUser.personId } } },
         { metadata: { path: ['portalCreatorId'], equals: portalUser.personId } },
+        // legacy actor-email fallback — remove once events have authorPersonId backfilled
         { events: { some: { actor: portalUser.email } } },
       ];
     }
