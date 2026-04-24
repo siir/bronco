@@ -3,6 +3,7 @@ import type { Queue } from 'bullmq';
 import { z } from 'zod';
 import { IntegrationType } from '@bronco/shared-types';
 import { encrypt, looksEncrypted } from '@bronco/shared-utils';
+import { resolveClientScope, scopeToWhere } from '../plugins/client-scope.js';
 
 const VALID_INTEGRATION_TYPES = Object.values(IntegrationType);
 
@@ -145,16 +146,45 @@ export async function integrationRoutes(fastify: FastifyInstance, opts: Integrat
           `Invalid type. Must be one of: ${VALID_INTEGRATION_TYPES.join(', ')}`,
         );
       }
+
+      const callerScope = await resolveClientScope(request);
+
       // `scope=platform` narrows to platform-scoped (clientId IS NULL) rows.
       // `scope=client` narrows to client-scoped rows (clientId IS NOT NULL).
       // A `clientId` query param takes precedence when both are set.
+      // For scoped callers: client-scoped rows are filtered to their tenants;
+      // platform-scoped rows (clientId IS NULL) are shared infrastructure and
+      // visible to all authenticated callers.
       const where: Record<string, unknown> = {};
       if (clientId) {
+        // Validate the requested clientId is within the caller's scope
+        const clientIdAllowed =
+          callerScope.type === 'all' ||
+          (callerScope.type === 'single' && callerScope.clientId === clientId) ||
+          (callerScope.type === 'assigned' && callerScope.clientIds.includes(clientId));
+        if (!clientIdAllowed) {
+          return fastify.httpErrors.forbidden('Requested clientId is outside your scope');
+        }
         where.clientId = clientId;
       } else if (scope === 'platform') {
         where.clientId = null;
       } else if (scope === 'client') {
-        where.clientId = { not: null };
+        // Restrict to the caller's tenant(s) when filtering for client-scoped rows
+        const scopeWhere = scopeToWhere(callerScope);
+        if (scopeWhere.clientId !== undefined) {
+          where.clientId = scopeWhere.clientId;
+        } else {
+          where.clientId = { not: null };
+        }
+      } else {
+        // No explicit filter: for scoped callers, show only their tenant's rows
+        // plus platform-scoped (null) rows.
+        if (callerScope.type === 'single') {
+          where.OR = [{ clientId: callerScope.clientId }, { clientId: null }];
+        } else if (callerScope.type === 'assigned') {
+          where.OR = [{ clientId: { in: callerScope.clientIds } }, { clientId: null }];
+        }
+        // type === 'all': no clientId filter — return everything
       }
       if (type) where.type = type;
       return fastify.db.clientIntegration.findMany({
@@ -168,8 +198,19 @@ export async function integrationRoutes(fastify: FastifyInstance, opts: Integrat
   );
 
   fastify.get<{ Params: { id: string } }>('/api/integrations/:id', async (request) => {
-    const integration = await fastify.db.clientIntegration.findUnique({
-      where: { id: request.params.id },
+    const callerScope = await resolveClientScope(request);
+    // Platform-scoped integrations (clientId IS NULL) are accessible to all callers.
+    // Client-scoped integrations are restricted to the caller's tenant(s).
+    const scopeFilter = callerScope.type === 'all'
+      ? {}
+      : { OR: [
+          { clientId: null },
+          callerScope.type === 'single'
+            ? { clientId: callerScope.clientId }
+            : { clientId: { in: callerScope.clientIds } },
+        ] };
+    const integration = await fastify.db.clientIntegration.findFirst({
+      where: { id: request.params.id, ...scopeFilter },
       include: {
         client: { select: { name: true, shortCode: true } },
       },
@@ -206,6 +247,20 @@ export async function integrationRoutes(fastify: FastifyInstance, opts: Integrat
       return fastify.httpErrors.badRequest(
         `clientId is required for ${type} integrations. Only GITHUB integrations may be platform-scoped.`,
       );
+    }
+
+    // Scope enforcement: validate the caller is authorized for the target client.
+    // Platform-scoped (null clientId) integrations require 'all' scope — only ADMIN/API-key.
+    const callerScope = await resolveClientScope(request);
+    if (isPlatformScoped) {
+      if (callerScope.type !== 'all') {
+        return fastify.httpErrors.forbidden('clientId not in your scope');
+      }
+    } else if (
+      callerScope.type === 'single' && callerScope.clientId !== clientId ||
+      callerScope.type === 'assigned' && !callerScope.clientIds.includes(clientId!)
+    ) {
+      return fastify.httpErrors.forbidden('clientId not in your scope');
     }
     if (environmentId !== undefined && environmentId !== null) {
       if (!clientId) {
@@ -257,33 +312,46 @@ export async function integrationRoutes(fastify: FastifyInstance, opts: Integrat
       notes?: string;
     };
   }>('/api/integrations/:id', async (request) => {
-    let existingType: string | undefined;
-    const needsExisting = request.body.config !== undefined || request.body.environmentId !== undefined;
-    let existingClientId: string | null | undefined;
-    if (needsExisting) {
-      const existing = await fastify.db.clientIntegration.findUnique({
-        where: { id: request.params.id },
-        select: { type: true, config: true, clientId: true },
-      });
-      if (!existing) return fastify.httpErrors.notFound('Integration not found');
-      existingType = existing.type;
-      existingClientId = existing.clientId;
+    const callerScope = await resolveClientScope(request);
+    // Platform-scoped rows (clientId IS NULL) are accessible to all callers.
+    // Client-scoped rows are restricted to the caller's tenant(s).
+    const scopeFilter = callerScope.type === 'all'
+      ? {}
+      : { OR: [
+          { clientId: null },
+          callerScope.type === 'single'
+            ? { clientId: callerScope.clientId }
+            : { clientId: { in: callerScope.clientIds } },
+        ] };
 
-      if (request.body.config !== undefined) {
-        // Merge incoming config with existing so that omitted fields (e.g. secrets) are preserved
-        const existingConfig = typeof existing.config === 'object' && existing.config !== null && !Array.isArray(existing.config)
-          ? existing.config as Record<string, unknown>
-          : {};
-        const mergedConfig = { ...existingConfig, ...request.body.config };
-
-        const configError = validateIntegrationConfig(existing.type, mergedConfig);
-        if (configError) {
-          return fastify.httpErrors.badRequest(`Invalid config for ${existing.type}: ${configError}`);
-        }
-
-        request.body.config = encryptConfigSecrets(existing.type, mergedConfig, encryptionKey);
-      }
+    // Always fetch the existing row for scope guard and type/config merging
+    const existing = await fastify.db.clientIntegration.findFirst({
+      where: { id: request.params.id, ...scopeFilter },
+      select: { type: true, config: true, clientId: true },
+    });
+    if (!existing) return fastify.httpErrors.notFound('Integration not found');
+    // Platform-scoped integrations are shared infrastructure — only ADMIN/API-key callers may mutate them.
+    if (existing.clientId === null && callerScope.type !== 'all') {
+      return fastify.httpErrors.forbidden('Platform-scoped integrations can only be modified by global administrators');
     }
+    const existingType = existing.type;
+    const existingClientId = existing.clientId;
+
+    if (request.body.config !== undefined) {
+      // Merge incoming config with existing so that omitted fields (e.g. secrets) are preserved
+      const existingConfig = typeof existing.config === 'object' && existing.config !== null && !Array.isArray(existing.config)
+        ? existing.config as Record<string, unknown>
+        : {};
+      const mergedConfig = { ...existingConfig, ...request.body.config };
+
+      const configError = validateIntegrationConfig(existing.type, mergedConfig);
+      if (configError) {
+        return fastify.httpErrors.badRequest(`Invalid config for ${existing.type}: ${configError}`);
+      }
+
+      request.body.config = encryptConfigSecrets(existing.type, mergedConfig, encryptionKey);
+    }
+
     if (request.body.environmentId !== undefined && request.body.environmentId !== null) {
       if (!existingClientId) {
         return fastify.httpErrors.badRequest('environmentId cannot be set on a platform-scoped integration');
@@ -324,11 +392,24 @@ export async function integrationRoutes(fastify: FastifyInstance, opts: Integrat
 
   // On-demand re-verification of MCP server discovery
   fastify.post<{ Params: { id: string } }>('/api/integrations/:id/verify', async (request) => {
-    const integration = await fastify.db.clientIntegration.findUnique({
-      where: { id: request.params.id },
-      select: { id: true, type: true },
+    const callerScope = await resolveClientScope(request);
+    const scopeFilter = callerScope.type === 'all'
+      ? {}
+      : { OR: [
+          { clientId: null },
+          callerScope.type === 'single'
+            ? { clientId: callerScope.clientId }
+            : { clientId: { in: callerScope.clientIds } },
+        ] };
+    const integration = await fastify.db.clientIntegration.findFirst({
+      where: { id: request.params.id, ...scopeFilter },
+      select: { id: true, type: true, clientId: true },
     });
     if (!integration) return fastify.httpErrors.notFound('Integration not found');
+    // Platform-scoped integrations are shared infrastructure — only ADMIN/API-key callers may trigger operational actions.
+    if (integration.clientId === null && callerScope.type !== 'all') {
+      return fastify.httpErrors.forbidden('Only admin callers can verify platform-scoped integrations');
+    }
     if (integration.type !== IntegrationType.MCP_DATABASE) {
       return fastify.httpErrors.badRequest('Verification is only supported for MCP_DATABASE integrations');
     }
@@ -337,6 +418,25 @@ export async function integrationRoutes(fastify: FastifyInstance, opts: Integrat
   });
 
   fastify.delete<{ Params: { id: string } }>('/api/integrations/:id', async (request, reply) => {
+    const callerScope = await resolveClientScope(request);
+    const scopeFilter = callerScope.type === 'all'
+      ? {}
+      : { OR: [
+          { clientId: null },
+          callerScope.type === 'single'
+            ? { clientId: callerScope.clientId }
+            : { clientId: { in: callerScope.clientIds } },
+        ] };
+    const integration = await fastify.db.clientIntegration.findFirst({
+      where: { id: request.params.id, ...scopeFilter },
+      select: { id: true, type: true, clientId: true },
+    });
+    if (!integration) return fastify.httpErrors.notFound('Integration not found');
+    // Platform-scoped integrations are shared infrastructure — only ADMIN/API-key callers may delete them.
+    if (integration.clientId === null && callerScope.type !== 'all') {
+      return fastify.httpErrors.forbidden('Platform-scoped integrations can only be deleted by global administrators');
+    }
+
     try {
       const deleted = await fastify.db.clientIntegration.delete({
         where: { id: request.params.id },

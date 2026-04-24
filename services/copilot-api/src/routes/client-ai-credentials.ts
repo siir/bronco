@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { encrypt, decrypt } from '@bronco/shared-utils';
 import { AIProvider } from '@bronco/shared-types';
+import { resolveClientScope } from '../plugins/client-scope.js';
 
 /** Providers that support external API keys and can be tested over the network. */
 const BYOK_PROVIDERS = new Set<string>([AIProvider.CLAUDE, AIProvider.OPENAI, AIProvider.GROK]);
@@ -27,7 +28,14 @@ export async function clientAiCredentialRoutes(
   }
 
   // GET /api/clients/:id/ai-credentials
-  fastify.get<{ Params: { id: string } }>('/api/clients/:id/ai-credentials', async (request) => {
+  fastify.get<{ Params: { id: string } }>('/api/clients/:id/ai-credentials', async (request, reply) => {
+    const scope = await resolveClientScope(request);
+    if (
+      scope.type === 'single' && scope.clientId !== request.params.id ||
+      scope.type === 'assigned' && !scope.clientIds.includes(request.params.id)
+    ) {
+      return reply.code(403).send({ error: 'clientId not in your scope' });
+    }
     const rows = await fastify.db.clientAiCredential.findMany({
       where: { clientId: request.params.id },
       orderBy: { createdAt: 'asc' },
@@ -39,6 +47,13 @@ export async function clientAiCredentialRoutes(
   fastify.post<{ Params: { id: string }; Body: { provider: string; apiKey: string; label: string } }>(
     '/api/clients/:id/ai-credentials',
     async (request, reply) => {
+      const scope = await resolveClientScope(request);
+      if (
+        scope.type === 'single' && scope.clientId !== request.params.id ||
+        scope.type === 'assigned' && !scope.clientIds.includes(request.params.id)
+      ) {
+        return reply.code(403).send({ error: 'clientId not in your scope' });
+      }
       const { provider, apiKey, label } = request.body;
       if (!BYOK_PROVIDERS.has(provider)) {
         return reply.code(400).send({ error: `Invalid provider: ${provider}. Supported BYOK providers: ${[...BYOK_PROVIDERS].join(', ')}` });
@@ -61,6 +76,13 @@ export async function clientAiCredentialRoutes(
   fastify.patch<{ Params: { id: string; credId: string }; Body: { label?: string; isActive?: boolean; apiKey?: string } }>(
     '/api/clients/:id/ai-credentials/:credId',
     async (request, reply) => {
+      const scope = await resolveClientScope(request);
+      if (
+        scope.type === 'single' && scope.clientId !== request.params.id ||
+        scope.type === 'assigned' && !scope.clientIds.includes(request.params.id)
+      ) {
+        return reply.code(403).send({ error: 'clientId not in your scope' });
+      }
       const { label, isActive, apiKey } = request.body;
       const data: Record<string, unknown> = {};
       if (label !== undefined) {
@@ -99,6 +121,13 @@ export async function clientAiCredentialRoutes(
   fastify.delete<{ Params: { id: string; credId: string } }>(
     '/api/clients/:id/ai-credentials/:credId',
     async (request, reply) => {
+      const scope = await resolveClientScope(request);
+      if (
+        scope.type === 'single' && scope.clientId !== request.params.id ||
+        scope.type === 'assigned' && !scope.clientIds.includes(request.params.id)
+      ) {
+        return reply.code(403).send({ error: 'clientId not in your scope' });
+      }
       const result = await fastify.db.clientAiCredential.deleteMany({
         where: { id: request.params.credId, clientId: request.params.id },
       });
@@ -111,6 +140,13 @@ export async function clientAiCredentialRoutes(
   fastify.post<{ Params: { id: string; credId: string } }>(
     '/api/clients/:id/ai-credentials/:credId/test',
     async (request, reply) => {
+      const scope = await resolveClientScope(request);
+      if (
+        scope.type === 'single' && scope.clientId !== request.params.id ||
+        scope.type === 'assigned' && !scope.clientIds.includes(request.params.id)
+      ) {
+        return reply.code(403).send({ error: 'clientId not in your scope' });
+      }
       const cred = await fastify.db.clientAiCredential.findFirst({
         where: { id: request.params.credId, clientId: request.params.id },
       });

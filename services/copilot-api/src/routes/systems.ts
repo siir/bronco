@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { DbEngine } from '@bronco/shared-types';
+import { resolveClientScope, scopeToWhere } from '../plugins/client-scope.js';
 
 const VALID_DB_ENGINES = Object.values(DbEngine);
 
@@ -11,10 +12,19 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get<{ Querystring: { clientId?: string } }>(
     '/api/systems',
     async (request) => {
+      const scope = await resolveClientScope(request);
+      const scopeWhere = scopeToWhere(scope);
       const { clientId } = request.query;
+      // If a specific clientId is requested, it must fall within the caller's scope
+      const effectiveClientId = clientId && (
+        scope.type === 'all' ||
+        (scope.type === 'single' && scope.clientId === clientId) ||
+        (scope.type === 'assigned' && scope.clientIds.includes(clientId))
+      ) ? clientId : undefined;
       return fastify.db.system.findMany({
         where: {
-          ...(clientId && { clientId }),
+          ...scopeWhere,
+          ...(effectiveClientId && { clientId: effectiveClientId }),
         },
         include: {
           client: { select: { name: true, shortCode: true } },
@@ -26,8 +36,9 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   fastify.get<{ Params: { id: string } }>('/api/systems/:id', async (request) => {
-    const system = await fastify.db.system.findUnique({
-      where: { id: request.params.id },
+    const scope = await resolveClientScope(request);
+    const system = await fastify.db.system.findFirst({
+      where: { id: request.params.id, ...scopeToWhere(scope) },
       include: {
         client: { select: { name: true, shortCode: true } },
         findings: { orderBy: { detectedAt: 'desc' }, take: 10 },
@@ -65,7 +76,14 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
         `Invalid dbEngine. Must be one of: ${VALID_DB_ENGINES.join(', ')}`,
       );
     }
+    const scope = await resolveClientScope(request);
     const { clientId, environmentId } = request.body;
+    if (
+      scope.type === 'single' && scope.clientId !== clientId ||
+      scope.type === 'assigned' && !scope.clientIds.includes(clientId)
+    ) {
+      return fastify.httpErrors.forbidden('clientId not in your scope');
+    }
     if (environmentId !== undefined && environmentId !== null) {
       const env = await fastify.db.clientEnvironment.findUnique({
         where: { id: environmentId },
@@ -111,12 +129,14 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
       notes?: string;
     };
   }>('/api/systems/:id', async (request) => {
+    const scope = await resolveClientScope(request);
+    const system = await fastify.db.system.findFirst({
+      where: { id: request.params.id, ...scopeToWhere(scope) },
+      select: { clientId: true },
+    });
+    if (!system) return fastify.httpErrors.notFound('System not found');
+
     if (request.body.environmentId !== undefined && request.body.environmentId !== null) {
-      const system = await fastify.db.system.findUnique({
-        where: { id: request.params.id },
-        select: { clientId: true },
-      });
-      if (!system) return fastify.httpErrors.notFound('System not found');
       const env = await fastify.db.clientEnvironment.findUnique({
         where: { id: request.body.environmentId },
         select: { clientId: true },
@@ -138,6 +158,13 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
   });
 
   fastify.delete<{ Params: { id: string } }>('/api/systems/:id', async (request, reply) => {
+    const scope = await resolveClientScope(request);
+    const system = await fastify.db.system.findFirst({
+      where: { id: request.params.id, ...scopeToWhere(scope) },
+      select: { id: true },
+    });
+    if (!system) return fastify.httpErrors.notFound('System not found');
+
     const ticketCount = await fastify.db.ticket.count({
       where: { systemId: request.params.id },
     });
