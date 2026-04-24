@@ -151,6 +151,50 @@ export const KD_SYSTEM_PROMPT_SNIPPET = [
 ].join('\n');
 
 /**
+ * Teaches the agent to pair every run_custom_query call with a request_tool
+ * call naming the specialized tool that would have answered the same question.
+ * Makes run_custom_query usage an explicit product roadmap signal for the
+ * autonomousDBA tool catalog. Also enforces schema/system verification before
+ * querying to prevent hallucinated schema names (e.g. DBADashboard, MDW).
+ *
+ * Requires platform__request_tool to be registered in the agent's tool catalog
+ * (see issue #386). Dedup within a run is encouraged to avoid burning the
+ * tool-request rate limit on near-duplicate requests.
+ */
+export const AD_HOC_QUERY_PAIRING_SNIPPET = [
+  '',
+  '## Ad-hoc Query Pairing Rule (autonomousDBA Roadmap Signal)',
+  '`run_custom_query` is an escape hatch — every call must be paired with a',
+  '`request_tool` call describing the specialized tool that would have answered',
+  'the same question.',
+  '',
+  'When you call `run_custom_query`:',
+  '1. Also call `request_tool` with `kind: \'NEW_TOOL\'` (if no existing tool comes',
+  '   close) or `kind: \'IMPROVE_TOOL\'` (if an existing tool came close but lacked',
+  '   the output you needed).',
+  '2. Use a **stable, semantic name** for `requestedName` — e.g.',
+  '   `get_deadlock_graph_xml`, `list_recent_rcsi_changes`. Do NOT use ad-hoc names',
+  '   like `query_1` or `deadlock_lookup`. Stable names let repeated encounters',
+  '   across runs dedup into one enriched request row.',
+  '3. In the rationale, paste the T-SQL you wrote and describe the semantic question',
+  '   you were answering. The product team uses this to design the eventual',
+  '   first-class tool.',
+  '4. **Dedup within the run** — if you are calling `run_custom_query` multiple',
+  '   times for the same semantic question with different WHERE clauses or',
+  '   parameters, ONE `request_tool` call covers the class. Do not burn the rate',
+  '   limit on near-duplicates.',
+  '',
+  'Verify system/schema assumptions before querying: if unsure which system applies,',
+  'call `list_systems` first. If querying a monitoring/DBA schema (e.g.',
+  '`DBADashboard`, `MDW`, `dbatools`), verify the schema/table exists via',
+  '`sys.tables` or equivalent before issuing the full query. Do not assume schemas',
+  'from general SQL Server knowledge — many environments do not have them.',
+  '',
+  'Prefer purpose-built specialized tools over ad-hoc queries — only use',
+  '`run_custom_query` when no specialized tool applies.',
+].join('\n');
+
+/**
  * Anti-stall snippet appended to the orchestrated-v2 strategist system prompt.
  * The observed failure mode (issue #366) is the orchestrator repeatedly asking
  * to re-read the KD without dispatching a sub-task or writing any section, so
