@@ -65,6 +65,26 @@ import {
 const logger = createLogger('ticket-analyzer');
 
 // ---------------------------------------------------------------------------
+// Token budget constants
+// ---------------------------------------------------------------------------
+
+/**
+ * Maximum output tokens for the orchestrator strategist (Opus) on a single
+ * generateWithTools call. Set to 8192 — Anthropic's documented max output for
+ * Opus without extended thinking. The strategist's final-iteration JSON envelope
+ * can be large (accumulated findings + executive summary), so a low default
+ * causes truncation and triggers the raw-text fallback (issue #383).
+ *
+ * Note: this file always sets `maxTokens` explicitly on each strategist request.
+ * `deps.loadDefaultMaxTokens()` is consulted first; it reads the
+ * `system-config-analysis-strategy` AppSetting's `defaultMaxTokens` field.
+ * This constant is the hard-coded fallback when that setting is absent or zero.
+ * Because `maxTokens` is always explicitly set, `AiModelConfig.maxTokens`
+ * per-task/per-client overrides do NOT apply to strategist calls.
+ */
+const STRATEGIST_MAX_TOKENS = 8192;
+
+// ---------------------------------------------------------------------------
 // Sub-task budget constants
 // ---------------------------------------------------------------------------
 
@@ -1012,7 +1032,7 @@ export async function runOrchestratedV2(
         systemPrompt: strategistSystemPrompt,
         providerOverride: 'CLAUDE',
         modelOverride: 'claude-opus-4-6',
-        maxTokens: defaultMaxTokens ?? 4096,
+        maxTokens: defaultMaxTokens ?? STRATEGIST_MAX_TOKENS,
       });
 
       orchTotalInputTokens += strategistResponse.usage?.inputTokens ?? 0;
