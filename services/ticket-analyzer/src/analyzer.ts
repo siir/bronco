@@ -3507,13 +3507,15 @@ export function createAnalysisProcessor(deps: AnalyzerDeps) {
       name: 'Default Analysis (fallback)',
       steps: [
         { id: 'default-load-context', stepOrder: 1, name: 'Load Client Context', stepType: RouteStepType.LOAD_CLIENT_CONTEXT, taskTypeOverride: null, promptKeyOverride: null, config: null },
-        { id: 'default-extract-facts', stepOrder: 2, name: 'Extract Facts', stepType: RouteStepType.EXTRACT_FACTS, taskTypeOverride: null, promptKeyOverride: null, config: null },
-        { id: 'default-gather-repo', stepOrder: 3, name: 'Gather Repo Context', stepType: RouteStepType.GATHER_REPO_CONTEXT, taskTypeOverride: null, promptKeyOverride: null, config: null },
-        { id: 'default-gather-db', stepOrder: 4, name: 'Gather DB Context', stepType: RouteStepType.GATHER_DB_CONTEXT, taskTypeOverride: null, promptKeyOverride: null, config: null },
-        { id: 'default-agentic', stepOrder: 5, name: 'Agentic Analysis', stepType: RouteStepType.AGENTIC_ANALYSIS, taskTypeOverride: null, promptKeyOverride: null, config: null },
-        { id: 'default-findings', stepOrder: 6, name: 'Draft Findings Email', stepType: RouteStepType.DRAFT_FINDINGS_EMAIL, taskTypeOverride: null, promptKeyOverride: null, config: null },
-        { id: 'default-next-steps', stepOrder: 7, name: 'Suggest Next Steps', stepType: RouteStepType.SUGGEST_NEXT_STEPS, taskTypeOverride: null, promptKeyOverride: null, config: null },
-        { id: 'default-summary', stepOrder: 8, name: 'Update Ticket Summary', stepType: RouteStepType.UPDATE_TICKET_SUMMARY, taskTypeOverride: null, promptKeyOverride: null, config: null },
+        { id: 'default-load-env-context', stepOrder: 2, name: 'Load Environment Context', stepType: RouteStepType.LOAD_ENVIRONMENT_CONTEXT, taskTypeOverride: null, promptKeyOverride: null, config: null },
+        { id: 'default-extract-facts', stepOrder: 3, name: 'Extract Facts', stepType: RouteStepType.EXTRACT_FACTS, taskTypeOverride: null, promptKeyOverride: null, config: null },
+        { id: 'default-gather-repo', stepOrder: 4, name: 'Gather Repo Context', stepType: RouteStepType.GATHER_REPO_CONTEXT, taskTypeOverride: null, promptKeyOverride: null, config: null },
+        { id: 'default-gather-db', stepOrder: 5, name: 'Gather DB Context', stepType: RouteStepType.GATHER_DB_CONTEXT, taskTypeOverride: null, promptKeyOverride: null, config: null },
+        { id: 'default-agentic', stepOrder: 6, name: 'Agentic Analysis', stepType: RouteStepType.AGENTIC_ANALYSIS, taskTypeOverride: null, promptKeyOverride: null, config: null },
+        { id: 'default-findings', stepOrder: 7, name: 'Draft Findings Email', stepType: RouteStepType.DRAFT_FINDINGS_EMAIL, taskTypeOverride: null, promptKeyOverride: null, config: null },
+        { id: 'default-next-steps', stepOrder: 8, name: 'Suggest Next Steps', stepType: RouteStepType.SUGGEST_NEXT_STEPS, taskTypeOverride: null, promptKeyOverride: null, config: null },
+        { id: 'default-summary', stepOrder: 9, name: 'Update Ticket Summary', stepType: RouteStepType.UPDATE_TICKET_SUMMARY, taskTypeOverride: null, promptKeyOverride: null, config: null },
+        { id: 'default-detect-tool-gaps', stepOrder: 10, name: 'Detect Tool Gaps', stepType: RouteStepType.DETECT_TOOL_GAPS, taskTypeOverride: null, promptKeyOverride: null, config: null },
       ],
     } satisfies ResolvedRoute;
 
