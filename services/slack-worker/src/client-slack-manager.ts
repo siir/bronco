@@ -217,8 +217,10 @@ export class ClientSlackManager {
             });
             await tx.clientUser.upsert({
               where: { personId_clientId: { personId: person.id, clientId: entry.clientId } },
-              update: {},
-              create: { personId: person.id, clientId: entry.clientId, userType: 'USER' },
+              // Record the slackUserId so future messages resolve without a
+              // Slack API call or a manual admin mapping step (fixes #297).
+              update: { slackUserId },
+              create: { personId: person.id, clientId: entry.clientId, userType: 'USER', slackUserId },
             });
             return person;
           });
@@ -330,13 +332,18 @@ export class ClientSlackManager {
 
   /** Resolve a Slack user ID to a Person record. */
   private async resolvePerson(clientId: string, slackUserId: string): Promise<{ id: string; name: string; email: string } | null> {
-    // Person no longer stores slackUserId — match via Operator.slackUserId
-    // (client-scoped) while Wave 2 considers a per-ClientUser slack id field.
+    // 1. Try ClientUser.slackUserId (client contacts / self-registered portal users).
+    //    Scoped to the inbound message's clientId to prevent cross-workspace collisions.
+    const clientUser = await this.db.clientUser.findFirst({
+      where: { slackUserId, clientId },
+      select: { person: { select: { id: true, name: true, email: true } } },
+    });
+    if (clientUser?.person) return clientUser.person;
+
+    // 2. Fall back to Operator.slackUserId (platform operators assigned to this client).
     const op = await this.db.operator.findFirst({
       where: { slackUserId, clientId },
-      select: {
-        person: { select: { id: true, name: true, email: true } },
-      },
+      select: { person: { select: { id: true, name: true, email: true } } },
     });
     return op?.person ?? null;
   }

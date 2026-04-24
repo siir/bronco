@@ -10,6 +10,7 @@ export interface ClientUser {
   clientId: string;
   userType: ClientUserType;
   isPrimary: boolean;
+  slackUserId: string | null;
   lastLoginAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
