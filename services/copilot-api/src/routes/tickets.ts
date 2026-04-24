@@ -344,6 +344,18 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     if (source && !VALID_SOURCES.has(source)) return fastify.httpErrors.badRequest(`Invalid source: ${source}`);
     if (category && !VALID_CATEGORIES.has(category)) return fastify.httpErrors.badRequest(`Invalid category: ${category}`);
 
+    // High 5 (#407): validate that the caller is authorized to create a ticket
+    // for the requested clientId. A client-scoped STANDARD operator at Client A
+    // must not be able to create a ticket with clientId = Client B.
+    const createScope = await resolveClientScope(request);
+    if (createScope.type === 'single' && clientId !== createScope.clientId) {
+      return fastify.httpErrors.forbidden('clientId not in your scope');
+    }
+    if (createScope.type === 'assigned' && !createScope.clientIds.includes(clientId)) {
+      return fastify.httpErrors.forbidden('clientId not in your scope');
+    }
+    // scope.type === 'all' → platform ADMIN or API-key: any clientId is OK.
+
     if (requesterId) {
       // Tenant validation: the requester must be linked to the target
       // client via a ClientUser row, OR be a platform operator
@@ -520,19 +532,44 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
         if (env.clientId !== existing.clientId) return fastify.httpErrors.forbidden('environmentId belongs to a different client');
       }
 
-      // Validate operator exists and is active
+      // Validate operator exists, is active, and is authorized for the ticket's client.
       const UUID_PATCH_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       if (assignedOperatorId !== undefined && assignedOperatorId !== null && !UUID_PATCH_RE.test(assignedOperatorId)) {
         return fastify.httpErrors.badRequest('assignedOperatorId must be a valid UUID');
       }
       let resolvedOperatorName: string | null = null;
       if (assignedOperatorId !== undefined && assignedOperatorId !== null) {
+        // existing is guaranteed non-null here — line 491 already returned 404 when null.
+        const ticketClientId = existing!.clientId;
         const operator = await fastify.db.operator.findUnique({
           where: { id: assignedOperatorId },
-          select: { id: true, person: { select: { name: true, isActive: true } } },
+          select: {
+            id: true,
+            clientId: true,
+            role: true,
+            person: { select: { name: true, isActive: true } },
+            // Use a filtered relation to avoid pulling all OperatorClient rows into memory.
+            // We only need to know whether a membership row exists for ticketClientId.
+            assignedClients: { where: { clientId: ticketClientId }, select: { clientId: true }, take: 1 },
+          },
         });
         if (!operator) return fastify.httpErrors.badRequest('Referenced operator not found');
         if (!operator.person.isActive) return fastify.httpErrors.badRequest('Cannot assign to an inactive operator');
+        // Medium 7 (#407): validate the operator is authorized for this ticket's client.
+        // Authorization mirrors resolveClientScope() exactly:
+        //   - client-scoped operator (clientId !== null) → must match ticketClientId exactly
+        //   - platform ADMIN (clientId === null, role === ADMIN) → allowed for all clients
+        //   - platform STANDARD (clientId === null, role !== ADMIN) → requires OperatorClient membership
+        const hasClientMembership = operator.assignedClients.length > 0;
+        const isAuthorizedForTicketClient =
+          operator.clientId !== null
+            ? operator.clientId === ticketClientId
+            : operator.role === 'ADMIN'
+              ? true
+              : hasClientMembership;
+        if (!isAuthorizedForTicketClient) {
+          return fastify.httpErrors.badRequest("Operator not authorized for this ticket's client");
+        }
         resolvedOperatorName = operator.person.name;
       }
 
