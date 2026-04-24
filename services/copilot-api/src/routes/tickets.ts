@@ -275,8 +275,10 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
   );
 
   fastify.get<{ Params: { id: string } }>('/api/tickets/:id', async (request) => {
-    const ticket = await fastify.db.ticket.findUnique({
-      where: { id: request.params.id },
+    const scope = await resolveClientScope(request);
+    const scopeWhere = scopeToWhere(scope);
+    const ticket = await fastify.db.ticket.findFirst({
+      where: { id: request.params.id, ...scopeWhere },
       include: {
         client: true,
         system: true,
@@ -448,6 +450,15 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
 
     if (!VALID_EVENT_TYPES.has(eventType)) return fastify.httpErrors.badRequest(`Invalid eventType: ${eventType}`);
 
+    // Scope guard: verify the ticket exists and belongs to the caller's tenant.
+    const scope = await resolveClientScope(request);
+    const scopeWhere = scopeToWhere(scope);
+    const ticketGuard = await fastify.db.ticket.findFirst({
+      where: { id: request.params.id, ...scopeWhere },
+      select: { id: true },
+    });
+    if (!ticketGuard) return fastify.httpErrors.notFound('Ticket not found');
+
     const event = await fastify.db.ticketEvent.create({
       data: {
         ticketId: request.params.id,
@@ -470,15 +481,18 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
       if (category && !VALID_CATEGORIES.has(category)) return fastify.httpErrors.badRequest(`Invalid category: ${category}`);
       if (sufficiencyStatus !== undefined && sufficiencyStatus !== null && !VALID_SUFFICIENCY_STATUSES.has(sufficiencyStatus)) return fastify.httpErrors.badRequest(`Invalid sufficiencyStatus: ${sufficiencyStatus}`);
 
-      const needsExisting = request.body.status !== undefined || environmentId !== undefined || assignedOperatorId !== undefined;
-      const existing = needsExisting
-        ? await fastify.db.ticket.findUnique({ where: { id: request.params.id }, select: { status: true, clientId: true, assignedOperatorId: true } })
-        : null;
-      if (request.body.status && !existing) return fastify.httpErrors.notFound('Ticket not found');
-      if (environmentId !== undefined && !existing) return fastify.httpErrors.notFound('Ticket not found');
-      if (assignedOperatorId !== undefined && !existing) return fastify.httpErrors.notFound('Ticket not found');
+      // Scope-gated lookup: always verify the ticket exists AND belongs to the caller's tenant.
+      // Using findFirst + scopeToWhere (not findUnique) so the scope where-clause is applied
+      // atomically. Returns 404 for missing-or-out-of-scope tickets to prevent ID enumeration.
+      const scope = await resolveClientScope(request);
+      const scopeWhere = scopeToWhere(scope);
+      const existing = await fastify.db.ticket.findFirst({
+        where: { id: request.params.id, ...scopeWhere },
+        select: { status: true, clientId: true, assignedOperatorId: true },
+      });
+      if (!existing) return fastify.httpErrors.notFound('Ticket not found');
 
-      if (environmentId !== undefined && environmentId !== null && existing) {
+      if (environmentId !== undefined && environmentId !== null) {
         const env = await fastify.db.clientEnvironment.findUnique({
           where: { id: environmentId },
           select: { clientId: true },
@@ -594,8 +608,10 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
   //     show a real error rather than optimistic success.
   //   - Only write the SYSTEM_NOTE audit row AFTER the enqueue confirms.
   fastify.post<{ Params: { id: string } }>('/api/tickets/:id/reanalyze', async (request, reply) => {
-    const ticket = await fastify.db.ticket.findUnique({
-      where: { id: request.params.id },
+    const scope = await resolveClientScope(request);
+    const scopeWhere = scopeToWhere(scope);
+    const ticket = await fastify.db.ticket.findFirst({
+      where: { id: request.params.id, ...scopeWhere },
       select: { id: true, clientId: true, source: true, category: true },
     });
     if (!ticket) return fastify.httpErrors.notFound('Ticket not found');
@@ -925,6 +941,15 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
       return fastify.httpErrors.badRequest(`Invalid level. Must be one of: ${Object.values(LogLevel).join(', ')}`);
     }
 
+    // Scope guard: verify the ticket exists and belongs to the caller's tenant.
+    const scope = await resolveClientScope(request);
+    const scopeWhere = scopeToWhere(scope);
+    const ticketGuard = await fastify.db.ticket.findFirst({
+      where: { id: request.params.id, ...scopeWhere },
+      select: { id: true },
+    });
+    if (!ticketGuard) return fastify.httpErrors.notFound('Ticket not found');
+
     const where: Record<string, unknown> = {
       entityId: request.params.id,
       entityType: 'ticket',
@@ -958,6 +983,15 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     if (!Number.isFinite(take) || take < 0 || !Number.isFinite(skip) || skip < 0) {
       return fastify.httpErrors.badRequest('limit and offset must be non-negative integers');
     }
+
+    // Scope guard: verify the ticket exists and belongs to the caller's tenant.
+    const scope = await resolveClientScope(request);
+    const scopeWhere = scopeToWhere(scope);
+    const ticketGuard = await fastify.db.ticket.findFirst({
+      where: { id: request.params.id, ...scopeWhere },
+      select: { id: true },
+    });
+    if (!ticketGuard) return fastify.httpErrors.notFound('Ticket not found');
 
     const [logs, total] = await Promise.all([
       fastify.db.aiUsageLog.findMany({
@@ -1006,6 +1040,15 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     if (type && !VALID_UNIFIED_TYPES.has(type)) {
       return fastify.httpErrors.badRequest(`Invalid type. Must be one of: ${[...VALID_UNIFIED_TYPES].join(', ')}`);
     }
+
+    // Scope guard: verify the ticket exists and belongs to the caller's tenant.
+    const scope = await resolveClientScope(request);
+    const scopeWhere = scopeToWhere(scope);
+    const ticketGuard = await fastify.db.ticket.findFirst({
+      where: { id: request.params.id, ...scopeWhere },
+      select: { id: true },
+    });
+    if (!ticketGuard) return fastify.httpErrors.notFound('Ticket not found');
 
     const ticketId = request.params.id;
     const wantArchive = includeArchive === 'true';
@@ -1166,6 +1209,15 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
   fastify.get<{
     Params: { id: string };
   }>('/api/tickets/:id/cost-summary', async (request) => {
+    // Scope guard: verify the ticket exists and belongs to the caller's tenant.
+    const scope = await resolveClientScope(request);
+    const scopeWhere = scopeToWhere(scope);
+    const ticketGuard = await fastify.db.ticket.findFirst({
+      where: { id: request.params.id, ...scopeWhere },
+      select: { id: true },
+    });
+    if (!ticketGuard) return fastify.httpErrors.notFound('Ticket not found');
+
     const ticketId = request.params.id;
 
     const [rows, toolCallCount, totalDurationResult] = await Promise.all([
@@ -1239,8 +1291,10 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     async (request) => {
       if (!opts?.ai) return fastify.httpErrors.serviceUnavailable('AI router not available');
 
-      const ticket = await fastify.db.ticket.findUnique({
-        where: { id: request.params.id },
+      const scope = await resolveClientScope(request);
+      const scopeWhere = scopeToWhere(scope);
+      const ticket = await fastify.db.ticket.findFirst({
+        where: { id: request.params.id, ...scopeWhere },
         include: {
           client: { select: { id: true, name: true } },
           system: { select: { name: true } },
