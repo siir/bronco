@@ -5,9 +5,10 @@ import type { AuthUser } from '../plugins/auth.js';
 import { resolveClientScope } from '../plugins/client-scope.js';
 
 /**
- * Safe Person projection for API responses — never includes passwordHash or
- * emailLower. `hasPasswordHash` is a boolean sentinel used only to derive the
- * `hasPortalAccess` field; the hash value itself never leaves this module.
+ * Person projection used by `formatPerson()`. Selects `passwordHash` so that
+ * `formatPerson` can derive the boolean `hasPortalAccess` sentinel — the hash
+ * value itself is never included in any response body; only the boolean is
+ * returned to callers. `emailLower` is never selected here.
  */
 const PERSON_SELECT = {
   id: true,
@@ -15,18 +16,9 @@ const PERSON_SELECT = {
   email: true,
   phone: true,
   isActive: true,
-  // Used only to derive the boolean `hasPortalAccess` field in formatPerson.
-  // The hash value itself is never included in any response body.
+  // Selected for `hasPortalAccess` derivation in formatPerson only.
+  // The raw hash is never serialised into any API response.
   passwordHash: true,
-} as const;
-
-/** Projection used in queries that only need safe display fields (no hash). */
-const PERSON_DISPLAY_SELECT = {
-  id: true,
-  name: true,
-  email: true,
-  phone: true,
-  isActive: true,
 } as const;
 
 const CLIENT_SELECT = { name: true, shortCode: true } as const;
