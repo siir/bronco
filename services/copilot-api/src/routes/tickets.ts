@@ -506,26 +506,35 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
       }
       let resolvedOperatorName: string | null = null;
       if (assignedOperatorId !== undefined && assignedOperatorId !== null) {
+        // existing is guaranteed non-null here — line 491 already returned 404 when null.
+        const ticketClientId = existing!.clientId;
         const operator = await fastify.db.operator.findUnique({
           where: { id: assignedOperatorId },
           select: {
             id: true,
             clientId: true,
+            role: true,
             person: { select: { name: true, isActive: true } },
-            assignedClients: { select: { clientId: true } },
+            // Use a filtered relation to avoid pulling all OperatorClient rows into memory.
+            // We only need to know whether a membership row exists for ticketClientId.
+            assignedClients: { where: { clientId: ticketClientId }, select: { clientId: true }, take: 1 },
           },
         });
         if (!operator) return fastify.httpErrors.badRequest('Referenced operator not found');
         if (!operator.person.isActive) return fastify.httpErrors.badRequest('Cannot assign to an inactive operator');
         // Medium 7 (#407): validate the operator is authorized for this ticket's client.
-        // Authorized when: platform operator (clientId === null), operator pinned to this
-        // client, or operator has an OperatorClient membership for this client.
-        // existing is guaranteed non-null here — line 491 already returned 404 when null.
-        const ticketClientId = existing!.clientId;
-        const isPlatformOperator = operator.clientId === null;
-        const isPinnedToClient = operator.clientId === ticketClientId;
-        const hasClientMembership = operator.assignedClients.some((ac) => ac.clientId === ticketClientId);
-        if (!isPlatformOperator && !isPinnedToClient && !hasClientMembership) {
+        // Authorization mirrors resolveClientScope() exactly:
+        //   - client-scoped operator (clientId !== null) → must match ticketClientId exactly
+        //   - platform ADMIN (clientId === null, role === ADMIN) → allowed for all clients
+        //   - platform STANDARD (clientId === null, role !== ADMIN) → requires OperatorClient membership
+        const hasClientMembership = operator.assignedClients.length > 0;
+        const isAuthorizedForTicketClient =
+          operator.clientId !== null
+            ? operator.clientId === ticketClientId
+            : operator.role === 'ADMIN'
+              ? true
+              : hasClientMembership;
+        if (!isAuthorizedForTicketClient) {
           return fastify.httpErrors.badRequest("Operator not authorized for this ticket's client");
         }
         resolvedOperatorName = operator.person.name;
