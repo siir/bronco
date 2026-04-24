@@ -31,17 +31,20 @@ model Person {
 }
 
 model PersonRefreshToken {
-  id         String     @id @default(uuid()) @db.Uuid
-  jti        String     @unique @db.Uuid
-  personId   String     @map("person_id") @db.Uuid
-  accessType AccessType @map("access_type")
-  expiresAt  DateTime   @map("expires_at")
-  revokedAt  DateTime?  @map("revoked_at")
-  createdAt  DateTime   @default(now()) @map("created_at")
+  id           String     @id @default(uuid()) @db.Uuid
+  jti          String     @unique @db.Uuid
+  personId     String     @map("person_id") @db.Uuid
+  accessType   AccessType @map("access_type")
+  clientUserId String?    @map("client_user_id") @db.Uuid
+  expiresAt    DateTime   @map("expires_at")
+  revokedAt    DateTime?  @map("revoked_at")
+  createdAt    DateTime   @default(now()) @map("created_at")
 
-  person Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+  person     Person      @relation(fields: [personId], references: [id], onDelete: Cascade)
+  clientUser ClientUser? @relation(fields: [clientUserId], references: [id], onDelete: SetNull)
 
   @@index([personId])
+  @@index([clientUserId])
   @@map("person_refresh_tokens")
 }
 
@@ -86,8 +89,9 @@ model ClientUser {
   createdAt   DateTime       @default(now()) @map("created_at")
   updatedAt   DateTime       @updatedAt @map("updated_at")
 
-  person Person @relation(fields: [personId], references: [id], onDelete: Cascade)
-  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  person         Person               @relation(fields: [personId], references: [id], onDelete: Cascade)
+  client         Client               @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  refreshTokens  PersonRefreshToken[]
 
   @@unique([personId, clientId])
   @@unique([clientId, slackUserId])
