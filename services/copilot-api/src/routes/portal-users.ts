@@ -76,8 +76,25 @@ export async function portalUserRoutes(fastify: FastifyInstance): Promise<void> 
       // Client A could reset an operator's password via this route.
       const existingPerson = await fastify.db.person.findUnique({
         where: { emailLower },
-        include: {
-          clientUsers: true,
+        // Explicit select — passwordHash is needed to detect whether the
+        // existing Person already has credentials (Case B upgrade-path check).
+        // emailLower is not returned. clientUsers are fetched to find whether
+        // this client already has a link (cuHere), and operator to prevent
+        // portal admins from claiming an Operator identity.
+        select: {
+          id: true,
+          passwordHash: true,
+          clientUsers: {
+            select: {
+              id: true,
+              clientId: true,
+              userType: true,
+              lastLoginAt: true,
+              createdAt: true,
+              updatedAt: true,
+              isPrimary: true,
+            },
+          },
           operator: { select: { id: true } },
         },
       });

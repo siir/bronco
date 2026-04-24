@@ -78,9 +78,19 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       const emailLower = email.trim().toLowerCase();
+      // Explicit select — pull only the fields needed: passwordHash for
+      // bcrypt.compare and operator fields for session construction.
+      // emailLower is never returned to the caller.
       const person = await fastify.db.person.findUnique({
         where: { emailLower },
-        include: { operator: true },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          isActive: true,
+          passwordHash: true,
+          operator: true,
+        },
       });
 
       if (!person || !person.isActive || !person.passwordHash) {
@@ -321,7 +331,12 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'New password must be at least 8 characters' });
       }
 
-      const person = await fastify.db.person.findUnique({ where: { id: authUser.personId } });
+      // Explicit select — only passwordHash is needed here; never pull the
+      // full Person row for a credential-check-only path.
+      const person = await fastify.db.person.findUnique({
+        where: { id: authUser.personId },
+        select: { passwordHash: true },
+      });
       if (!person || !person.passwordHash) {
         return reply.code(401).send({ error: 'User not found' });
       }

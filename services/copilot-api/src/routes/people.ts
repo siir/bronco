@@ -4,13 +4,20 @@ import { ClientUserType, OperatorRole } from '@bronco/shared-types';
 import type { AuthUser } from '../plugins/auth.js';
 import { resolveClientScope } from '../plugins/client-scope.js';
 
-/** Explicit Person projection — never expose passwordHash/emailLower to API consumers. */
+/**
+ * Person projection used by `formatPerson()`. Selects `passwordHash` so that
+ * `formatPerson` can derive the boolean `hasPortalAccess` sentinel — the hash
+ * value itself is never included in any response body; only the boolean is
+ * returned to callers. `emailLower` is never selected here.
+ */
 const PERSON_SELECT = {
   id: true,
   name: true,
   email: true,
   phone: true,
   isActive: true,
+  // Selected for `hasPortalAccess` derivation in formatPerson only.
+  // The raw hash is never serialised into any API response.
   passwordHash: true,
 } as const;
 
@@ -37,6 +44,7 @@ function formatPerson(cu: {
     role: null,
     slackUserId: null,
     isPrimary: cu.isPrimary,
+    // Derived boolean only — the hash itself is never returned.
     hasPortalAccess: cu.person.passwordHash !== null,
     hasOpsAccess: false, // Wave 1 BC shim — Wave 2C removes this field
     userType: cu.userType,
@@ -314,7 +322,12 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
 
     const existingPerson = await fastify.db.person.findUnique({
       where: { emailLower },
-      include: { clientUsers: { select: { clientId: true } } },
+      // Explicit select — only id (for upsert) and clientUsers.clientId (for
+      // dup check) are needed here. No Person fields beyond id are used.
+      select: {
+        id: true,
+        clientUsers: { select: { clientId: true } },
+      },
     });
 
     if (existingPerson) {
@@ -474,7 +487,11 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
     const email = rawEmail?.trim();
     const emailLower = email?.toLowerCase();
     if (emailLower) {
-      const existing = await fastify.db.person.findUnique({ where: { emailLower } });
+      // Only id is needed for the conflict check — don't pull the hash.
+      const existing = await fastify.db.person.findUnique({
+        where: { emailLower },
+        select: { id: true },
+      });
       if (existing && existing.id !== id) {
         return reply.code(409).send({ error: 'Email is already in use by another person' });
       }
