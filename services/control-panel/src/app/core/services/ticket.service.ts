@@ -177,11 +177,16 @@ export interface TicketCostSummary {
   totalCostUsd: number;
   callCount: number;
   toolCallCount: number;
-  totalDurationMs: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  /** Wall-clock duration from first AI call to last (ms). More accurate than sum of durationMs for parallel runs. */
+  wallClockMs: number;
   breakdown: Array<{
     provider: string;
     model: string;
     callCount: number;
+    totalInputTokens: number;
+    totalOutputTokens: number;
     totalCostUsd: number;
     totalDurationMs: number;
   }>;

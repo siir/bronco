@@ -30,6 +30,7 @@ import {
   writeKnowledgeDocSnapshot,
 } from './v2-knowledge-doc.js';
 import {
+  AD_HOC_QUERY_PAIRING_SNIPPET,
   KD_SYSTEM_PROMPT_SNIPPET,
   PREFER_EXISTING_TOOLS_SNIPPET,
   REQUEST_NEW_TOOL_SNIPPET,
@@ -115,6 +116,7 @@ export async function runFlatV2(
   systemParts.push(SUFFICIENCY_EVAL_INSTRUCTIONS);
   systemParts.push(TRUNCATION_SYSTEM_PROMPT_SNIPPET);
   systemParts.push(PREFER_EXISTING_TOOLS_SNIPPET);
+  systemParts.push(AD_HOC_QUERY_PAIRING_SNIPPET);
   systemParts.push(REQUEST_NEW_TOOL_SNIPPET);
   systemParts.push(TOOL_ERROR_SYSTEM_PROMPT_SNIPPET);
   systemParts.push(KD_SYSTEM_PROMPT_SNIPPET);

@@ -41,7 +41,52 @@ import {
 import type { CronSchedulerValue } from '../../shared/components/index.js';
 import { ToastService } from '../../core/services/toast.service.js';
 
-const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External Services', 'Action Safety', 'Analysis Strategy', 'Self Analysis', 'SMTP', 'Azure DevOps', 'GitHub', 'IMAP', 'Slack', 'Prompt Retention'] as const;
+const TAB_LABELS = [
+  'General',
+  'Ticket Statuses',
+  'Ticket Categories',
+  'External Services',
+  'Action Safety',
+  'Analysis',
+  'Integrations',
+] as const;
+
+const TAB_SLUGS = [
+  'general',
+  'ticket-statuses',
+  'ticket-categories',
+  'external-services',
+  'action-safety',
+  'analysis',
+  'integrations',
+] as const satisfies readonly string[];
+
+/** Old tab slugs from before the Settings reorganization (PR #389). Maps old slug → new canonical slug. */
+const LEGACY_TAB_SLUGS: Readonly<Record<string, (typeof TAB_SLUGS)[number]>> = {
+  'analysis-strategy': 'analysis',
+  'self-analysis': 'analysis',
+  'prompt-retention': 'analysis',
+  'tool-request-rate-limit': 'analysis',
+  smtp: 'integrations',
+  'azure-dev-ops': 'integrations',
+  github: 'integrations',
+  imap: 'integrations',
+  slack: 'integrations',
+} as const;
+
+function resolveTabSlug(tab: string | null | undefined): (typeof TAB_SLUGS)[number] | null {
+  if (!tab) return null;
+  const normalized = tab.trim().toLowerCase();
+  const canonical = LEGACY_TAB_SLUGS[normalized] ?? normalized;
+  return (TAB_SLUGS as readonly string[]).includes(canonical)
+    ? (canonical as (typeof TAB_SLUGS)[number])
+    : null;
+}
+
+function getTabIndexFromSlug(tab: string | null | undefined): number {
+  const resolved = resolveTabSlug(tab);
+  return resolved ? TAB_SLUGS.indexOf(resolved) : 0;
+}
 
 @Component({
   standalone: true,
@@ -73,7 +118,7 @@ const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External
         <!-- General tab -->
         <app-tab label="General">
           <div class="tab-content">
-            <p class="hint" style="padding-top:8px;">General settings are managed under the individual tabs (SMTP, GitHub, IMAP, etc.).</p>
+            <p class="hint" style="padding-top:8px;">General settings are managed under the individual tabs (Integrations, Analysis, etc.).</p>
           </div>
         </app-tab>
 
@@ -301,8 +346,8 @@ const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External
           </div>
         </app-tab>
 
-        <!-- Analysis Strategy tab -->
-        <app-tab label="Analysis Strategy">
+        <!-- Analysis tab — Analysis Strategy, Strategy Version, Self Analysis, Tool Request Rate Limit, Prompt Retention -->
+        <app-tab label="Analysis">
           <div class="tab-content">
             <app-card>
               <h2 class="section-title">Analysis Strategy</h2>
@@ -379,12 +424,7 @@ const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External
                 </div>
               }
             </app-card>
-          </div>
-        </app-tab>
 
-        <!-- Self Analysis tab -->
-        <app-tab label="Self Analysis">
-          <div class="tab-content">
             <app-card>
               <h2 class="section-title">Self Analysis</h2>
               <p class="hint">
@@ -440,11 +480,34 @@ const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External
                 }
               }
             </app-card>
+
+            <app-card>
+              <h2 class="section-title">Tool Request Rate Limit</h2>
+              <p class="hint">Caps how often the analyzer can call <code>request_tool</code> within a single analysis run. Prevents runaway requests when an agent loops on missing capabilities.</p>
+              <div class="form-grid">
+                <app-form-field label="Maximum request_tool calls per analysis run"><input class="text-input" type="number" [(ngModel)]="toolRequestRateLimit.limit" min="1" max="100" placeholder="5"></app-form-field>
+              </div>
+              <div class="card-actions">
+                <app-bronco-button variant="primary" (click)="saveToolRequestRateLimit()" [disabled]="sysConfigSaving()">Save</app-bronco-button>
+              </div>
+            </app-card>
+
+            <app-card>
+              <h2 class="section-title">Prompt Retention Policy</h2>
+              <p class="hint">Configure how long full AI prompt/response archives are retained before being summarized and deleted.</p>
+              <div class="form-grid">
+                <app-form-field label="Full prompt retention (days)"><input class="text-input" type="number" [(ngModel)]="promptRetention.fullRetentionDays" min="1" placeholder="30"></app-form-field>
+                <app-form-field label="Summary retention (days after summarization)"><input class="text-input" type="number" [(ngModel)]="promptRetention.summaryRetentionDays" min="1" placeholder="90"></app-form-field>
+              </div>
+              <div class="card-actions">
+                <app-bronco-button variant="primary" (click)="savePromptRetention()" [disabled]="sysConfigSaving()">Save</app-bronco-button>
+              </div>
+            </app-card>
           </div>
         </app-tab>
 
-        <!-- SMTP Tab -->
-        <app-tab label="SMTP">
+        <!-- Integrations tab — SMTP, Azure DevOps, GitHub, IMAP, Slack -->
+        <app-tab label="Integrations">
           <div class="tab-content">
             <app-card>
               <h2 class="section-title">SMTP Configuration</h2>
@@ -462,12 +525,7 @@ const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External
                 <app-bronco-button variant="secondary" (click)="testSmtp()" [disabled]="sysConfigTesting()">{{ sysConfigTesting() ? 'Testing...' : 'Test Connection' }}</app-bronco-button>
               </div>
             </app-card>
-          </div>
-        </app-tab>
 
-        <!-- Azure DevOps Tab -->
-        <app-tab label="Azure DevOps">
-          <div class="tab-content">
             <app-card>
               <h2 class="section-title">Azure DevOps Configuration</h2>
               <p class="hint">Configure the Azure DevOps integration for work item sync. PAT is encrypted at rest.</p>
@@ -484,12 +542,7 @@ const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External
                 <app-bronco-button variant="secondary" (click)="testDevOps()" [disabled]="sysConfigTesting()">{{ sysConfigTesting() ? 'Testing...' : 'Test Connection' }}</app-bronco-button>
               </div>
             </app-card>
-          </div>
-        </app-tab>
 
-        <!-- GitHub Tab -->
-        <app-tab label="GitHub">
-          <div class="tab-content">
             <app-card>
               <h2 class="section-title">GitHub Configuration</h2>
               <p class="hint">Configure the GitHub token used for repository access and release notes. Token is encrypted at rest.</p>
@@ -499,7 +552,7 @@ const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External
               </div>
               <p class="github-scope-blurb">
                 This integration is for the Bronco app itself — release notes, automatic GitHub issue creation from tool requests, and code fetching for analysis.
-                Client-specific repositories are managed under <strong>Clients → Code Repositories</strong>.
+                Client-specific repositories are managed under <strong>Clients &#8594; Code Repositories</strong>.
               </p>
               <p class="github-scope-blurb">
                 <strong>Migration note (#368):</strong> GitHub is now a first-class Integration type. Tool-request issue creation reads from a
@@ -513,22 +566,6 @@ const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External
               </div>
             </app-card>
 
-            <app-card>
-              <h2 class="section-title">Tool Request Rate Limit</h2>
-              <p class="hint">Caps how often the analyzer can call <code>request_tool</code> within a single analysis run. Prevents runaway requests when an agent loops on missing capabilities.</p>
-              <div class="form-grid">
-                <app-form-field label="Maximum request_tool calls per analysis run"><input class="text-input" type="number" [(ngModel)]="toolRequestRateLimit.limit" min="1" max="100" placeholder="5"></app-form-field>
-              </div>
-              <div class="card-actions">
-                <app-bronco-button variant="primary" (click)="saveToolRequestRateLimit()" [disabled]="sysConfigSaving()">Save</app-bronco-button>
-              </div>
-            </app-card>
-          </div>
-        </app-tab>
-
-        <!-- IMAP Tab -->
-        <app-tab label="IMAP">
-          <div class="tab-content">
             <app-card>
               <h2 class="section-title">IMAP Configuration</h2>
               <p class="hint">Configure the IMAP server used for polling inbound emails. Password is encrypted at rest.</p>
@@ -544,12 +581,7 @@ const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External
                 <app-bronco-button variant="secondary" (click)="testImap()" [disabled]="sysConfigTesting()">{{ sysConfigTesting() ? 'Testing...' : 'Test Connection' }}</app-bronco-button>
               </div>
             </app-card>
-          </div>
-        </app-tab>
 
-        <!-- Slack Tab -->
-        <app-tab label="Slack">
-          <div class="tab-content">
             <app-card>
               <h2 class="section-title">Slack Configuration</h2>
               <p class="hint">Configure Slack integration for operator notifications via Socket Mode. Tokens are encrypted at rest.</p>
@@ -564,23 +596,6 @@ const TAB_LABELS = ['General', 'Ticket Statuses', 'Ticket Categories', 'External
               <div class="card-actions">
                 <app-bronco-button variant="primary" (click)="saveSlackConfig()" [disabled]="sysConfigSaving()">Save</app-bronco-button>
                 <app-bronco-button variant="secondary" (click)="testSlackConfig()" [disabled]="sysConfigTesting()">{{ sysConfigTesting() ? 'Testing...' : 'Test Connection' }}</app-bronco-button>
-              </div>
-            </app-card>
-          </div>
-        </app-tab>
-
-        <!-- Prompt Retention Tab -->
-        <app-tab label="Prompt Retention">
-          <div class="tab-content">
-            <app-card>
-              <h2 class="section-title">Prompt Retention Policy</h2>
-              <p class="hint">Configure how long full AI prompt/response archives are retained before being summarized and deleted.</p>
-              <div class="form-grid">
-                <app-form-field label="Full prompt retention (days)"><input class="text-input" type="number" [(ngModel)]="promptRetention.fullRetentionDays" min="1" placeholder="30"></app-form-field>
-                <app-form-field label="Summary retention (days after summarization)"><input class="text-input" type="number" [(ngModel)]="promptRetention.summaryRetentionDays" min="1" placeholder="90"></app-form-field>
-              </div>
-              <div class="card-actions">
-                <app-bronco-button variant="primary" (click)="savePromptRetention()" [disabled]="sysConfigSaving()">Save</app-bronco-button>
               </div>
             </app-card>
           </div>
@@ -876,9 +891,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     const tabSlug = this.route.snapshot.queryParamMap.get('tab');
-    if (tabSlug) {
-      const idx = TAB_LABELS.findIndex(l => this.toSlug(l) === tabSlug);
-      if (idx >= 0) this.selectedTab.set(idx);
+    if (tabSlug && resolveTabSlug(tabSlug) !== null) {
+      this.selectedTab.set(getTabIndexFromSlug(tabSlug));
     }
     this.loadServices();
     this.loadStatuses();
@@ -916,17 +930,13 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   onTabChange(index: number): void {
     this.selectedTab.set(index);
-    const slug = this.toSlug(TAB_LABELS[index] ?? '');
+    const slug = TAB_SLUGS[index] ?? null;
     this.router.navigate([], {
       relativeTo: this.route,
-      queryParams: { tab: slug || null },
+      queryParams: { tab: slug },
       queryParamsHandling: 'merge',
       replaceUrl: true,
     });
-  }
-
-  private toSlug(label: string): string {
-    return label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   }
 
   loadServices(): void {

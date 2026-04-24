@@ -142,6 +142,11 @@ interface SettingsRouteOpts {
 }
 
 export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRouteOpts): Promise<void> {
+  // Inner preHandler for endpoints that must be restricted to ADMIN operators only.
+  // The outer operatorControlPanelGuard (applied in routes/index.ts) allows both ADMIN
+  // and STANDARD; this inner guard tightens specific routes to ADMIN-only.
+  const adminOnly = requireRole(OperatorRole.ADMIN);
+
   // ─── Ticket Statuses ───
 
   // GET /api/settings/statuses — list all status configs (auto-seed missing defaults)
@@ -416,9 +421,10 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     return row.value as unknown as OperationalAlertConfig;
   });
 
-  // PUT /api/settings/operational-alerts — save alert config
+  // PUT /api/settings/operational-alerts — save alert config (ADMIN-only)
   fastify.put<{ Body: OperationalAlertConfig }>(
     '/api/settings/operational-alerts',
+    { preHandler: adminOnly },
     async (request) => {
       const parsed = operationalAlertConfigSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -438,8 +444,8 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     },
   );
 
-  // POST /api/settings/operational-alerts/test — send a test alert email
-  fastify.post('/api/settings/operational-alerts/test', async (request) => {
+  // POST /api/settings/operational-alerts/test — send a test alert email (ADMIN-only)
+  fastify.post('/api/settings/operational-alerts/test', { preHandler: adminOnly }, async (request) => {
     // Load alert config
     const settingRow = await fastify.db.appSetting.findUnique({
       where: { key: SETTINGS_KEY_OPERATIONAL_ALERTS },
@@ -503,8 +509,8 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     return { ...config, password: REDACTED };
   });
 
-  // PUT /api/settings/smtp — save SMTP config
-  fastify.put<{ Body: Record<string, unknown> }>('/api/settings/smtp', async (request) => {
+  // PUT /api/settings/smtp — save SMTP config (ADMIN-only)
+  fastify.put<{ Body: Record<string, unknown> }>('/api/settings/smtp', { preHandler: adminOnly }, async (request) => {
     const parsed = smtpConfigSchema.safeParse(request.body);
     if (!parsed.success) {
       const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
@@ -533,8 +539,8 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     return { ...saved, password: REDACTED };
   });
 
-  // POST /api/settings/smtp/test — verify SMTP connectivity
-  fastify.post('/api/settings/smtp/test', async () => {
+  // POST /api/settings/smtp/test — verify SMTP connectivity (ADMIN-only)
+  fastify.post('/api/settings/smtp/test', { preHandler: adminOnly }, async () => {
     const row = await fastify.db.appSetting.findUnique({ where: { key: SETTINGS_KEY_SMTP } });
     if (!row) return fastify.httpErrors.badRequest('SMTP not configured');
 
@@ -574,8 +580,8 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     return { ...config, pat: REDACTED };
   });
 
-  // PUT /api/settings/devops — save DevOps config
-  fastify.put<{ Body: Record<string, unknown> }>('/api/settings/devops', async (request) => {
+  // PUT /api/settings/devops — save DevOps config (ADMIN-only)
+  fastify.put<{ Body: Record<string, unknown> }>('/api/settings/devops', { preHandler: adminOnly }, async (request) => {
     const parsed = devopsConfigSchema.safeParse(request.body);
     if (!parsed.success) {
       const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
@@ -604,8 +610,8 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     return { ...saved, pat: REDACTED };
   });
 
-  // POST /api/settings/devops/test — verify DevOps PAT + org/project access
-  fastify.post('/api/settings/devops/test', async () => {
+  // POST /api/settings/devops/test — verify DevOps PAT + org/project access (ADMIN-only)
+  fastify.post('/api/settings/devops/test', { preHandler: adminOnly }, async () => {
     const row = await fastify.db.appSetting.findUnique({ where: { key: SETTINGS_KEY_DEVOPS } });
     if (!row) return fastify.httpErrors.badRequest('Azure DevOps not configured');
 
@@ -640,8 +646,8 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     return { ...config, token: REDACTED };
   });
 
-  // PUT /api/settings/github — save GitHub config
-  fastify.put<{ Body: Record<string, unknown> }>('/api/settings/github', async (request) => {
+  // PUT /api/settings/github — save GitHub config (ADMIN-only)
+  fastify.put<{ Body: Record<string, unknown> }>('/api/settings/github', { preHandler: adminOnly }, async (request) => {
     const parsed = githubConfigSchema.safeParse(request.body);
     if (!parsed.success) {
       const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
@@ -670,8 +676,8 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     return { ...saved, token: REDACTED };
   });
 
-  // POST /api/settings/github/test — verify GitHub token
-  fastify.post('/api/settings/github/test', async () => {
+  // POST /api/settings/github/test — verify GitHub token (ADMIN-only)
+  fastify.post('/api/settings/github/test', { preHandler: adminOnly }, async () => {
     const row = await fastify.db.appSetting.findUnique({ where: { key: SETTINGS_KEY_GITHUB } });
     if (!row) return fastify.httpErrors.badRequest('GitHub not configured');
 
@@ -706,8 +712,8 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     return { ...config, password: REDACTED };
   });
 
-  // PUT /api/settings/imap — save IMAP config
-  fastify.put<{ Body: Record<string, unknown> }>('/api/settings/imap', async (request) => {
+  // PUT /api/settings/imap — save IMAP config (ADMIN-only)
+  fastify.put<{ Body: Record<string, unknown> }>('/api/settings/imap', { preHandler: adminOnly }, async (request) => {
     const parsed = imapConfigSchema.safeParse(request.body);
     if (!parsed.success) {
       const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
@@ -736,8 +742,8 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     return { ...saved, password: REDACTED };
   });
 
-  // POST /api/settings/imap/test — verify IMAP connectivity
-  fastify.post('/api/settings/imap/test', async () => {
+  // POST /api/settings/imap/test — verify IMAP connectivity (ADMIN-only)
+  fastify.post('/api/settings/imap/test', { preHandler: adminOnly }, async () => {
     const row = await fastify.db.appSetting.findUnique({ where: { key: SETTINGS_KEY_IMAP } });
     if (!row) return fastify.httpErrors.badRequest('IMAP not configured');
 
@@ -783,8 +789,8 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     return { ...config, botToken: REDACTED, appToken: REDACTED };
   });
 
-  // PUT /api/settings/slack — save Slack config
-  fastify.put<{ Body: Record<string, unknown> }>('/api/settings/slack', async (request) => {
+  // PUT /api/settings/slack — save Slack config (ADMIN-only)
+  fastify.put<{ Body: Record<string, unknown> }>('/api/settings/slack', { preHandler: adminOnly }, async (request) => {
     const parsed = slackConfigSchema.safeParse(request.body);
     if (!parsed.success) {
       const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
@@ -830,8 +836,8 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     return { ...saved, botToken: REDACTED, appToken: REDACTED };
   });
 
-  // POST /api/settings/slack/test — test Slack connectivity
-  fastify.post('/api/settings/slack/test', async () => {
+  // POST /api/settings/slack/test — test Slack connectivity (ADMIN-only)
+  fastify.post('/api/settings/slack/test', { preHandler: adminOnly }, async () => {
     const row = await fastify.db.appSetting.findUnique({ where: { key: SETTINGS_KEY_SLACK } });
     if (!row) return fastify.httpErrors.badRequest('Slack not configured');
 
@@ -886,9 +892,10 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
     return parsed.success ? parsed.data : DEFAULT_PROMPT_RETENTION;
   });
 
-  // PUT /api/settings/prompt-retention — save prompt retention config
+  // PUT /api/settings/prompt-retention — save prompt retention config (ADMIN-only)
   fastify.put<{ Body: { fullRetentionDays?: number; summaryRetentionDays?: number } }>(
     '/api/settings/prompt-retention',
+    { preHandler: adminOnly },
     async (request) => {
       const parsed = promptRetentionSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -915,11 +922,6 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
   });
 
   const DEFAULT_TOOL_REQUEST_RATE_LIMIT = { limit: 5 };
-
-  // These endpoints touch admin-only surface (Gap Requests triage + GitHub PAT usage),
-  // so gate them with ADMIN-only preHandlers instead of relying on the outer
-  // operatorControlPanelGuard which allows STANDARD operators as well.
-  const adminOnly = requireRole(OperatorRole.ADMIN);
 
   // GET /api/settings/tool-request-rate-limit — max `request_tool` calls per analysis run
   fastify.get(

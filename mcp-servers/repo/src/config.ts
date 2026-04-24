@@ -5,7 +5,6 @@ const configSchema = z.object({
   DATABASE_URL: z.string().url(),
   ENCRYPTION_KEY: z.string().min(64),
   API_KEY: z.string().optional().transform(v => v || undefined),
-  MCP_AUTH_TOKEN: z.string().optional().transform(v => v || undefined),
   PORT: z.coerce.number().default(3111),
   REPO_WORKSPACE_PATH: z.string().default('/var/lib/mcp-repo/repos'),
   WORKTREE_TTL_MINUTES: z.coerce.number().default(30),

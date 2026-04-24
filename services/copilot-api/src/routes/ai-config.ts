@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { TaskType, AIProvider, AppScope, TASK_APP_SCOPE } from '@bronco/shared-types';
+import { TaskType, AIProvider, AppScope, TASK_APP_SCOPE, OperatorRole } from '@bronco/shared-types';
 import { getTaskTypeDefaults } from '@bronco/ai-provider';
 import type { AIRouter, ModelConfigResolver } from '@bronco/ai-provider';
 
@@ -146,6 +146,14 @@ export async function aiConfigRoutes(
     if (!VALID_SCOPES.has(scope)) {
       return fastify.httpErrors.badRequest(`Invalid scope "${scope}". Must be APP_WIDE or CLIENT.`);
     }
+
+    // APP_WIDE configs affect every client — restrict to ADMIN operators.
+    // CLIENT-scoped configs are allowed for STANDARD operators within their assigned scope.
+    // API-key callers have no request.user (trusted service-to-service); only enforce for
+    // operator-authenticated requests, consistent with the requireRole() helper contract.
+    if (scope === 'APP_WIDE' && request.user && request.user.role !== OperatorRole.ADMIN) {
+      return reply.code(403).send({ error: 'APP_WIDE AI config changes require ADMIN role' });
+    }
     if (!VALID_PROVIDERS.has(provider)) {
       return fastify.httpErrors.badRequest(`Invalid provider "${provider}". Must be LOCAL or CLAUDE.`);
     }
@@ -195,7 +203,7 @@ export async function aiConfigRoutes(
       maxTokens?: number | null;
       isActive?: boolean;
     };
-  }>('/api/ai-config/:id', async (request) => {
+  }>('/api/ai-config/:id', async (request, reply) => {
     const { provider, model, maxTokens, isActive } = request.body;
 
     if (provider && !VALID_PROVIDERS.has(provider)) {
@@ -203,6 +211,19 @@ export async function aiConfigRoutes(
     }
     if (model !== undefined && !model.trim()) {
       return fastify.httpErrors.badRequest('model cannot be empty.');
+    }
+
+    // APP_WIDE configs affect every client — restrict updates to ADMIN operators.
+    // API-key callers have no request.user (trusted service-to-service); only enforce for
+    // operator-authenticated requests, consistent with the requireRole() helper contract.
+    if (request.user && request.user.role !== OperatorRole.ADMIN) {
+      const existing = await fastify.db.aiModelConfig.findUnique({
+        where: { id: request.params.id },
+        select: { scope: true },
+      });
+      if (existing?.scope === 'APP_WIDE') {
+        return reply.code(403).send({ error: 'APP_WIDE AI config changes require ADMIN role' });
+      }
     }
 
     try {
@@ -229,6 +250,19 @@ export async function aiConfigRoutes(
   fastify.delete<{ Params: { id: string } }>(
     '/api/ai-config/:id',
     async (request, reply) => {
+      // APP_WIDE configs affect every client — restrict deletes to ADMIN operators.
+      // API-key callers have no request.user (trusted service-to-service); only enforce for
+      // operator-authenticated requests, consistent with the requireRole() helper contract.
+      if (request.user && request.user.role !== OperatorRole.ADMIN) {
+        const existing = await fastify.db.aiModelConfig.findUnique({
+          where: { id: request.params.id },
+          select: { scope: true },
+        });
+        if (existing?.scope === 'APP_WIDE') {
+          return reply.code(403).send({ error: 'APP_WIDE AI config changes require ADMIN role' });
+        }
+      }
+
       try {
         await fastify.db.aiModelConfig.delete({
           where: { id: request.params.id },

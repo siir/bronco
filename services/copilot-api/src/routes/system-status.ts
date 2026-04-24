@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { createLogger, decrypt, looksEncrypted } from '@bronco/shared-utils';
-import { ExternalServiceCheckType, IntegrationType } from '@bronco/shared-types';
+import { ExternalServiceCheckType, IntegrationType, OperatorRole } from '@bronco/shared-types';
 import { normalizeUrl } from '../services/mcp-discovery.js';
 import { sendRedisCommand } from '../services/redis.js';
+import { requireRole } from '../plugins/auth.js';
 import type { Config } from '../config.js';
 
 const logger = createLogger('system-status');
@@ -864,13 +865,13 @@ export async function systemStatusRoutes(
     };
   });
 
-  // POST /api/system-status/control — start/stop/restart a Docker service
+  // POST /api/system-status/control — start/stop/restart a Docker service (ADMIN-only)
   fastify.post<{
     Body: {
       service: string;
       action: 'start' | 'stop' | 'restart';
     };
-  }>('/api/system-status/control', async (request, reply) => {
+  }>('/api/system-status/control', { preHandler: requireRole(OperatorRole.ADMIN) }, async (request, reply) => {
     const { service, action } = request.body;
 
     // Whitelist of controllable Docker Compose services

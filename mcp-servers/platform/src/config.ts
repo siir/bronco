@@ -6,14 +6,21 @@ const configSchema = z.object({
   ENCRYPTION_KEY: z.string().min(64),
   REDIS_URL: z.string().default('redis://localhost:6379'),
   PORT: z.coerce.number().default(3110),
-  API_KEY: z.string().optional(),
-  MCP_AUTH_TOKEN: z.string().optional(),
+  // Normalize: trim whitespace and treat empty string as unset so a compose
+  // interpolation of ${API_KEY} with no value doesn't silently disable auth.
+  API_KEY: z.string().optional().transform((v) => v?.trim() || undefined),
   COPILOT_API_URL: z.string().default('http://copilot-api:3000'),
   MCP_PLATFORM_URL: z.string().default('http://mcp-platform:3110'),
   MCP_REPO_URL: z.string().default('http://mcp-repo:3111'),
   MCP_DATABASE_URL: z.string().default('http://mcp-database:3100'),
   LOG_LEVEL: z.string().default('info'),
   ARTIFACT_STORAGE_PATH: z.string().default('/mnt/qnap/artifacts'),
+  /**
+   * When true, requests missing the X-Caller-Name header are rejected with 401.
+   * Defaults to false for safe rollout — missing header logs WARN but proceeds.
+   * Flip to true in Hugo .env once all callers are confirmed to send the header.
+   */
+  REQUIRE_CALLER_NAME: z.coerce.boolean().default(false),
 });
 
 export type Config = z.output<typeof configSchema>;

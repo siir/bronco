@@ -207,6 +207,8 @@ export interface McpIntegrationInfo {
   mcpPath?: string;
   apiKey?: string;
   authHeader?: string;
+  /** Sent as X-Caller-Name header for per-caller tool allowlist enforcement. */
+  callerName?: string;
 }
 
 /**
@@ -240,7 +242,6 @@ export async function buildAgenticTools(
   mcpRepoUrl: string,
   mcpPlatformUrl: string,
   apiKey?: string,
-  mcpAuthToken?: string,
   options?: { includeKdTools?: boolean },
 ): Promise<{
   tools: AIToolDefinition[];
@@ -307,9 +308,9 @@ export async function buildAgenticTools(
   // Discover mcp-repo tools for client repositories
   const repos = await db.codeRepo.findMany({ where: { clientId, isActive: true } });
   if (repos.length > 0) {
-    // Resolve auth for mcp-repo — prefer MCP_AUTH_TOKEN, fall back to API_KEY
-    const repoAuth = mcpAuthToken || apiKey;
-    const repoAuthHeader = mcpAuthToken ? 'bearer' : 'x-api-key';
+    // Resolve auth for mcp-repo using API_KEY
+    const repoAuth = apiKey;
+    const repoAuthHeader = 'x-api-key';
 
     // Register shared mcp-repo integration for list_repos and repo_cleanup
     mcpIntegrations.set('repo', { label: 'mcp-repo', url: mcpRepoUrl, mcpPath: '/mcp', apiKey: repoAuth, authHeader: repoAuthHeader });
@@ -416,14 +417,15 @@ export async function buildAgenticTools(
   }
 
   // Register platform MCP server for read_tool_result_artifact
-  const platformAuth = mcpAuthToken || apiKey;
-  const platformAuthHeader = mcpAuthToken ? 'bearer' : 'x-api-key';
+  const platformAuth = apiKey;
+  const platformAuthHeader = 'x-api-key';
   mcpIntegrations.set('platform', {
     label: 'mcp-platform',
     url: mcpPlatformUrl,
     mcpPath: '/mcp',
     apiKey: platformAuth,
     authHeader: platformAuthHeader,
+    callerName: 'ticket-analyzer',
   });
 
   tools.push({
@@ -438,6 +440,58 @@ export async function buildAgenticTools(
         grep: { type: 'string', description: 'Regex pattern to search for. When provided, offset/limit are ignored.' },
       },
       required: ['artifactId'],
+    },
+  });
+
+  tools.push({
+    name: 'platform__request_tool',
+    description: [
+      'Flag a capability gap discovered during analysis.',
+      'Use kind=NEW_TOOL when a tool you need does not exist (e.g. "get_deadlock_graph_xml" — no existing tool can retrieve deadlock XML from the ring buffer).',
+      'Use kind=BROKEN_TOOL when an existing tool is returning errors, timeouts, or malformed output repeatedly.',
+      'Use kind=IMPROVE_TOOL when an existing tool works but its output is insufficient for your task.',
+      'requestedName MUST be a stable, semantic snake_case identifier so dedup across runs merges correctly',
+      '— e.g. "get_deadlock_graph_xml", not "query_deadlock_1" or "tool_i_need".',
+      'displayTitle is a short human-readable label (e.g. "Get deadlock graph XML").',
+      'description explains inputs, outputs, and why it\'s needed.',
+      'rationale is specific to THIS ticket — what you were trying to do and why this gap matters here.',
+      'Limited to a few calls per analysis run.',
+    ].join(' '),
+    input_schema: {
+      type: 'object',
+      properties: {
+        kind: {
+          type: 'string',
+          enum: ['NEW_TOOL', 'BROKEN_TOOL', 'IMPROVE_TOOL'],
+          description: 'NEW_TOOL: tool does not exist. BROKEN_TOOL: existing tool is failing. IMPROVE_TOOL: existing tool is inadequate.',
+        },
+        requestedName: {
+          type: 'string',
+          description: 'For NEW_TOOL: proposed snake_case name (e.g. "analyze_execution_plan"). For BROKEN_TOOL / IMPROVE_TOOL: exact name of the failing/inadequate tool.',
+        },
+        displayTitle: {
+          type: 'string',
+          description: 'Short human-readable title for the request (e.g. "Analyze execution plan XML")',
+        },
+        description: {
+          type: 'string',
+          description: 'For NEW_TOOL: what the tool should do, inputs, outputs. For BROKEN_TOOL: observed failure details. For IMPROVE_TOOL: what improvement is needed and why.',
+        },
+        rationale: {
+          type: 'string',
+          description: 'Why this was needed for THIS ticket — specific to the current investigation',
+        },
+        suggestedInputs: {
+          type: 'object',
+          description: 'Optional JSON sketch of input parameters',
+          additionalProperties: true,
+        },
+        exampleUsage: {
+          type: 'string',
+          description: 'Optional example invocation or pseudo-code showing how the tool would be used',
+        },
+      },
+      required: ['kind', 'requestedName', 'displayTitle', 'description', 'rationale'],
     },
   });
 
@@ -565,8 +619,8 @@ function guidanceFor(errorClass: McpToolErrorClass, toolName: string, retryable:
   switch (errorClass) {
     case 'transport':
       return retryable
-        ? `${toolName} hit a transient transport error (network blip, connection refused, DNS hiccup). Retry at most once. If it fails again, suspect infrastructure and consider request_tool with kind=BROKEN_TOOL.`
-        : `The MCP server backing ${toolName} is unreachable or the underlying infrastructure is broken (e.g. missing binary, persistent connection failure). Do not retry. Consider whether your investigation can proceed without this tool class, or call request_tool with kind=BROKEN_TOOL to flag the outage.`;
+        ? `${toolName} hit a transient transport error (network blip, connection refused, DNS hiccup). Retry at most once. If it fails again, suspect infrastructure and consider platform__request_tool with kind=BROKEN_TOOL.`
+        : `The MCP server backing ${toolName} is unreachable or the underlying infrastructure is broken (e.g. missing binary, persistent connection failure). Do not retry. Consider whether your investigation can proceed without this tool class, or call platform__request_tool with kind=BROKEN_TOOL to flag the outage.`;
     case 'auth':
       return `${toolName} rejected the call with an auth error. This is an operator-level configuration issue. Do not retry. Move on with what you have and mention the auth gap in your analysis.`;
     case 'tool_not_registered':
@@ -651,6 +705,11 @@ export async function executeAgenticToolCall(
       toolInput = { ...input, clientId };
     } else if (actualToolName === 'read_tool_result_artifact' && ticketId) {
       toolInput = { ...input, ticketId };
+    } else if (actualToolName === 'request_tool' && ticketId) {
+      // Inject ticketId so the MCP server can derive clientId from the ticket
+      // and enforce the per-run rate limit correctly. The server ignores any
+      // caller-supplied clientId — it always re-derives it from ticketId.
+      toolInput = { ...input, ticketId };
     } else if (
       ticketId && (
         actualToolName === 'kd_read_toc' ||
@@ -669,6 +728,7 @@ export async function executeAgenticToolCall(
       toolInput,
       integration.apiKey,
       integration.authHeader,
+      integration.callerName,
     );
     return { toolUseId, result, isError: false };
   } catch (err) {
@@ -1126,7 +1186,6 @@ export interface AnalysisDeps {
   mcpRepoUrl: string;
   mcpPlatformUrl: string;
   apiKey?: string;
-  mcpAuthToken?: string;
   artifactStoragePath?: string;
   loadDefaultMaxTokens?: () => Promise<number | undefined>;
 }

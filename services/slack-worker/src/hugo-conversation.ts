@@ -207,8 +207,9 @@ async function executeToolLoop(
             '/mcp',
             actualToolName,
             toolInput,
-            deps.config.MCP_AUTH_TOKEN || deps.config.API_KEY,
-            deps.config.MCP_AUTH_TOKEN ? undefined : 'x-api-key',
+            deps.config.API_KEY,
+            'x-api-key',
+            'slack-worker',
           );
         } else {
           logger.info({ tool: toolUse.name, iteration: i + 1 }, 'Executing MCP Platform tool');
@@ -217,8 +218,9 @@ async function executeToolLoop(
             '/mcp',
             toolUse.name,
             toolUse.input,
-            deps.config.MCP_AUTH_TOKEN || deps.config.API_KEY,
-            deps.config.MCP_AUTH_TOKEN ? undefined : 'x-api-key',
+            deps.config.API_KEY,
+            'x-api-key',
+            'slack-worker',
           );
         }
       } catch (err) {
@@ -425,7 +427,7 @@ export async function handleHugoConversation(
   const repoIdByPrefix = new Map<string, string>();
   const repoToolPrefixes = new Set<string>();
   try {
-    tools = await getPlatformTools(config.MCP_PLATFORM_URL, { apiKey: config.API_KEY, authToken: config.MCP_AUTH_TOKEN });
+    tools = await getPlatformTools(config.MCP_PLATFORM_URL, { apiKey: config.API_KEY });
   } catch (err) {
     logger.error({ err }, 'Failed to discover MCP Platform tools');
     await slack.replyInThread(

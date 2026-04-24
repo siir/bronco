@@ -29,24 +29,58 @@ async function main(): Promise<void> {
     if (req.path === '/health') return next();
 
     const apiKey = req.headers['x-api-key'] as string | undefined;
-    const authHeader = req.headers['authorization'] as string | undefined;
-    const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined;
 
     const validApiKey = config.API_KEY && apiKey === config.API_KEY;
-    const validBearer = config.MCP_AUTH_TOKEN && bearerToken === config.MCP_AUTH_TOKEN;
 
-    // If neither auth method is configured, allow all (dev mode)
-    if (!config.API_KEY && !config.MCP_AUTH_TOKEN) return next();
+    // If no auth is configured, allow all (dev mode)
+    if (!config.API_KEY) return next();
 
-    if (validApiKey || validBearer) return next();
+    if (validApiKey) return next();
 
     res.status(401).json({ error: 'Unauthorized' });
+  });
+
+  // --- Caller-name extraction middleware ---
+  // Reads X-Caller-Name after API_KEY is validated. Attaches to the request
+  // for use by the MCP request handler. Does not reject missing headers unless
+  // REQUIRE_CALLER_NAME=true (soft-enforcement during rollout).
+  //
+  // The header value is validated against a conservative pattern to prevent
+  // log-injection and unexpected characters in error payloads.
+  const CALLER_NAME_PATTERN = /^[a-z0-9-]{1,64}$/;
+
+  app.use((req, res, next) => {
+    if (req.path === '/health') return next();
+
+    const rawCallerName = (req.headers['x-caller-name'] as string | undefined)?.trim() || null;
+
+    if (!rawCallerName) {
+      if (config.REQUIRE_CALLER_NAME) {
+        logger.warn({ path: req.path }, 'MCP request rejected: X-Caller-Name header missing (REQUIRE_CALLER_NAME=true)');
+        res.status(401).json({ error: 'X-Caller-Name header is required' });
+        return;
+      }
+      logger.warn({ path: req.path }, 'MCP request missing X-Caller-Name header — proceeding in grace mode');
+      res.locals['callerName'] = null;
+      next();
+      return;
+    }
+
+    if (!CALLER_NAME_PATTERN.test(rawCallerName)) {
+      logger.warn({ path: req.path }, 'MCP request rejected: X-Caller-Name header contains invalid characters');
+      res.status(400).json({ error: 'X-Caller-Name header must match [a-z0-9-]{1,64}' });
+      return;
+    }
+
+    res.locals['callerName'] = rawCallerName;
+    next();
   });
 
   // --- MCP Streamable HTTP transport ---
   app.post('/mcp', async (req, res) => {
     try {
-      const server = createMcpServer(serverDeps);
+      const callerName = (res.locals['callerName'] as string | null | undefined) ?? null;
+      const server = createMcpServer({ ...serverDeps, callerName });
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
       });

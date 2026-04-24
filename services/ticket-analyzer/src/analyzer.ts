@@ -244,8 +244,6 @@ export interface AnalyzerDeps {
   mcpPlatformUrl: string;
   /** API key for authenticating to mcp-repo (x-api-key header). */
   apiKey?: string;
-  /** MCP auth token for authenticating to mcp-repo (Bearer header, takes precedence over apiKey). */
-  mcpAuthToken?: string;
   /** Optional BullMQ queue for self-analysis triggers (post-pipeline analysis). */
   selfAnalysisQueue?: import('bullmq').Queue;
   /** Optional path for storing full MCP tool result artifacts on disk. */
@@ -836,8 +834,8 @@ async function deepAnalysis(
   try {
   const clientCodeRepos = await db.codeRepo.findMany({ where: { clientId: ticket.clientId, isActive: true } });
   const initialSessionId = `initial-${ticketId}`;
-  const repoAuth = deps.mcpAuthToken || deps.apiKey;
-  const repoAuthHeader = deps.mcpAuthToken ? 'bearer' : 'x-api-key';
+  const repoAuth = deps.apiKey;
+  const repoAuthHeader = 'x-api-key';
   for (const repo of clientCodeRepos) {
     try {
       const searchTerms = [
@@ -1870,8 +1868,8 @@ async function executeRoutePipeline(
 
         const gatherSessionId = `gather-${ticketId}`;
         const mcpRepoUrl = deps.mcpRepoUrl;
-        const repoAuth = deps.mcpAuthToken || deps.apiKey;
-        const repoAuthHeader = deps.mcpAuthToken ? 'bearer' : 'x-api-key';
+        const repoAuth = deps.apiKey;
+        const repoAuthHeader = 'x-api-key';
 
         // Pre-pull all repos in parallel so the per-repo search loop doesn't
         // block serially on cold clones. `callMcpToolViaSdk` resolves on both
@@ -2203,7 +2201,7 @@ async function executeRoutePipeline(
         // agents must not see kd_* tools — they predate the templated
         // knowledge-doc infrastructure.
         const { tools: agenticTools, mcpIntegrations, repoIdByPrefix, repos: agenticRepos } = await buildAgenticTools(
-          db, ticket.clientId, deps.encryptionKey, deps.mcpRepoUrl, deps.mcpPlatformUrl, deps.apiKey, deps.mcpAuthToken,
+          db, ticket.clientId, deps.encryptionKey, deps.mcpRepoUrl, deps.mcpPlatformUrl, deps.apiKey,
           { includeKdTools: version === 'v2' },
         );
 
@@ -2218,7 +2216,6 @@ async function executeRoutePipeline(
           mcpRepoUrl: deps.mcpRepoUrl,
           mcpPlatformUrl: deps.mcpPlatformUrl,
           apiKey: deps.apiKey,
-          mcpAuthToken: deps.mcpAuthToken,
           artifactStoragePath: deps.artifactStoragePath,
           loadDefaultMaxTokens: deps.loadDefaultMaxTokens,
         };
@@ -2526,8 +2523,8 @@ async function executeRoutePipeline(
           if (customRepos.length > 0) {
             const freshRepoParts: string[] = [];
             const customSessionId = `custom-${ticketId}-${bullmqJobId}`;
-            const customRepoAuth = deps.mcpAuthToken || deps.apiKey;
-            const customRepoAuthHeader = deps.mcpAuthToken ? 'bearer' : 'x-api-key';
+            const customRepoAuth = deps.apiKey;
+            const customRepoAuthHeader = 'x-api-key';
             for (const rs of queryCfg.repoSearches) {
               const targetRepos = rs.repoName
                 ? customRepos.filter((r) => r.name === rs.repoName)
@@ -3422,12 +3419,33 @@ export function createAnalysisProcessor(deps: AnalyzerDeps) {
           });
           triggerReplyText = triggerEvent?.content ?? '';
         }
-        // If no trigger event found, use the most recent inbound email, comment, or chat message
+        // If no trigger event found, use the most recent inbound email, comment, or chat message.
+        // Skip system-authored events (bare 'system' default or 'system:*' prefix) — these are
+        // auto-posted findings comments or recommendation notes that should never be treated as
+        // a user reply (#384).
         if (!triggerReplyText) {
           const latestReply = conversationHistory
-            .filter((e) => e.eventType === 'EMAIL_INBOUND' || e.eventType === 'COMMENT' || e.eventType === 'CHAT_MESSAGE')
+            .filter((e) => (e.eventType === 'EMAIL_INBOUND' || e.eventType === 'COMMENT' || e.eventType === 'CHAT_MESSAGE') && e.actor !== 'system' && !e.actor?.startsWith('system:'))
             .pop();
-          triggerReplyText = latestReply?.content ?? '';
+          if (!latestReply) {
+            appLog.info(
+              'Re-analysis skipped — no non-system trigger event found (most recent reply is system-authored)',
+              { ticketId },
+              ticketId,
+              'ticket',
+            );
+            await deps.db.ticket.update({
+              where: { id: ticketId },
+              data: {
+                analysisStatus: AnalysisStatus.COMPLETED,
+                analysisError: null,
+                lastAnalyzedAt: new Date(),
+                reanalysisCount: { decrement: 1 },
+              },
+            });
+            return;
+          }
+          triggerReplyText = latestReply.content ?? '';
         }
         const reanalysisContext: ReanalysisContext = {
           conversationHistory: formatConversationHistory(conversationHistory),
@@ -3507,13 +3525,15 @@ export function createAnalysisProcessor(deps: AnalyzerDeps) {
       name: 'Default Analysis (fallback)',
       steps: [
         { id: 'default-load-context', stepOrder: 1, name: 'Load Client Context', stepType: RouteStepType.LOAD_CLIENT_CONTEXT, taskTypeOverride: null, promptKeyOverride: null, config: null },
-        { id: 'default-extract-facts', stepOrder: 2, name: 'Extract Facts', stepType: RouteStepType.EXTRACT_FACTS, taskTypeOverride: null, promptKeyOverride: null, config: null },
-        { id: 'default-gather-repo', stepOrder: 3, name: 'Gather Repo Context', stepType: RouteStepType.GATHER_REPO_CONTEXT, taskTypeOverride: null, promptKeyOverride: null, config: null },
-        { id: 'default-gather-db', stepOrder: 4, name: 'Gather DB Context', stepType: RouteStepType.GATHER_DB_CONTEXT, taskTypeOverride: null, promptKeyOverride: null, config: null },
-        { id: 'default-agentic', stepOrder: 5, name: 'Agentic Analysis', stepType: RouteStepType.AGENTIC_ANALYSIS, taskTypeOverride: null, promptKeyOverride: null, config: null },
-        { id: 'default-findings', stepOrder: 6, name: 'Draft Findings Email', stepType: RouteStepType.DRAFT_FINDINGS_EMAIL, taskTypeOverride: null, promptKeyOverride: null, config: null },
-        { id: 'default-next-steps', stepOrder: 7, name: 'Suggest Next Steps', stepType: RouteStepType.SUGGEST_NEXT_STEPS, taskTypeOverride: null, promptKeyOverride: null, config: null },
-        { id: 'default-summary', stepOrder: 8, name: 'Update Ticket Summary', stepType: RouteStepType.UPDATE_TICKET_SUMMARY, taskTypeOverride: null, promptKeyOverride: null, config: null },
+        { id: 'default-load-env-context', stepOrder: 2, name: 'Load Environment Context', stepType: RouteStepType.LOAD_ENVIRONMENT_CONTEXT, taskTypeOverride: null, promptKeyOverride: null, config: null },
+        { id: 'default-extract-facts', stepOrder: 3, name: 'Extract Facts', stepType: RouteStepType.EXTRACT_FACTS, taskTypeOverride: null, promptKeyOverride: null, config: null },
+        { id: 'default-gather-repo', stepOrder: 4, name: 'Gather Repo Context', stepType: RouteStepType.GATHER_REPO_CONTEXT, taskTypeOverride: null, promptKeyOverride: null, config: null },
+        { id: 'default-gather-db', stepOrder: 5, name: 'Gather DB Context', stepType: RouteStepType.GATHER_DB_CONTEXT, taskTypeOverride: null, promptKeyOverride: null, config: null },
+        { id: 'default-agentic', stepOrder: 6, name: 'Agentic Analysis', stepType: RouteStepType.AGENTIC_ANALYSIS, taskTypeOverride: null, promptKeyOverride: null, config: null },
+        { id: 'default-findings', stepOrder: 7, name: 'Draft Findings Email', stepType: RouteStepType.DRAFT_FINDINGS_EMAIL, taskTypeOverride: null, promptKeyOverride: null, config: null },
+        { id: 'default-next-steps', stepOrder: 8, name: 'Suggest Next Steps', stepType: RouteStepType.SUGGEST_NEXT_STEPS, taskTypeOverride: null, promptKeyOverride: null, config: null },
+        { id: 'default-summary', stepOrder: 9, name: 'Update Ticket Summary', stepType: RouteStepType.UPDATE_TICKET_SUMMARY, taskTypeOverride: null, promptKeyOverride: null, config: null },
+        { id: 'default-detect-tool-gaps', stepOrder: 10, name: 'Detect Tool Gaps', stepType: RouteStepType.DETECT_TOOL_GAPS, taskTypeOverride: null, promptKeyOverride: null, config: null },
       ],
     } satisfies ResolvedRoute;
 

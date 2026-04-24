@@ -9,7 +9,7 @@ AI-augmented database and software architecture operations platform. Single-oper
 - **Monorepo**: pnpm workspaces. Shared packages in `packages/`, services in `services/`, MCP servers in `mcp-servers/`.
 - **Control plane DB**: PostgreSQL (Prisma ORM). Schema at `packages/db/prisma/schema.prisma`.
 - **Client databases**: Azure SQL Managed Instances (primary, SQL cred auth), on-prem SQL Server (future clients). Connected via MCP database server (Node.js/Express) running on Hugo in Docker Compose. The MCP server reads system configs directly from the control plane Postgres `System` table and decrypts passwords using `ENCRYPTION_KEY`.
-- **MCP Platform Server**: Exposes all Bronco platform operations (tickets, clients, people, probes, AI usage, etc.) as MCP tools. Uses Prisma directly (no HTTP hop to copilot-api). Exception: `run_tool_request_dedupe` proxies to copilot-api via HTTP because the dedupe logic depends on AIRouter and `mcp-discovery` which don't live in the mcp-platform dep graph. Runs on Hugo in Docker Compose (port 3110). MCP platform/repo/database URLs are configured per-service via `MCP_PLATFORM_URL`, `MCP_REPO_URL`, `MCP_DATABASE_URL` (defaults assume the Docker Compose network: `http://mcp-platform:3110`, `http://mcp-repo:3111`, `http://mcp-database:3100`).
+- **MCP Platform Server**: Exposes all Bronco platform operations (tickets, clients, people, probes, AI usage, etc.) as MCP tools. Uses Prisma directly (no HTTP hop to copilot-api). Exception: `run_tool_request_dedupe` proxies to copilot-api via HTTP because the dedupe logic depends on AIRouter and `mcp-discovery` which don't live in the mcp-platform dep graph. Runs on Hugo in Docker Compose (port 3110). MCP platform/repo/database URLs are configured per-service via `MCP_PLATFORM_URL`, `MCP_REPO_URL`, `MCP_DATABASE_URL` (defaults assume the Docker Compose network: `http://mcp-platform:3110`, `http://mcp-repo:3111`, `http://mcp-database:3100`). Per-caller tool allowlist: callers identify themselves via the `X-Caller-Name` header; each caller is restricted to a defined tool set in `caller-registry.ts`. `REQUIRE_CALLER_NAME` (default `false`) gates enforcement — grace mode logs WARN on missing header and proceeds; flip to `true` in Hugo `.env` once all callers are confirmed sending the header.
 - **AI routing**: Local Ollama for triage/categorize/summarize/extract; Claude API for deep analysis, code review, architecture review, bug analysis, schema review, feature analysis.
 - **Hugo** (control plane VM): Ubuntu 24.04 LTS on ESXi NUC. Runs copilot-api (Fastify), imap-worker, ticket-analyzer, devops-worker, issue-resolver, status-monitor, slack-worker, scheduler-worker, mcp-database, mcp-platform, mcp-repo, Postgres, Redis, Caddy, and cloudflared (Cloudflare Tunnel for public ingress at `itrack.siirial.com`) via Docker Compose.
 - **Mac mini (siiriaplex)**: Runs Ollama for local LLM inference.
@@ -429,6 +429,8 @@ pnpm dev:portal           # Start ticket portal (Angular, port 4201)
 | `packages/shared-utils/src/tool-request-github.ts` | Shared GitHub-issue helper for tool requests: dual-reads credentials (platform-scoped GITHUB integration first, then `system-config-github` AppSetting fallback), repo from `tool-requests-github-default-repo` AppSetting (or override), POSTs via GitHub REST v3, persists `githubIssueUrl` + `implementedInIssue` on the row. |
 | `packages/shared-types/src/integration.ts` | `IntegrationType` enum (IMAP, AZURE_DEVOPS, MCP_DATABASE, SLACK, GITHUB) + typed config interfaces for each. GITHUB supports PAT and `github_app` (app stubbed for v1). |
 | `mcp-servers/repo/src/github-clone-url.ts` | Resolves HTTPS clone URLs for repos with a GITHUB integration: checks client-scoped integration first, then platform-default (`label: 'default'`), embeds PAT in URL for clone/fetch, scrubs URL back to plain after. SSH URLs bypass this path. |
+| `mcp-servers/platform/src/auth/caller-registry.ts` | Per-caller tool allowlist. Maps `X-Caller-Name` values to allowed tool sets (`'*'` for full access on `copilot-api`; tight sets for workers). Controlled by `REQUIRE_CALLER_NAME` env var (default `false`). |
+| `mcp-servers/platform/src/tools/selects.ts` | `SAFE_PERSON_SELECT` — shared Prisma select projection that excludes sensitive Person fields (`passwordHash`, `emailLower`). Import in every MCP tool that queries a Person. |
 | `mcp-servers/platform/src/tools/request-tool.ts` | MCP `request_tool` that analyzers call when they hit a capability gap; accepts `kind` (`NEW_TOOL` / `BROKEN_TOOL` / `IMPROVE_TOOL`); enforces the per-run rate limit from AppSetting `tool-request-rate-limit-per-run`. |
 | `mcp-servers/platform/src/tools/tool-requests.ts` | MCP CRUD tools for tool requests (list/get/update/delete) + `create_tool_request_github_issue` wrapper used by the platform surface. |
 | `services/control-panel/src/app/features/tool-requests/tool-request-list.component.ts` | Admin Tool Requests page: list + detail dialog with rationale history, linked tickets, status transition controls, client filter + Run Dedupe button, AI suggestion pills with Accept/Dismiss, and Create GitHub Issue flow for approved requests. |
@@ -437,7 +439,7 @@ pnpm dev:portal           # Start ticket portal (Angular, port 4201)
 | `mcp-servers/repo/src/tools/list-files.ts` | Per-repo MCP `list_files` tool — list files in a directory tree, extension-filtered. |
 | `mcp-servers/repo/src/tools/prepare-repo.ts` | Per-repo MCP `prepare_repo` tool — called in parallel by `GATHER_REPO_CONTEXT` to clone/pull active repos before analysis. |
 | `services/control-panel/src/app/features/tickets/chat/chat-tab.component.ts` | Chat tab: operator-facing conversation surface with intent-based re-analysis (`continue` / `refine` / `fresh_start`) classified via `CLASSIFY_CHAT_INTENT`. Posts `CHAT_MESSAGE` ticket events. |
-| `services/control-panel/src/app/features/tickets/analysis-trace/analysis-trace.component.ts` | Analysis Trace tab: three-pass merge (tree build → same-prompt merge → tool-call collapse) over `ai_usage_logs` with strategy stamp rendering and Raw Logs fallback for legacy data. |
+| `services/control-panel/src/app/features/tickets/analysis-trace/analysis-trace.component.ts` | Analysis Trace tab: three-pass merge (tree build → same-prompt merge → tool-call collapse) over `ai_usage_logs` with strategy stamp rendering, per-ticket cost + duration header badge, and Raw Logs fallback for legacy data. |
 | `packages/shared-types/src/access-type.ts` | `AccessType` + `OperatorRole` (ADMIN / STANDARD) enums — foundation for scoped-ops access control and portal-user vs operator discrimination. Used by `resolveClientScope` in `services/copilot-api/src/plugins/client-scope.ts`. |
 | `services/copilot-api/src/routes/artifacts.ts` | MCP tool artifact storage and retrieval endpoints (`/api/artifacts`). |
 | `services/copilot-api/src/routes/release-notes.ts` | Release notes API: commit ingestion, AI summarization, GitHub backfill, service filtering. |
@@ -476,6 +478,41 @@ Every new service or worker **must** integrate with the operational infrastructu
 7. **Dockerfile** — Create `services/<name>/Dockerfile` following the multi-stage pattern (base → deps → build → production). Copy all workspace `package.json` files in the deps stage for lockfile resolution.
 8. **docker-compose.yml** — Add the service entry with env vars, health check, and named volume (if needed for persistent state).
 9. **deploy-hugo.yml** — Add to the build matrix and the `docker pull` list in the deploy script.
+
+## Hugo Host Prerequisites
+
+One-time setup steps required on the Hugo control-plane VM. These are manual host-level changes — not applied by any CI/CD workflow or Docker Compose service.
+
+### UDP Receive Buffer (cloudflared / QUIC)
+
+cloudflared logs the following warning on every startup when the OS UDP receive buffer is too small:
+
+```
+failed to sufficiently increase receive buffer size (was: 208 kiB, wanted: 7168 kiB, got: 416 kiB).
+See https://github.com/quic-go/quic-go/wiki/UDP-Buffer-Sizes for details.
+```
+
+An undersized UDP buffer increases QUIC packet loss under network variability, which can escalate to stream timeouts and stale tunnel connections (see issue #381).
+
+**Fix** — create `/etc/sysctl.d/99-cloudflared.conf` on Hugo with:
+
+```
+# Increase UDP receive/send buffer to satisfy cloudflared/quic-go requirements.
+# Eliminates "failed to sufficiently increase receive buffer size" warning and
+# reduces QUIC drift under sustained network variability.
+net.core.rmem_max=7500000
+net.core.wmem_max=7500000
+```
+
+Then reload:
+
+```bash
+sudo sysctl --system
+```
+
+**Verification** — restart cloudflared (`docker restart bronco-cloudflared-1`) and confirm the warning is gone from `docker logs bronco-cloudflared-1 --tail 20`.
+
+This is a persistent change (survives reboots). Because `net.core.rmem_max` / `net.core.wmem_max` are host-wide sysctls, the change applies to all processes on Hugo — it raises the maximum socket buffer sizes available to every service, but does not force any service to allocate larger buffers. The change is generally safe and is the standard recommendation for quic-go workloads.
 
 ## Overnight Issue Resolution Workflow
 

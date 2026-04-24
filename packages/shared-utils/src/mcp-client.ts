@@ -216,6 +216,7 @@ export async function callMcpToolWithAuth(
   params: Record<string, unknown>,
   apiKey?: string,
   authHeader?: string,
+  callerName?: string,
 ): Promise<string> {
   // Validate toolName before using it in URL construction.
   if (!TOOL_NAME_RE.test(toolName)) {
@@ -232,6 +233,9 @@ export async function callMcpToolWithAuth(
     } else {
       headers['Authorization'] = `Bearer ${apiKey}`;
     }
+  }
+  if (callerName) {
+    headers['X-Caller-Name'] = callerName;
   }
 
   // Use URL constructor for safe path building instead of string concatenation.
@@ -264,6 +268,7 @@ export async function callMcpToolViaSdk(
   params: Record<string, unknown>,
   apiKey?: string,
   authHeader?: string,
+  callerName?: string,
 ): Promise<string> {
   if (!TOOL_NAME_RE.test(toolName)) {
     throw new Error(
@@ -289,6 +294,9 @@ export async function callMcpToolViaSdk(
     } else {
       headers['Authorization'] = `Bearer ${apiKey}`;
     }
+  }
+  if (callerName) {
+    headers['x-caller-name'] = callerName;
   }
 
   const transport = new StreamableHTTPClientTransport(endpointUrl, {

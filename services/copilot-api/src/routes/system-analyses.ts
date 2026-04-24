@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { Queue } from 'bullmq';
 import { SystemAnalysisStatus } from '@bronco/shared-types';
+import { resolveClientScope, scopeToWhere } from '../plugins/client-scope.js';
 
 const VALID_STATUSES: Set<string> = new Set(Object.values(SystemAnalysisStatus));
 
@@ -38,9 +39,23 @@ export async function systemAnalysisRoutes(
       return fastify.httpErrors.badRequest(`Invalid status: ${status}`);
     }
 
+    // Scope enforcement: restrict to caller's client(s)
+    const callerScope = await resolveClientScope(request);
+    const scopeWhere = scopeToWhere(callerScope);
+
+    // If a clientId filter is requested, validate it is within the caller's scope
+    const effectiveClientId =
+      clientId &&
+      (callerScope.type === 'all' ||
+        (callerScope.type === 'single' && callerScope.clientId === clientId) ||
+        (callerScope.type === 'assigned' && callerScope.clientIds.includes(clientId)))
+        ? clientId
+        : undefined;
+
     const where = {
+      ...scopeWhere,
       ...(status && { status: status as SystemAnalysisStatus }),
-      ...(clientId && { clientId }),
+      ...(effectiveClientId && { clientId: effectiveClientId }),
     };
 
     const [total, analyses] = await Promise.all([
@@ -57,9 +72,13 @@ export async function systemAnalysisRoutes(
   });
 
   // GET /api/system-analyses/stats — counts by status
-  fastify.get('/api/system-analyses/stats', async () => {
+  fastify.get('/api/system-analyses/stats', async (request) => {
+    const callerScope = await resolveClientScope(request);
+    const scopeWhere = scopeToWhere(callerScope);
+
     const byStatus = await fastify.db.systemAnalysis.groupBy({
       by: ['status'],
+      where: scopeWhere,
       _count: true,
     });
 
@@ -77,6 +96,15 @@ export async function systemAnalysisRoutes(
     const { clientId } = request.query;
     if (!clientId) {
       return fastify.httpErrors.badRequest('clientId query parameter is required');
+    }
+
+    // Scope enforcement: validate the caller is authorized for the requested client
+    const callerScope = await resolveClientScope(request);
+    if (
+      (callerScope.type === 'single' && callerScope.clientId !== clientId) ||
+      (callerScope.type === 'assigned' && !callerScope.clientIds.includes(clientId))
+    ) {
+      return fastify.httpErrors.forbidden('clientId not in your scope');
     }
 
     const [pending, rejected] = await Promise.all([
@@ -101,8 +129,9 @@ export async function systemAnalysisRoutes(
   fastify.get<{ Params: { id: string } }>(
     '/api/system-analyses/:id',
     async (request) => {
-      const analysis = await fastify.db.systemAnalysis.findUnique({
-        where: { id: request.params.id },
+      const callerScope = await resolveClientScope(request);
+      const analysis = await fastify.db.systemAnalysis.findFirst({
+        where: { id: request.params.id, ...scopeToWhere(callerScope) },
       });
       if (!analysis) return fastify.httpErrors.notFound('Analysis not found');
       return analysis;
@@ -113,8 +142,9 @@ export async function systemAnalysisRoutes(
   fastify.patch<{ Params: { id: string } }>(
     '/api/system-analyses/:id/acknowledge',
     async (request) => {
-      const existing = await fastify.db.systemAnalysis.findUnique({
-        where: { id: request.params.id },
+      const callerScope = await resolveClientScope(request);
+      const existing = await fastify.db.systemAnalysis.findFirst({
+        where: { id: request.params.id, ...scopeToWhere(callerScope) },
         select: { status: true },
       });
       if (!existing) return fastify.httpErrors.notFound('Analysis not found');
@@ -141,8 +171,9 @@ export async function systemAnalysisRoutes(
         return fastify.httpErrors.badRequest('Rejection reason is required');
       }
 
-      const existing = await fastify.db.systemAnalysis.findUnique({
-        where: { id: request.params.id },
+      const callerScope = await resolveClientScope(request);
+      const existing = await fastify.db.systemAnalysis.findFirst({
+        where: { id: request.params.id, ...scopeToWhere(callerScope) },
         select: { status: true },
       });
       if (!existing) return fastify.httpErrors.notFound('Analysis not found');
@@ -161,8 +192,9 @@ export async function systemAnalysisRoutes(
   fastify.post<{ Params: { id: string } }>(
     '/api/system-analyses/:id/regenerate',
     async (request, reply) => {
-      const existing = await fastify.db.systemAnalysis.findUnique({
-        where: { id: request.params.id },
+      const callerScope = await resolveClientScope(request);
+      const existing = await fastify.db.systemAnalysis.findFirst({
+        where: { id: request.params.id, ...scopeToWhere(callerScope) },
         select: { ticketId: true },
       });
       if (!existing) return fastify.httpErrors.notFound('Analysis not found');
@@ -182,8 +214,9 @@ export async function systemAnalysisRoutes(
   fastify.patch<{ Params: { id: string } }>(
     '/api/system-analyses/:id/reopen',
     async (request) => {
-      const existing = await fastify.db.systemAnalysis.findUnique({
-        where: { id: request.params.id },
+      const callerScope = await resolveClientScope(request);
+      const existing = await fastify.db.systemAnalysis.findFirst({
+        where: { id: request.params.id, ...scopeToWhere(callerScope) },
         select: { status: true },
       });
       if (!existing) return fastify.httpErrors.notFound('Analysis not found');
@@ -202,8 +235,9 @@ export async function systemAnalysisRoutes(
   fastify.delete<{ Params: { id: string } }>(
     '/api/system-analyses/:id',
     async (request, reply) => {
-      const existing = await fastify.db.systemAnalysis.findUnique({
-        where: { id: request.params.id },
+      const callerScope = await resolveClientScope(request);
+      const existing = await fastify.db.systemAnalysis.findFirst({
+        where: { id: request.params.id, ...scopeToWhere(callerScope) },
         select: { id: true },
       });
       if (!existing) return fastify.httpErrors.notFound('Analysis not found');

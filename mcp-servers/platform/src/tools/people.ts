@@ -1,10 +1,16 @@
+/**
+ * Security note: `search_people` queries across all clients with no per-request client-scope filter.
+ * This is safe because the MCP platform server is operator-only (Tailscale + Cloudflare Access).
+ * If the server is ever exposed to non-operator principals, add a scope layer first.
+ * See mcp-servers/platform/README.md — "Security Model" for details and the implementation template.
+ */
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { ServerDeps } from '../server.js';
 import { ClientUserType } from '@bronco/shared-types';
+import { SAFE_PERSON_SELECT } from './selects.js';
 
-// Explicit Person select — never expose passwordHash or emailLower to MCP callers.
-const PERSON_SELECT = { id: true, name: true, email: true, phone: true, isActive: true } as const;
+const PERSON_SELECT = SAFE_PERSON_SELECT;
 
 const CLIENT_USER_SELECT = {
   id: true,

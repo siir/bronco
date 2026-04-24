@@ -4,13 +4,20 @@ import { ClientUserType, OperatorRole } from '@bronco/shared-types';
 import type { AuthUser } from '../plugins/auth.js';
 import { resolveClientScope } from '../plugins/client-scope.js';
 
-/** Explicit Person projection — never expose passwordHash/emailLower to API consumers. */
+/**
+ * Person projection used by `formatPerson()`. Selects `passwordHash` so that
+ * `formatPerson` can derive the boolean `hasPortalAccess` sentinel — the hash
+ * value itself is never included in any response body; only the boolean is
+ * returned to callers. `emailLower` is never selected here.
+ */
 const PERSON_SELECT = {
   id: true,
   name: true,
   email: true,
   phone: true,
   isActive: true,
+  // Selected for `hasPortalAccess` derivation in formatPerson only.
+  // The raw hash is never serialised into any API response.
   passwordHash: true,
 } as const;
 
@@ -37,6 +44,7 @@ function formatPerson(cu: {
     role: null,
     slackUserId: null,
     isPrimary: cu.isPrimary,
+    // Derived boolean only — the hash itself is never returned.
     hasPortalAccess: cu.person.passwordHash !== null,
     hasOpsAccess: false, // Wave 1 BC shim — Wave 2C removes this field
     userType: cu.userType,
@@ -314,7 +322,12 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
 
     const existingPerson = await fastify.db.person.findUnique({
       where: { emailLower },
-      include: { clientUsers: { select: { clientId: true } } },
+      // Explicit select — only id (for upsert) and clientUsers.clientId (for
+      // dup check) are needed here. No Person fields beyond id are used.
+      select: {
+        id: true,
+        clientUsers: { select: { clientId: true } },
+      },
     });
 
     if (existingPerson) {
@@ -325,18 +338,26 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
     }
 
     const shouldSetPassword = (hasPortalAccess === true || !!password) && !!password;
-    const passwordHash = shouldSetPassword ? await bcrypt.hash(password!, 10) : undefined;
 
     const result = await fastify.db.$transaction(async (tx) => {
+      // #407 Medium 6 — cross-tenant Person mutation gap.
+      //
+      // When an existing Person is matched by email, do NOT mutate their global
+      // Person fields (name, isActive, passwordHash). Person is a shared-identity
+      // record: any field change propagates to every tenant and Operator session
+      // linked to that Person. A client-scoped caller at Client A has no authority
+      // over a Person's global state — they may only extend the Person into their
+      // own client by adding a ClientUser row.
+      //
+      // If the caller needs to update global Person fields (name, isActive,
+      // passwordHash), they should use PATCH /api/people/:id, which enforces
+      // assertPersonMutationScope before touching Person-level data.
+      //
+      // Bcrypt hashing is deferred to here so we only pay the CPU cost on the
+      // new-Person path — the hash is never needed when re-using an existing Person.
+      const passwordHash = shouldSetPassword && !existingPerson ? await bcrypt.hash(password!, 10) : undefined;
       const person = existingPerson
-        ? await tx.person.update({
-            where: { id: existingPerson.id },
-            data: {
-              name: name.trim(),
-              ...(isActive !== undefined && { isActive }),
-              ...(passwordHash !== undefined && { passwordHash }),
-            },
-          })
+        ? existingPerson
         : await tx.person.create({
             data: {
               name: name.trim(),
@@ -466,7 +487,11 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
     const email = rawEmail?.trim();
     const emailLower = email?.toLowerCase();
     if (emailLower) {
-      const existing = await fastify.db.person.findUnique({ where: { emailLower } });
+      // Only id is needed for the conflict check — don't pull the hash.
+      const existing = await fastify.db.person.findUnique({
+        where: { emailLower },
+        select: { id: true },
+      });
       if (existing && existing.id !== id) {
         return reply.code(409).send({ error: 'Email is already in use by another person' });
       }
@@ -544,13 +569,18 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       await fastify.db.$transaction(async (tx) => {
-        await tx.clientUser.delete({ where: { id: cu.id } });
-
-        // Revoke active portal tokens for this client scope
+        // Revoke tokens BEFORE deleting the ClientUser. The FK on
+        // person_refresh_tokens.client_user_id is ON DELETE SET NULL, so
+        // deleting cu first would null out clientUserId and the updateMany
+        // below would match nothing, leaving active tokens un-revoked.
         await tx.personRefreshToken.updateMany({
-          where: { personId: id, accessType: 'CLIENT_USER', revokedAt: null },
+          where: { clientUserId: cu.id, revokedAt: null },
           data: { revokedAt: new Date() },
         });
+
+        // Scope revocation to the specific ClientUser being removed so that a
+        // multi-tenant Person is not logged out of other clients.
+        await tx.clientUser.delete({ where: { id: cu.id } });
 
         // If Person has no remaining ClientUser AND no Operator, null the passwordHash
         // so they cannot log in even if re-added later with stale credentials.

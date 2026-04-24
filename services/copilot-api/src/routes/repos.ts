@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { IntegrationType, PROTECTED_BRANCH_NAMES } from '@bronco/shared-types';
+import { resolveClientScope, scopeToWhere } from '../plugins/client-scope.js';
 
 class BranchPrefixError extends Error {
   statusCode = 400;
@@ -59,10 +60,18 @@ export async function repoRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get<{ Querystring: { clientId?: string } }>(
     '/api/repos',
     async (request) => {
+      const scope = await resolveClientScope(request);
+      const scopeWhere = scopeToWhere(scope);
       const { clientId } = request.query;
+      const effectiveClientId = clientId && (
+        scope.type === 'all' ||
+        (scope.type === 'single' && scope.clientId === clientId) ||
+        (scope.type === 'assigned' && scope.clientIds.includes(clientId))
+      ) ? clientId : undefined;
       return fastify.db.codeRepo.findMany({
         where: {
-          ...(clientId && { clientId }),
+          ...scopeWhere,
+          ...(effectiveClientId && { clientId: effectiveClientId }),
         },
         include: {
           client: { select: { name: true, shortCode: true } },
@@ -74,8 +83,9 @@ export async function repoRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   fastify.get<{ Params: { id: string } }>('/api/repos/:id', async (request) => {
-    const repo = await fastify.db.codeRepo.findUnique({
-      where: { id: request.params.id },
+    const scope = await resolveClientScope(request);
+    const repo = await fastify.db.codeRepo.findFirst({
+      where: { id: request.params.id, ...scopeToWhere(scope) },
       include: {
         client: { select: { name: true, shortCode: true } },
         issueJobs: { orderBy: { createdAt: 'desc' }, take: 10 },
@@ -99,7 +109,14 @@ export async function repoRoutes(fastify: FastifyInstance): Promise<void> {
   }>('/api/repos', async (request, reply) => {
     validateBranchPrefix(request.body.branchPrefix);
 
+    const scope = await resolveClientScope(request);
     const { clientId, environmentId, githubIntegrationId } = request.body;
+    if (
+      scope.type === 'single' && scope.clientId !== clientId ||
+      scope.type === 'assigned' && !scope.clientIds.includes(clientId)
+    ) {
+      return fastify.httpErrors.forbidden('clientId not in your scope');
+    }
     if (environmentId !== undefined && environmentId !== null) {
       const env = await fastify.db.clientEnvironment.findUnique({
         where: { id: environmentId },
@@ -146,19 +163,14 @@ export async function repoRoutes(fastify: FastifyInstance): Promise<void> {
   }>('/api/repos/:id', async (request) => {
     validateBranchPrefix(request.body.branchPrefix);
 
-    const needsExistingRepo =
-      (request.body.environmentId !== undefined && request.body.environmentId !== null) ||
-      (request.body.githubIntegrationId !== undefined && request.body.githubIntegrationId !== null);
-
-    let existingRepoClientId: string | undefined;
-    if (needsExistingRepo) {
-      const repo = await fastify.db.codeRepo.findUnique({
-        where: { id: request.params.id },
-        select: { clientId: true },
-      });
-      if (!repo) return fastify.httpErrors.notFound('Code repo not found');
-      existingRepoClientId = repo.clientId;
-    }
+    const scope = await resolveClientScope(request);
+    // Always fetch the existing repo to enforce scope guard (404 if out of scope)
+    const existingRepo = await fastify.db.codeRepo.findFirst({
+      where: { id: request.params.id, ...scopeToWhere(scope) },
+      select: { clientId: true },
+    });
+    if (!existingRepo) return fastify.httpErrors.notFound('Code repo not found');
+    const existingRepoClientId = existingRepo.clientId;
 
     if (request.body.environmentId !== undefined && request.body.environmentId !== null) {
       const env = await fastify.db.clientEnvironment.findUnique({
@@ -169,7 +181,7 @@ export async function repoRoutes(fastify: FastifyInstance): Promise<void> {
       if (env.clientId !== existingRepoClientId) return fastify.httpErrors.forbidden('environmentId belongs to a different client');
     }
 
-    if (request.body.githubIntegrationId !== undefined && request.body.githubIntegrationId !== null && existingRepoClientId) {
+    if (request.body.githubIntegrationId !== undefined && request.body.githubIntegrationId !== null) {
       const err = await validateGithubIntegration(fastify, request.body.githubIntegrationId, existingRepoClientId);
       if (err) return fastify.httpErrors.badRequest(err);
     }
@@ -188,6 +200,13 @@ export async function repoRoutes(fastify: FastifyInstance): Promise<void> {
   });
 
   fastify.delete<{ Params: { id: string } }>('/api/repos/:id', async (request, reply) => {
+    const scope = await resolveClientScope(request);
+    const repo = await fastify.db.codeRepo.findFirst({
+      where: { id: request.params.id, ...scopeToWhere(scope) },
+      select: { id: true },
+    });
+    if (!repo) return fastify.httpErrors.notFound('Code repo not found');
+
     // Check for related issue jobs before deleting
     const jobCount = await fastify.db.issueJob.count({
       where: { repoId: request.params.id },
