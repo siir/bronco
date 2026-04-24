@@ -1097,6 +1097,30 @@ async function maybeEnqueueReanalysis(
     select: { id: true },
   });
 
+  // 5b. Author gate — skip if the most recent reply-type event (EMAIL_INBOUND or COMMENT)
+  // is system-authored. This prevents a spurious UPDATE_ANALYSIS when the analyzer's own
+  // auto-posted findings comment (actor: 'system:recommendation-executor' or the bare
+  // Prisma default 'system') is the last event on the ticket and the re-analysis would
+  // only "echo back" that comment (#384).
+  //
+  // EMAIL_INBOUND events created by RESOLVE_THREAD use actor `email:<address>` — never
+  // system-prefixed — so this check only skips when no real inbound exists and the most
+  // recent COMMENT is from the system itself.
+  if (!triggerEvent) {
+    const latestReplyEvent = await db.ticketEvent.findFirst({
+      where: { ticketId, eventType: { in: ['EMAIL_INBOUND', 'COMMENT'] } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, actor: true },
+    });
+    if (latestReplyEvent?.actor === 'system' || latestReplyEvent?.actor?.startsWith('system:')) {
+      log.info(
+        { ticketId, actor: latestReplyEvent.actor, eventId: latestReplyEvent.id },
+        'Most recent reply event is system-authored — skipping UPDATE_ANALYSIS enqueue (#384)',
+      );
+      return;
+    }
+  }
+
   // All conditions met — enqueue re-analysis with a unique, timestamped ID
   // so BullMQ cannot silently collapse this into a previously completed job.
   const reanalysisJobId = `reanalysis-${ticketId}-${Date.now()}`;
