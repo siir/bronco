@@ -71,9 +71,9 @@ The server starts on port 3110 by default.
 |----------|----------|---------|-------------|
 | `DATABASE_URL` | Yes | -- | Postgres connection string |
 | `ENCRYPTION_KEY` | Yes | -- | AES-256-GCM key for credential decryption |
-| `REDIS_URL` | Yes | -- | Redis connection string (BullMQ) |
+| `REDIS_URL` | No | `redis://localhost:6379` | Redis connection string (BullMQ) |
 | `PORT` | No | 3110 | HTTP listen port |
-| `MCP_AUTH_TOKEN` | No | -- | Bearer token for MCP endpoint auth |
+| `API_KEY` | No | -- | `x-api-key` header auth for the MCP endpoint. If unset, the server runs in dev mode with no auth. |
 | `COPILOT_API_URL` | No | `http://copilot-api:3000` | copilot-api base URL (used by `run_tool_request_dedupe`) |
 | `LOG_LEVEL` | No | info | Pino log level |
 
