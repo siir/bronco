@@ -91,7 +91,6 @@ async function main(): Promise<void> {
     mcpRepoUrl: config.MCP_REPO_URL,
     mcpPlatformUrl: config.MCP_PLATFORM_URL,
     apiKey: config.API_KEY,
-    mcpAuthToken: config.MCP_AUTH_TOKEN,
     selfAnalysisQueue,
     artifactStoragePath: config.ARTIFACT_STORAGE_PATH,
     loadDefaultMaxTokens: () => loadDefaultMaxTokens(db),

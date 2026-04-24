@@ -9,7 +9,6 @@ const configSchema = z.object({
   MCP_PLATFORM_URL: z.string().default('http://mcp-platform:3110'),
   MCP_REPO_URL: z.string().url().default('http://mcp-repo:3111'),
   API_KEY: z.string().optional().transform(v => v || undefined),
-  MCP_AUTH_TOKEN: z.string().optional().transform(v => v || undefined),
 });
 
 export type Config = z.output<typeof configSchema>;

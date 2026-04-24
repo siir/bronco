@@ -244,8 +244,6 @@ export interface AnalyzerDeps {
   mcpPlatformUrl: string;
   /** API key for authenticating to mcp-repo (x-api-key header). */
   apiKey?: string;
-  /** MCP auth token for authenticating to mcp-repo (Bearer header, takes precedence over apiKey). */
-  mcpAuthToken?: string;
   /** Optional BullMQ queue for self-analysis triggers (post-pipeline analysis). */
   selfAnalysisQueue?: import('bullmq').Queue;
   /** Optional path for storing full MCP tool result artifacts on disk. */
@@ -836,8 +834,8 @@ async function deepAnalysis(
   try {
   const clientCodeRepos = await db.codeRepo.findMany({ where: { clientId: ticket.clientId, isActive: true } });
   const initialSessionId = `initial-${ticketId}`;
-  const repoAuth = deps.mcpAuthToken || deps.apiKey;
-  const repoAuthHeader = deps.mcpAuthToken ? 'bearer' : 'x-api-key';
+  const repoAuth = deps.apiKey;
+  const repoAuthHeader = 'x-api-key';
   for (const repo of clientCodeRepos) {
     try {
       const searchTerms = [
@@ -1870,8 +1868,8 @@ async function executeRoutePipeline(
 
         const gatherSessionId = `gather-${ticketId}`;
         const mcpRepoUrl = deps.mcpRepoUrl;
-        const repoAuth = deps.mcpAuthToken || deps.apiKey;
-        const repoAuthHeader = deps.mcpAuthToken ? 'bearer' : 'x-api-key';
+        const repoAuth = deps.apiKey;
+        const repoAuthHeader = 'x-api-key';
 
         // Pre-pull all repos in parallel so the per-repo search loop doesn't
         // block serially on cold clones. `callMcpToolViaSdk` resolves on both
@@ -2203,7 +2201,7 @@ async function executeRoutePipeline(
         // agents must not see kd_* tools — they predate the templated
         // knowledge-doc infrastructure.
         const { tools: agenticTools, mcpIntegrations, repoIdByPrefix, repos: agenticRepos } = await buildAgenticTools(
-          db, ticket.clientId, deps.encryptionKey, deps.mcpRepoUrl, deps.mcpPlatformUrl, deps.apiKey, deps.mcpAuthToken,
+          db, ticket.clientId, deps.encryptionKey, deps.mcpRepoUrl, deps.mcpPlatformUrl, deps.apiKey,
           { includeKdTools: version === 'v2' },
         );
 
@@ -2218,7 +2216,6 @@ async function executeRoutePipeline(
           mcpRepoUrl: deps.mcpRepoUrl,
           mcpPlatformUrl: deps.mcpPlatformUrl,
           apiKey: deps.apiKey,
-          mcpAuthToken: deps.mcpAuthToken,
           artifactStoragePath: deps.artifactStoragePath,
           loadDefaultMaxTokens: deps.loadDefaultMaxTokens,
         };
@@ -2526,8 +2523,8 @@ async function executeRoutePipeline(
           if (customRepos.length > 0) {
             const freshRepoParts: string[] = [];
             const customSessionId = `custom-${ticketId}-${bullmqJobId}`;
-            const customRepoAuth = deps.mcpAuthToken || deps.apiKey;
-            const customRepoAuthHeader = deps.mcpAuthToken ? 'bearer' : 'x-api-key';
+            const customRepoAuth = deps.apiKey;
+            const customRepoAuthHeader = 'x-api-key';
             for (const rs of queryCfg.repoSearches) {
               const targetRepos = rs.repoName
                 ? customRepos.filter((r) => r.name === rs.repoName)
