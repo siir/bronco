@@ -7,6 +7,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { ServerDeps } from '../server.js';
+import { SAFE_PERSON_SELECT } from './selects.js';
 
 export function registerClientTools(server: McpServer, { db }: ServerDeps): void {
   server.tool(
@@ -103,7 +104,7 @@ export function registerClientTools(server: McpServer, { db }: ServerDeps): void
               id: true,
               userType: true,
               isPrimary: true,
-              person: { select: { id: true, name: true, email: true, phone: true } },
+              person: { select: SAFE_PERSON_SELECT },
             },
           },
           integrations: {

@@ -8,9 +8,9 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { ServerDeps } from '../server.js';
 import { ClientUserType } from '@bronco/shared-types';
+import { SAFE_PERSON_SELECT } from './selects.js';
 
-// Explicit Person select — never expose passwordHash or emailLower to MCP callers.
-const PERSON_SELECT = { id: true, name: true, email: true, phone: true, isActive: true } as const;
+const PERSON_SELECT = SAFE_PERSON_SELECT;
 
 const CLIENT_USER_SELECT = {
   id: true,
