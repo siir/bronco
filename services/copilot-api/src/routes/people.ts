@@ -325,18 +325,26 @@ export async function peopleRoutes(fastify: FastifyInstance): Promise<void> {
     }
 
     const shouldSetPassword = (hasPortalAccess === true || !!password) && !!password;
-    const passwordHash = shouldSetPassword ? await bcrypt.hash(password!, 10) : undefined;
 
     const result = await fastify.db.$transaction(async (tx) => {
+      // #407 Medium 6 — cross-tenant Person mutation gap.
+      //
+      // When an existing Person is matched by email, do NOT mutate their global
+      // Person fields (name, isActive, passwordHash). Person is a shared-identity
+      // record: any field change propagates to every tenant and Operator session
+      // linked to that Person. A client-scoped caller at Client A has no authority
+      // over a Person's global state — they may only extend the Person into their
+      // own client by adding a ClientUser row.
+      //
+      // If the caller needs to update global Person fields (name, isActive,
+      // passwordHash), they should use PATCH /api/people/:id, which enforces
+      // assertPersonMutationScope before touching Person-level data.
+      //
+      // Bcrypt hashing is deferred to here so we only pay the CPU cost on the
+      // new-Person path — the hash is never needed when re-using an existing Person.
+      const passwordHash = shouldSetPassword && !existingPerson ? await bcrypt.hash(password!, 10) : undefined;
       const person = existingPerson
-        ? await tx.person.update({
-            where: { id: existingPerson.id },
-            data: {
-              name: name.trim(),
-              ...(isActive !== undefined && { isActive }),
-              ...(passwordHash !== undefined && { passwordHash }),
-            },
-          })
+        ? existingPerson
         : await tx.person.create({
             data: {
               name: name.trim(),
