@@ -81,6 +81,7 @@ model ClientUser {
   clientId    String         @map("client_id") @db.Uuid
   userType    ClientUserType @default(USER) @map("user_type")
   isPrimary   Boolean        @default(false) @map("is_primary")
+  slackUserId String?        @map("slack_user_id")
   lastLoginAt DateTime?      @map("last_login_at")
   createdAt   DateTime       @default(now()) @map("created_at")
   updatedAt   DateTime       @updatedAt @map("updated_at")
@@ -89,6 +90,7 @@ model ClientUser {
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@unique([personId, clientId])
+  @@unique([clientId, slackUserId])
   @@index([personId])
   @@index([clientId])
   @@map("client_users")
