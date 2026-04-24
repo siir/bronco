@@ -33,6 +33,7 @@ export async function getPlatformTools(mcpPlatformUrl: string, opts?: { apiKey?:
   const headers: Record<string, string> = {};
   if (apiKey) headers['x-api-key'] = apiKey;
   else if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+  headers['x-caller-name'] = 'slack-worker';
 
   const transportOptions = Object.keys(headers).length > 0 ? { requestInit: { headers } } : undefined;
   const transport = new StreamableHTTPClientTransport(endpointUrl, transportOptions);

@@ -13,6 +13,8 @@ export interface McpDiscoveryConfig {
   apiKey?: string;
   authHeader?: 'bearer' | 'x-api-key';
   timeoutMs?: number;
+  /** Sent as X-Caller-Name header for per-caller tool allowlist enforcement on the target server. */
+  callerName?: string;
 }
 
 export interface McpToolInfo {
@@ -86,6 +88,9 @@ async function discoverMcpServerOnce(
     } else {
       headers['Authorization'] = `Bearer ${config.apiKey}`;
     }
+  }
+  if (config.callerName) {
+    headers['x-caller-name'] = config.callerName;
   }
 
   const transport = new StreamableHTTPClientTransport(mcpUrl, {
@@ -257,6 +262,7 @@ export async function buildClientToolCatalog(
           url: server.url,
           apiKey: opts?.platformApiKey,
           authHeader: 'x-api-key',
+          callerName: 'copilot-api',
         });
         return { serverName: server.name, tools: result.tools };
       } catch (err) {

@@ -207,6 +207,8 @@ export interface McpIntegrationInfo {
   mcpPath?: string;
   apiKey?: string;
   authHeader?: string;
+  /** Sent as X-Caller-Name header for per-caller tool allowlist enforcement. */
+  callerName?: string;
 }
 
 /**
@@ -424,6 +426,7 @@ export async function buildAgenticTools(
     mcpPath: '/mcp',
     apiKey: platformAuth,
     authHeader: platformAuthHeader,
+    callerName: 'ticket-analyzer',
   });
 
   tools.push({
@@ -726,6 +729,7 @@ export async function executeAgenticToolCall(
       toolInput,
       integration.apiKey,
       integration.authHeader,
+      integration.callerName,
     );
     return { toolUseId, result, isError: false };
   } catch (err) {

@@ -43,10 +43,33 @@ async function main(): Promise<void> {
     res.status(401).json({ error: 'Unauthorized' });
   });
 
+  // --- Caller-name extraction middleware ---
+  // Reads X-Caller-Name after API_KEY is validated. Attaches to the request
+  // for use by the MCP request handler. Does not reject missing headers unless
+  // REQUIRE_CALLER_NAME=true (soft-enforcement during rollout).
+  app.use((req, res, next) => {
+    if (req.path === '/health') return next();
+
+    const callerName = (req.headers['x-caller-name'] as string | undefined)?.trim() || null;
+
+    if (!callerName) {
+      if (config.REQUIRE_CALLER_NAME) {
+        logger.warn({ path: req.path }, 'MCP request rejected: X-Caller-Name header missing (REQUIRE_CALLER_NAME=true)');
+        res.status(401).json({ error: 'X-Caller-Name header is required' });
+        return;
+      }
+      logger.warn({ path: req.path }, 'MCP request missing X-Caller-Name header — proceeding in grace mode');
+    }
+
+    res.locals['callerName'] = callerName;
+    next();
+  });
+
   // --- MCP Streamable HTTP transport ---
   app.post('/mcp', async (req, res) => {
     try {
-      const server = createMcpServer(serverDeps);
+      const callerName = (res.locals['callerName'] as string | null | undefined) ?? null;
+      const server = createMcpServer({ ...serverDeps, callerName });
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
       });

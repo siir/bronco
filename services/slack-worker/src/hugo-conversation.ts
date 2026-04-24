@@ -209,6 +209,7 @@ async function executeToolLoop(
             toolInput,
             deps.config.MCP_AUTH_TOKEN || deps.config.API_KEY,
             deps.config.MCP_AUTH_TOKEN ? undefined : 'x-api-key',
+            'slack-worker',
           );
         } else {
           logger.info({ tool: toolUse.name, iteration: i + 1 }, 'Executing MCP Platform tool');
@@ -219,6 +220,7 @@ async function executeToolLoop(
             toolUse.input,
             deps.config.MCP_AUTH_TOKEN || deps.config.API_KEY,
             deps.config.MCP_AUTH_TOKEN ? undefined : 'x-api-key',
+            'slack-worker',
           );
         }
       } catch (err) {
