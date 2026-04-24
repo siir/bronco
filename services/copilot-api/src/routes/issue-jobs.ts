@@ -108,21 +108,15 @@ export async function issueJobRoutes(fastify: FastifyInstance, opts: IssueJobRou
     const { ticketId, repoId } = request.body;
     const force = request.query.force === 'true';
 
-    // Validate ticket exists
-    const ticket = await fastify.db.ticket.findUnique({
-      where: { id: ticketId },
+    // Scope-gated ticket lookup: merge scope into the query so out-of-scope ticket IDs
+    // return 404 (not 403), preventing cross-tenant existence enumeration.
+    const scope = await resolveClientScope(request);
+    const scopeWhere = scopeToWhere(scope);
+    const ticket = await fastify.db.ticket.findFirst({
+      where: { id: ticketId, ...scopeWhere },
       select: { id: true, subject: true, description: true, category: true, clientId: true, sufficiencyStatus: true },
     });
     if (!ticket) return fastify.httpErrors.notFound('Ticket not found');
-
-    // Scope enforcement: validate the caller is authorized for the ticket's client
-    const scope = await resolveClientScope(request);
-    if (
-      (scope.type === 'single' && scope.clientId !== ticket.clientId) ||
-      (scope.type === 'assigned' && !scope.clientIds.includes(ticket.clientId))
-    ) {
-      return fastify.httpErrors.forbidden('clientId not in your scope');
-    }
 
     // Sufficiency gate
     if (!force) {

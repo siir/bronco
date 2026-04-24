@@ -15,13 +15,13 @@ export async function invoiceRoutes(fastify: FastifyInstance, opts: InvoiceRoute
   ensureInvoiceDir(invoiceStoragePath);
 
   // GET /api/clients/:id/invoices — list invoices for client
-  fastify.get<{ Params: { id: string } }>('/api/clients/:id/invoices', async (request) => {
+  fastify.get<{ Params: { id: string } }>('/api/clients/:id/invoices', async (request, reply) => {
     const scope = await resolveClientScope(request);
     if (
       (scope.type === 'single' && scope.clientId !== request.params.id) ||
       (scope.type === 'assigned' && !scope.clientIds.includes(request.params.id))
     ) {
-      return fastify.httpErrors.forbidden('clientId not in your scope');
+      return reply.code(403).send({ error: 'clientId not in your scope' });
     }
 
     const rows = await fastify.db.invoice.findMany({

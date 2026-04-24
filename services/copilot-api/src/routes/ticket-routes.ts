@@ -4,7 +4,7 @@ import type { PrismaClient, PrismaRouteStepType, PrismaRouteType } from '@bronco
 import { TaskType, TicketCategory, TicketSource, RouteStepType, RouteType } from '@bronco/shared-types';
 import type { RouteStepTypeInfo } from '@bronco/shared-types';
 import type { AIRouter } from '@bronco/ai-provider';
-import { resolveClientScope, scopeToWhere } from '../plugins/client-scope.js';
+import { resolveClientScope } from '../plugins/client-scope.js';
 import type { ClientScope } from '../plugins/client-scope.js';
 
 const VALID_CATEGORIES = new Set<string>(Object.values(TicketCategory));
@@ -418,6 +418,16 @@ export async function ticketRouteRoutes(
   }>('/api/ticket-routes/dispatch-preview', async (request) => {
     const { clientId, routeId } = request.query;
     if (!routeId) return fastify.httpErrors.badRequest('routeId is required');
+
+    // Scope guard: if a clientId was provided, validate the caller can access it
+    if (clientId) {
+      const callerScope = await resolveClientScope(request);
+      const inScope =
+        callerScope.type === 'all' ||
+        (callerScope.type === 'single' && callerScope.clientId === clientId) ||
+        (callerScope.type === 'assigned' && callerScope.clientIds.includes(clientId));
+      if (!inScope) return fastify.httpErrors.forbidden('clientId not in your scope');
+    }
 
     const allCategories = Object.values(TicketCategory);
 
@@ -840,8 +850,13 @@ export async function ticketRouteRoutes(
     const scopeFilter = ticketRouteScopeFilter(callerScope);
     const route = await fastify.db.ticketRoute.findFirst({
       where: { id: request.params.id, ...scopeFilter },
+      select: { id: true, clientId: true, routeType: true },
     });
     if (!route) return fastify.httpErrors.notFound('Ticket route not found');
+    // Platform-scoped routes can only be mutated by admin/API-key callers
+    if (route.clientId === null && callerScope.type !== 'all') {
+      return fastify.httpErrors.forbidden('Platform-scoped routes can only be modified by global administrators');
+    }
 
     try {
       const step = await fastify.db.ticketRouteStep.create({
@@ -908,10 +923,14 @@ export async function ticketRouteRoutes(
         }),
         fastify.db.ticketRoute.findFirst({
           where: { id: request.params.id, ...scopeFilter },
-          select: { routeType: true },
+          select: { routeType: true, clientId: true },
         }),
       ]);
       if (!parentRoute || !existing) return fastify.httpErrors.notFound('Route step not found');
+      // Platform-scoped routes can only be mutated by admin/API-key callers
+      if (parentRoute.clientId === null && callerScope.type !== 'all') {
+        return fastify.httpErrors.forbidden('Platform-scoped routes can only be modified by global administrators');
+      }
 
       const effectiveStepType = stepType ?? existing.stepType;
       if (effectiveStepType === RouteStepType.DISPATCH_TO_ROUTE && config) {
@@ -978,9 +997,13 @@ export async function ticketRouteRoutes(
       const scopeFilter = ticketRouteScopeFilter(callerScope);
       const parentRoute = await fastify.db.ticketRoute.findFirst({
         where: { id: request.params.id, ...scopeFilter },
-        select: { id: true },
+        select: { id: true, clientId: true },
       });
       if (!parentRoute) return fastify.httpErrors.notFound('Ticket route not found');
+      // Platform-scoped routes can only be mutated by admin/API-key callers
+      if (parentRoute.clientId === null && callerScope.type !== 'all') {
+        return fastify.httpErrors.forbidden('Platform-scoped routes can only be modified by global administrators');
+      }
 
       try {
         const deleteResult = await fastify.db.ticketRouteStep.deleteMany({
