@@ -1069,7 +1069,9 @@ export async function saveMcpToolArtifact(
     });
     logger.info({ ticketId, filename }, 'MCP tool artifact saved');
     // Phase 2: best-effort enqueue Haiku friendly-name generation. No-op if queue not registered.
-    await enqueueArtifactNameGeneration(created.id);
+    void enqueueArtifactNameGeneration(created.id).catch((err) => {
+      logger.warn({ err, ticketId, artifactId: created.id }, 'Failed to enqueue artifact friendly-name generation — continuing');
+    });
   } catch (err) {
     logger.warn({ err, ticketId }, 'Failed to save MCP tool artifact — continuing');
   }

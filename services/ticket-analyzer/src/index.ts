@@ -186,11 +186,11 @@ async function main(): Promise<void> {
   );
 
   artifactNameWorker.on('completed', (job) => {
-    appLog.info('Artifact name generation completed', { artifactId: job.data.artifactId }, job.data.artifactId, 'ticket');
+    appLog.info('Artifact name generation completed', { artifactId: job.data.artifactId }, job.data.artifactId, 'artifact');
   });
 
   artifactNameWorker.on('failed', (job, err) => {
-    appLog.warn(`Artifact name generation failed: ${err.message}`, { err, artifactId: job?.data.artifactId });
+    appLog.warn(`Artifact name generation failed: ${err.message}`, { err, artifactId: job?.data.artifactId }, job?.data.artifactId, 'artifact');
   });
 
   // Health tracking state

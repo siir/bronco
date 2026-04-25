@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { open } from 'node:fs/promises';
 import { resolve as pathResolve, relative } from 'node:path';
 import type { PrismaClient } from '@bronco/db';
 import type { AIRouter } from '@bronco/ai-provider';
@@ -111,9 +111,16 @@ export function createArtifactNameProcessor(deps: ProcessorDeps) {
           logger.warn({ artifactId, storagePath: artifact.storagePath }, 'Artifact path escaped storage root — skipping');
           return;
         }
-        // Read only up to PREVIEW_BYTES; using a buffer + slice keeps us safe on large files.
-        const buf = await readFile(fullPath);
-        preview = buf.subarray(0, PREVIEW_BYTES).toString('utf-8');
+        // Positional read of the first PREVIEW_BYTES — avoids loading large
+        // artifacts entirely into memory.
+        const fh = await open(fullPath, 'r');
+        try {
+          const buf = Buffer.alloc(PREVIEW_BYTES);
+          const { bytesRead } = await fh.read(buf, 0, PREVIEW_BYTES, 0);
+          preview = buf.subarray(0, bytesRead).toString('utf-8');
+        } finally {
+          await fh.close();
+        }
       } catch (err) {
         logger.warn({ err, artifactId, storagePath: artifact.storagePath }, 'Failed to read artifact preview — skipping');
         return;

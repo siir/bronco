@@ -1259,7 +1259,9 @@ async function saveProbeArtifact(
     });
     logger.info({ ticketId, filename, artifactId: artifact.id }, 'Probe artifact saved via ingestion engine');
     // Phase 2: best-effort enqueue Haiku friendly-name generation. No-op if queue not registered.
-    await enqueueArtifactNameGeneration(artifact.id);
+    void enqueueArtifactNameGeneration(artifact.id).catch((err) => {
+      logger.warn({ err, ticketId, artifactId: artifact.id }, 'Failed to enqueue artifact friendly-name generation — continuing');
+    });
     return artifact.id;
   } catch (err) {
     logger.warn({ err, ticketId }, 'Failed to save probe artifact — continuing');
