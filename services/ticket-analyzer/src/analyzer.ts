@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Job } from 'bullmq';
@@ -257,15 +257,23 @@ export interface AnalyzerDeps {
 // (email metadata, body, and general ticket fields used by the pipeline)
 // ---------------------------------------------------------------------------
 
+/**
+ * Inline threshold: probe artifacts ≤ this many bytes are included verbatim in
+ * the initial emailBody; larger ones are included as a 2000-char preview plus
+ * an artifact-ref footer so Claude knows to call platform__read_tool_result_artifact.
+ */
+const PROBE_ARTIFACT_INLINE_BYTES = 8 * 1024; // 8 KB
+
 async function loadAnalysisContext(
   db: PrismaClient,
   job: AnalysisJob,
+  artifactStoragePath?: string,
 ): Promise<AnalysisContext> {
   const { ticketId, reanalysis, triggerEventId } = job;
 
   const ticket = await db.ticket.findUnique({
     where: { id: ticketId },
-    select: { clientId: true, subject: true, source: true, description: true, followers: { where: { followerType: 'REQUESTER' }, select: { person: { select: { email: true } } }, orderBy: { createdAt: 'asc' }, take: 1 } },
+    select: { clientId: true, subject: true, source: true, description: true, metadata: true, followers: { where: { followerType: 'REQUESTER' }, select: { person: { select: { email: true } } }, orderBy: { createdAt: 'asc' }, take: 1 } },
   });
 
   if (!ticket) {
@@ -307,12 +315,71 @@ async function loadAnalysisContext(
   if (!inboundEvent) {
     // Non-email ticket (probe, manual, AI-detected) — fall back to requester email for notifications
     logger.info({ ticketId, source: ticket.source }, 'No EMAIL_INBOUND event found — loading non-email context');
+
+    // If a probe artifact was saved at ingestion time, use its full content (or a
+    // preview-with-artifact-ref) instead of the 2000-char truncated description.
+    let emailBody = ticket.description ?? '';
+    const ticketMeta = ticket.metadata as Record<string, unknown> | null;
+    const probeArtifactId = typeof ticketMeta?.['probeArtifactId'] === 'string' ? ticketMeta['probeArtifactId'] : null;
+
+    if (probeArtifactId && artifactStoragePath) {
+      try {
+        const artifact = await db.artifact.findUnique({
+          where: { id: probeArtifactId },
+          select: { storagePath: true, sizeBytes: true },
+        });
+        if (artifact) {
+          const resolvedStorage = resolve(artifactStoragePath);
+          const absPath = resolve(resolvedStorage, artifact.storagePath);
+          const rel = relative(resolvedStorage, absPath);
+          if (!rel.startsWith('..') && rel !== '' && !rel.startsWith('/')) {
+            const rawContent = await readFile(absPath, 'utf-8');
+            if (artifact.sizeBytes <= PROBE_ARTIFACT_INLINE_BYTES) {
+              // Small enough to inline — Claude sees the full probe result immediately
+              emailBody = rawContent;
+              logger.info({ ticketId, probeArtifactId, sizeBytes: artifact.sizeBytes }, 'Probe artifact inlined in analysis context');
+            } else {
+              // Too large to inline — build head+tail preview so Claude knows the
+              // full data is available via platform__read_tool_result_artifact
+              const head = rawContent.slice(0, 2000);
+              const tail = rawContent.slice(-500);
+              emailBody = [
+                '[truncated — full probe result saved as artifact]',
+                `artifactId: ${probeArtifactId}`,
+                `size: ${rawContent.length} chars`,
+                'Use platform__read_tool_result_artifact to retrieve the full content.',
+                '---',
+                head,
+                '',
+                '...',
+                '',
+                tail,
+              ].join('\n');
+              logger.info({ ticketId, probeArtifactId, sizeBytes: artifact.sizeBytes }, 'Probe artifact preview-with-ref added to analysis context');
+            }
+          } else {
+            logger.warn({ ticketId, probeArtifactId }, 'Probe artifact path escaped storage root — falling back to description');
+          }
+        }
+      } catch (artifactErr) {
+        logger.warn({ artifactErr, ticketId, probeArtifactId }, 'Failed to load probe artifact for analysis context — falling back to description');
+      }
+    } else if (probeArtifactId && !artifactStoragePath) {
+      // Artifact exists but no storage path — append a reference so Claude knows to fetch it
+      emailBody = [
+        ticket.description ?? '',
+        '',
+        `[Full probe result available at artifact ${probeArtifactId}. Use platform__read_tool_result_artifact to retrieve.]`,
+      ].join('\n').trim();
+      logger.info({ ticketId, probeArtifactId }, 'Probe artifact ID appended to analysis context (no storage path available)');
+    }
+
     return {
       ticketId,
       clientId: ticket.clientId,
       emailFrom: ticket.followers[0]?.person?.email ?? undefined,
       emailSubject: ticket.subject ?? '(No subject)',
-      emailBody: ticket.description ?? '',
+      emailBody,
       emailMessageId: undefined,
       ticketSource: ticket.source,
     };
@@ -3352,8 +3419,9 @@ export function createAnalysisProcessor(deps: AnalyzerDeps) {
   return async function processAnalysis(job: Job<AnalysisJob>): Promise<void> {
     const { ticketId, reanalysis, triggerEventId, chatReanalysisMode } = job.data;
 
-    // Resolve ticket context from the DB instead of carrying it on the job payload
-    const ctx = await loadAnalysisContext(deps.db, job.data);
+    // Resolve ticket context from the DB instead of carrying it on the job payload.
+    // Pass artifactStoragePath so probe-sourced tickets can inline or reference their full result.
+    const ctx = await loadAnalysisContext(deps.db, job.data, deps.artifactStoragePath);
 
     appLog.info(
       reanalysis ? 'Starting re-analysis pipeline (reply-triggered)' : 'Starting ticket analysis pipeline',

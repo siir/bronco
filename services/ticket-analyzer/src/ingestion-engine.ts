@@ -747,12 +747,31 @@ async function executeIngestionPipeline(
           }
         }
 
-        // Save raw probe result artifact when available
+        // Save raw probe result artifact when available, then stash the artifact ID
+        // in ticket.metadata so the analyzer can reference it without re-fetching.
         const toolResult = payloadStr(payload, 'toolResult');
         const probeName = payloadStr(payload, 'probeName');
         const toolName = payloadStr(payload, 'toolName');
         if (toolResult && probeName && deps.artifactStoragePath) {
-          await saveProbeArtifact(db, ctx.ticketId, probeName, toolName, toolResult, deps.artifactStoragePath);
+          const probeArtifactId = await saveProbeArtifact(db, ctx.ticketId, probeName, toolName, toolResult, deps.artifactStoragePath);
+          if (probeArtifactId) {
+            try {
+              // Patch ticket.metadata to include the probe artifact ID so the analyzer
+              // can build a full-content or preview-with-ref context without re-querying.
+              const existing = await db.ticket.findUnique({
+                where: { id: ctx.ticketId },
+                select: { metadata: true },
+              });
+              const existingMeta = (existing?.metadata as Record<string, unknown> | null) ?? {};
+              await db.ticket.update({
+                where: { id: ctx.ticketId },
+                data: { metadata: { ...existingMeta, probeArtifactId } as Prisma.InputJsonValue },
+              });
+              logger.info({ ticketId: ctx.ticketId, probeArtifactId }, 'Probe artifact ID stored in ticket metadata');
+            } catch (metaErr) {
+              logger.warn({ metaErr, ticketId: ctx.ticketId }, 'Failed to store probe artifact ID in ticket metadata — continuing');
+            }
+          }
         }
 
         const stepDuration = Date.now() - stepStart;
@@ -1154,6 +1173,10 @@ function sanitizeFilenameSegment(value: string): string {
   return value.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 64);
 }
 
+/**
+ * Save the raw probe tool result as a file artifact and return the artifact ID.
+ * Returns null on any error so callers can always proceed without blocking ticket creation.
+ */
 async function saveProbeArtifact(
   db: PrismaClient,
   ticketId: string,
@@ -1161,7 +1184,7 @@ async function saveProbeArtifact(
   toolName: string,
   rawResult: string,
   storagePath: string,
-): Promise<void> {
+): Promise<string | null> {
   try {
     let isJson = false;
     try { JSON.parse(rawResult); isJson = true; } catch { /* not JSON */ }
@@ -1177,13 +1200,13 @@ async function saveProbeArtifact(
     const rel = relative(resolvedStorage, ticketDir);
     if (rel.startsWith('..') || rel === '') {
       logger.warn({ ticketId, ticketDir, resolvedStorage }, 'Probe artifact path escaped storage root — skipping');
-      return;
+      return null;
     }
     const fullPath = join(ticketDir, filename);
     await mkdir(ticketDir, { recursive: true });
     await writeFile(fullPath, rawResult, 'utf-8');
     const relativePath = `tickets/${ticketId}/${filename}`;
-    await db.artifact.create({
+    const artifact = await db.artifact.create({
       data: {
         ticketId,
         filename,
@@ -1192,10 +1215,13 @@ async function saveProbeArtifact(
         storagePath: relativePath,
         description: `Raw MCP tool output from probe "${probeName}" (${toolName})`,
       },
+      select: { id: true },
     });
-    logger.info({ ticketId, filename }, 'Probe artifact saved via ingestion engine');
+    logger.info({ ticketId, filename, artifactId: artifact.id }, 'Probe artifact saved via ingestion engine');
+    return artifact.id;
   } catch (err) {
     logger.warn({ err, ticketId }, 'Failed to save probe artifact — continuing');
+    return null;
   }
 }
 
