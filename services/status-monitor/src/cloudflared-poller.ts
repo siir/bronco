@@ -33,17 +33,28 @@ export class CloudflaredDriftPoller {
   private db: PrismaClient;
   private config: Config;
   private interval: ReturnType<typeof setInterval> | null = null;
+  private inFlight = false;
 
   constructor(db: PrismaClient, config: Config) {
     this.db = db;
     this.config = config;
   }
 
+  private async runProbe(): Promise<void> {
+    if (this.inFlight) return;
+    this.inFlight = true;
+    try {
+      await this.probe();
+    } finally {
+      this.inFlight = false;
+    }
+  }
+
   start(): void {
     // Run immediately at startup, then on interval
-    void this.probe();
+    void this.runProbe();
     this.interval = setInterval(() => {
-      void this.probe();
+      void this.runProbe();
     }, this.config.CLOUDFLARED_DRIFT_POLL_INTERVAL_SECONDS * 1000);
 
     logger.info(
@@ -134,7 +145,8 @@ export class CloudflaredDriftPoller {
         );
       }
     } else {
-      // Probe failed
+      // Probe failed — clear cached readyConnections so the UI doesn't show stale data
+      this.lastReadyConnections = null;
       this.consecutiveFailures++;
       this.healthy = false;
 
@@ -169,7 +181,8 @@ export class CloudflaredDriftPoller {
       `Endpoint: ${this.config.CLOUDFLARED_METRICS_URL}/ready`,
       ``,
       `Suggested operator action:`,
-      `  ssh hugo-app "docker restart bronco-cloudflared-1"`,
+      `  Restart the cloudflared service via /api/system-status/control when available,`,
+      `  or run: docker compose restart cloudflared`,
       ``,
       `Monitor: check status-monitor /health for current state`,
       `Time: ${new Date().toISOString()}`,
@@ -188,24 +201,10 @@ export class CloudflaredDriftPoller {
 
     if (channels.length === 0) {
       logger.warn('Cloudflared drift alert: no active notification channels configured');
-      return;
     }
 
-    // Record the alert in the database
-    try {
-      await this.db.serviceAlert.create({
-        data: {
-          componentName: 'cloudflared',
-          previousStatus: 'UP',
-          newStatus: 'DEGRADED',
-          notifiedVia: [],
-          message,
-        },
-      });
-    } catch (err) {
-      logger.error({ err }, 'Failed to record cloudflared alert in database');
-    }
-
+    // Dispatch first so we can record the actual notifiedVia values on the ServiceAlert row.
+    // Matches StatusMonitor.notify() ordering in monitor.ts.
     const notifiedVia: string[] = [];
 
     for (const channel of channels) {
@@ -220,6 +219,22 @@ export class CloudflaredDriftPoller {
       } catch (err) {
         logger.error({ err, channel: channel.name, type: channel.type }, 'Failed to send cloudflared drift alert via channel');
       }
+    }
+
+    // Always record the alert in the database (even when no channels are configured)
+    // so we have a durable history of drift events.
+    try {
+      await this.db.serviceAlert.create({
+        data: {
+          componentName: 'cloudflared',
+          previousStatus: 'UP',
+          newStatus: 'DEGRADED',
+          notifiedVia,
+          message,
+        },
+      });
+    } catch (err) {
+      logger.error({ err }, 'Failed to record cloudflared alert in database');
     }
 
     logger.info({ notifiedVia }, 'Cloudflared drift alert dispatched');
