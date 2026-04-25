@@ -348,6 +348,17 @@ async function executeProbe(
         // CREATE_TICKET steps configured by the operator). Falls back to the
         // legacy inline path when no ingest queue is wired up.
         if (deps.ingestQueue) {
+          // Phase 4: compose ticket description body via Haiku before enqueueing.
+          // Best-effort — null result triggers fallback to truncated raw result
+          // in the ingestion engine.
+          stepId = await tracker.startStep('Compose ticket body (Haiku)');
+          const composedBody = await composeProbeTicketBody(ai, db, probe, toolResult);
+          if (composedBody) {
+            await tracker.completeStep(stepId, composedBody.slice(0, 2000));
+          } else {
+            await tracker.skipStep(stepId, 'Compose failed or returned empty — falling back to truncated raw result');
+          }
+
           stepId = await tracker.startStep('Enqueue to ingestion engine');
           const operatorEmail = (probe.actionConfig as Record<string, unknown> | null)?.['operatorEmail'];
           await deps.ingestQueue.add('ticket-ingest', {
@@ -358,6 +369,7 @@ async function executeProbe(
               probeName: probe.name,
               toolName: probe.toolName,
               toolResult: toolResult.slice(0, 50000),
+              ...(composedBody && { body: composedBody }),
               ...(probe.category && { category: probe.category }),
               ...(probe.integrationId && { integrationId: probe.integrationId }),
               ...(typeof operatorEmail === 'string' && operatorEmail.trim() && { operatorEmail }),
@@ -372,9 +384,10 @@ async function executeProbe(
           await tracker.completeRun('success', `Ingestion queued. Result: ${truncatedResult.slice(0, 500)}`);
           await updateProbeRun(db, probe.id, 'success', `Ingestion queued. Result: ${truncatedResult.slice(0, 500)}`);
         } else {
-          // Legacy path: AI summarize + title + create ticket inline
-          stepId = await tracker.startStep('AI summarize for ticket');
-          const summary = await summarizeForTicket(ai, probe, truncatedResult);
+          // Legacy path: AI compose body + title + create ticket inline
+          stepId = await tracker.startStep('Compose ticket body (Haiku)');
+          const composedBody = await composeProbeTicketBody(ai, db, probe, toolResult);
+          const summary = composedBody ?? await summarizeForTicket(ai, probe, truncatedResult);
           await tracker.completeStep(stepId, summary.slice(0, 4000));
 
           stepId = await tracker.startStep('AI generate title');
@@ -449,6 +462,15 @@ async function executeProbe(
 
         if (actionable) {
           if (deps.ingestQueue) {
+            // Phase 4: compose ticket description body via Haiku.
+            stepId = await tracker.startStep('Compose ticket body (Haiku)');
+            const composedBody = await composeProbeTicketBody(ai, db, probe, toolResult);
+            if (composedBody) {
+              await tracker.completeStep(stepId, composedBody.slice(0, 2000));
+            } else {
+              await tracker.skipStep(stepId, 'Compose failed or returned empty — falling back to truncated raw result');
+            }
+
             stepId = await tracker.startStep('Enqueue to ingestion engine');
             const operatorEmail = (probe.actionConfig as Record<string, unknown> | null)?.['operatorEmail'];
             await deps.ingestQueue.add('ticket-ingest', {
@@ -459,6 +481,7 @@ async function executeProbe(
                 probeName: probe.name,
                 toolName: probe.toolName,
                 toolResult: toolResult.slice(0, 50000),
+                ...(composedBody && { body: composedBody }),
                 ...(probe.category && { category: probe.category }),
                 ...(probe.integrationId && { integrationId: probe.integrationId }),
                 ...(typeof operatorEmail === 'string' && operatorEmail.trim() && { operatorEmail }),
@@ -474,8 +497,9 @@ async function executeProbe(
             await updateProbeRun(db, probe.id, 'success', `Silent probe — ingestion queued. Result: ${truncatedResult.slice(0, 500)}`);
           } else {
             // Legacy path
-            stepId = await tracker.startStep('AI summarize for ticket');
-            const silentSummary = await summarizeForTicket(ai, probe, truncatedResult);
+            stepId = await tracker.startStep('Compose ticket body (Haiku)');
+            const composedBodyLegacy = await composeProbeTicketBody(ai, db, probe, toolResult);
+            const silentSummary = composedBodyLegacy ?? await summarizeForTicket(ai, probe, truncatedResult);
             await tracker.completeStep(stepId, silentSummary.slice(0, 4000));
 
             stepId = await tracker.startStep('AI generate title');
@@ -523,6 +547,195 @@ async function executeProbe(
     }
   } finally {
     await cleanupRetention(db, probe.id, probe.retentionDays, probe.retentionMaxRuns);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 — Compose probe ticket description body via Haiku for create_ticket and silent probes
+// ---------------------------------------------------------------------------
+
+/**
+ * Regex matching `toolParams` keys that are useful to surface as timeframe/scope context.
+ * Uses word boundaries on `from`/`to` so we don't accidentally match `timeoutMs`, `toolName`,
+ * `total`, etc. Substring matches are fine for the longer descriptive fragments below.
+ */
+const TIMEFRAME_PARAM_KEY_REGEX = /time|date|hours|window|range|since|until|start|end|day|interval|threshold|\bfrom\b|\bto\b/i;
+
+/** Additional explicit keys to always pass through if present (small, common scope keys). */
+const ALLOWLIST_PARAM_KEYS = new Set<string>([
+  'services',
+  'minLevel',
+  'level',
+  'severity',
+  'category',
+  'lookbackDays',
+  'limit',
+  'topN',
+  'database',
+  'schema',
+  'table',
+  'objectName',
+  'sessionId',
+  'from',
+  'to',
+]);
+
+/** Caps for sanitizing forwarded param values — keeps prompt budget predictable. */
+const MAX_TIMEFRAME_PARAM_STRING_LENGTH = 200;
+const MAX_TIMEFRAME_PARAM_ARRAY_ITEMS = 10;
+const MAX_TIMEFRAME_PARAM_OBJECT_JSON_LENGTH = 400;
+
+/** Truncate a string to a max length, adding an ellipsis if clipped. */
+function truncateString(s: string, max: number): string {
+  return s.length > max ? `${s.slice(0, max)}…` : s;
+}
+
+/** Sanitize a single value: primitives pass through, strings/arrays/objects bounded, others dropped. */
+function sanitizeParamValue(v: unknown): unknown {
+  if (v === null || v === undefined) return undefined;
+  if (typeof v === 'number' || typeof v === 'boolean') return v;
+  if (typeof v === 'string') return truncateString(v, MAX_TIMEFRAME_PARAM_STRING_LENGTH);
+  if (Array.isArray(v)) {
+    const limited = v.slice(0, MAX_TIMEFRAME_PARAM_ARRAY_ITEMS);
+    const sanitized: unknown[] = [];
+    for (const item of limited) {
+      if (item === null || item === undefined) continue;
+      if (typeof item === 'number' || typeof item === 'boolean') {
+        sanitized.push(item);
+      } else if (typeof item === 'string') {
+        sanitized.push(truncateString(item, MAX_TIMEFRAME_PARAM_STRING_LENGTH));
+      } else {
+        try {
+          sanitized.push(truncateString(JSON.stringify(item), MAX_TIMEFRAME_PARAM_STRING_LENGTH));
+        } catch {
+          // skip un-stringifiable items
+        }
+      }
+    }
+    return sanitized;
+  }
+  if (typeof v === 'object') {
+    try {
+      return truncateString(JSON.stringify(v), MAX_TIMEFRAME_PARAM_OBJECT_JSON_LENGTH);
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+/** Filter `toolParams` down to a small object useful as analyst context. */
+function pickTimeframeAndScopeParams(params: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(params)) {
+    if (v === null || v === undefined) continue;
+    if (TIMEFRAME_PARAM_KEY_REGEX.test(k) || ALLOWLIST_PARAM_KEYS.has(k)) {
+      const sanitized = sanitizeParamValue(v);
+      if (sanitized !== undefined) {
+        out[k] = sanitized;
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Slice the head of an in-memory string by Buffer-byte length so we don't split
+ * a multibyte UTF-8 sequence. Avoids materializing the full string into a Buffer
+ * by sampling a char-bounded prefix first (UTF-8 is at most 4 bytes per code unit),
+ * then byte-trimming on a code-point boundary.
+ */
+function readHeadFromString(content: string, bytes: number): string {
+  if (!content || bytes <= 0) return '';
+  // UTF-8 chars are at most 4 bytes; slice 4x the byte budget worth of chars
+  // so the encoded prefix is guaranteed to cover `bytes` (or the full content).
+  const charSlice = content.slice(0, bytes * 4);
+  const buf = Buffer.from(charSlice, 'utf-8');
+  if (buf.length <= bytes) return charSlice;
+  // Trim to byte budget on a code-point boundary (Buffer.toString respects boundaries).
+  return buf.subarray(0, bytes).toString('utf-8');
+}
+
+/**
+ * Compose the kick-off ticket description body for a probe-created ticket via
+ * Claude Haiku (COMPOSE_PROBE_TICKET_BODY). Best-effort — returns null on AI
+ * failure so callers can fall back to the existing truncated-result behavior.
+ *
+ * Does NOT itself save the artifact or apply the artifact-ref marker; the
+ * caller is responsible for either using this output as Ticket.description
+ * or stitching it together with truncation context.
+ */
+async function composeProbeTicketBody(
+  ai: AIRouter,
+  db: PrismaClient,
+  probe: ProbeConfig,
+  rawResult: string,
+): Promise<string | null> {
+  try {
+    const operatorBody = (() => {
+      const cfg = probe.actionConfig as Record<string, unknown> | null;
+      const v = cfg?.['ticketDescription'];
+      return typeof v === 'string' ? v.trim() : '';
+    })();
+
+    // Look up client name (one-hop join).
+    let clientName = '';
+    try {
+      const client = await db.client.findUnique({
+        where: { id: probe.clientId },
+        select: { name: true },
+      });
+      clientName = client?.name ?? '';
+    } catch (err) {
+      logger.warn({ err, probeId: probe.id, clientId: probe.clientId }, 'Failed to load client name for probe ticket body — continuing');
+    }
+
+    // Probe meta description — pulled fresh from DB to pick up the most current
+    // value (probe.description isn't carried on ProbeConfig).
+    let probeDescription = '';
+    try {
+      const row = await db.scheduledProbe.findUnique({
+        where: { id: probe.id },
+        select: { description: true },
+      });
+      probeDescription = row?.description?.trim() ?? '';
+    } catch (err) {
+      logger.warn({ err, probeId: probe.id }, 'Failed to load probe description for ticket body — continuing');
+    }
+
+    const timeframeParams = pickTimeframeAndScopeParams(probe.toolParams ?? {});
+    const probeResultHead = readHeadFromString(rawResult, 1500);
+
+    // Compose the user message with all inputs labelled so the system prompt
+    // can reason over them without any ambiguity.
+    const userPrompt = [
+      `Operator body: ${operatorBody || '(empty)'}`,
+      `Probe description: ${probeDescription || '(empty)'}`,
+      `Client name: ${clientName || '(unknown)'}`,
+      `Tool name: ${probe.toolName}`,
+      `Tool params (timeframe + scope): ${Object.keys(timeframeParams).length > 0 ? JSON.stringify(timeframeParams) : '(none)'}`,
+      '',
+      'Probe result head (first ~1.5 KB):',
+      probeResultHead || '(empty)',
+    ].join('\n');
+
+    const res = await ai.generate({
+      taskType: TaskType.COMPOSE_PROBE_TICKET_BODY,
+      promptKey: 'probe.ticket-body.system',
+      prompt: userPrompt,
+      context: {
+        clientId: probe.clientId,
+        entityId: probe.id,
+        entityType: 'probe',
+      },
+    });
+
+    const text = (res.content ?? '').trim();
+    if (!text) return null;
+    return text.slice(0, 1500);
+  } catch (err) {
+    logger.warn({ err, probeId: probe.id }, 'composeProbeTicketBody failed — falling back to truncated raw result');
+    return null;
   }
 }
 

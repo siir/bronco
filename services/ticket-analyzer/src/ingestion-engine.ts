@@ -771,11 +771,29 @@ async function executeIngestionPipeline(
                 typeof metadata === 'object' && metadata !== null && !Array.isArray(metadata)
                   ? (metadata as Record<string, unknown>)
                   : {};
+
+              // Phase 4: when the description was composed by Haiku (probe-worker passed
+              // `body`), append the artifact-ref marker so the analyzer can pick the full
+              // probe output up by ID. The marker is short and tolerant of being clipped
+              // — the analyzer also reads probeArtifactId from metadata.
+              const updateData: Prisma.TicketUpdateInput = {
+                metadata: { ...safeMeta, probeArtifactId } as Prisma.InputJsonValue,
+              };
+              const usedHaikuBody = typeof payload['body'] === 'string' && payload['body'].trim().length > 0;
+              if (usedHaikuBody) {
+                const trimmedDesc = description.trimEnd();
+                const marker = `\n\n[probe artifact: ${probeArtifactId}]`;
+                // Reserve marker length so it isn't truncated off when the body is near 2000 chars.
+                const maxBodyLen = 2000 - marker.length;
+                const truncatedBody = trimmedDesc.length > maxBodyLen ? trimmedDesc.slice(0, maxBodyLen) : trimmedDesc;
+                updateData.description = `${truncatedBody}${marker}`;
+              }
+
               await db.ticket.update({
                 where: { id: ctx.ticketId },
-                data: { metadata: { ...safeMeta, probeArtifactId } as Prisma.InputJsonValue },
+                data: updateData,
               });
-              logger.info({ ticketId: ctx.ticketId, probeArtifactId }, 'Probe artifact ID stored in ticket metadata');
+              logger.info({ ticketId: ctx.ticketId, probeArtifactId, descriptionUpdated: !!updateData.description }, 'Probe artifact ID stored in ticket metadata');
             } catch (metaErr) {
               logger.warn({ metaErr, ticketId: ctx.ticketId }, 'Failed to store probe artifact ID in ticket metadata — continuing');
             }

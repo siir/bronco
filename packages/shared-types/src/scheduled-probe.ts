@@ -55,6 +55,38 @@ export const BUILTIN_PROBE_TOOLS: BuiltinToolDefinition[] = [
 
 export const BUILTIN_PROBE_TOOL_NAMES = new Set(BUILTIN_PROBE_TOOLS.map((t) => t.name));
 
+// ---------------------------------------------------------------------------
+// ProbeActionConfig — typed shapes for the per-action `actionConfig` blob
+// ---------------------------------------------------------------------------
+//
+// Persisted as `Record<string, unknown> | null` (Prisma JSON column), but
+// callers that build/consume the config should prefer these typed shapes.
+
+/** Action config when `action === 'create_ticket'` or `action === 'silent'`. */
+export interface ProbeActionConfigCreateTicket {
+  /** Operator email — used to resolve the ticket requester / follower. */
+  operatorEmail?: string;
+  /**
+   * Optional operator-supplied seed body for tickets created by this probe.
+   * Augmented at ticket-creation time by the COMPOSE_PROBE_TICKET_BODY task
+   * (Haiku) into a 1-3 paragraph kick-off description that combines this
+   * intent with probe metadata, tool name/params/timeframe, and the head of
+   * the probe result.
+   */
+  ticketDescription?: string;
+}
+
+/** Action config when `action === 'email_direct'`. */
+export interface ProbeActionConfigEmailDirect {
+  emailTo?: string;
+  emailSubject?: string;
+}
+
+export type ProbeActionConfig =
+  | ProbeActionConfigCreateTicket
+  | ProbeActionConfigEmailDirect
+  | null;
+
 export interface ScheduledProbe {
   id: string;
   clientId: string;

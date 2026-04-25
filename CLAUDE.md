@@ -165,6 +165,7 @@ System prompts for each task are registered in `packages/ai-provider/src/prompts
 - `DETECT_TOOL_GAPS` — Post-hoc review of a completed analysis to detect capability gaps; upserts tool requests into the registry (default: Claude Haiku for cheap review)
 - `ANALYZE_TOOL_REQUESTS` — Admin-triggered dedupe agent: compares a client's PROPOSED/APPROVED tool requests against each other and against the live MCP tool catalog (platform + repo + database + per-client integrations) and writes `suggestedDuplicateOf*` / `suggestedImprovesExisting*` fields on rows (default: Claude Sonnet)
 - `GENERATE_ARTIFACT_NAME` — Async post-save worker that fills `displayName` + `description` on system-generated artifacts (PROBE_RESULT, MCP_TOOL_RESULT) by reading the first 500 chars of the raw output. Strict JSON output, one generation per artifact lifetime, falls back silently to Phase 1 templated defaults on parse failure (default: Claude Haiku)
+- `COMPOSE_PROBE_TICKET_BODY` — Composes the kick-off `Ticket.description` for tickets created by scheduled probes (`action: create_ticket`). Weaves the operator-supplied `actionConfig.ticketDescription` body (when present) with the probe's meta description, tool name + timeframe params, and the head of the probe result into 1-3 short paragraphs of plain prose. Falls back to the legacy truncated-result behavior on AI failure (default: Claude Haiku)
 
 ### Task Type Discipline (CRITICAL)
 
