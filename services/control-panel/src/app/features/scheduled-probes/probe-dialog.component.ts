@@ -85,6 +85,20 @@ const ACTIONS = [
           </app-form-field>
         }
 
+        @if (action === 'create_ticket') {
+          <app-form-field
+            label="Ticket description body"
+            hint="Optional. Used as the seed for tickets created by this probe. Haiku will fill in tool, timeframe, and result context automatically."
+          >
+            <app-textarea
+              [value]="ticketDescription"
+              (valueChange)="ticketDescription = $event"
+              [rows]="5"
+              placeholder="e.g. We've been seeing intermittent timeouts on the reporting service — pay attention to repeated tenants and time-of-day clustering."
+            ></app-textarea>
+          </app-form-field>
+        }
+
         @if (action === 'email_direct') {
           <app-form-field label="Email To">
             <app-text-input [value]="emailTo" (valueChange)="emailTo = $event" type="email" placeholder="recipient@example.com"></app-text-input>
@@ -168,6 +182,7 @@ export class ProbeDialogComponent implements OnInit {
   category: string | null = null;
   action = 'create_ticket';
   operatorEmail = '';
+  ticketDescription = '';
   emailTo = '';
   emailSubject = '';
   retentionDays = 30;
@@ -250,6 +265,7 @@ export class ProbeDialogComponent implements OnInit {
       if (p.actionConfig) {
         const cfg = p.actionConfig;
         this.operatorEmail = typeof cfg['operatorEmail'] === 'string' ? cfg['operatorEmail'] : '';
+        this.ticketDescription = typeof cfg['ticketDescription'] === 'string' ? cfg['ticketDescription'] : '';
         this.emailTo = typeof cfg['emailTo'] === 'string' ? cfg['emailTo'] : '';
         this.emailSubject = typeof cfg['emailSubject'] === 'string' ? cfg['emailSubject'] : '';
       }
@@ -368,9 +384,14 @@ export class ProbeDialogComponent implements OnInit {
       if (this.emailTo) actionConfig['emailTo'] = this.emailTo;
       if (this.emailSubject) actionConfig['emailSubject'] = this.emailSubject;
     } else if (this.action === 'create_ticket' || this.action === 'silent') {
-      if (this.operatorEmail) {
-        actionConfig = { operatorEmail: this.operatorEmail };
+      const cfg: Record<string, unknown> = {};
+      if (this.operatorEmail) cfg['operatorEmail'] = this.operatorEmail;
+      // Only persist `ticketDescription` for create_ticket — irrelevant for silent.
+      if (this.action === 'create_ticket') {
+        const trimmedBody = this.ticketDescription.trim();
+        if (trimmedBody) cfg['ticketDescription'] = trimmedBody;
       }
+      if (Object.keys(cfg).length > 0) actionConfig = cfg;
     }
 
     // Strip empty string params

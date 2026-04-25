@@ -6,6 +6,35 @@ import { pipeline } from 'node:stream/promises';
 import type { Config } from '../config.js';
 import { resolveClientScope, scopeToWhere } from '../plugins/client-scope.js';
 
+/** Fields projected on Artifact rows returned by the list/get endpoints. */
+const ARTIFACT_SELECT = {
+  id: true,
+  ticketId: true,
+  findingId: true,
+  filename: true,
+  mimeType: true,
+  sizeBytes: true,
+  storagePath: true,
+  description: true,
+  createdAt: true,
+  // Phase 1 enrichment fields
+  kind: true,
+  displayName: true,
+  source: true,
+  addedByPersonId: true,
+  addedBySystem: true,
+  originatingEventId: true,
+  originatingEventType: true,
+  // Person join: project only safe fields (id, name, email — no passwordHash etc.)
+  addedByPerson: {
+    select: {
+      id: true,
+      name: true,
+      email: true,
+    },
+  },
+} as const;
+
 export async function artifactRoutes(fastify: FastifyInstance, opts: { config: Config }): Promise<void> {
   const storagePath = opts.config.ARTIFACT_STORAGE_PATH;
 
@@ -21,6 +50,7 @@ export async function artifactRoutes(fastify: FastifyInstance, opts: { config: C
     const artifacts = await fastify.db.artifact.findMany({
       where: { ticketId: request.params.ticketId },
       orderBy: { createdAt: 'desc' },
+      select: ARTIFACT_SELECT,
     });
     return artifacts;
   });
@@ -38,6 +68,7 @@ export async function artifactRoutes(fastify: FastifyInstance, opts: { config: C
           { ticketId: null },
         ],
       },
+      select: ARTIFACT_SELECT,
     });
     if (!artifact) return fastify.httpErrors.notFound('Artifact not found');
     return artifact;
@@ -53,6 +84,11 @@ export async function artifactRoutes(fastify: FastifyInstance, opts: { config: C
           { ticket: { ...scopeToWhere(scope) } },
           { ticketId: null },
         ],
+      },
+      select: {
+        storagePath: true,
+        filename: true,
+        mimeType: true,
       },
     });
     if (!artifact) return fastify.httpErrors.notFound('Artifact not found');
@@ -76,6 +112,42 @@ export async function artifactRoutes(fastify: FastifyInstance, opts: { config: C
     return reply.send(createReadStream(filePath));
   });
 
+  fastify.get<{ Params: { id: string } }>('/api/artifacts/:id/content', async (request, reply) => {
+    const scope = await resolveClientScope(request);
+    // Same scope check as /download — but serve with Content-Disposition: inline so
+    // browsers preview viewable content (text / json / images / pdf) instead of saving.
+    const artifact = await fastify.db.artifact.findFirst({
+      where: {
+        id: request.params.id,
+        OR: [
+          { ticket: { ...scopeToWhere(scope) } },
+          { ticketId: null },
+        ],
+      },
+      select: {
+        storagePath: true,
+        filename: true,
+        mimeType: true,
+      },
+    });
+    if (!artifact) return fastify.httpErrors.notFound('Artifact not found');
+
+    const filePath = join(storagePath, artifact.storagePath);
+    const filename = artifact.filename;
+    const asciiFallback = basename(filename)
+      .replace(/[\x00-\x1f\x7f"\\]/g, '_')
+      .replace(/[^\x20-\x7e]/g, '_');
+    const encodedUtf8 = encodeURIComponent(filename)
+      .replace(/['()]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
+      .replace(/\*/g, '%2A');
+    reply.header('Content-Type', artifact.mimeType);
+    reply.header(
+      'Content-Disposition',
+      `inline; filename="${asciiFallback}"; filename*=UTF-8''${encodedUtf8}`,
+    );
+    return reply.send(createReadStream(filePath));
+  });
+
   fastify.post<{ Querystring: { ticketId?: string; findingId?: string; description?: string } }>(
     '/api/artifacts/upload',
     async (request, reply) => {
@@ -84,6 +156,9 @@ export async function artifactRoutes(fastify: FastifyInstance, opts: { config: C
 
       // ticketId, findingId, and description are passed as querystring params so
       // they can accompany a multipart/form-data upload without a JSON body.
+      // The artifact kind is hardcoded to OPERATOR_UPLOAD — callers cannot mislabel
+      // operator uploads as PROBE_RESULT / EMAIL_ATTACHMENT / MCP_TOOL_RESULT (those
+      // kinds are written exclusively by their respective worker pipelines).
       const { ticketId, findingId, description } = request.query;
 
       // Scope checks: resolve once if either parent is provided.
@@ -127,6 +202,9 @@ export async function artifactRoutes(fastify: FastifyInstance, opts: { config: C
       await mkdir(dirname(fullPath), { recursive: true });
       await pipeline(file.file, createWriteStream(fullPath));
 
+      // Resolve the operator's Person ID from the JWT (present for authenticated callers).
+      const callerPersonId = request.user?.personId ?? null;
+
       const artifact = await fastify.db.artifact.create({
         data: {
           ticketId: ticketId ?? null,
@@ -136,7 +214,13 @@ export async function artifactRoutes(fastify: FastifyInstance, opts: { config: C
           sizeBytes: file.file.bytesRead,
           storagePath: relativePath,
           description: description ?? null,
+          kind: 'OPERATOR_UPLOAD',
+          displayName: sanitizedFilename,
+          source: 'upload',
+          addedByPersonId: callerPersonId,
+          addedBySystem: 'copilot-api:upload',
         },
+        select: ARTIFACT_SELECT,
       });
 
       reply.code(201);

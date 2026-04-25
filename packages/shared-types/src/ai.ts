@@ -48,6 +48,10 @@ export const TaskType = {
   DETECT_TOOL_GAPS: 'DETECT_TOOL_GAPS',
   // Admin dedupe pass over pending ToolRequest rows (Claude Sonnet)
   ANALYZE_TOOL_REQUESTS: 'ANALYZE_TOOL_REQUESTS',
+  // Friendly display name + description for system-generated artifacts (Claude Haiku)
+  GENERATE_ARTIFACT_NAME: 'GENERATE_ARTIFACT_NAME',
+  // Compose the kick-off ticket description for tickets created by scheduled probes (Claude Haiku)
+  COMPOSE_PROBE_TICKET_BODY: 'COMPOSE_PROBE_TICKET_BODY',
 } as const;
 export type TaskType = (typeof TaskType)[keyof typeof TaskType];
 
@@ -123,6 +127,12 @@ export const TASK_APP_SCOPE: Record<TaskType, AppScope> = {
 
   // Admin dedupe pass
   [TaskType.ANALYZE_TOOL_REQUESTS]: AppScope.CORE,
+
+  // Friendly artifact display name generation
+  [TaskType.GENERATE_ARTIFACT_NAME]: AppScope.CORE,
+
+  // Probe-created ticket description body (Claude Haiku)
+  [TaskType.COMPOSE_PROBE_TICKET_BODY]: AppScope.CORE,
 
 } satisfies Record<TaskType, AppScope>;
 

@@ -8,6 +8,7 @@ import {
 } from '@bronco/shared-utils';
 import { getConfig } from './config.js';
 import { StatusMonitor } from './monitor.js';
+import { CloudflaredDriftPoller } from './cloudflared-poller.js';
 
 const logger = createLogger('status-monitor');
 
@@ -21,6 +22,9 @@ async function main(): Promise<void> {
   // --- Monitor (channels are loaded from DB on each notification) ---
   const monitor = new StatusMonitor(db, config);
 
+  // --- Cloudflared drift poller ---
+  const cloudflaredPoller = new CloudflaredDriftPoller(db, config);
+
   // --- Health server ---
   const health = createHealthServer('status-monitor', config.HEALTH_PORT, {
     getDetails: () => ({
@@ -30,11 +34,15 @@ async function main(): Promise<void> {
       pollIntervalSeconds: config.POLL_INTERVAL_SECONDS,
       cooldownSeconds: config.COOLDOWN_SECONDS,
       activeChannels: monitor.activeChannelCount,
+      cloudflaredTunnel: cloudflaredPoller.getState(),
     }),
   });
 
   // --- Initial poll ---
   await monitor.poll();
+
+  // --- Start cloudflared drift poller (independent interval, non-blocking) ---
+  cloudflaredPoller.start();
 
   // --- Recurring polls (serialized — next poll only starts after previous completes) ---
   let pollRunning = false;
@@ -55,6 +63,7 @@ async function main(): Promise<void> {
 
   createGracefulShutdown(logger, [
     { interval },
+    { fn: () => cloudflaredPoller.stop() },
     health,
     { fn: disconnectDb },
   ]);

@@ -192,6 +192,8 @@ export interface TicketCostSummary {
   }>;
 }
 
+export type ArtifactKind = 'PROBE_RESULT' | 'EMAIL_ATTACHMENT' | 'MCP_TOOL_RESULT' | 'OPERATOR_UPLOAD';
+
 export interface TicketArtifact {
   id: string;
   ticketId: string | null;
@@ -201,6 +203,15 @@ export interface TicketArtifact {
   storagePath: string;
   description: string | null;
   createdAt: string;
+  // Phase 1 enrichment fields (all nullable for backward compatibility)
+  kind: ArtifactKind | null;
+  displayName: string | null;
+  source: string | null;
+  addedByPersonId: string | null;
+  addedBySystem: string | null;
+  originatingEventId: string | null;
+  originatingEventType: string | null;
+  addedByPerson: { id: string; name: string; email: string } | null;
 }
 
 /** Parse Content-Disposition filename, preferring RFC 5987 filename*= over plain filename=". */
@@ -318,8 +329,70 @@ export class TicketService {
     return this.api.get<TicketArtifact[]>(`/tickets/${ticketId}/artifacts`);
   }
 
+  /**
+   * Upload an operator artifact attached to a ticket. Posts multipart/form-data
+   * to the Phase 1 upload endpoint, which hardcodes kind=OPERATOR_UPLOAD.
+   */
+  async uploadArtifact(ticketId: string, file: File): Promise<TicketArtifact> {
+    const token = this.auth.accessToken;
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const form = new FormData();
+    form.append('file', file, file.name);
+    const res = await fetch(`/api/artifacts/upload?ticketId=${encodeURIComponent(ticketId)}`, {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: form,
+    });
+    if (!res.ok) {
+      let msg = `Upload failed (HTTP ${res.status})`;
+      try {
+        const body = await res.json() as { error?: string };
+        if (body.error) msg = body.error;
+      } catch { /* ignore */ }
+      throw new Error(msg);
+    }
+    return res.json() as Promise<TicketArtifact>;
+  }
+
   searchTickets(q: string, limit = 20): Observable<TicketSearchResult[]> {
     return this.api.get<TicketSearchResult[]>('/search/tickets', { q, limit });
+  }
+
+  /**
+   * Open an artifact for inline viewing in a new tab. Fetches via the
+   * `/content` endpoint (Content-Disposition: inline) with the operator's
+   * Bearer token, then opens an object URL so the browser previews
+   * viewable types (text / json / images / pdf) without leaking the token.
+   */
+  async viewArtifact(artifactId: string): Promise<void> {
+    try {
+      const token = this.auth.accessToken;
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch(`/api/artifacts/${artifactId}/content`, {
+        headers,
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        let msg = `View failed (HTTP ${res.status})`;
+        try {
+          const body = await res.json() as { error?: string };
+          if (body.error) msg = body.error;
+        } catch { /* ignore */ }
+        this.toast.error(msg);
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener');
+      // Revoke after a minute so the new tab has time to load the blob.
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'View failed';
+      this.toast.error(`View failed: ${message}`);
+    }
   }
 
   async downloadArtifact(artifactId: string): Promise<void> {

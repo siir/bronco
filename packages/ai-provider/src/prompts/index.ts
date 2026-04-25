@@ -33,6 +33,12 @@ export * from './analyze-tool-requests.js';
 export { CHAT_PROMPTS } from './chat-classify-reply.js';
 export * from './chat-classify-reply.js';
 
+export { ARTIFACT_NAME_PROMPTS } from './artifact-name.js';
+export * from './artifact-name.js';
+
+export { PROBE_TICKET_BODY_PROMPTS } from './probe-ticket-body.js';
+export * from './probe-ticket-body.js';
+
 // Re-export individual prompts for direct import convenience
 import { IMAP_PROMPTS } from './imap.js';
 import { DEVOPS_PROMPTS } from './devops.js';
@@ -45,6 +51,8 @@ import { CLIENT_MEMORY_PROMPTS } from './client-memory.js';
 import { DETECT_TOOL_GAPS_PROMPTS } from './detect-tool-gaps.js';
 import { ANALYZE_TOOL_REQUESTS_PROMPTS } from './analyze-tool-requests.js';
 import { CHAT_PROMPTS } from './chat-classify-reply.js';
+import { ARTIFACT_NAME_PROMPTS } from './artifact-name.js';
+import { PROBE_TICKET_BODY_PROMPTS } from './probe-ticket-body.js';
 import type { PromptDefinition } from './types.js';
 
 /**
@@ -67,6 +75,8 @@ export const ALL_PROMPTS: PromptDefinition[] = [
   ...DETECT_TOOL_GAPS_PROMPTS,
   ...ANALYZE_TOOL_REQUESTS_PROMPTS,
   ...CHAT_PROMPTS,
+  ...ARTIFACT_NAME_PROMPTS,
+  ...PROBE_TICKET_BODY_PROMPTS,
 ];
 
 /**

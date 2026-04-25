@@ -16,6 +16,7 @@ import {
   looksEncrypted,
   callMcpToolViaSdk,
 } from '@bronco/shared-utils';
+import { enqueueArtifactNameGeneration } from '../artifact-name-queue.js';
 
 const logger = createLogger('ticket-analyzer');
 
@@ -1049,7 +1050,7 @@ export async function saveMcpToolArtifact(
     await mkdir(ticketDir, { recursive: true });
     await writeFile(fullPath, rawResult, 'utf-8');
     const relativePath = `tickets/${ticketId}/${filename}`;
-    await db.artifact.create({
+    const created = await db.artifact.create({
       data: {
         ...(artifactId ? { id: artifactId } : {}),
         ticketId,
@@ -1058,9 +1059,19 @@ export async function saveMcpToolArtifact(
         sizeBytes: Buffer.byteLength(rawResult, 'utf-8'),
         storagePath: relativePath,
         description: `Raw MCP tool output from agentic analysis (${toolName})`,
+        kind: 'MCP_TOOL_RESULT',
+        displayName: `Tool result: ${toolName}`,
+        source: `mcp_tool:${toolName}`,
+        addedBySystem: 'ticket-analyzer:agentic',
+        addedByPersonId: null,
       },
+      select: { id: true },
     });
     logger.info({ ticketId, filename }, 'MCP tool artifact saved');
+    // Phase 2: best-effort enqueue Haiku friendly-name generation. No-op if queue not registered.
+    void enqueueArtifactNameGeneration(created.id).catch((err) => {
+      logger.warn({ err, ticketId, artifactId: created.id }, 'Failed to enqueue artifact friendly-name generation — continuing');
+    });
   } catch (err) {
     logger.warn({ err, ticketId }, 'Failed to save MCP tool artifact — continuing');
   }
