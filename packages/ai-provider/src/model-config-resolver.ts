@@ -62,6 +62,7 @@ const DEFAULT_CLAUDE_HAIKU_MODEL = 'claude-haiku-4-5-20251001';
 /** Task types that default to Claude Haiku (cheap, fast) instead of Sonnet. */
 const CLAUDE_HAIKU_TASK_TYPES = new Set<string>([
   TaskType.DETECT_TOOL_GAPS,
+  TaskType.GENERATE_ARTIFACT_NAME,
 ]);
 
 function defaultProviderAndModel(taskType: string): { provider: AIProvider; model: string } {

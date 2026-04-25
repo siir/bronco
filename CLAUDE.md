@@ -164,6 +164,7 @@ System prompts for each task are registered in `packages/ai-provider/src/prompts
 - `ANALYZE_APP_HEALTH` — Scheduled platform health analysis — ticket patterns, AI usage trends, error logs, and codebase review
 - `DETECT_TOOL_GAPS` — Post-hoc review of a completed analysis to detect capability gaps; upserts tool requests into the registry (default: Claude Haiku for cheap review)
 - `ANALYZE_TOOL_REQUESTS` — Admin-triggered dedupe agent: compares a client's PROPOSED/APPROVED tool requests against each other and against the live MCP tool catalog (platform + repo + database + per-client integrations) and writes `suggestedDuplicateOf*` / `suggestedImprovesExisting*` fields on rows (default: Claude Sonnet)
+- `GENERATE_ARTIFACT_NAME` — Async post-save worker that fills `displayName` + `description` on system-generated artifacts (PROBE_RESULT, MCP_TOOL_RESULT) by reading the first 500 chars of the raw output. Strict JSON output, one generation per artifact lifetime, falls back silently to Phase 1 templated defaults on parse failure (default: Claude Haiku)
 
 ### Task Type Discipline (CRITICAL)
 

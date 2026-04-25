@@ -22,6 +22,7 @@ import { createLogger } from '@bronco/shared-utils';
 import type { AppLogger, Mailer, ReplyOptions } from '@bronco/shared-utils';
 import { createIngestionRunTracker } from './ingestion-tracker.js';
 import type { IngestionRunTracker } from './ingestion-tracker.js';
+import { enqueueArtifactNameGeneration } from './artifact-name-queue.js';
 
 const logger = createLogger('ingestion-engine');
 
@@ -1257,6 +1258,10 @@ async function saveProbeArtifact(
       select: { id: true },
     });
     logger.info({ ticketId, filename, artifactId: artifact.id }, 'Probe artifact saved via ingestion engine');
+    // Phase 2: best-effort enqueue Haiku friendly-name generation. No-op if queue not registered.
+    void enqueueArtifactNameGeneration(artifact.id).catch((err) => {
+      logger.warn({ err, ticketId, artifactId: artifact.id }, 'Failed to enqueue artifact friendly-name generation — continuing');
+    });
     return artifact.id;
   } catch (err) {
     logger.warn({ err, ticketId }, 'Failed to save probe artifact — continuing');
