@@ -783,8 +783,10 @@ async function executeIngestionPipeline(
               if (usedHaikuBody) {
                 const trimmedDesc = description.trimEnd();
                 const marker = `\n\n[probe artifact: ${probeArtifactId}]`;
-                const composed = `${trimmedDesc}${marker}`;
-                updateData.description = composed.slice(0, 2000);
+                // Reserve marker length so it isn't truncated off when the body is near 2000 chars.
+                const maxBodyLen = 2000 - marker.length;
+                const truncatedBody = trimmedDesc.length > maxBodyLen ? trimmedDesc.slice(0, maxBodyLen) : trimmedDesc;
+                updateData.description = `${truncatedBody}${marker}`;
               }
 
               await db.ticket.update({

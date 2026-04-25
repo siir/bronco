@@ -551,11 +551,15 @@ async function executeProbe(
 }
 
 // ---------------------------------------------------------------------------
-// Phase 4 — Compose ticket description body via Haiku for create_ticket probes
+// Phase 4 — Compose probe ticket description body via Haiku for create_ticket and silent probes
 // ---------------------------------------------------------------------------
 
-/** Regex matching `toolParams` keys that are useful to surface as timeframe/scope context. */
-const TIMEFRAME_PARAM_KEY_REGEX = /time|date|hours|window|range|from|to|since|until|start|end|day|interval|threshold/i;
+/**
+ * Regex matching `toolParams` keys that are useful to surface as timeframe/scope context.
+ * Uses word boundaries on `from`/`to` so we don't accidentally match `timeoutMs`, `toolName`,
+ * `total`, etc. Substring matches are fine for the longer descriptive fragments below.
+ */
+const TIMEFRAME_PARAM_KEY_REGEX = /time|date|hours|window|range|since|until|start|end|day|interval|threshold|\bfrom\b|\bto\b/i;
 
 /** Additional explicit keys to always pass through if present (small, common scope keys). */
 const ALLOWLIST_PARAM_KEYS = new Set<string>([
@@ -572,7 +576,53 @@ const ALLOWLIST_PARAM_KEYS = new Set<string>([
   'table',
   'objectName',
   'sessionId',
+  'from',
+  'to',
 ]);
+
+/** Caps for sanitizing forwarded param values — keeps prompt budget predictable. */
+const MAX_TIMEFRAME_PARAM_STRING_LENGTH = 200;
+const MAX_TIMEFRAME_PARAM_ARRAY_ITEMS = 10;
+const MAX_TIMEFRAME_PARAM_OBJECT_JSON_LENGTH = 400;
+
+/** Truncate a string to a max length, adding an ellipsis if clipped. */
+function truncateString(s: string, max: number): string {
+  return s.length > max ? `${s.slice(0, max)}…` : s;
+}
+
+/** Sanitize a single value: primitives pass through, strings/arrays/objects bounded, others dropped. */
+function sanitizeParamValue(v: unknown): unknown {
+  if (v === null || v === undefined) return undefined;
+  if (typeof v === 'number' || typeof v === 'boolean') return v;
+  if (typeof v === 'string') return truncateString(v, MAX_TIMEFRAME_PARAM_STRING_LENGTH);
+  if (Array.isArray(v)) {
+    const limited = v.slice(0, MAX_TIMEFRAME_PARAM_ARRAY_ITEMS);
+    const sanitized: unknown[] = [];
+    for (const item of limited) {
+      if (item === null || item === undefined) continue;
+      if (typeof item === 'number' || typeof item === 'boolean') {
+        sanitized.push(item);
+      } else if (typeof item === 'string') {
+        sanitized.push(truncateString(item, MAX_TIMEFRAME_PARAM_STRING_LENGTH));
+      } else {
+        try {
+          sanitized.push(truncateString(JSON.stringify(item), MAX_TIMEFRAME_PARAM_STRING_LENGTH));
+        } catch {
+          // skip un-stringifiable items
+        }
+      }
+    }
+    return sanitized;
+  }
+  if (typeof v === 'object') {
+    try {
+      return truncateString(JSON.stringify(v), MAX_TIMEFRAME_PARAM_OBJECT_JSON_LENGTH);
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
 
 /** Filter `toolParams` down to a small object useful as analyst context. */
 function pickTimeframeAndScopeParams(params: Record<string, unknown>): Record<string, unknown> {
@@ -580,7 +630,10 @@ function pickTimeframeAndScopeParams(params: Record<string, unknown>): Record<st
   for (const [k, v] of Object.entries(params)) {
     if (v === null || v === undefined) continue;
     if (TIMEFRAME_PARAM_KEY_REGEX.test(k) || ALLOWLIST_PARAM_KEYS.has(k)) {
-      out[k] = v;
+      const sanitized = sanitizeParamValue(v);
+      if (sanitized !== undefined) {
+        out[k] = sanitized;
+      }
     }
   }
   return out;
@@ -588,14 +641,19 @@ function pickTimeframeAndScopeParams(params: Record<string, unknown>): Record<st
 
 /**
  * Slice the head of an in-memory string by Buffer-byte length so we don't split
- * a multibyte UTF-8 sequence. Probe results are already in memory at compose
- * time, so no fs.read is needed here — but the byte-bounded slice keeps the
- * prompt budget predictable independent of the source's character width.
+ * a multibyte UTF-8 sequence. Avoids materializing the full string into a Buffer
+ * by sampling a char-bounded prefix first (UTF-8 is at most 4 bytes per code unit),
+ * then byte-trimming on a code-point boundary.
  */
 function readHeadFromString(content: string, bytes: number): string {
-  if (!content) return '';
-  const buf = Buffer.from(content, 'utf-8');
-  return buf.subarray(0, Math.min(bytes, buf.length)).toString('utf-8');
+  if (!content || bytes <= 0) return '';
+  // UTF-8 chars are at most 4 bytes; slice 4x the byte budget worth of chars
+  // so the encoded prefix is guaranteed to cover `bytes` (or the full content).
+  const charSlice = content.slice(0, bytes * 4);
+  const buf = Buffer.from(charSlice, 'utf-8');
+  if (buf.length <= bytes) return charSlice;
+  // Trim to byte budget on a code-point boundary (Buffer.toString respects boundaries).
+  return buf.subarray(0, bytes).toString('utf-8');
 }
 
 /**
