@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Job } from 'bullmq';
@@ -14,6 +14,7 @@ import { executeRecommendations } from './recommendation-executor.js';
 import type { ParsedAction } from './recommendation-executor.js';
 import {
   buildAgenticTools,
+  buildTruncatedPreview,
   DEFAULT_REPO_FILE_EXTENSIONS,
   parseSufficiencyEvaluation,
   resolveAnalysisStrategy,
@@ -257,15 +258,23 @@ export interface AnalyzerDeps {
 // (email metadata, body, and general ticket fields used by the pipeline)
 // ---------------------------------------------------------------------------
 
+/**
+ * Inline threshold: probe artifacts ≤ this many bytes are included verbatim in
+ * the initial emailBody; larger ones are included as a 2000-char preview plus
+ * an artifact-ref footer so Claude knows to call platform__read_tool_result_artifact.
+ */
+const PROBE_ARTIFACT_INLINE_BYTES = 8 * 1024; // 8 KB
+
 async function loadAnalysisContext(
   db: PrismaClient,
   job: AnalysisJob,
+  artifactStoragePath?: string,
 ): Promise<AnalysisContext> {
   const { ticketId, reanalysis, triggerEventId } = job;
 
   const ticket = await db.ticket.findUnique({
     where: { id: ticketId },
-    select: { clientId: true, subject: true, source: true, description: true, followers: { where: { followerType: 'REQUESTER' }, select: { person: { select: { email: true } } }, orderBy: { createdAt: 'asc' }, take: 1 } },
+    select: { clientId: true, subject: true, source: true, description: true, metadata: true, followers: { where: { followerType: 'REQUESTER' }, select: { person: { select: { email: true } } }, orderBy: { createdAt: 'asc' }, take: 1 } },
   });
 
   if (!ticket) {
@@ -307,12 +316,75 @@ async function loadAnalysisContext(
   if (!inboundEvent) {
     // Non-email ticket (probe, manual, AI-detected) — fall back to requester email for notifications
     logger.info({ ticketId, source: ticket.source }, 'No EMAIL_INBOUND event found — loading non-email context');
+
+    // If a probe artifact was saved at ingestion time, use its full content (or a
+    // preview-with-artifact-ref) instead of the 2000-char truncated description.
+    let emailBody = ticket.description ?? '';
+    const ticketMeta = ticket.metadata as Record<string, unknown> | null;
+    const probeArtifactId = typeof ticketMeta?.['probeArtifactId'] === 'string' ? ticketMeta['probeArtifactId'] : null;
+
+    if (probeArtifactId && artifactStoragePath) {
+      try {
+        const artifact = await db.artifact.findFirst({
+          where: { id: probeArtifactId, ticketId },
+          select: { storagePath: true, sizeBytes: true },
+        });
+        if (artifact) {
+          const resolvedStorage = resolve(artifactStoragePath);
+          const absPath = resolve(resolvedStorage, artifact.storagePath);
+          const rel = relative(resolvedStorage, absPath);
+          if (!rel.startsWith('..') && rel !== '' && !rel.startsWith('/')) {
+            if (artifact.sizeBytes <= PROBE_ARTIFACT_INLINE_BYTES) {
+              // Small enough to inline — read the full file; Claude sees the full probe result immediately
+              const rawContent = await readFile(absPath, 'utf-8');
+              emailBody = rawContent;
+              logger.info({ ticketId, probeArtifactId, sizeBytes: artifact.sizeBytes }, 'Probe artifact inlined in analysis context');
+            } else {
+              // Too large to inline — read only head and tail bytes to avoid loading the
+              // entire file into memory, then build a canonical truncated preview so
+              // Claude can page the rest via platform__read_tool_result_artifact.
+              const HEAD_BYTES = 1500;
+              const TAIL_BYTES = 500;
+              const fh = await open(absPath, 'r');
+              try {
+                const headBuf = Buffer.alloc(HEAD_BYTES);
+                const { bytesRead: headRead } = await fh.read(headBuf, 0, HEAD_BYTES, 0);
+                const tailOffset = Math.max(HEAD_BYTES, artifact.sizeBytes - TAIL_BYTES);
+                const tailBuf = Buffer.alloc(TAIL_BYTES);
+                const { bytesRead: tailRead } = await fh.read(tailBuf, 0, TAIL_BYTES, tailOffset);
+                const head = headBuf.subarray(0, headRead).toString('utf-8');
+                const tail = tailBuf.subarray(0, tailRead).toString('utf-8');
+                const approxChars = artifact.sizeBytes; // byte count ≈ char count for UTF-8 text
+                emailBody = buildTruncatedPreview(head + '\n...\n' + tail, probeArtifactId)
+                  .replace(/^size: \d+ chars$/m, `size: ~${approxChars} bytes`);
+              } finally {
+                await fh.close();
+              }
+              logger.info({ ticketId, probeArtifactId, sizeBytes: artifact.sizeBytes }, 'Probe artifact preview-with-ref added to analysis context');
+            }
+          } else {
+            logger.warn({ ticketId, probeArtifactId }, 'Probe artifact path escaped storage root — falling back to description');
+          }
+        }
+      } catch (artifactErr) {
+        logger.warn({ artifactErr, ticketId, probeArtifactId }, 'Failed to load probe artifact for analysis context — falling back to description');
+      }
+    } else if (probeArtifactId && !artifactStoragePath) {
+      // Artifact exists but no storage path — append a reference so Claude knows to fetch it
+      emailBody = [
+        ticket.description ?? '',
+        '',
+        `[Full probe result available at artifact ${probeArtifactId}. Use platform__read_tool_result_artifact to retrieve.]`,
+      ].join('\n').trim();
+      logger.info({ ticketId, probeArtifactId }, 'Probe artifact ID appended to analysis context (no storage path available)');
+    }
+
     return {
       ticketId,
       clientId: ticket.clientId,
       emailFrom: ticket.followers[0]?.person?.email ?? undefined,
       emailSubject: ticket.subject ?? '(No subject)',
-      emailBody: ticket.description ?? '',
+      emailBody,
       emailMessageId: undefined,
       ticketSource: ticket.source,
     };
@@ -3352,8 +3424,9 @@ export function createAnalysisProcessor(deps: AnalyzerDeps) {
   return async function processAnalysis(job: Job<AnalysisJob>): Promise<void> {
     const { ticketId, reanalysis, triggerEventId, chatReanalysisMode } = job.data;
 
-    // Resolve ticket context from the DB instead of carrying it on the job payload
-    const ctx = await loadAnalysisContext(deps.db, job.data);
+    // Resolve ticket context from the DB instead of carrying it on the job payload.
+    // Pass artifactStoragePath so probe-sourced tickets can inline or reference their full result.
+    const ctx = await loadAnalysisContext(deps.db, job.data, deps.artifactStoragePath);
 
     appLog.info(
       reanalysis ? 'Starting re-analysis pipeline (reply-triggered)' : 'Starting ticket analysis pipeline',

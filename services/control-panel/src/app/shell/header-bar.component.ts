@@ -36,8 +36,8 @@ const isMac = /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent);
   `,
   styles: [`
     .header-bar {
-      height: var(--header-height);
-      min-height: var(--header-height);
+      height: calc(var(--header-height) + env(safe-area-inset-top));
+      min-height: calc(var(--header-height) + env(safe-area-inset-top));
       background: var(--bg-header);
       backdrop-filter: saturate(180%) blur(20px);
       -webkit-backdrop-filter: saturate(180%) blur(20px);
