@@ -1058,6 +1058,11 @@ export async function saveMcpToolArtifact(
         sizeBytes: Buffer.byteLength(rawResult, 'utf-8'),
         storagePath: relativePath,
         description: `Raw MCP tool output from agentic analysis (${toolName})`,
+        kind: 'MCP_TOOL_RESULT',
+        displayName: `Tool result: ${toolName}`,
+        source: `mcp_tool:${toolName}`,
+        addedBySystem: 'ticket-analyzer:agentic',
+        addedByPersonId: null,
       },
     });
     logger.info({ ticketId, filename }, 'MCP tool artifact saved');

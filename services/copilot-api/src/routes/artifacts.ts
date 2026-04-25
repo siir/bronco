@@ -6,6 +6,35 @@ import { pipeline } from 'node:stream/promises';
 import type { Config } from '../config.js';
 import { resolveClientScope, scopeToWhere } from '../plugins/client-scope.js';
 
+/** Fields projected on Artifact rows returned by the list/get endpoints. */
+const ARTIFACT_SELECT = {
+  id: true,
+  ticketId: true,
+  findingId: true,
+  filename: true,
+  mimeType: true,
+  sizeBytes: true,
+  storagePath: true,
+  description: true,
+  createdAt: true,
+  // Phase 1 enrichment fields
+  kind: true,
+  displayName: true,
+  source: true,
+  addedByPersonId: true,
+  addedBySystem: true,
+  originatingEventId: true,
+  originatingEventType: true,
+  // Person join: project only safe fields (id, name, email — no passwordHash etc.)
+  addedByPerson: {
+    select: {
+      id: true,
+      name: true,
+      email: true,
+    },
+  },
+} as const;
+
 export async function artifactRoutes(fastify: FastifyInstance, opts: { config: Config }): Promise<void> {
   const storagePath = opts.config.ARTIFACT_STORAGE_PATH;
 
@@ -21,6 +50,7 @@ export async function artifactRoutes(fastify: FastifyInstance, opts: { config: C
     const artifacts = await fastify.db.artifact.findMany({
       where: { ticketId: request.params.ticketId },
       orderBy: { createdAt: 'desc' },
+      select: ARTIFACT_SELECT,
     });
     return artifacts;
   });
@@ -38,6 +68,7 @@ export async function artifactRoutes(fastify: FastifyInstance, opts: { config: C
           { ticketId: null },
         ],
       },
+      select: ARTIFACT_SELECT,
     });
     if (!artifact) return fastify.httpErrors.notFound('Artifact not found');
     return artifact;
@@ -53,6 +84,11 @@ export async function artifactRoutes(fastify: FastifyInstance, opts: { config: C
           { ticket: { ...scopeToWhere(scope) } },
           { ticketId: null },
         ],
+      },
+      select: {
+        storagePath: true,
+        filename: true,
+        mimeType: true,
       },
     });
     if (!artifact) return fastify.httpErrors.notFound('Artifact not found');
@@ -76,15 +112,15 @@ export async function artifactRoutes(fastify: FastifyInstance, opts: { config: C
     return reply.send(createReadStream(filePath));
   });
 
-  fastify.post<{ Querystring: { ticketId?: string; findingId?: string; description?: string } }>(
+  fastify.post<{ Querystring: { ticketId?: string; findingId?: string; description?: string; kind?: string } }>(
     '/api/artifacts/upload',
     async (request, reply) => {
       const file = await request.file();
       if (!file) return fastify.httpErrors.badRequest('No file provided');
 
-      // ticketId, findingId, and description are passed as querystring params so
+      // ticketId, findingId, description, and kind are passed as querystring params so
       // they can accompany a multipart/form-data upload without a JSON body.
-      const { ticketId, findingId, description } = request.query;
+      const { ticketId, findingId, description, kind } = request.query;
 
       // Scope checks: resolve once if either parent is provided.
       if (ticketId || findingId) {
@@ -127,6 +163,18 @@ export async function artifactRoutes(fastify: FastifyInstance, opts: { config: C
       await mkdir(dirname(fullPath), { recursive: true });
       await pipeline(file.file, createWriteStream(fullPath));
 
+      // Resolve the operator's Person ID from the JWT (present for authenticated callers).
+      const callerPersonId = request.user?.personId ?? null;
+
+      // Determine the artifact kind: default to OPERATOR_UPLOAD unless caller explicitly
+      // passes a recognised kind value (guards against free-form strings).
+      const VALID_KINDS = ['PROBE_RESULT', 'EMAIL_ATTACHMENT', 'MCP_TOOL_RESULT', 'OPERATOR_UPLOAD'] as const;
+      type ValidKind = typeof VALID_KINDS[number];
+      const resolvedKind: ValidKind =
+        (kind && (VALID_KINDS as readonly string[]).includes(kind))
+          ? kind as ValidKind
+          : 'OPERATOR_UPLOAD';
+
       const artifact = await fastify.db.artifact.create({
         data: {
           ticketId: ticketId ?? null,
@@ -136,7 +184,13 @@ export async function artifactRoutes(fastify: FastifyInstance, opts: { config: C
           sizeBytes: file.file.bytesRead,
           storagePath: relativePath,
           description: description ?? null,
+          kind: resolvedKind,
+          displayName: sanitizedFilename,
+          source: 'upload',
+          addedByPersonId: callerPersonId,
+          addedBySystem: 'copilot-api:upload',
         },
+        select: ARTIFACT_SELECT,
       });
 
       reply.code(201);

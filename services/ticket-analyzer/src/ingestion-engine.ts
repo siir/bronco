@@ -755,6 +755,37 @@ async function executeIngestionPipeline(
           await saveProbeArtifact(db, ctx.ticketId, probeName, toolName, toolResult, deps.artifactStoragePath);
         }
 
+        // Save email attachments when present in the payload (EMAIL source only)
+        if (source === TicketSource.EMAIL && deps.artifactStoragePath) {
+          const rawAttachments = payload['attachments'];
+          if (Array.isArray(rawAttachments) && rawAttachments.length > 0) {
+            const subject = payloadStr(payload, 'subject');
+            const personId = typeof payload['personId'] === 'string' ? payload['personId'] : null;
+            // Find the EMAIL_INBOUND event we just created so we can store originatingEventId
+            const inboundEvent = await db.ticketEvent.findFirst({
+              where: { ticketId: ctx.ticketId, eventType: 'EMAIL_INBOUND' },
+              orderBy: { createdAt: 'desc' },
+              select: { id: true },
+            });
+            for (const att of rawAttachments) {
+              if (
+                typeof att !== 'object' || att === null ||
+                typeof att['filename'] !== 'string' ||
+                typeof att['content'] !== 'string'
+              ) continue;
+              await saveEmailAttachmentArtifact(
+                db,
+                ctx.ticketId,
+                att as { filename: string; contentType: string; size: number; content: string },
+                subject,
+                personId,
+                inboundEvent?.id ?? null,
+                deps.artifactStoragePath,
+              );
+            }
+          }
+        }
+
         const stepDuration = Date.now() - stepStart;
         deps.appLog?.info(
           `Ticket created: ${ctx.ticketId} (${source}, ${ctx.category}/${ctx.priority}) (${(stepDuration / 1000).toFixed(1)}s)`,
@@ -1191,11 +1222,64 @@ async function saveProbeArtifact(
         sizeBytes: Buffer.byteLength(rawResult, 'utf-8'),
         storagePath: relativePath,
         description: `Raw MCP tool output from probe "${probeName}" (${toolName})`,
+        kind: 'PROBE_RESULT',
+        displayName: `Probe: ${probeName}`,
+        source: `probe:${toolName}`,
+        addedBySystem: 'probe-worker',
+        addedByPersonId: null,
       },
     });
     logger.info({ ticketId, filename }, 'Probe artifact saved via ingestion engine');
   } catch (err) {
     logger.warn({ err, ticketId }, 'Failed to save probe artifact — continuing');
+  }
+}
+
+async function saveEmailAttachmentArtifact(
+  db: PrismaClient,
+  ticketId: string,
+  att: { filename: string; contentType: string; size: number; content: string },
+  emailSubject: string,
+  personId: string | null,
+  originatingEventId: string | null,
+  storagePath: string,
+): Promise<void> {
+  try {
+    const safeFilename = sanitizeFilenameSegment(att.filename || 'attachment');
+    const filename = `email-${Date.now()}-${safeFilename}`;
+    const resolvedStorage = resolve(storagePath);
+    const ticketDir = resolve(resolvedStorage, 'tickets', ticketId);
+    const rel = relative(resolvedStorage, ticketDir);
+    if (rel.startsWith('..') || rel === '') {
+      logger.warn({ ticketId, ticketDir, resolvedStorage }, 'Email attachment path escaped storage root — skipping');
+      return;
+    }
+    const fullPath = join(ticketDir, filename);
+    await mkdir(ticketDir, { recursive: true });
+    const contentBuffer = Buffer.from(att.content, 'base64');
+    await writeFile(fullPath, contentBuffer);
+    const relativePath = `tickets/${ticketId}/${filename}`;
+    const sourceTag = `email:${emailSubject.slice(0, 80)}`;
+    await db.artifact.create({
+      data: {
+        ticketId,
+        filename: att.filename || 'attachment',
+        mimeType: att.contentType || 'application/octet-stream',
+        sizeBytes: contentBuffer.length,
+        storagePath: relativePath,
+        description: null,
+        kind: 'EMAIL_ATTACHMENT',
+        displayName: att.filename || 'attachment',
+        source: sourceTag,
+        addedByPersonId: personId,
+        addedBySystem: 'imap-worker',
+        originatingEventId: originatingEventId,
+        originatingEventType: originatingEventId ? 'ticket_event' : null,
+      },
+    });
+    logger.info({ ticketId, filename: att.filename }, 'Email attachment artifact saved');
+  } catch (err) {
+    logger.warn({ err, ticketId, filename: att.filename }, 'Failed to save email attachment artifact — continuing');
   }
 }
 

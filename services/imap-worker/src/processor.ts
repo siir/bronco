@@ -3,9 +3,12 @@ import { simpleParser } from 'mailparser';
 import type { Job, Queue } from 'bullmq';
 import { type PrismaClient } from '@bronco/db';
 import { TaskType, EmailClassification, EmailProcessingStatus, TicketSource } from '@bronco/shared-types';
-import type { IngestionJob, EmailIngestionPayload } from '@bronco/shared-types';
+import type { IngestionJob, EmailIngestionPayload, EmailAttachmentPayload } from '@bronco/shared-types';
 import type { AIRouter } from '@bronco/ai-provider';
 import { AppLogger, createPrismaLogWriter } from '@bronco/shared-utils';
+
+/** Maximum per-attachment size in bytes before we skip (and WARN-log). */
+const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024; // 25 MB
 
 export const appLog = new AppLogger('email-processor');
 
@@ -259,6 +262,31 @@ Respond with ONLY one word: ACTIONABLE or NOISE`,
       classification = EmailClassification.THREAD_REPLY;
     }
 
+    // --- Collect attachments for ingestion payload ---
+    const attachmentPayloads: EmailAttachmentPayload[] = [];
+    if (parsed.attachments && parsed.attachments.length > 0) {
+      for (const att of parsed.attachments) {
+        const attSize = att.size ?? att.content?.length ?? 0;
+        if (attSize > MAX_ATTACHMENT_BYTES) {
+          appLog.warn(`Skipping oversized email attachment (${attSize} bytes > 25 MB limit)`, {
+            filename: att.filename,
+            contentType: att.contentType,
+            size: attSize,
+            messageId,
+          });
+          continue;
+        }
+        const content = att.content;
+        if (!content || content.length === 0) continue;
+        attachmentPayloads.push({
+          filename: att.filename || 'attachment',
+          contentType: att.contentType || 'application/octet-stream',
+          size: attSize,
+          content: content.toString('base64'),
+        });
+      }
+    }
+
     // --- Build payload and push to ingestion queue ---
     const refsArray = Array.isArray(references) ? references : references ? [references] : [];
     const emailPayload: EmailIngestionPayload = {
@@ -274,6 +302,7 @@ Respond with ONLY one word: ACTIONABLE or NOISE`,
       hasAttachments: hasAttachments || undefined,
       emailHash,
       personId: person?.id,
+      ...(attachmentPayloads.length > 0 && { attachments: attachmentPayloads }),
     };
 
     const ingestionJob: IngestionJob = {

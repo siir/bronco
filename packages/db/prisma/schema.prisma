@@ -24,6 +24,7 @@ model Person {
   clientUsers     ClientUser[]
   refreshTokens   PersonRefreshToken[]
   ticketFollowers TicketFollower[]
+  uploadedArtifacts Artifact[]
 
   @@unique([emailLower])
   @@index([email])
@@ -451,18 +452,27 @@ model DevOpsSyncState {
 // --- Artifacts & Findings ---
 
 model Artifact {
-  id          String   @id @default(uuid()) @db.Uuid
-  ticketId    String?  @map("ticket_id") @db.Uuid
-  findingId   String?  @map("finding_id") @db.Uuid
-  filename    String
-  mimeType    String   @map("mime_type")
-  sizeBytes   Int      @map("size_bytes")
-  storagePath String   @map("storage_path")
-  description String?
-  createdAt   DateTime @default(now()) @map("created_at")
+  id                   String        @id @default(uuid()) @db.Uuid
+  ticketId             String?       @map("ticket_id") @db.Uuid
+  findingId            String?       @map("finding_id") @db.Uuid
+  filename             String
+  mimeType             String        @map("mime_type")
+  sizeBytes            Int           @map("size_bytes")
+  storagePath          String        @map("storage_path")
+  description          String?
+  createdAt            DateTime      @default(now()) @map("created_at")
+  // Phase 1 enrichment — all nullable for backward compatibility
+  kind                 ArtifactKind? @map("kind")
+  displayName          String?       @map("display_name")
+  source               String?       @map("source")
+  addedByPersonId      String?       @map("added_by_person_id") @db.Uuid
+  addedBySystem        String?       @map("added_by_system")
+  originatingEventId   String?       @map("originating_event_id")
+  originatingEventType String?       @map("originating_event_type")
 
-  ticket  Ticket?  @relation(fields: [ticketId], references: [id])
-  finding Finding? @relation(fields: [findingId], references: [id])
+  ticket        Ticket?  @relation(fields: [ticketId], references: [id])
+  finding       Finding? @relation(fields: [findingId], references: [id])
+  addedByPerson Person?  @relation(fields: [addedByPersonId], references: [id])
 
   @@map("artifacts")
 }
@@ -1688,6 +1698,15 @@ enum ToolRequestKind {
   IMPROVE_TOOL
 
   @@map("tool_request_kind")
+}
+
+enum ArtifactKind {
+  PROBE_RESULT
+  EMAIL_ATTACHMENT
+  MCP_TOOL_RESULT
+  OPERATOR_UPLOAD
+
+  @@map("artifact_kind")
 }
 
 model ToolRequest {
