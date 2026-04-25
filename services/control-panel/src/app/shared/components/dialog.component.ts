@@ -158,12 +158,22 @@ export class DialogComponent implements OnDestroy {
   // ── Body-scroll-lock (static counter so stacked dialogs work correctly) ──
   private static openCount = 0;
   private static savedScrollY = 0;
+  // Captured inline style values from before the first dialog locks — restored
+  // exactly when the last dialog closes so pre-existing inline styles survive.
+  private static savedBodyStyles: { position: string; top: string; width: string; left: string; right: string } | null = null;
   private scrollLocked = false;
 
   private lockBodyScroll(): void {
     if (typeof window === 'undefined' || typeof document === 'undefined') return;
     if (DialogComponent.openCount === 0) {
       DialogComponent.savedScrollY = window.scrollY;
+      DialogComponent.savedBodyStyles = {
+        position: document.body.style.position,
+        top: document.body.style.top,
+        width: document.body.style.width,
+        left: document.body.style.left,
+        right: document.body.style.right,
+      };
       document.body.style.position = 'fixed';
       document.body.style.top = `-${DialogComponent.savedScrollY}px`;
       document.body.style.width = '100%';
@@ -182,13 +192,15 @@ export class DialogComponent implements OnDestroy {
     if (DialogComponent.openCount < 0) DialogComponent.openCount = 0;
     if (DialogComponent.openCount === 0) {
       const scrollY = DialogComponent.savedScrollY;
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.width = '';
-      document.body.style.left = '';
-      document.body.style.right = '';
+      const prev = DialogComponent.savedBodyStyles;
+      document.body.style.position = prev?.position ?? '';
+      document.body.style.top = prev?.top ?? '';
+      document.body.style.width = prev?.width ?? '';
+      document.body.style.left = prev?.left ?? '';
+      document.body.style.right = prev?.right ?? '';
       window.scrollTo(0, scrollY);
       DialogComponent.savedScrollY = 0;
+      DialogComponent.savedBodyStyles = null;
     }
   }
 
