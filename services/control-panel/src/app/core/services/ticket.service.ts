@@ -360,6 +360,41 @@ export class TicketService {
     return this.api.get<TicketSearchResult[]>('/search/tickets', { q, limit });
   }
 
+  /**
+   * Open an artifact for inline viewing in a new tab. Fetches via the
+   * `/content` endpoint (Content-Disposition: inline) with the operator's
+   * Bearer token, then opens an object URL so the browser previews
+   * viewable types (text / json / images / pdf) without leaking the token.
+   */
+  async viewArtifact(artifactId: string): Promise<void> {
+    try {
+      const token = this.auth.accessToken;
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch(`/api/artifacts/${artifactId}/content`, {
+        headers,
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        let msg = `View failed (HTTP ${res.status})`;
+        try {
+          const body = await res.json() as { error?: string };
+          if (body.error) msg = body.error;
+        } catch { /* ignore */ }
+        this.toast.error(msg);
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener');
+      // Revoke after a minute so the new tab has time to load the blob.
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'View failed';
+      this.toast.error(`View failed: ${message}`);
+    }
+  }
+
   async downloadArtifact(artifactId: string): Promise<void> {
     try {
       const token = this.auth.accessToken;

@@ -23,7 +23,7 @@ import { RelativeTimePipe } from '../../shared/pipes/relative-time.pipe.js';
       <div class="attachments-toolbar">
         <div class="attachments-summary">
           @if (loaded()) {
-            <span class="att-count">{{ artifacts().length }} item{{ artifacts().length === 1 ? '' : 's' }}</span>
+            <span class="att-count">{{ sortedArtifacts().length }} item{{ sortedArtifacts().length === 1 ? '' : 's' }}</span>
           } @else {
             <span class="att-count att-count-muted">Loading…</span>
           }
@@ -44,11 +44,11 @@ import { RelativeTimePipe } from '../../shared/pipes/relative-time.pipe.js';
         </div>
       </div>
 
-      @if (loaded() && artifacts().length === 0) {
+      @if (loaded() && sortedArtifacts().length === 0) {
         <div class="empty-state-card">
           <app-icon name="paperclip" size="lg" />
           <p class="empty-title">No attachments yet</p>
-          <p class="empty-sub">Drop a file or use the Upload button to attach one to this ticket.</p>
+          <p class="empty-sub">Use the Upload button to attach a file to this ticket.</p>
           <label class="upload-btn upload-btn-primary" [class.upload-disabled]="uploading()">
             <app-icon name="cloud-upload" size="sm" />
             <span>{{ uploading() ? 'Uploading…' : 'Choose file' }}</span>
@@ -61,7 +61,7 @@ import { RelativeTimePipe } from '../../shared/pipes/relative-time.pipe.js';
         </div>
       } @else if (loaded()) {
         <div class="att-grid" role="list">
-          @for (a of artifacts(); track a.id) {
+          @for (a of sortedArtifacts(); track a.id) {
             <div class="att-row" role="listitem">
               <div class="att-icon-wrap" [attr.data-kind]="a.kind ?? 'OTHER'">
                 <app-icon [name]="iconFor(a)" size="lg" />
@@ -328,17 +328,18 @@ export class AttachmentsListComponent implements OnInit {
   }
 
   /**
-   * "View" for now opens the same download URL in a new tab — for text/json/image/pdf
-   * the browser will render inline; for other types it'll prompt download. Phase 1
-   * does not have a separate inline-content endpoint, so we re-use /download.
+   * View opens the artifact's content in a new tab via a blob URL. Fetches
+   * `/api/artifacts/:id/content` with the operator's Bearer token (so auth is
+   * enforced) and the backend serves it with `Content-Disposition: inline` so
+   * browsers preview viewable types instead of forcing a download.
+   * Non-viewable mime types fall through to the download path.
    */
   view(a: TicketArtifact): void {
     if (!this.isViewable(a)) {
       this.download(a);
       return;
     }
-    const url = `/api/artifacts/${a.id}/download`;
-    window.open(url, '_blank', 'noopener');
+    void this.ticketService.viewArtifact(a.id);
   }
 
   isViewable(a: TicketArtifact): boolean {
@@ -405,7 +406,6 @@ export class AttachmentsListComponent implements OnInit {
   }
 
   formatBytes(bytes: number): string {
-    if (bytes == null) return '';
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
