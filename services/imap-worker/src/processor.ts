@@ -7,8 +7,15 @@ import type { IngestionJob, EmailIngestionPayload, EmailAttachmentPayload } from
 import type { AIRouter } from '@bronco/ai-provider';
 import { AppLogger, createPrismaLogWriter } from '@bronco/shared-utils';
 
-/** Maximum per-attachment size in bytes before we skip (and WARN-log). */
-const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024; // 25 MB
+/**
+ * Maximum per-attachment RAW size in bytes before we skip (and WARN-log).
+ *
+ * The ingestion BullMQ payload carries attachment bytes as base64 inside JSON,
+ * which inflates payload size by ~33% (4 base64 chars per 3 raw bytes). To keep
+ * the encoded Redis payload ≤ ~25 MB per attachment, we cap RAW at ~18.75 MB.
+ * 18.75 MB raw → ~25 MB base64 ≤ Redis-friendly payload size.
+ */
+const RAW_ATTACHMENT_LIMIT_BYTES = Math.floor(18.75 * 1024 * 1024); // ~18.75 MB raw → ~25 MB base64
 
 export const appLog = new AppLogger('email-processor');
 
@@ -267,13 +274,17 @@ Respond with ONLY one word: ACTIONABLE or NOISE`,
     if (parsed.attachments && parsed.attachments.length > 0) {
       for (const att of parsed.attachments) {
         const attSize = att.size ?? att.content?.length ?? 0;
-        if (attSize > MAX_ATTACHMENT_BYTES) {
-          appLog.warn(`Skipping oversized email attachment (${attSize} bytes > 25 MB limit)`, {
-            filename: att.filename,
-            contentType: att.contentType,
-            size: attSize,
-            messageId,
-          });
+        if (attSize > RAW_ATTACHMENT_LIMIT_BYTES) {
+          appLog.warn(
+            `Skipping oversized email attachment (${attSize} raw bytes > ${RAW_ATTACHMENT_LIMIT_BYTES} raw-byte limit; base64-encoded payload would exceed ~25 MB)`,
+            {
+              filename: att.filename,
+              contentType: att.contentType,
+              size: attSize,
+              rawLimit: RAW_ATTACHMENT_LIMIT_BYTES,
+              messageId,
+            },
+          );
           continue;
         }
         const content = att.content;

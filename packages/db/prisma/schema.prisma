@@ -472,7 +472,7 @@ model Artifact {
 
   ticket        Ticket?  @relation(fields: [ticketId], references: [id])
   finding       Finding? @relation(fields: [findingId], references: [id])
-  addedByPerson Person?  @relation(fields: [addedByPersonId], references: [id])
+  addedByPerson Person?  @relation(fields: [addedByPersonId], references: [id], onDelete: SetNull)
 
   @@map("artifacts")
 }

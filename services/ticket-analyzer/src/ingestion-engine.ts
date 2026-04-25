@@ -1,5 +1,6 @@
 import { writeFile, mkdir } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import type { Job, Queue } from 'bullmq';
 import type { PrismaClient } from '@bronco/db';
 import { Prisma } from '@bronco/db';
@@ -700,9 +701,11 @@ async function executeIngestionPipeline(
           throw new Error('Failed to create ticket after max retries');
         }
 
-        // Record initial inbound event based on source
+        // Record initial inbound event based on source. For EMAIL we capture the event
+        // id so attachments below can stamp originatingEventId without an extra query.
+        let inboundEventId: string | null = null;
         if (source === TicketSource.EMAIL) {
-          await db.ticketEvent.create({
+          const inboundEvent = await db.ticketEvent.create({
             data: {
               ticketId: ctx.ticketId,
               eventType: 'EMAIL_INBOUND',
@@ -720,7 +723,9 @@ async function executeIngestionPipeline(
               ...(typeof payload['messageId'] === 'string' && !payload['messageId'].startsWith('uid-') ? { emailMessageId: payload['messageId'] as string } : {}),
               ...(typeof payload['emailHash'] === 'string' && payload['emailHash'].trim() !== '' ? { emailHash: payload['emailHash'] as string } : {}),
             },
+            select: { id: true },
           });
+          inboundEventId = inboundEvent.id;
         } else {
           await db.ticketEvent.create({
             data: {
@@ -755,18 +760,14 @@ async function executeIngestionPipeline(
           await saveProbeArtifact(db, ctx.ticketId, probeName, toolName, toolResult, deps.artifactStoragePath);
         }
 
-        // Save email attachments when present in the payload (EMAIL source only)
+        // Save email attachments when present in the payload (EMAIL source only).
+        // We reuse the inboundEventId captured from the create() above instead of
+        // re-querying ticketEvent for the row we just inserted.
         if (source === TicketSource.EMAIL && deps.artifactStoragePath) {
           const rawAttachments = payload['attachments'];
           if (Array.isArray(rawAttachments) && rawAttachments.length > 0) {
             const subject = payloadStr(payload, 'subject');
             const personId = typeof payload['personId'] === 'string' ? payload['personId'] : null;
-            // Find the EMAIL_INBOUND event we just created so we can store originatingEventId
-            const inboundEvent = await db.ticketEvent.findFirst({
-              where: { ticketId: ctx.ticketId, eventType: 'EMAIL_INBOUND' },
-              orderBy: { createdAt: 'desc' },
-              select: { id: true },
-            });
             for (const att of rawAttachments) {
               if (
                 typeof att !== 'object' || att === null ||
@@ -779,7 +780,7 @@ async function executeIngestionPipeline(
                 att as { filename: string; contentType: string; size: number; content: string },
                 subject,
                 personId,
-                inboundEvent?.id ?? null,
+                inboundEventId,
                 deps.artifactStoragePath,
               );
             }
@@ -1246,7 +1247,9 @@ async function saveEmailAttachmentArtifact(
 ): Promise<void> {
   try {
     const safeFilename = sanitizeFilenameSegment(att.filename || 'attachment');
-    const filename = `email-${Date.now()}-${safeFilename}`;
+    // Append a randomUUID() segment so two attachments saved in the same millisecond
+    // (same ticket, multiple parts) cannot collide on disk. Matches saveMcpToolArtifact.
+    const filename = `email-${Date.now()}-${randomUUID()}-${safeFilename}`;
     const resolvedStorage = resolve(storagePath);
     const ticketDir = resolve(resolvedStorage, 'tickets', ticketId);
     const rel = relative(resolvedStorage, ticketDir);

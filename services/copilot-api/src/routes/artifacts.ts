@@ -112,15 +112,18 @@ export async function artifactRoutes(fastify: FastifyInstance, opts: { config: C
     return reply.send(createReadStream(filePath));
   });
 
-  fastify.post<{ Querystring: { ticketId?: string; findingId?: string; description?: string; kind?: string } }>(
+  fastify.post<{ Querystring: { ticketId?: string; findingId?: string; description?: string } }>(
     '/api/artifacts/upload',
     async (request, reply) => {
       const file = await request.file();
       if (!file) return fastify.httpErrors.badRequest('No file provided');
 
-      // ticketId, findingId, description, and kind are passed as querystring params so
+      // ticketId, findingId, and description are passed as querystring params so
       // they can accompany a multipart/form-data upload without a JSON body.
-      const { ticketId, findingId, description, kind } = request.query;
+      // The artifact kind is hardcoded to OPERATOR_UPLOAD — callers cannot mislabel
+      // operator uploads as PROBE_RESULT / EMAIL_ATTACHMENT / MCP_TOOL_RESULT (those
+      // kinds are written exclusively by their respective worker pipelines).
+      const { ticketId, findingId, description } = request.query;
 
       // Scope checks: resolve once if either parent is provided.
       if (ticketId || findingId) {
@@ -166,15 +169,6 @@ export async function artifactRoutes(fastify: FastifyInstance, opts: { config: C
       // Resolve the operator's Person ID from the JWT (present for authenticated callers).
       const callerPersonId = request.user?.personId ?? null;
 
-      // Determine the artifact kind: default to OPERATOR_UPLOAD unless caller explicitly
-      // passes a recognised kind value (guards against free-form strings).
-      const VALID_KINDS = ['PROBE_RESULT', 'EMAIL_ATTACHMENT', 'MCP_TOOL_RESULT', 'OPERATOR_UPLOAD'] as const;
-      type ValidKind = typeof VALID_KINDS[number];
-      const resolvedKind: ValidKind =
-        (kind && (VALID_KINDS as readonly string[]).includes(kind))
-          ? kind as ValidKind
-          : 'OPERATOR_UPLOAD';
-
       const artifact = await fastify.db.artifact.create({
         data: {
           ticketId: ticketId ?? null,
@@ -184,7 +178,7 @@ export async function artifactRoutes(fastify: FastifyInstance, opts: { config: C
           sizeBytes: file.file.bytesRead,
           storagePath: relativePath,
           description: description ?? null,
-          kind: resolvedKind,
+          kind: 'OPERATOR_UPLOAD',
           displayName: sanitizedFilename,
           source: 'upload',
           addedByPersonId: callerPersonId,
