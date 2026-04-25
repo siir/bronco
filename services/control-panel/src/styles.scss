@@ -125,16 +125,12 @@ app-dialog .dialog-body [dialogFooter] {
   pointer-events: auto;
   animation: bronco-sidebar-drawer-slide-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
   /*
-   * iOS PWA safe-area insets: when installed to the home screen, the drawer
-   * is appended directly to body and pinned at top:0/left:0 by the overlay
-   * position strategy. Without these insets the brand logo and nav items
-   * slide under the carrier/wifi/battery status bar. Mirrors the
-   * `padding-top: env(safe-area-inset-top)` pattern used by `.header-bar`.
-   * Resolves to 0 in non-PWA browsers, so this is a no-op everywhere else.
+   * The overlay pane is a transparent positioning shell — no inset padding
+   * here, otherwise the safe-area band shows through to the backdrop and the
+   * sidebar surface stops short of the screen edges. Inset handling lives on
+   * `.sidebar` below so the visible (var(--bg-sidebar)) surface extends into
+   * the inset region. Mirrors the header-bar pattern from PR #425.
    */
-  padding-top: env(safe-area-inset-top);
-  padding-bottom: env(safe-area-inset-bottom);
-  box-sizing: border-box;
 }
 
 .cdk-overlay-pane.sidebar-drawer-pane app-sidebar-drawer,
@@ -151,6 +147,21 @@ app-dialog .dialog-body [dialogFooter] {
   /* The inline sidebar relies on the shell's flex height; in the overlay it
      needs an explicit box-shadow to read as elevated over the backdrop. */
   box-shadow: 2px 0 12px rgba(0, 0, 0, 0.18);
+  /*
+   * iOS PWA safe-area insets: when installed to the home screen, the drawer
+   * is pinned at the viewport edges. Without these insets the brand logo and
+   * nav items slide under the status bar (top), home indicator (bottom), and
+   * the notch / rounded corners in landscape (left/right). Padding lives on
+   * `.sidebar` (the element with `var(--bg-sidebar)`) — not the overlay pane
+   * — so the visible surface extends into the inset region instead of
+   * leaving a transparent band over the backdrop.
+   * Resolves to 0 in non-PWA browsers, so this is a no-op everywhere else.
+   */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  box-sizing: border-box;
 }
 
 .cdk-overlay-backdrop.sidebar-drawer-backdrop {
