@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Job } from 'bullmq';
@@ -14,6 +14,7 @@ import { executeRecommendations } from './recommendation-executor.js';
 import type { ParsedAction } from './recommendation-executor.js';
 import {
   buildAgenticTools,
+  buildTruncatedPreview,
   DEFAULT_REPO_FILE_EXTENSIONS,
   parseSufficiencyEvaluation,
   resolveAnalysisStrategy,
@@ -324,8 +325,8 @@ async function loadAnalysisContext(
 
     if (probeArtifactId && artifactStoragePath) {
       try {
-        const artifact = await db.artifact.findUnique({
-          where: { id: probeArtifactId },
+        const artifact = await db.artifact.findFirst({
+          where: { id: probeArtifactId, ticketId },
           select: { storagePath: true, sizeBytes: true },
         });
         if (artifact) {
@@ -333,28 +334,32 @@ async function loadAnalysisContext(
           const absPath = resolve(resolvedStorage, artifact.storagePath);
           const rel = relative(resolvedStorage, absPath);
           if (!rel.startsWith('..') && rel !== '' && !rel.startsWith('/')) {
-            const rawContent = await readFile(absPath, 'utf-8');
             if (artifact.sizeBytes <= PROBE_ARTIFACT_INLINE_BYTES) {
-              // Small enough to inline — Claude sees the full probe result immediately
+              // Small enough to inline — read the full file; Claude sees the full probe result immediately
+              const rawContent = await readFile(absPath, 'utf-8');
               emailBody = rawContent;
               logger.info({ ticketId, probeArtifactId, sizeBytes: artifact.sizeBytes }, 'Probe artifact inlined in analysis context');
             } else {
-              // Too large to inline — build head+tail preview so Claude knows the
-              // full data is available via platform__read_tool_result_artifact
-              const head = rawContent.slice(0, 2000);
-              const tail = rawContent.slice(-500);
-              emailBody = [
-                '[truncated — full probe result saved as artifact]',
-                `artifactId: ${probeArtifactId}`,
-                `size: ${rawContent.length} chars`,
-                'Use platform__read_tool_result_artifact to retrieve the full content.',
-                '---',
-                head,
-                '',
-                '...',
-                '',
-                tail,
-              ].join('\n');
+              // Too large to inline — read only head and tail bytes to avoid loading the
+              // entire file into memory, then build a canonical truncated preview so
+              // Claude can page the rest via platform__read_tool_result_artifact.
+              const HEAD_BYTES = 1500;
+              const TAIL_BYTES = 500;
+              const fh = await open(absPath, 'r');
+              try {
+                const headBuf = Buffer.alloc(HEAD_BYTES);
+                const { bytesRead: headRead } = await fh.read(headBuf, 0, HEAD_BYTES, 0);
+                const tailOffset = Math.max(HEAD_BYTES, artifact.sizeBytes - TAIL_BYTES);
+                const tailBuf = Buffer.alloc(TAIL_BYTES);
+                const { bytesRead: tailRead } = await fh.read(tailBuf, 0, TAIL_BYTES, tailOffset);
+                const head = headBuf.subarray(0, headRead).toString('utf-8');
+                const tail = tailBuf.subarray(0, tailRead).toString('utf-8');
+                const approxChars = artifact.sizeBytes; // byte count ≈ char count for UTF-8 text
+                emailBody = buildTruncatedPreview(head + '\n...\n' + tail, probeArtifactId)
+                  .replace(/^size: \d+ chars$/m, `size: ~${approxChars} bytes`);
+              } finally {
+                await fh.close();
+              }
               logger.info({ ticketId, probeArtifactId, sizeBytes: artifact.sizeBytes }, 'Probe artifact preview-with-ref added to analysis context');
             }
           } else {

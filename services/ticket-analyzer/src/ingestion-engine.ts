@@ -758,14 +758,16 @@ async function executeIngestionPipeline(
             try {
               // Patch ticket.metadata to include the probe artifact ID so the analyzer
               // can build a full-content or preview-with-ref context without re-querying.
-              const existing = await db.ticket.findUnique({
-                where: { id: ctx.ticketId },
-                select: { metadata: true },
-              });
-              const existingMeta = (existing?.metadata as Record<string, unknown> | null) ?? {};
+              // Use the in-scope `metadata` object (built above during ticket creation) to
+              // avoid a round-trip `findUnique`. Guard against any non-object value in case
+              // the DB column was written externally with a non-object JSON value.
+              const safeMeta: Record<string, unknown> =
+                typeof metadata === 'object' && metadata !== null && !Array.isArray(metadata)
+                  ? (metadata as Record<string, unknown>)
+                  : {};
               await db.ticket.update({
                 where: { id: ctx.ticketId },
-                data: { metadata: { ...existingMeta, probeArtifactId } as Prisma.InputJsonValue },
+                data: { metadata: { ...safeMeta, probeArtifactId } as Prisma.InputJsonValue },
               });
               logger.info({ ticketId: ctx.ticketId, probeArtifactId }, 'Probe artifact ID stored in ticket metadata');
             } catch (metaErr) {
