@@ -1,4 +1,4 @@
-import { Component, ElementRef, effect, input, output, viewChild } from '@angular/core';
+import { Component, ElementRef, OnDestroy, effect, input, output, viewChild } from '@angular/core';
 
 @Component({
   selector: 'app-dialog',
@@ -129,6 +129,9 @@ import { Component, ElementRef, effect, input, output, viewChild } from '@angula
         border-radius: 0;
         animation: slideUp 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
       }
+      .dialog-header {
+        padding-top: max(16px, calc(env(safe-area-inset-top) + 8px));
+      }
       .dialog-close {
         width: 44px;
         height: 44px;
@@ -142,7 +145,7 @@ import { Component, ElementRef, effect, input, output, viewChild } from '@angula
     }
   `],
 })
-export class DialogComponent {
+export class DialogComponent implements OnDestroy {
   title = input<string>('');
   open = input<boolean>(false);
   maxWidth = input<string>('480px');
@@ -152,10 +155,52 @@ export class DialogComponent {
   private panelRef = viewChild<ElementRef<HTMLElement>>('panel');
   private previouslyFocused: HTMLElement | null = null;
 
+  // ── Body-scroll-lock (static counter so stacked dialogs work correctly) ──
+  private static openCount = 0;
+  private static savedScrollY = 0;
+  private scrollLocked = false;
+
+  private lockBodyScroll(): void {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+    if (DialogComponent.openCount === 0) {
+      DialogComponent.savedScrollY = window.scrollY;
+      document.body.style.position = 'fixed';
+      document.body.style.top = `-${DialogComponent.savedScrollY}px`;
+      document.body.style.width = '100%';
+      document.body.style.left = '0';
+      document.body.style.right = '0';
+    }
+    DialogComponent.openCount++;
+    this.scrollLocked = true;
+  }
+
+  private unlockBodyScroll(): void {
+    if (!this.scrollLocked) return;
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+    this.scrollLocked = false;
+    DialogComponent.openCount--;
+    if (DialogComponent.openCount < 0) DialogComponent.openCount = 0;
+    if (DialogComponent.openCount === 0) {
+      const scrollY = DialogComponent.savedScrollY;
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.width = '';
+      document.body.style.left = '';
+      document.body.style.right = '';
+      window.scrollTo(0, scrollY);
+      DialogComponent.savedScrollY = 0;
+    }
+  }
+
   constructor() {
-    // Manage Escape key + focus restore while the dialog is open.
+    // Manage Escape key + focus restore + body-scroll-lock while dialog is open.
     effect((onCleanup) => {
-      if (!this.open()) return;
+      if (!this.open()) {
+        this.unlockBodyScroll();
+        return;
+      }
+
+      this.lockBodyScroll();
 
       this.previouslyFocused = (typeof document !== 'undefined'
         ? (document.activeElement as HTMLElement | null)
@@ -171,6 +216,7 @@ export class DialogComponent {
 
       onCleanup(() => {
         document.removeEventListener('keydown', onKeyDown);
+        this.unlockBodyScroll();
         // Restore focus to whatever was focused before the dialog opened.
         if (this.previouslyFocused && typeof this.previouslyFocused.focus === 'function') {
           this.previouslyFocused.focus();
@@ -191,6 +237,11 @@ export class DialogComponent {
         focusable?.focus();
       });
     });
+  }
+
+  ngOnDestroy(): void {
+    // Guard against component teardown while open (e.g. route navigation).
+    this.unlockBodyScroll();
   }
 
   close(): void {
