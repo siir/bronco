@@ -4,7 +4,7 @@
  * All external dependencies (provider clients, resolvers, DB writers) are mocked
  * with vi.fn() stubs — no live Anthropic calls, no Postgres connection needed.
  */
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { AIRouter } from './router.js';
 import { TaskType, AIProvider } from '@bronco/shared-types';
 import type { AIRequest, AIToolRequest, AIResponse, AIToolResponse } from '@bronco/shared-types';
@@ -123,48 +123,6 @@ function makeProviderConfigResolver(
     getActiveModelsForProvider: vi.fn().mockResolvedValue([claudeRow]),
     invalidate: vi.fn(),
   } as unknown as ProviderConfigResolver;
-}
-
-/**
- * Build a minimal AIRouter that delegates provider creation to a pre-built
- * mock client.  This works by pointing the router at a LOCAL provider (so it
- * goes through the OllamaClient code path) and then intercepting via the
- * ProviderConfigResolver.
- *
- * For simplicity, we bypass the real ClaudeClient constructor entirely by
- * stubbing providerConfigResolver so the router tries to build a ClaudeClient
- * — but we intercept the generate call via a spied-on providerCache.
- *
- * Easier approach: wire up the router with a pre-built mockProviderClient by
- * supplying providerConfigResolver that returns LOCAL + baseUrl so OllamaClient
- * is built, then override the cache directly.
- */
-function buildRouter(opts: {
-  memoryResolver?: ClientMemoryResolver;
-  modelConfigResolver?: ModelConfigResolver;
-  providerConfigResolver?: ProviderConfigResolver;
-  usageWriter?: AiUsageWriter;
-  defaultMaxTokensLoader?: () => Promise<number | undefined>;
-  mockProviderClient?: AIProviderClient;
-}): AIRouter {
-  const router = new AIRouter({
-    clientMemoryResolver: opts.memoryResolver,
-    modelConfigResolver: opts.modelConfigResolver,
-    providerConfigResolver: opts.providerConfigResolver,
-    usageWriter: opts.usageWriter,
-    defaultMaxTokensLoader: opts.defaultMaxTokensLoader,
-  });
-
-  // Inject the mock provider into the private cache via cast to bypass type protection.
-  // This avoids the need to instantiate real ClaudeClient / OllamaClient.
-  if (opts.mockProviderClient) {
-    const r = router as unknown as { providerCache: Map<string, AIProviderClient> };
-    r.providerCache.set('CLAUDE:claude-test-model::',  opts.mockProviderClient);
-    r.providerCache.set('LOCAL:ollama-test::',         opts.mockProviderClient);
-    // Also pre-seed the generic key the getOrCreateProvider might build for faked provider
-    r.providerCache.set('__mock__:__mock__::',         opts.mockProviderClient);
-  }
-  return router;
 }
 
 /** Returns a router that will always use the mock provider client. */
@@ -504,6 +462,10 @@ describe('AIRouter.generate — ModelConfigResolver maxTokens', () => {
 describe('AIRouter.generate — usageWriter', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('calls usageWriter once per generate call', async () => {

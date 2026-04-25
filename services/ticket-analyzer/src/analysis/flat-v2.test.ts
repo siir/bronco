@@ -770,7 +770,7 @@ describe('runFlatV2', () => {
   // -------------------------------------------------------------------------
 
   describe('error handling', () => {
-    it('breaks and returns empty analysis when AI throws "tool support" error', async () => {
+    it('breaks the loop and returns the max-iterations fallback when AI throws a "tool support" error', async () => {
       const db = makeMockDb();
       const generateWithTools = vi.fn().mockRejectedValue(
         new Error('tool support not available for this model'),

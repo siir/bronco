@@ -72,66 +72,6 @@ function makeToolUseBlock(name: string, input: Record<string, unknown>, id = `tu
   return { type: 'tool_use' as const, id, name, input };
 }
 
-/** Build a minimal AIRouter mock with a controllable response sequence. */
-function makeAiRouter(responses: Array<() => Promise<ReturnType<AIRouter['generateWithTools']>>>): AIRouter {
-  let call = 0;
-  return {
-    generateWithTools: vi.fn().mockImplementation(() => {
-      const fn = responses[call];
-      call++;
-      if (!fn) throw new Error(`generateWithTools called more times (${call}) than responses provided (${responses.length})`);
-      return fn();
-    }),
-    generate: vi.fn(),
-  } as unknown as AIRouter;
-}
-
-/** Build a stopReason=end_turn text response (no tool use). */
-function makeTextResponse(text: string) {
-  return Promise.resolve({
-    contentBlocks: [{ type: 'text' as const, text }],
-    stopReason: 'end_turn' as const,
-    usage: { inputTokens: 10, outputTokens: 20 },
-  });
-}
-
-/** Build a tool_use response with a single tool call. */
-function makeToolResponse(
-  toolCalls: Array<{ name: string; input: Record<string, unknown>; id?: string }>,
-  stopReason: 'tool_use' | 'end_turn' = 'tool_use',
-) {
-  return Promise.resolve({
-    contentBlocks: toolCalls.map(t => makeToolUseBlock(t.name, t.input, t.id ?? `tu_${t.name}`)),
-    stopReason,
-    usage: { inputTokens: 100, outputTokens: 50 },
-  });
-}
-
-/** Build a complete_analysis tool response. */
-function makeCompleteAnalysisResponse(finalAnalysis: string) {
-  return makeToolResponse([
-    { name: 'complete_analysis', input: { finalAnalysis }, id: 'tu_complete' },
-  ]);
-}
-
-/** Build a dispatch_subtasks tool response. */
-function makeDispatchResponse(subtasks: Array<{ id: string; intent: string; tools?: string[]; model?: string }>) {
-  return makeToolResponse([
-    { name: 'dispatch_subtasks', input: { subtasks }, id: 'tu_dispatch' },
-  ]);
-}
-
-/** Build a finalize_subtask tool response for the sub-task loop. */
-function makeFinalizeResponse(summary: string, updatedKdSections: string[] = []) {
-  return makeToolResponse([
-    {
-      name: 'finalize_subtask',
-      input: { summary, updatedKdSections },
-      id: 'tu_finalize',
-    },
-  ]);
-}
-
 // ---------------------------------------------------------------------------
 // Minimal DB mock factory
 // ---------------------------------------------------------------------------
@@ -961,13 +901,12 @@ describe('stall guard: writeStallMarker is called with ⚠️ marker text', () =
 // ---------------------------------------------------------------------------
 
 describe('writeStallMarker (v2-knowledge-doc)', () => {
-  it('full marker-text coverage is in v2-knowledge-doc.test.ts — see "writeStallMarker" describe block', () => {
-    // The writeStallMarker function is mocked in this file to allow orchestrator-level
-    // integration to be exercised without a live DB. The actual "marker body contains
-    // ⚠️ Orchestrator stalled" assertion lives in v2-knowledge-doc.test.ts where the
-    // real implementation is exercised against a stub DB.
-    expect(true).toBe(true);
-  });
+  // writeStallMarker is mocked in this file so the orchestrator path can be
+  // exercised without a live DB. The actual "marker body contains
+  // ⚠️ Orchestrator stalled" assertion lives in v2-knowledge-doc.test.ts
+  // (see the "writeStallMarker" describe block) where the real function is
+  // exercised against a stub DB.
+  it.todo('full marker-text coverage in v2-knowledge-doc.test.ts');
 });
 
 // ---------------------------------------------------------------------------
@@ -975,22 +914,14 @@ describe('writeStallMarker (v2-knowledge-doc)', () => {
 // ---------------------------------------------------------------------------
 
 describe('v1 orchestrated re-analysis redirect', () => {
-  it('note: redirect logic lives in analyzer.ts (line ~2267) and is out-of-scope for unit tests here', () => {
-    // Per CLAUDE.md: "v1 never supported orchestrated re-analysis — the dispatcher
-    // redirects re-analysis on v1 orchestrated to v1 flat."
-    //
-    // The redirect is:
-    //   const effectiveStrategy = (version === 'v1' && strategy === 'orchestrated' && reanalysisCtx)
-    //     ? 'flat'
-    //     : strategy;
-    //
-    // This is a 3-line conditional in analyzer.ts that is not exposed as an
-    // importable function, so it cannot be unit tested in isolation without
-    // importing the full analyzer (which pulls in BullMQ, Redis, etc.).
-    // The behavior is verified in the integration test suite (analyzer.integration.test.ts).
-    //
-    // This placeholder test documents the decision so reviewers know it was
-    // considered and intentionally deferred.
-    expect(true).toBe(true);
-  });
+  // Per CLAUDE.md: v1 never supported orchestrated re-analysis — the
+  // dispatcher in analyzer.ts (line ~2267) redirects re-analysis on
+  // v1 orchestrated to v1 flat:
+  //   const effectiveStrategy =
+  //     (version === 'v1' && strategy === 'orchestrated' && reanalysisCtx)
+  //       ? 'flat' : strategy;
+  // This 3-line conditional is not exposed as an importable function and
+  // pulls in BullMQ + Redis through analyzer.ts. Coverage belongs in
+  // analyzer.integration.test.ts.
+  it.todo('redirect covered in analyzer.integration.test.ts (deferred)');
 });
