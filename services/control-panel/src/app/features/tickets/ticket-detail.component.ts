@@ -5,7 +5,7 @@ import { CommonModule, DatePipe, DecimalPipe, JsonPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { TicketService, Ticket, TicketEvent, type PendingAction, type UnifiedLogEntry, type TicketCostSummary, type AiHelpResponse, type TicketArtifact } from '../../core/services/ticket.service.js';
+import { TicketService, Ticket, TicketEvent, type PendingAction, type UnifiedLogEntry, type TicketCostSummary, type AiHelpResponse } from '../../core/services/ticket.service.js';
 import { LogSummaryService, type LogSummary } from '../../core/services/log-summary.service.js';
 import { AiUsageService, type TicketCostResponse } from '../../core/services/ai-usage.service.js';
 import { AiHelpDialogComponent } from '../../shared/components/ai-help-dialog.component.js';
@@ -32,6 +32,7 @@ import { TicketDetailLogDigestComponent } from './ticket-detail-log-digest.compo
 import { TicketDetailFlowComponent, type FlowNode } from './ticket-detail-flow.component.js';
 import { TicketDetailCostComponent } from './ticket-detail-cost.component.js';
 import { TicketDetailTimelineComponent } from './ticket-detail-timeline.component.js';
+import { AttachmentsListComponent } from './attachments-list.component.js';
 import { ToastService } from '../../core/services/toast.service.js';
 
 interface StepGroup {
@@ -82,6 +83,7 @@ interface ConvTreeNode {
     TicketDetailFlowComponent,
     TicketDetailCostComponent,
     TicketDetailTimelineComponent,
+    AttachmentsListComponent,
     IconComponent,
   ],
   template: `
@@ -167,6 +169,9 @@ interface ConvTreeNode {
               [description]="t.description"
               [systemName]="t.system?.name ?? null"
               [clientName]="t.client?.name ?? null" />
+          </app-tab>
+          <app-tab label="Attachments">
+            <app-attachments-list [ticketId]="t.id" />
           </app-tab>
           @if (t.knowledgeDoc || editingKnowledgeDoc()) {
             <app-tab label="Knowledge">
@@ -650,30 +655,6 @@ interface ConvTreeNode {
               [generating]="generatingLogs()"
               (generate)="generateLogSummary()" />
           </app-tab>
-          <app-tab label="Artifacts">
-            @if (!artifactsLoaded()) {
-              <div class="load-prompt" (click)="loadArtifacts()">Activate to load artifacts</div>
-            } @else if (artifacts().length === 0) {
-              <div class="empty-state">No artifacts for this ticket.</div>
-            } @else {
-              <div class="artifacts-list">
-                @for (a of artifacts(); track a.id) {
-                  <div class="artifact-row">
-                    <div class="artifact-info">
-                      <span class="artifact-filename">{{ a.filename }}</span>
-                      <span class="artifact-meta">{{ a.mimeType }} &middot; {{ formatBytes(a.sizeBytes) }} &middot; {{ formatTime(a.createdAt) }}</span>
-                      @if (a.description) {
-                        <span class="artifact-desc">{{ a.description }}</span>
-                      }
-                    </div>
-                    <button type="button" class="artifact-dl" (click)="ticketService.downloadArtifact(a.id)">
-                      <app-icon name="download" size="sm" /> Download
-                    </button>
-                  </div>
-                }
-              </div>
-            }
-          </app-tab>
           <app-tab label="Timeline">
             <app-ticket-detail-timeline
               [events]="events()"
@@ -783,9 +764,6 @@ export class TicketDetailComponent implements OnInit {
     walk(this.convTreeRoots(), true);
     return result;
   });
-  artifacts = signal<TicketArtifact[]>([]);
-  artifactsLoaded = signal(false);
-
   // Tab tracking
   selectedTabIndex = signal(0);
   logsView = signal<'raw' | 'conversation'>('conversation');
@@ -798,12 +776,12 @@ export class TicketDetailComponent implements OnInit {
     if (this.emailBlurb()) labels.push('AI Summary');
     if (t?.summary) labels.push('Resolution Summary');
     labels.push('Details');
+    labels.push('Attachments');
     if (t?.knowledgeDoc || this.editingKnowledgeDoc()) labels.push('Knowledge');
     labels.push('Chat');
     labels.push('Logs');
     labels.push('Analysis Trace');
     labels.push('Log Digest');
-    labels.push('Artifacts');
     labels.push('Timeline');
     return labels;
   });
@@ -1382,22 +1360,6 @@ export class TicketDetailComponent implements OnInit {
           this.toast.error('Failed to generate log summary');
         },
       });
-  }
-
-  loadArtifacts(): void {
-    this.ticketService.getArtifacts(this.id()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (list) => {
-        this.artifacts.set(list);
-        this.artifactsLoaded.set(true);
-      },
-      error: () => this.toast.error('Failed to load artifacts'),
-    });
-  }
-
-  formatBytes(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
   updateStatus(status: string): void {

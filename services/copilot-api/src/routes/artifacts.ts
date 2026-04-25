@@ -112,6 +112,42 @@ export async function artifactRoutes(fastify: FastifyInstance, opts: { config: C
     return reply.send(createReadStream(filePath));
   });
 
+  fastify.get<{ Params: { id: string } }>('/api/artifacts/:id/content', async (request, reply) => {
+    const scope = await resolveClientScope(request);
+    // Same scope check as /download — but serve with Content-Disposition: inline so
+    // browsers preview viewable content (text / json / images / pdf) instead of saving.
+    const artifact = await fastify.db.artifact.findFirst({
+      where: {
+        id: request.params.id,
+        OR: [
+          { ticket: { ...scopeToWhere(scope) } },
+          { ticketId: null },
+        ],
+      },
+      select: {
+        storagePath: true,
+        filename: true,
+        mimeType: true,
+      },
+    });
+    if (!artifact) return fastify.httpErrors.notFound('Artifact not found');
+
+    const filePath = join(storagePath, artifact.storagePath);
+    const filename = artifact.filename;
+    const asciiFallback = basename(filename)
+      .replace(/[\x00-\x1f\x7f"\\]/g, '_')
+      .replace(/[^\x20-\x7e]/g, '_');
+    const encodedUtf8 = encodeURIComponent(filename)
+      .replace(/['()]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
+      .replace(/\*/g, '%2A');
+    reply.header('Content-Type', artifact.mimeType);
+    reply.header(
+      'Content-Disposition',
+      `inline; filename="${asciiFallback}"; filename*=UTF-8''${encodedUtf8}`,
+    );
+    return reply.send(createReadStream(filePath));
+  });
+
   fastify.post<{ Querystring: { ticketId?: string; findingId?: string; description?: string } }>(
     '/api/artifacts/upload',
     async (request, reply) => {
