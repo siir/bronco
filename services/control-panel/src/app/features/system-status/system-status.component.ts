@@ -866,6 +866,7 @@ export class SystemStatusComponent implements OnInit, OnDestroy {
       'Scheduler Worker': 'scheduler-worker',
       'MCP Platform': 'mcp-platform',
       'MCP Repo': 'mcp-repo',
+      'Cloudflared Tunnel': 'cloudflared',
       'Caddy (Reverse Proxy)': 'caddy',
     };
     return map[name] ?? name.toLowerCase().replace(/\s+/g, '-');

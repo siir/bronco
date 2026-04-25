@@ -24,6 +24,8 @@ const configSchema = z.object({
   SCHEDULER_WORKER_HEALTH_URL: z.string().url().optional().default('http://scheduler-worker:3109'),
   MCP_PLATFORM_URL: z.string().url().optional().default('http://mcp-platform:3110'),
   MCP_REPO_URL: z.string().url().optional().default('http://mcp-repo:3111'),
+  // Cloudflared metrics server (inside Docker network) — used by system-status to show tunnel state
+  CLOUDFLARED_METRICS_URL: z.string().url().optional().default('http://cloudflared:2000'),
   // Invoice storage
   INVOICE_STORAGE_PATH: z.string().default('/var/lib/copilot-api/invoices'),
   // GitHub (optional — required for manual release notes backfill)
