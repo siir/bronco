@@ -19,6 +19,7 @@ export const TASK_CAPABILITY_REQUIREMENTS: Record<string, string> = {
   [TaskType.CLASSIFY_EMAIL]: CapabilityLevel.SIMPLE,
   [TaskType.DETECT_TOOL_GAPS]: CapabilityLevel.BASIC,
   [TaskType.GENERATE_ARTIFACT_NAME]: CapabilityLevel.BASIC,
+  [TaskType.COMPOSE_PROBE_TICKET_BODY]: CapabilityLevel.BASIC,
 
   // STANDARD — mid-tier (drafting, analysis, summarization)
   [TaskType.SUMMARIZE]: CapabilityLevel.STANDARD,
