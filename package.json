@@ -24,7 +24,9 @@
     "db:seed": "pnpm --filter @bronco/db run seed",
     "lint": "eslint .",
     "typecheck": "pnpm -r run typecheck",
-    "clean": "pnpm -r run clean"
+    "clean": "pnpm -r run clean",
+    "test": "pnpm -r run test",
+    "test:integration": "pnpm -r run test:integration"
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^8.0.0",
