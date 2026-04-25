@@ -122,7 +122,21 @@ export function splitIntoSections(doc: string): KdSection[] {
       }
       const title = h3Match[1].trim();
       const parentKey = currentTop.key;
-      const subKey = `${parentKey}.${slugify(title)}`;
+      // Dedup slug so two subsections with the same title round-trip to
+      // distinct keys — matches the suffix scheme in addSubsection.
+      const baseSlug = slugify(title);
+      const existingSlugs = new Set(
+        currentTop.subsections.map(s => {
+          const idx = s.key.indexOf('.');
+          return idx >= 0 ? s.key.slice(idx + 1) : s.key;
+        }),
+      );
+      let slug = baseSlug;
+      let suffix = 2;
+      while (existingSlugs.has(slug)) {
+        slug = `${baseSlug}-${suffix++}`;
+      }
+      const subKey = `${parentKey}.${slug}`;
       currentSub = { key: subKey, title, content: '', subsections: [] };
       currentTop.subsections.push(currentSub);
       continue;

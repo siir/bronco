@@ -694,10 +694,18 @@ describe('executeAgenticToolCall', () => {
 
   const makeMcpIntegrations = (prefix: string, url = 'http://mcp-server'): Map<string, McpIntegrationInfo> => {
     const m = new Map<string, McpIntegrationInfo>();
-    // mcpPath must be a defined string — `expect.anything()` in positional
-    // assertions below rejects undefined, and real MCP integrations always
-    // carry a path.
-    m.set(prefix, { label: 'Test Server', url, mcpPath: '/mcp', apiKey: 'test-key', authHeader: 'bearer' });
+    // mcpPath and callerName must be defined strings — `expect.anything()` in
+    // positional assertions below rejects undefined, and real MCP integrations
+    // always carry both. callerName is the per-caller-allowlist header value
+    // added in #407 (ticket-analyzer hits platform tools as 'ticket-analyzer').
+    m.set(prefix, {
+      label: 'Test Server',
+      url,
+      mcpPath: '/mcp',
+      apiKey: 'test-key',
+      authHeader: 'bearer',
+      callerName: 'ticket-analyzer',
+    });
     return m;
   };
 
@@ -784,6 +792,7 @@ describe('executeAgenticToolCall', () => {
       expect.objectContaining({ repoId: 'repo-uuid-123', clientId: 'client-1' }),
       expect.any(String),
       expect.any(String),
+      expect.any(String), // callerName (#407 per-caller allowlist header)
     );
   });
 
@@ -799,6 +808,7 @@ describe('executeAgenticToolCall', () => {
       expect.objectContaining({ ticketId: 'ticket-999' }),
       expect.anything(),
       expect.anything(),
+      expect.any(String), // callerName
     );
   });
 
@@ -814,6 +824,7 @@ describe('executeAgenticToolCall', () => {
       expect.objectContaining({ ticketId: 'ticket-999' }),
       expect.anything(),
       expect.anything(),
+      expect.any(String), // callerName
     );
   });
 
@@ -829,6 +840,7 @@ describe('executeAgenticToolCall', () => {
       expect.objectContaining({ clientId: 'new-client' }),
       expect.anything(),
       expect.anything(),
+      expect.any(String), // callerName
     );
   });
 
@@ -844,6 +856,7 @@ describe('executeAgenticToolCall', () => {
       expect.objectContaining({ ticketId: 'ticket-42' }),
       expect.anything(),
       expect.anything(),
+      expect.any(String), // callerName
     );
   });
 
