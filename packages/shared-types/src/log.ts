@@ -14,6 +14,7 @@ export const EntityType = {
   SYSTEM: 'system',
   OPERATOR: 'operator',
   CLIENT: 'client',
+  ARTIFACT: 'artifact',
 } as const;
 export type EntityType = (typeof EntityType)[keyof typeof EntityType];
 

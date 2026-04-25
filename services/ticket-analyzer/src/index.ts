@@ -9,6 +9,8 @@ import { createRouteDispatcher } from './route-dispatcher.js';
 import { createIngestionProcessor } from './ingestion-engine.js';
 import { processClientLearningJob } from './client-learning-worker.js';
 import type { ClientLearningJob } from './client-learning-worker.js';
+import { createArtifactNameProcessor } from './artifact-name-worker.js';
+import { ARTIFACT_NAME_QUEUE_NAME, registerArtifactNameQueue, type ArtifactNameJob } from './artifact-name-queue.js';
 
 const logger = createLogger('ticket-analyzer');
 const appLog = new AppLogger('ticket-analyzer');
@@ -169,6 +171,28 @@ async function main(): Promise<void> {
     appLog.error(`Client learning extraction failed: ${err.message}`, { err, ticketId: job?.data.ticketId, clientId: job?.data.clientId }, job?.data.ticketId, 'ticket');
   });
 
+  // --- Artifact name generation worker (Haiku-friendly names for system artifacts) ---
+  const artifactNameQueue = createQueue<ArtifactNameJob>(ARTIFACT_NAME_QUEUE_NAME, config.REDIS_URL);
+  registerArtifactNameQueue(artifactNameQueue);
+  const artifactNameProcessor = createArtifactNameProcessor({
+    db,
+    ai,
+    artifactStoragePath: config.ARTIFACT_STORAGE_PATH,
+  });
+  const artifactNameWorker = createWorker<ArtifactNameJob>(
+    ARTIFACT_NAME_QUEUE_NAME,
+    config.REDIS_URL,
+    artifactNameProcessor,
+  );
+
+  artifactNameWorker.on('completed', (job) => {
+    appLog.info('Artifact name generation completed', { artifactId: job.data.artifactId }, job.data.artifactId, 'ticket');
+  });
+
+  artifactNameWorker.on('failed', (job, err) => {
+    appLog.warn(`Artifact name generation failed: ${err.message}`, { err, artifactId: job?.data.artifactId });
+  });
+
   // Health tracking state
   let lastAnalysisAt: Date | undefined;
   let analysisCount = 0;
@@ -199,6 +223,8 @@ async function main(): Promise<void> {
   createGracefulShutdown(logger, [
     { interval: cleanupInterval },
     health,
+    artifactNameWorker,
+    artifactNameQueue,
     clientLearningWorker,
     ingestionWorker,
     ticketCreatedWorker,
