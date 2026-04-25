@@ -12,6 +12,18 @@ export interface IngestionJob {
 
 // --- Typed payload shapes per source ---
 
+/** A single email attachment forwarded via the ingestion payload. */
+export interface EmailAttachmentPayload {
+  /** Original filename from the email. */
+  filename: string;
+  /** MIME type reported by the email (e.g. "application/pdf"). */
+  contentType: string;
+  /** File size in bytes. */
+  size: number;
+  /** Base64-encoded content. Only present when size <= 25 MB. */
+  content: string;
+}
+
 /** Email payload submitted by imap-worker. */
 export interface EmailIngestionPayload {
   from: string;
@@ -30,6 +42,12 @@ export interface EmailIngestionPayload {
   emailHash?: string;
   /** Pre-resolved Person ID for the sender (if matched by imap-worker). */
   personId?: string;
+  /**
+   * Attachments extracted from the email. Each attachment is base64-encoded and
+   * capped at 25 MB. Oversized attachments are skipped (WARN-logged by imap-worker).
+   * The ingestion engine persists these as Artifact rows after ticket creation.
+   */
+  attachments?: EmailAttachmentPayload[];
 }
 
 /** Probe result payload submitted by probe-worker. */

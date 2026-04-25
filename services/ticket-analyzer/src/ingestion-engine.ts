@@ -1,5 +1,6 @@
 import { writeFile, mkdir } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import type { Job, Queue } from 'bullmq';
 import type { PrismaClient } from '@bronco/db';
 import { Prisma } from '@bronco/db';
@@ -700,9 +701,11 @@ async function executeIngestionPipeline(
           throw new Error('Failed to create ticket after max retries');
         }
 
-        // Record initial inbound event based on source
+        // Record initial inbound event based on source. For EMAIL we capture the event
+        // id so attachments below can stamp originatingEventId without an extra query.
+        let inboundEventId: string | null = null;
         if (source === TicketSource.EMAIL) {
-          await db.ticketEvent.create({
+          const inboundEvent = await db.ticketEvent.create({
             data: {
               ticketId: ctx.ticketId,
               eventType: 'EMAIL_INBOUND',
@@ -720,7 +723,9 @@ async function executeIngestionPipeline(
               ...(typeof payload['messageId'] === 'string' && !payload['messageId'].startsWith('uid-') ? { emailMessageId: payload['messageId'] as string } : {}),
               ...(typeof payload['emailHash'] === 'string' && payload['emailHash'].trim() !== '' ? { emailHash: payload['emailHash'] as string } : {}),
             },
+            select: { id: true },
           });
+          inboundEventId = inboundEvent.id;
         } else {
           await db.ticketEvent.create({
             data: {
@@ -772,6 +777,33 @@ async function executeIngestionPipeline(
               logger.info({ ticketId: ctx.ticketId, probeArtifactId }, 'Probe artifact ID stored in ticket metadata');
             } catch (metaErr) {
               logger.warn({ metaErr, ticketId: ctx.ticketId }, 'Failed to store probe artifact ID in ticket metadata — continuing');
+            }
+          }
+        }
+
+        // Save email attachments when present in the payload (EMAIL source only).
+        // We reuse the inboundEventId captured from the create() above instead of
+        // re-querying ticketEvent for the row we just inserted.
+        if (source === TicketSource.EMAIL && deps.artifactStoragePath) {
+          const rawAttachments = payload['attachments'];
+          if (Array.isArray(rawAttachments) && rawAttachments.length > 0) {
+            const subject = payloadStr(payload, 'subject');
+            const personId = typeof payload['personId'] === 'string' ? payload['personId'] : null;
+            for (const att of rawAttachments) {
+              if (
+                typeof att !== 'object' || att === null ||
+                typeof att['filename'] !== 'string' ||
+                typeof att['content'] !== 'string'
+              ) continue;
+              await saveEmailAttachmentArtifact(
+                db,
+                ctx.ticketId,
+                att as { filename: string; contentType: string; size: number; content: string },
+                subject,
+                personId,
+                inboundEventId,
+                deps.artifactStoragePath,
+              );
             }
           }
         }
@@ -1216,6 +1248,11 @@ async function saveProbeArtifact(
         sizeBytes: Buffer.byteLength(rawResult, 'utf-8'),
         storagePath: relativePath,
         description: `Raw MCP tool output from probe "${probeName}" (${toolName})`,
+        kind: 'PROBE_RESULT',
+        displayName: `Probe: ${probeName}`,
+        source: `probe:${toolName}`,
+        addedBySystem: 'probe-worker',
+        addedByPersonId: null,
       },
       select: { id: true },
     });
@@ -1224,6 +1261,56 @@ async function saveProbeArtifact(
   } catch (err) {
     logger.warn({ err, ticketId }, 'Failed to save probe artifact — continuing');
     return null;
+  }
+}
+
+async function saveEmailAttachmentArtifact(
+  db: PrismaClient,
+  ticketId: string,
+  att: { filename: string; contentType: string; size: number; content: string },
+  emailSubject: string,
+  personId: string | null,
+  originatingEventId: string | null,
+  storagePath: string,
+): Promise<void> {
+  try {
+    const safeFilename = sanitizeFilenameSegment(att.filename || 'attachment');
+    // Append a randomUUID() segment so two attachments saved in the same millisecond
+    // (same ticket, multiple parts) cannot collide on disk. Matches saveMcpToolArtifact.
+    const filename = `email-${Date.now()}-${randomUUID()}-${safeFilename}`;
+    const resolvedStorage = resolve(storagePath);
+    const ticketDir = resolve(resolvedStorage, 'tickets', ticketId);
+    const rel = relative(resolvedStorage, ticketDir);
+    if (rel.startsWith('..') || rel === '') {
+      logger.warn({ ticketId, ticketDir, resolvedStorage }, 'Email attachment path escaped storage root — skipping');
+      return;
+    }
+    const fullPath = join(ticketDir, filename);
+    await mkdir(ticketDir, { recursive: true });
+    const contentBuffer = Buffer.from(att.content, 'base64');
+    await writeFile(fullPath, contentBuffer);
+    const relativePath = `tickets/${ticketId}/${filename}`;
+    const sourceTag = `email:${emailSubject.slice(0, 80)}`;
+    await db.artifact.create({
+      data: {
+        ticketId,
+        filename: att.filename || 'attachment',
+        mimeType: att.contentType || 'application/octet-stream',
+        sizeBytes: contentBuffer.length,
+        storagePath: relativePath,
+        description: null,
+        kind: 'EMAIL_ATTACHMENT',
+        displayName: att.filename || 'attachment',
+        source: sourceTag,
+        addedByPersonId: personId,
+        addedBySystem: 'imap-worker',
+        originatingEventId: originatingEventId,
+        originatingEventType: originatingEventId ? 'ticket_event' : null,
+      },
+    });
+    logger.info({ ticketId, filename: att.filename }, 'Email attachment artifact saved');
+  } catch (err) {
+    logger.warn({ err, ticketId, filename: att.filename }, 'Failed to save email attachment artifact — continuing');
   }
 }
 

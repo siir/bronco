@@ -1,3 +1,11 @@
+export const ArtifactKind = {
+  PROBE_RESULT: 'PROBE_RESULT',
+  EMAIL_ATTACHMENT: 'EMAIL_ATTACHMENT',
+  MCP_TOOL_RESULT: 'MCP_TOOL_RESULT',
+  OPERATOR_UPLOAD: 'OPERATOR_UPLOAD',
+} as const;
+export type ArtifactKind = (typeof ArtifactKind)[keyof typeof ArtifactKind];
+
 export const Severity = {
   LOW: 'LOW',
   MEDIUM: 'MEDIUM',
@@ -25,6 +33,14 @@ export interface Artifact {
   storagePath: string;
   description: string | null;
   createdAt: Date;
+  // Phase 1 enrichment fields (all nullable for backward compatibility)
+  kind: ArtifactKind | null;
+  displayName: string | null;
+  source: string | null;
+  addedByPersonId: string | null;
+  addedBySystem: string | null;
+  originatingEventId: string | null;
+  originatingEventType: string | null;
 }
 
 export interface Finding {
