@@ -695,6 +695,88 @@ async function checkLlmProvider(
   }
 }
 
+/**
+ * Check the cloudflared tunnel via its metrics /ready endpoint.
+ * Returns a service-type component so it appears in the Services section of
+ * the control panel status page alongside the other workers.
+ *
+ * The /ready endpoint returns HTTP 200 + {"readyConnections": N} when at least
+ * one tunnel is healthy, non-200 or readyConnections===0 means drift.
+ */
+async function checkCloudflaredTunnel(metricsUrl: string, timeoutMs = 5000): Promise<ComponentStatus> {
+  const url = `${metricsUrl}/ready`;
+  const start = Date.now();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    const latencyMs = Date.now() - start;
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      return {
+        name: 'Cloudflared Tunnel',
+        type: 'service',
+        status: ServiceStatus.DEGRADED,
+        endpoint: metricsUrl,
+        latencyMs,
+        details: { error: `HTTP ${response.status} from /ready`, httpStatus: response.status },
+        controllable: true,
+      };
+    }
+
+    let readyConnections: number | null = null;
+    try {
+      const body = await response.json() as { readyConnections?: number };
+      readyConnections = typeof body.readyConnections === 'number' ? body.readyConnections : null;
+    } catch {
+      return {
+        name: 'Cloudflared Tunnel',
+        type: 'service',
+        status: ServiceStatus.DEGRADED,
+        endpoint: metricsUrl,
+        latencyMs,
+        details: { error: 'Failed to parse /ready response JSON' },
+        controllable: true,
+      };
+    }
+
+    if (readyConnections !== null && readyConnections === 0) {
+      return {
+        name: 'Cloudflared Tunnel',
+        type: 'service',
+        status: ServiceStatus.DEGRADED,
+        endpoint: metricsUrl,
+        latencyMs,
+        details: { readyConnections, note: 'No active tunnel connections' },
+        controllable: true,
+      };
+    }
+
+    return {
+      name: 'Cloudflared Tunnel',
+      type: 'service',
+      status: ServiceStatus.UP,
+      endpoint: metricsUrl,
+      latencyMs,
+      details: { readyConnections: readyConnections ?? 'unknown' },
+      controllable: true,
+    };
+  } catch (err) {
+    clearTimeout(timeout);
+    return {
+      name: 'Cloudflared Tunnel',
+      type: 'service',
+      status: ServiceStatus.DOWN,
+      endpoint: metricsUrl,
+      latencyMs: Date.now() - start,
+      details: { error: (err as Error).message },
+      controllable: true,
+    };
+  }
+}
+
 interface SystemStatusOpts {
   config: Config;
 }
@@ -794,6 +876,7 @@ export async function systemStatusRoutes(
       schedulerWorker,
       mcpPlatform,
       mcpRepo,
+      cloudflaredTunnel,
       queueStats,
       ...externalResults
     ] = await Promise.all([
@@ -810,6 +893,7 @@ export async function systemStatusRoutes(
       checkWorkerHealth('Scheduler Worker', opts.config.SCHEDULER_WORKER_HEALTH_URL, 'scheduler-worker', containers),
       checkWorkerHealth('MCP Platform', opts.config.MCP_PLATFORM_URL, 'mcp-platform', containers),
       checkWorkerHealth('MCP Repo', opts.config.MCP_REPO_URL, 'mcp-repo', containers),
+      checkCloudflaredTunnel(opts.config.CLOUDFLARED_METRICS_URL),
       getBullMQQueueStats(opts.config.REDIS_URL),
       ...externalServices.map(svc => checkExternalService(svc, containers)),
     ]);
@@ -841,6 +925,7 @@ export async function systemStatusRoutes(
       schedulerWorker,
       mcpPlatform,
       mcpRepo,
+      cloudflaredTunnel,
       ...externalResults,
     ];
 
@@ -888,6 +973,7 @@ export async function systemStatusRoutes(
       'scheduler-worker': 'scheduler-worker',
       'mcp-platform': 'mcp-platform',
       'mcp-repo': 'mcp-repo',
+      'cloudflared': 'cloudflared',
       'caddy': 'caddy',
       'postgres': 'postgres',
       'redis': 'redis',

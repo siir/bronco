@@ -16,6 +16,13 @@ const configSchema = z.object({
   NOTIFY_ON_FIRST_POLL: z.string().optional().default('false'),
   // Health server
   HEALTH_PORT: z.coerce.number().default(3105),
+  // Cloudflared tunnel drift detection
+  // Base URL of the cloudflared metrics server (inside Docker network)
+  CLOUDFLARED_METRICS_URL: z.string().url().optional().default('http://cloudflared:2000'),
+  // Number of consecutive /ready failures before emitting an operational alert
+  CLOUDFLARED_DRIFT_FAIL_THRESHOLD: z.coerce.number().min(1).default(3),
+  // How often to probe /ready (seconds)
+  CLOUDFLARED_DRIFT_POLL_INTERVAL_SECONDS: z.coerce.number().min(5).default(30),
 });
 
 export type Config = z.output<typeof configSchema>;
