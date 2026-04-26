@@ -160,37 +160,65 @@ async function resolveIngestionRoute(
     steps: { where: { isActive: true }, orderBy: { stepOrder: 'asc' as const } },
   };
 
+  // Pick the first route within a tier whose active-step count is > 0. Empty routes
+  // (zero active steps) are skipped so they don't shadow a later non-empty match
+  // within the same tier (e.g. a sortOrder=1 empty route would otherwise hide a
+  // sortOrder=2 working route). Each empty route encountered emits a WARN so
+  // operators can distinguish "no route configured" (silent cascade) from
+  // "operator built an empty route" (likely a mass-deactivation accident).
+  // Behavior on the chosen-route path is unchanged — only the shadowing edge case
+  // and observability are improved.
+  const pickFromTier = async (
+    where: Record<string, unknown>,
+    tier: string,
+  ): Promise<ResolvedRoute | null> => {
+    const routes = await db.ticketRoute.findMany({
+      where: where as never,
+      include: includeSteps,
+      orderBy: { sortOrder: 'asc' },
+    });
+    let chosen: ResolvedRoute | null = null;
+    for (const route of routes) {
+      if (route.steps.length === 0) {
+        logger.warn(
+          { routeId: route.id, routeName: route.name, tier, source, clientId },
+          `route ${route.id} (${route.name}) has no active steps — skipping to next route in route resolution cascade`,
+        );
+        continue;
+      }
+      chosen = route as ResolvedRoute;
+      break;
+    }
+    return chosen;
+  };
+
   // 1. Client-specific + source-specific
-  const clientSourceRoute = await db.ticketRoute.findFirst({
-    where: { routeType: 'INGESTION', clientId, source, isActive: true } as never,
-    include: includeSteps,
-    orderBy: { sortOrder: 'asc' },
-  });
-  if (clientSourceRoute && clientSourceRoute.steps.length > 0) return clientSourceRoute as ResolvedRoute;
+  const clientSourceRoute = await pickFromTier(
+    { routeType: 'INGESTION', clientId, source, isActive: true },
+    'client+source',
+  );
+  if (clientSourceRoute) return clientSourceRoute;
 
   // 2. Client-specific + any-source
-  const clientAnyRoute = await db.ticketRoute.findFirst({
-    where: { routeType: 'INGESTION', clientId, source: null, isActive: true } as never,
-    include: includeSteps,
-    orderBy: { sortOrder: 'asc' },
-  });
-  if (clientAnyRoute && clientAnyRoute.steps.length > 0) return clientAnyRoute as ResolvedRoute;
+  const clientAnyRoute = await pickFromTier(
+    { routeType: 'INGESTION', clientId, source: null, isActive: true },
+    'client+any',
+  );
+  if (clientAnyRoute) return clientAnyRoute;
 
   // 3. Global + source-specific
-  const globalSourceRoute = await db.ticketRoute.findFirst({
-    where: { routeType: 'INGESTION', clientId: null, source, isActive: true } as never,
-    include: includeSteps,
-    orderBy: { sortOrder: 'asc' },
-  });
-  if (globalSourceRoute && globalSourceRoute.steps.length > 0) return globalSourceRoute as ResolvedRoute;
+  const globalSourceRoute = await pickFromTier(
+    { routeType: 'INGESTION', clientId: null, source, isActive: true },
+    'global+source',
+  );
+  if (globalSourceRoute) return globalSourceRoute;
 
   // 4. Global + any-source
-  const globalAnyRoute = await db.ticketRoute.findFirst({
-    where: { routeType: 'INGESTION', clientId: null, source: null, isActive: true } as never,
-    include: includeSteps,
-    orderBy: { sortOrder: 'asc' },
-  });
-  if (globalAnyRoute && globalAnyRoute.steps.length > 0) return globalAnyRoute as ResolvedRoute;
+  const globalAnyRoute = await pickFromTier(
+    { routeType: 'INGESTION', clientId: null, source: null, isActive: true },
+    'global+any',
+  );
+  if (globalAnyRoute) return globalAnyRoute;
 
   return null;
 }
