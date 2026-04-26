@@ -18,7 +18,7 @@ import type {
   AnalysisJob,
   Priority,
 } from '@bronco/shared-types';
-import { createLogger } from '@bronco/shared-utils';
+import { createLogger, inferSchemaFromHeadTail } from '@bronco/shared-utils';
 import type { AppLogger, Mailer, ReplyOptions } from '@bronco/shared-utils';
 import { createIngestionRunTracker } from './ingestion-tracker.js';
 import type { IngestionRunTracker } from './ingestion-tracker.js';
@@ -1322,6 +1322,16 @@ async function saveProbeArtifact(
     await mkdir(ticketDir, { recursive: true });
     await writeFile(fullPath, rawResult, 'utf-8');
     const relativePath = `tickets/${ticketId}/${filename}`;
+    // Best-effort schema inference from head + tail of the raw result. Never blocks creation.
+    let schemaJson: Prisma.InputJsonValue | undefined;
+    try {
+      const head = rawResult.slice(0, 2048);
+      const tail = rawResult.length > 2048 ? rawResult.slice(-512) : '';
+      const inferred = inferSchemaFromHeadTail(head, tail, mimeType);
+      schemaJson = inferred as unknown as Prisma.InputJsonValue;
+    } catch (err) {
+      logger.warn({ err, ticketId }, 'Probe artifact schema inference failed — continuing without schema');
+    }
     const artifact = await db.artifact.create({
       data: {
         ticketId,
@@ -1335,6 +1345,7 @@ async function saveProbeArtifact(
         source: `probe:${toolName}`,
         addedBySystem: 'probe-worker',
         addedByPersonId: null,
+        ...(schemaJson !== undefined ? { schemaJson } : {}),
       },
       select: { id: true },
     });
@@ -1377,6 +1388,21 @@ async function saveEmailAttachmentArtifact(
     await writeFile(fullPath, contentBuffer);
     const relativePath = `tickets/${ticketId}/${filename}`;
     const sourceTag = `email:${emailSubject.slice(0, 80)}`;
+    // Best-effort schema inference for text/json attachments only. Binaries leave schemaJson null.
+    const mt = (att.contentType || '').toLowerCase();
+    const isText = mt.startsWith('text/') || mt.includes('json') || mt.includes('xml') || mt.includes('csv');
+    let schemaJson: Prisma.InputJsonValue | undefined;
+    if (isText) {
+      try {
+        const text = contentBuffer.toString('utf-8');
+        const head = text.slice(0, 2048);
+        const tail = text.length > 2048 ? text.slice(-512) : '';
+        const inferred = inferSchemaFromHeadTail(head, tail, att.contentType || null);
+        schemaJson = inferred as unknown as Prisma.InputJsonValue;
+      } catch (err) {
+        logger.warn({ err, ticketId, filename: att.filename }, 'Email attachment schema inference failed — continuing without schema');
+      }
+    }
     await db.artifact.create({
       data: {
         ticketId,
@@ -1392,6 +1418,7 @@ async function saveEmailAttachmentArtifact(
         addedBySystem: 'imap-worker',
         originatingEventId: originatingEventId,
         originatingEventType: originatingEventId ? 'ticket_event' : null,
+        ...(schemaJson !== undefined ? { schemaJson } : {}),
       },
     });
     logger.info({ ticketId, filename: att.filename }, 'Email attachment artifact saved');

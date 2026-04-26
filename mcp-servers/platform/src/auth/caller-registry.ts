@@ -41,6 +41,7 @@ export const CALLER_ALLOWLIST: Record<string, Set<string> | typeof ALLOW_ALL> = 
   'ticket-analyzer': new Set([
     // Artifact / tool result access
     'read_tool_result_artifact',
+    'query_artifact',
     // Knowledge-doc tools (agentic analysis writes to these)
     'kd_read_toc',
     'kd_read_section',

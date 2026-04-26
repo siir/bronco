@@ -17,6 +17,7 @@ import { registerSystemStatusTools } from './system-status.js';
 import { registerSlackConversationTools } from './slack-conversations.js';
 import { registerUserTools } from './users.js';
 import { registerArtifactTools } from './read-tool-result-artifact.js';
+import { registerQueryArtifactTool } from './query-artifact.js';
 import { registerRequestToolTool } from './request-tool.js';
 import { registerToolRequestTools } from './tool-requests.js';
 import { registerKnowledgeDocTools } from './knowledge-doc.js';
@@ -107,6 +108,7 @@ export function registerAllTools(server: McpServer, deps: ServerDeps): void {
   registerSystemStatusTools(guardedServer, deps);
   registerSlackConversationTools(guardedServer, deps);
   registerArtifactTools(guardedServer, deps);
+  registerQueryArtifactTool(guardedServer, deps);
   registerRequestToolTool(guardedServer, deps);
   registerToolRequestTools(guardedServer, deps);
   registerKnowledgeDocTools(guardedServer, deps);

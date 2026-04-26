@@ -1,8 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { join, dirname, basename } from 'node:path';
 import { pipeline } from 'node:stream/promises';
+import { Prisma } from '@bronco/db';
+import { inferSchemaFromHeadTail } from '@bronco/shared-utils';
 import type { Config } from '../config.js';
 import { resolveClientScope, scopeToWhere } from '../plugins/client-scope.js';
 
@@ -25,6 +27,7 @@ const ARTIFACT_SELECT = {
   addedBySystem: true,
   originatingEventId: true,
   originatingEventType: true,
+  schemaJson: true,
   // Person join: project only safe fields (id, name, email — no passwordHash etc.)
   addedByPerson: {
     select: {
@@ -205,6 +208,23 @@ export async function artifactRoutes(fastify: FastifyInstance, opts: { config: C
       // Resolve the operator's Person ID from the JWT (present for authenticated callers).
       const callerPersonId = request.user?.personId ?? null;
 
+      // Best-effort schema inference for text/json/xml/csv operator uploads. Binaries leave schemaJson null.
+      const mt = (file.mimetype || '').toLowerCase();
+      const isText = mt.startsWith('text/') || mt.includes('json') || mt.includes('xml') || mt.includes('csv');
+      let schemaJson: Prisma.InputJsonValue | undefined;
+      if (isText) {
+        try {
+          const buf = await readFile(fullPath);
+          const text = buf.toString('utf-8');
+          const head = text.slice(0, 2048);
+          const tail = text.length > 2048 ? text.slice(-512) : '';
+          const inferred = inferSchemaFromHeadTail(head, tail, file.mimetype || null);
+          schemaJson = inferred as unknown as Prisma.InputJsonValue;
+        } catch (err) {
+          fastify.log.warn({ err, filename: sanitizedFilename }, 'Operator-upload schema inference failed — continuing without schema');
+        }
+      }
+
       const artifact = await fastify.db.artifact.create({
         data: {
           ticketId: ticketId ?? null,
@@ -219,6 +239,7 @@ export async function artifactRoutes(fastify: FastifyInstance, opts: { config: C
           source: 'upload',
           addedByPersonId: callerPersonId,
           addedBySystem: 'copilot-api:upload',
+          ...(schemaJson !== undefined ? { schemaJson } : {}),
         },
         select: ARTIFACT_SELECT,
       });

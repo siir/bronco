@@ -62,3 +62,9 @@ export {
   REQUIRED_SECTION_KEYS,
 } from './knowledge-doc.js';
 export type { KdSection, KdReadSectionResult } from './knowledge-doc.js';
+export {
+  inferSchemaFromHeadTail,
+  adoptMcpSchema,
+  formatSchemaForPrompt,
+} from './artifact-schema.js';
+export type { InferredSchema } from './artifact-schema.js';
