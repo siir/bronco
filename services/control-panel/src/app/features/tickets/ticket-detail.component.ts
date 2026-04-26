@@ -200,7 +200,7 @@ interface ConvTreeNode {
               [clientName]="t.client?.name ?? null" />
           </app-tab>
           <app-tab label="Attachments">
-            <app-attachments-list [ticketId]="t.id" />
+            <app-attachments-list [ticketId]="t.id" [refreshToken]="refreshToken()" />
           </app-tab>
           @if (t.knowledgeDoc || editingKnowledgeDoc()) {
             <app-tab label="Knowledge">
@@ -209,6 +209,7 @@ interface ConvTreeNode {
                 [knowledgeDoc]="t.knowledgeDoc ?? null"
                 [sectionMeta]="t.knowledgeDocSectionMeta ?? null"
                 [editing]="editingKnowledgeDoc()"
+                [refreshToken]="refreshToken()"
                 (startEdit)="editingKnowledgeDoc.set(true)"
                 (cancelEdit)="editingKnowledgeDoc.set(false)"
                 (save)="saveKnowledgeDoc($event)"
@@ -219,6 +220,7 @@ interface ConvTreeNode {
             <app-chat-tab
               [ticketId]="id()"
               [events]="events()"
+              [refreshToken]="refreshToken()"
               (viewInTrace)="openAnalysisTraceTab()" />
           </app-tab>
           <app-tab [label]="logsTabLabel()">
@@ -676,7 +678,7 @@ interface ConvTreeNode {
             }
           </app-tab>
           <app-tab label="Analysis Trace">
-            <app-analysis-trace [ticketId]="id()" [events]="events()" (viewRawLogs)="openRawLogsTab()" />
+            <app-analysis-trace [ticketId]="id()" [events]="events()" [refreshToken]="refreshToken()" (viewRawLogs)="openRawLogsTab()" />
           </app-tab>
           <app-tab label="Log Digest">
             <app-ticket-detail-log-digest
@@ -768,6 +770,17 @@ export class TicketDetailComponent implements OnInit, AfterViewInit {
 
   ticket = signal<(Ticket & { client?: { name: string }; system?: { name: string } | null }) | null>(null);
   events = signal<TicketEvent[]>([]);
+  /**
+   * Manual-refresh fan-out token. Bumped after the parent's forkJoin in
+   * `refreshTicket()` resolves; child tab components that fetch independently
+   * (`AnalysisTrace`, `TicketDetailKnowledge`, `ChatTab`, `AttachmentsList`)
+   * track this via an `effect()` and re-run their internal load() when it
+   * changes. Pure prop-driven children re-render automatically via existing
+   * signal updates and don't need to consume this. New tab components opt in
+   * by adding a `refreshToken: input<number>(0)` and tracking it in their
+   * load effect — no parent-side plumbing required.
+   */
+  refreshToken = signal(0);
   logSummaries = signal<LogSummary[]>([]);
   ticketCost = signal<TicketCostResponse | null>(null);
   generatingLogs = signal(false);
@@ -1629,8 +1642,17 @@ export class TicketDetailComponent implements OnInit, AfterViewInit {
       }
       this.conversationLoading.set(false);
 
+      // Fan out to child components that fetch independently (AnalysisTrace,
+      // Knowledge, Chat, Attachments). Each child's effect() is keyed on
+      // refreshToken and will re-run its internal load on bump. Bumped here,
+      // after parent data lands, so children's re-fetches are sequenced after
+      // the parent's render and don't fight for layout.
+      this.refreshToken.update(v => v + 1);
+
       // Restore scroll on the next paint, after Angular has flushed change
-      // detection from the signal updates above.
+      // detection from the signal updates above. We don't wait for child
+      // re-fetches — scroll restore is about parent layout; children update
+      // in place once their fetches resolve.
       if (typeof window !== 'undefined') {
         requestAnimationFrame(() => window.scrollTo(0, savedScrollY));
       }

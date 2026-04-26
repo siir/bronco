@@ -218,6 +218,15 @@ interface ThreadNode {
 export class ChatTabComponent implements OnInit, AfterViewChecked {
   ticketId = input.required<string>();
   events = input.required<TicketEvent[]>();
+  /**
+   * Manual-refresh fan-out token from the parent ticket-detail component.
+   * Bumped after the parent's forkJoin lands; we re-run loadUnifiedLogs() +
+   * loadConfiguredStrategy() so the chat thread reflects newly-arrived runs.
+   * The initial token value (0) emitted on mount is a no-op because
+   * ngOnInit already kicks off the same loads — we guard with a sentinel
+   * so we don't double-fetch on first render.
+   */
+  refreshToken = input<number>(0);
 
   viewInTrace = output<string>();
 
@@ -436,6 +445,14 @@ export class ChatTabComponent implements OnInit, AfterViewChecked {
     return nodes;
   });
 
+  /**
+   * Sentinel for the refresh-token effect. Initialized to -1 so the first
+   * effect run (which fires on mount with token=0) is treated as "ignore" —
+   * ngOnInit already loads the data. Subsequent bumps from the parent's
+   * forkJoin trigger an actual reload.
+   */
+  private lastRefreshToken = -1;
+
   constructor() {
     // Clear the "Analyzing…" placeholder once the corresponding run lands.
     // Watches runs(); when a run arrives whose timestamp is newer than the
@@ -455,6 +472,21 @@ export class ChatTabComponent implements OnInit, AfterViewChecked {
         this.optimisticItems.update((items) => items.filter((it) => it.id !== placeholderId));
         this.analyzingPlaceholderId.set(null);
       }
+    });
+
+    // Refresh fan-out: when the parent bumps refreshToken (via the manual
+    // refresh button), re-load unified logs + configured strategy. Skip the
+    // first emission to avoid double-fetching on mount alongside ngOnInit.
+    effect(() => {
+      const token = this.refreshToken();
+      if (this.lastRefreshToken === -1) {
+        this.lastRefreshToken = token;
+        return;
+      }
+      if (token === this.lastRefreshToken) return;
+      this.lastRefreshToken = token;
+      this.loadUnifiedLogs();
+      this.loadConfiguredStrategy();
     });
   }
 

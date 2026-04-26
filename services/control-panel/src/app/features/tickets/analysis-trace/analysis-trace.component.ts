@@ -129,6 +129,13 @@ export class AnalysisTraceComponent {
   ticketId = input.required<string>();
   /** Parent-provided ticket events (used for strategy fallback). Optional. */
   events = input<TicketEvent[]>([]);
+  /**
+   * Manual-refresh fan-out token from the parent ticket-detail component.
+   * Bumped after the parent's forkJoin lands; we re-run `load(ticketId)`
+   * so the trace re-fetches on operator-initiated refresh. Tracked in the
+   * existing constructor effect alongside `ticketId()` — no separate effect.
+   */
+  refreshToken = input<number>(0);
 
   /** Emitted when the operator clicks "View chronological Raw Logs" on the deep-tree banner. */
   viewRawLogs = output<void>();
@@ -165,6 +172,10 @@ export class AnalysisTraceComponent {
 
   constructor() {
     effect(() => {
+      // Track refreshToken so manual-refresh fan-out from the parent
+      // re-runs load(). Initial mount already runs because ticketId() is
+      // also tracked.
+      this.refreshToken();
       const id = this.ticketId();
       if (id) this.load(id);
     });
