@@ -216,3 +216,51 @@ export const NO_STALL_SYSTEM_PROMPT_SNIPPET = [
   'step. Repeated empty `tasks` arrays across consecutive turns will trip the stall',
   'detector and the orchestrator will terminate early.',
 ].join('\n');
+
+// ---------------------------------------------------------------------------
+// Attachments block (v2 agentic prompt)
+// ---------------------------------------------------------------------------
+
+import { formatSchemaForPrompt, type InferredSchema } from '@bronco/shared-utils';
+import type { PipelineAttachment } from './shared.js';
+
+/** Format a byte count as a short human-readable string. */
+function humanSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/**
+ * Render the structured `## Attachments` block for the v2 agentic prompt.
+ * Surfaces every artifact attached to the ticket — probe results, MCP tool
+ * results, email attachments, operator uploads — with kind, displayName, size,
+ * artifact_id, and a one-line schema preview when known. Does NOT inline
+ * artifact content; the agent uses `platform__read_tool_result_artifact` for
+ * the full body or `platform__query_artifact` to pull surgical slices.
+ *
+ * Returns an empty string when there are no attachments so callers can
+ * unconditionally `.push(buildAttachmentsBlock(...))`.
+ */
+export function buildAttachmentsBlock(attachments: PipelineAttachment[] | undefined | null): string {
+  if (!attachments || attachments.length === 0) return '';
+  const lines: string[] = ['', '## Attachments', ''];
+  for (const a of attachments) {
+    const name = a.displayName ?? a.filename;
+    const kindStr = a.kind ?? 'attachment';
+    const size = humanSize(a.sizeBytes);
+    lines.push(`- 📎 ${name} (${kindStr}, ${size})`);
+    lines.push(`  artifact_id: ${a.artifactId}`);
+    if (a.description) lines.push(`  description: ${a.description}`);
+    const schema = a.schemaJson as InferredSchema | null | undefined;
+    if (schema && typeof schema === 'object') {
+      const formatted = formatSchemaForPrompt(schema);
+      if (formatted) lines.push(`  schema: ${formatted}`);
+    }
+    lines.push(`  Read full: platform__read_tool_result_artifact(artifactId="${a.artifactId}")`);
+    if (schema && typeof schema === 'object') {
+      lines.push(`  Query path: platform__query_artifact(artifact_id="${a.artifactId}", path=...)`);
+    }
+  }
+  return lines.join('\n');
+}

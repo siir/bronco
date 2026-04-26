@@ -47,6 +47,7 @@ import {
 } from './v2-knowledge-doc.js';
 import {
   AD_HOC_QUERY_PAIRING_SNIPPET,
+  buildAttachmentsBlock,
   KD_SYSTEM_PROMPT_SNIPPET,
   NO_STALL_SYSTEM_PROMPT_SNIPPET,
   PREFER_EXISTING_TOOLS_SNIPPET,
@@ -846,7 +847,7 @@ export async function runOrchestratedV2(
   opts: { maxIterations: number; existingKnowledgeDoc: string; reanalysisCtx?: ReanalysisContext },
 ): Promise<AnalysisResult> {
   const { db, ai, appLog } = deps;
-  const { ticketId, clientId, category, priority, emailSubject, emailBody, clientContext, environmentContext, codeContext, dbContext, facts, summary } = ctx;
+  const { ticketId, clientId, category, priority, emailSubject, emailBody, clientContext, environmentContext, codeContext, dbContext, facts, summary, attachments } = ctx;
   const { maxIterations: orchMaxIterations, existingKnowledgeDoc, reanalysisCtx } = opts;
   const reanalysisMode = reanalysisCtx?.mode ?? ReanalysisMode.CONTINUE;
   const isReanalysis = !!reanalysisCtx && reanalysisMode !== ReanalysisMode.FRESH_START;
@@ -896,6 +897,10 @@ export async function runOrchestratedV2(
     '', emailBody,
   ].join('\n');
   const contextParts: string[] = [ticketContext];
+  // Attachments block sits right after metadata + body so the strategist sees
+  // the artifact catalog before any subsequent context (client memory, summary, etc).
+  const attachmentsBlock = buildAttachmentsBlock(attachments);
+  if (attachmentsBlock) contextParts.push(attachmentsBlock);
   if (summary) contextParts.push(`\n## Summary\n${summary}`);
   if (clientContext) contextParts.push(`\n${clientContext}`);
   if (environmentContext) contextParts.push(`\n${environmentContext}`);

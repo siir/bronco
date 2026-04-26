@@ -246,6 +246,18 @@ All four tools run inside `withTicketLock` (Postgres advisory transaction lock o
 - `composeFinalAnalysis(knowledgeDoc, sectionMeta, agentExecutiveSummary)` merges the agent's executive summary with Problem Statement / Root Cause / Recommended Fix / Risks pulled from the doc — that composed text is what lands in the `AI_ANALYSIS` ticket event and email.
 - After each iteration (and at run end) the orchestrator writes a `KnowledgeDocSnapshot` row capturing the doc + sidecar, so future iteration-diff views have ground truth per iteration.
 
+## Artifact Attachments and Schema (v2 Agentic Prompt)
+
+The v2 agentic prompt (orchestrated-v2 + flat-v2) renders a structured `## Attachments` block that surfaces every `Artifact` row attached to the ticket — probe results, MCP tool results, email attachments, operator uploads. Each entry shows kind, displayName, size, `artifact_id`, optional description, and a one-line schema preview, plus tool hints for fetching content. The block sits right after ticket metadata + body so the strategist sees the catalog before any other context.
+
+Artifact content is NEVER inlined into the prompt body. Phase 4's Haiku description stays in `emailBody` (for probe-sourced tickets); the agent uses `platform__read_tool_result_artifact(artifactId, …)` to read full content or `platform__query_artifact(artifact_id, path)` to pull surgical slices via JSONPath / XPath / CSV column.
+
+Schema is sourced from two tiers, stored on `Artifact.schemaJson` (additive nullable column):
+1. **`mcp_provided`** — the producing MCP tool emits a top-level `_schema` field in its response envelope. Adopted as-is via `adoptMcpSchema()`.
+2. **`head_tail_infer`** — best-effort inference at save time from the artifact's leading 2 KB and trailing 0.5 KB via `inferSchemaFromHeadTail()` in `packages/shared-utils/src/artifact-schema.ts`. Detects JSON object/array, XML, CSV, or text. Always marked `partial: true` when source bytes were truncated.
+
+v1 paths (`flat-v1`, `orchestrated-v1`) do NOT render the attachments block — they remain at pre-#300 fidelity. EXTRACT_FACTS / SUMMARIZE / CATEGORIZE / TRIAGE prompts are also unchanged; only the agentic step gets the new context shape.
+
 ## Ticket Route Step Types
 
 Ticket routes define configurable analysis pipelines executed when tickets are processed. Each route consists of ordered steps, each performing a specific processing function.

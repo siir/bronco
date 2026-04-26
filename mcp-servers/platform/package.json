@@ -17,8 +17,11 @@
     "@bronco/db": "workspace:*",
     "@bronco/shared-types": "workspace:*",
     "@bronco/shared-utils": "workspace:*",
+    "@xmldom/xmldom": "^0.8.10",
     "bullmq": "^5.0.0",
     "express": "^4.21.0",
+    "jsonpath-plus": "^10.2.0",
+    "xpath": "^0.0.34",
     "zod": "^3.23.0"
   },
   "devDependencies": {

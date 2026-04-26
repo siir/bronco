@@ -1,8 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, open } from 'node:fs/promises';
 import { join, dirname, basename } from 'node:path';
 import { pipeline } from 'node:stream/promises';
+import { Prisma } from '@bronco/db';
+import { inferSchemaFromHeadTail } from '@bronco/shared-utils';
 import type { Config } from '../config.js';
 import { resolveClientScope, scopeToWhere } from '../plugins/client-scope.js';
 
@@ -25,6 +27,7 @@ const ARTIFACT_SELECT = {
   addedBySystem: true,
   originatingEventId: true,
   originatingEventType: true,
+  schemaJson: true,
   // Person join: project only safe fields (id, name, email — no passwordHash etc.)
   addedByPerson: {
     select: {
@@ -205,6 +208,35 @@ export async function artifactRoutes(fastify: FastifyInstance, opts: { config: C
       // Resolve the operator's Person ID from the JWT (present for authenticated callers).
       const callerPersonId = request.user?.personId ?? null;
 
+      // Best-effort schema inference for text/json/xml/csv operator uploads. Binaries leave schemaJson null.
+      // Use bounded positional reads (head + tail) so a multi-GB upload can't OOM the API.
+      const mt = (file.mimetype || '').toLowerCase();
+      const isText = mt.startsWith('text/') || mt.includes('json') || mt.includes('xml') || mt.includes('csv');
+      let schemaJson: Prisma.InputJsonValue | undefined;
+      if (isText) {
+        try {
+          const fh = await open(fullPath, 'r');
+          try {
+            const stat = await fh.stat();
+            const headBuf = Buffer.alloc(2048);
+            const headRead = await fh.read(headBuf, 0, 2048, 0);
+            const head = headBuf.subarray(0, headRead.bytesRead).toString('utf-8');
+            let tail = '';
+            if (stat.size > 2048 + 512) {
+              const tailBuf = Buffer.alloc(512);
+              const tailRead = await fh.read(tailBuf, 0, 512, Math.max(0, stat.size - 512));
+              tail = tailBuf.subarray(0, tailRead.bytesRead).toString('utf-8');
+            }
+            const inferred = inferSchemaFromHeadTail(head, tail, file.mimetype || null);
+            schemaJson = inferred as unknown as Prisma.InputJsonValue;
+          } finally {
+            await fh.close();
+          }
+        } catch (err) {
+          fastify.log.warn({ err, filename: sanitizedFilename }, 'Operator-upload schema inference failed — continuing without schema');
+        }
+      }
+
       const artifact = await fastify.db.artifact.create({
         data: {
           ticketId: ticketId ?? null,
@@ -219,6 +251,7 @@ export async function artifactRoutes(fastify: FastifyInstance, opts: { config: C
           source: 'upload',
           addedByPersonId: callerPersonId,
           addedBySystem: 'copilot-api:upload',
+          ...(schemaJson !== undefined ? { schemaJson } : {}),
         },
         select: ARTIFACT_SELECT,
       });

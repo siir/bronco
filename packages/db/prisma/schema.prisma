@@ -469,6 +469,7 @@ model Artifact {
   addedBySystem        String?       @map("added_by_system")
   originatingEventId   String?       @map("originating_event_id")
   originatingEventType String?       @map("originating_event_type")
+  schemaJson           Json?         @map("schema_json")
 
   ticket        Ticket?  @relation(fields: [ticketId], references: [id])
   finding       Finding? @relation(fields: [findingId], references: [id])
