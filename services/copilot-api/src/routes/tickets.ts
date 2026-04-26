@@ -681,9 +681,11 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     // BEFORE queue.add(); a transient Redis exception left the ticket stuck in
     // PENDING with no job running. Now we still update first (so the UI sees
     // immediate feedback) but wrap the enqueue in try/catch and revert on
-    // failure. A 409 dedupe (existing job returned) is treated as
-    // success-with-existing-job — the prior job is still running/completed, so
-    // the PENDING status is not a lie.
+    // failure. With the timestamped jobId the dedupe branch below should never
+    // fire; if it does, we return HTTP 409 so the UI surfaces a real error
+    // ("another analysis is already running for this ticket") rather than
+    // optimistic success. Future followup: revisit whether 409 is the right
+    // operator UX vs surfacing the in-flight job's progress instead.
     const priorAnalysisStatus = ticket.analysisStatus;
     const priorAnalysisError = ticket.analysisError;
 
@@ -709,8 +711,12 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
       });
     } catch (err) {
       // Revert the optimistic PENDING update so the ticket isn't stuck.
-      await fastify.db.ticket.update({
-        where: { id: ticket.id },
+      // Conditional: only revert if analysisStatus is STILL PENDING. If a
+      // concurrent analysis run finished (COMPLETED/FAILED) while queue.add()
+      // was timing out, the WHERE acts as a guard so our enqueue rollback can
+      // never clobber legitimate state from a real analysis.
+      await fastify.db.ticket.updateMany({
+        where: { id: ticket.id, analysisStatus: AnalysisStatus.PENDING },
         data: { analysisStatus: priorAnalysisStatus, analysisError: priorAnalysisError },
       }).catch(() => { /* best-effort revert */ });
       request.log.error({ err, ticketId: ticket.id, jobId }, 'Failed to enqueue reanalyze job — reverted analysisStatus');
