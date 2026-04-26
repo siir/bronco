@@ -338,6 +338,14 @@ pnpm install
 
 Then include the updated `pnpm-lock.yaml` in the same commit. CI uses `--frozen-lockfile` and will fail if the lockfile is out of sync. This applies to every commit that touches `package.json`, `pnpm-workspace.yaml`, or adds a new workspace directory.
 
+## Migration Discipline (CRITICAL)
+
+**Never edit a Prisma migration file that has already shipped to `master`.** Prisma validates SHA-256 checksums on every `prisma migrate deploy`. Modifying an applied file aborts the deploy with `P3008` and breaks production startup until manually resolved.
+
+If you need to fix or extend an applied migration, write a NEW migration that's idempotent against the prior state (e.g. `IF NOT EXISTS` guards on `ALTER TABLE` / `CREATE INDEX`).
+
+CI enforces this on PRs targeting `staging` — the `migration-edit-guard` job in `.github/workflows/ci.yml` runs `git diff --name-status origin/master...HEAD -- 'packages/db/prisma/migrations/*/migration.sql'` and fails the check on any non-Added change (`M`/`D`/`R`) to an existing `migration.sql`. New migrations (status `A`) pass.
+
 ## PR Review Comment Handling
 
 When subscribed to PR activity and review comments arrive, **do not just fix the code silently**. For each review comment:
