@@ -311,6 +311,11 @@ export class AttachmentsListComponent implements OnInit {
   }
 
   refresh(): void {
+    // Bail if a fetch is already in flight — prevents overlapping requests
+    // from rapid refreshToken bumps. The UI button has its own guard via
+    // [disabled]="loading()", but the refreshToken effect bypasses it, so
+    // we re-check here.
+    if (this.loading()) return;
     this.loading.set(true);
     this.ticketService
       .getArtifacts(this.ticketId())

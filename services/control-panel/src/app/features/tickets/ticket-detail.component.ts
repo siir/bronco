@@ -778,7 +778,8 @@ export class TicketDetailComponent implements OnInit, AfterViewInit {
    * changes. Pure prop-driven children re-render automatically via existing
    * signal updates and don't need to consume this. New tab components opt in
    * by adding a `refreshToken: input<number>(0)` and tracking it in their
-   * load effect — no parent-side plumbing required.
+   * load effect — and the parent template must also bind `[refreshToken]` on
+   * each child that should participate in the refresh fan-out.
    */
   refreshToken = signal(0);
   logSummaries = signal<LogSummary[]>([]);

@@ -453,6 +453,13 @@ export class ChatTabComponent implements OnInit, AfterViewChecked {
    */
   private lastRefreshToken = -1;
 
+  // Per-method monotonic counters. Rapid refreshToken bumps can stack
+  // multiple in-flight requests; we discard responses whose captured id
+  // doesn't match the latest. Counters are independent because the two
+  // methods fetch unrelated endpoints.
+  private unifiedLogsRequestId = 0;
+  private configuredStrategyRequestId = 0;
+
   constructor() {
     // Clear the "Analyzing…" placeholder once the corresponding run lands.
     // Watches runs(); when a run arrives whose timestamp is newer than the
@@ -521,26 +528,38 @@ export class ChatTabComponent implements OnInit, AfterViewChecked {
   }
 
   private loadUnifiedLogs(): void {
+    const myRequestId = ++this.unifiedLogsRequestId;
     this.loading.set(true);
     this.ticketService
       .getUnifiedLogs(this.ticketId(), { limit: 500 })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
+          if (myRequestId !== this.unifiedLogsRequestId) return; // stale — discard
           this.unifiedLogs.set(res.entries);
           this.loading.set(false);
         },
-        error: () => this.loading.set(false),
+        error: () => {
+          if (myRequestId !== this.unifiedLogsRequestId) return;
+          this.loading.set(false);
+        },
       });
   }
 
   private loadConfiguredStrategy(): void {
+    const myRequestId = ++this.configuredStrategyRequestId;
     this.api
       .get<TicketAnalysisStrategyResponse>(`/settings/analysis-strategy/${this.ticketId()}`)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (res) => this.configuredStrategy.set(res.configured),
-        error: () => this.configuredStrategy.set(null),
+        next: (res) => {
+          if (myRequestId !== this.configuredStrategyRequestId) return; // stale — discard
+          this.configuredStrategy.set(res.configured);
+        },
+        error: () => {
+          if (myRequestId !== this.configuredStrategyRequestId) return;
+          this.configuredStrategy.set(null);
+        },
       });
   }
 
