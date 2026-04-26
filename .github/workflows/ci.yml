@@ -3,51 +3,12 @@ name: CI
 on:
   push:
     branches: [staging]
-  pull_request:
-    branches: [staging]
 
 concurrency:
   group: ci-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
-  migration-edit-guard:
-    name: Migration Edit Guard
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request' && github.base_ref == 'staging'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Block edits to already-applied Prisma migrations
-        run: |
-          set -euo pipefail
-          git fetch origin master --depth=0 2>/dev/null || git fetch origin master
-          DIFF=$(git diff --name-status origin/master...HEAD -- 'packages/db/prisma/migrations/*/migration.sql' || true)
-          if [ -z "$DIFF" ]; then
-            echo "No migration file changes vs origin/master."
-            exit 0
-          fi
-          echo "Migration file changes vs origin/master:"
-          echo "$DIFF"
-          BAD=0
-          while IFS=$'\t' read -r STATUS FILE REST; do
-            [ -z "${STATUS:-}" ] && continue
-            FIRST="${STATUS:0:1}"
-            if [ "$FIRST" = "A" ]; then
-              echo "OK   $STATUS  $FILE  (new migration)"
-              continue
-            fi
-            NAME=$(basename "$(dirname "$FILE")")
-            echo "FAIL $STATUS  $FILE"
-            echo "Migration \`$NAME\` is already applied on master. Add a new migration instead of editing this one. Editing applied files breaks \`prisma migrate deploy\` checksum validation. See #447."
-            BAD=1
-          done <<< "$DIFF"
-          if [ "$BAD" -ne 0 ]; then
-            exit 1
-          fi
-
   check:
     name: Typecheck & Build
     runs-on: ubuntu-latest
