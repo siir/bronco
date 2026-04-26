@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir, open } from 'node:fs/promises';
 import { join, dirname, basename } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Prisma } from '@bronco/db';
@@ -209,17 +209,29 @@ export async function artifactRoutes(fastify: FastifyInstance, opts: { config: C
       const callerPersonId = request.user?.personId ?? null;
 
       // Best-effort schema inference for text/json/xml/csv operator uploads. Binaries leave schemaJson null.
+      // Use bounded positional reads (head + tail) so a multi-GB upload can't OOM the API.
       const mt = (file.mimetype || '').toLowerCase();
       const isText = mt.startsWith('text/') || mt.includes('json') || mt.includes('xml') || mt.includes('csv');
       let schemaJson: Prisma.InputJsonValue | undefined;
       if (isText) {
         try {
-          const buf = await readFile(fullPath);
-          const text = buf.toString('utf-8');
-          const head = text.slice(0, 2048);
-          const tail = text.length > 2048 ? text.slice(-512) : '';
-          const inferred = inferSchemaFromHeadTail(head, tail, file.mimetype || null);
-          schemaJson = inferred as unknown as Prisma.InputJsonValue;
+          const fh = await open(fullPath, 'r');
+          try {
+            const stat = await fh.stat();
+            const headBuf = Buffer.alloc(2048);
+            const headRead = await fh.read(headBuf, 0, 2048, 0);
+            const head = headBuf.subarray(0, headRead.bytesRead).toString('utf-8');
+            let tail = '';
+            if (stat.size > 2048 + 512) {
+              const tailBuf = Buffer.alloc(512);
+              const tailRead = await fh.read(tailBuf, 0, 512, Math.max(0, stat.size - 512));
+              tail = tailBuf.subarray(0, tailRead.bytesRead).toString('utf-8');
+            }
+            const inferred = inferSchemaFromHeadTail(head, tail, file.mimetype || null);
+            schemaJson = inferred as unknown as Prisma.InputJsonValue;
+          } finally {
+            await fh.close();
+          }
         } catch (err) {
           fastify.log.warn({ err, filename: sanitizedFilename }, 'Operator-upload schema inference failed — continuing without schema');
         }

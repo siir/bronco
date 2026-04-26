@@ -448,6 +448,20 @@ export async function buildAgenticTools(
   });
 
   tools.push({
+    name: 'platform__query_artifact',
+    description: 'Run a path query against an artifact and return matching slices. Use to pull surgical pieces of structured data (JSON, XML, CSV) without reading the whole file. JSON: JSONPath ($.x.y or $.items[*].name). XML: XPath (/root/elem). CSV: column name to return that column, or @N for row index N.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        artifact_id: { type: 'string', description: 'The artifact ID to query' },
+        path: { type: 'string', description: 'JSONPath ($.x.y) for JSON, XPath (/root/elem) for XML, header column name (or @N for row N) for CSV' },
+        format: { type: 'string', enum: ['json', 'xml', 'csv'], description: 'Override format auto-detection (otherwise inferred from artifact mimeType + content)' },
+      },
+      required: ['artifact_id', 'path'],
+    },
+  });
+
+  tools.push({
     name: 'platform__request_tool',
     description: [
       'Flag a capability gap discovered during analysis.',
@@ -708,6 +722,10 @@ export async function executeAgenticToolCall(
     } else if (actualToolName === 'list_repos' && clientId) {
       toolInput = { ...input, clientId };
     } else if (actualToolName === 'read_tool_result_artifact' && ticketId) {
+      toolInput = { ...input, ticketId };
+    } else if (actualToolName === 'query_artifact' && ticketId) {
+      // Inject ticketId so the platform server can scope the artifact lookup
+      // to this ticket (defense-in-depth — the agent never sets it directly).
       toolInput = { ...input, ticketId };
     } else if (actualToolName === 'request_tool' && ticketId) {
       // Inject ticketId so the MCP server can derive clientId from the ticket

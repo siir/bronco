@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { open, stat } from 'node:fs/promises';
 import { relative, resolve } from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
@@ -9,6 +9,15 @@ import type { ServerDeps } from '../server.js';
 
 /** Cap response payload to bound prompt size. Same convention as read_tool_result_artifact. */
 const MAX_RESPONSE_BYTES = 50 * 1024;
+
+/**
+ * Above this artifact file size, refuse to load into memory. query_artifact must
+ * parse the entire artifact (JSON.parse / DOMParser / CSV split), so unlike
+ * read_tool_result_artifact we cannot stream — we instead bail and tell the agent
+ * to page via read_tool_result_artifact. Mirrors STREAM_THRESHOLD_BYTES on the
+ * sibling tool so the boundary is consistent.
+ */
+const MAX_ARTIFACT_BYTES = 5 * 1024 * 1024;
 
 type Format = 'json' | 'xml' | 'csv';
 
@@ -25,12 +34,22 @@ function detectFormat(mimeType: string | null, content: string): Format | null {
   return null;
 }
 
+/**
+ * Truncate `text` to fit MAX_RESPONSE_BYTES *bytes* of UTF-8. The naive
+ * `text.slice(0, N)` slices by JS code units, but multi-byte UTF-8 chars
+ * can still exceed the byte budget — and slicing mid-character can also
+ * produce a U+FFFD replacement (3 bytes) that bumps the encoded length
+ * over the limit. Walk the trim boundary back until it fits.
+ */
 function truncatePayload(text: string): { text: string; truncated: boolean } {
-  if (Buffer.byteLength(text, 'utf-8') <= MAX_RESPONSE_BYTES) {
-    return { text, truncated: false };
+  const buffer = Buffer.from(text, 'utf-8');
+  if (buffer.length <= MAX_RESPONSE_BYTES) return { text, truncated: false };
+  let end = MAX_RESPONSE_BYTES;
+  let slice = buffer.subarray(0, end).toString('utf-8');
+  while (end > 0 && Buffer.byteLength(slice, 'utf-8') > MAX_RESPONSE_BYTES) {
+    end--;
+    slice = buffer.subarray(0, end).toString('utf-8');
   }
-  // Slice by char count then append marker. Char ≤ byte.
-  const slice = text.slice(0, MAX_RESPONSE_BYTES);
   return { text: slice, truncated: true };
 }
 
@@ -61,14 +80,20 @@ export function registerQueryArtifactTool(server: McpServer, { db, config }: Ser
     'Run a path query against an artifact and return matching slices. Use to pull surgical pieces of structured data (JSON, XML, CSV) without reading the whole file. JSON: JSONPath ($.x.y or $.items[*].name). XML: XPath (/root/elem). CSV: column name to return that column, or @N for row index N.',
     {
       artifact_id: z.string().uuid().describe('The artifact ID to query'),
+      ticketId: z.string().uuid().describe('The active ticket ID (server-injected for auth scope)'),
       path: z.string().describe('JSONPath ($.x.y) for JSON, XPath (/root/elem) for XML, header column name (or @N for row N) for CSV'),
       format: z.enum(['json', 'xml', 'csv']).optional().describe('Override format auto-detection (otherwise inferred from artifact mimeType + content)'),
     },
     async (params) => {
-      // Resolve artifact + scope.
-      const artifact = await db.artifact.findUnique({ where: { id: params.artifact_id } });
+      // Resolve artifact + scope. Use findFirst with ticketId in WHERE so the
+      // ticket scope acts as the auth guard — unscoped artifacts cannot be
+      // reached by a query that supplies any ticketId, and scoped artifacts
+      // for a different ticket return "not found" identically.
+      const artifact = await db.artifact.findFirst({
+        where: { id: params.artifact_id, ticketId: params.ticketId },
+      });
       if (!artifact) {
-        return { content: [{ type: 'text', text: 'ERROR: artifact not found' }], isError: true };
+        return { content: [{ type: 'text', text: 'ERROR: artifact not found or not accessible' }], isError: true };
       }
 
       // Defense-in-depth path validation (matches read_tool_result_artifact).
@@ -79,10 +104,42 @@ export function registerQueryArtifactTool(server: McpServer, { db, config }: Ser
         return { content: [{ type: 'text', text: 'ERROR: artifact not found or not accessible' }], isError: true };
       }
 
+      // Guard against pathological large artifacts. query_artifact must parse
+      // the whole file (JSON.parse / DOMParser / CSV split), so we cannot stream
+      // here the way read_tool_result_artifact can. Above the threshold, bail
+      // and direct the agent to page through it via the streaming sibling tool.
+      let fileSize: number;
+      try {
+        const stats = await stat(absPath);
+        fileSize = stats.size;
+      } catch {
+        return { content: [{ type: 'text', text: 'ERROR: artifact not found or not accessible' }], isError: true };
+      }
+      if (fileSize > MAX_ARTIFACT_BYTES) {
+        const sizeMb = (fileSize / 1024 / 1024).toFixed(1);
+        const limitMb = (MAX_ARTIFACT_BYTES / 1024 / 1024).toFixed(0);
+        return {
+          content: [{
+            type: 'text',
+            text: `ERROR: artifact too large for query_artifact (${sizeMb} MB > ${limitMb} MB threshold). Use platform__read_tool_result_artifact with offset+limit to page through it instead.`,
+          }],
+          isError: true,
+        };
+      }
+
       let content: string;
       try {
-        const buf = await readFile(absPath);
-        content = buf.toString('utf-8');
+        // Bounded positional read — file size is verified <= MAX_ARTIFACT_BYTES above.
+        const handle = await open(absPath, 'r');
+        try {
+          const buf = Buffer.alloc(fileSize);
+          if (fileSize > 0) {
+            await handle.read(buf, 0, fileSize, 0);
+          }
+          content = buf.toString('utf-8');
+        } finally {
+          await handle.close();
+        }
       } catch {
         return { content: [{ type: 'text', text: 'ERROR: artifact not found or not accessible' }], isError: true };
       }
