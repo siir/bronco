@@ -160,6 +160,23 @@ async function resolveIngestionRoute(
     steps: { where: { isActive: true }, orderBy: { stepOrder: 'asc' as const } },
   };
 
+  // Helper: emit a WARN when a route row matched but has zero active steps so operators
+  // can distinguish "no route configured" (silent fallthrough) from "operator built an
+  // empty route" (likely a mass-deactivation accident). Behavior is unchanged — we still
+  // continue the resolution cascade and ultimately fall through to the default pipeline
+  // — but the empty route is now observable in the run trace.
+  const warnIfEmpty = (
+    route: { id: string; name: string; steps: unknown[] } | null,
+    tier: string,
+  ): void => {
+    if (route && route.steps.length === 0) {
+      logger.warn(
+        { routeId: route.id, routeName: route.name, tier, source, clientId },
+        `route ${route.id} (${route.name}) has no active steps — falling through to default ingestion pipeline`,
+      );
+    }
+  };
+
   // 1. Client-specific + source-specific
   const clientSourceRoute = await db.ticketRoute.findFirst({
     where: { routeType: 'INGESTION', clientId, source, isActive: true } as never,
@@ -167,6 +184,7 @@ async function resolveIngestionRoute(
     orderBy: { sortOrder: 'asc' },
   });
   if (clientSourceRoute && clientSourceRoute.steps.length > 0) return clientSourceRoute as ResolvedRoute;
+  warnIfEmpty(clientSourceRoute, 'client+source');
 
   // 2. Client-specific + any-source
   const clientAnyRoute = await db.ticketRoute.findFirst({
@@ -175,6 +193,7 @@ async function resolveIngestionRoute(
     orderBy: { sortOrder: 'asc' },
   });
   if (clientAnyRoute && clientAnyRoute.steps.length > 0) return clientAnyRoute as ResolvedRoute;
+  warnIfEmpty(clientAnyRoute, 'client+any');
 
   // 3. Global + source-specific
   const globalSourceRoute = await db.ticketRoute.findFirst({
@@ -183,6 +202,7 @@ async function resolveIngestionRoute(
     orderBy: { sortOrder: 'asc' },
   });
   if (globalSourceRoute && globalSourceRoute.steps.length > 0) return globalSourceRoute as ResolvedRoute;
+  warnIfEmpty(globalSourceRoute, 'global+source');
 
   // 4. Global + any-source
   const globalAnyRoute = await db.ticketRoute.findFirst({
@@ -191,6 +211,7 @@ async function resolveIngestionRoute(
     orderBy: { sortOrder: 'asc' },
   });
   if (globalAnyRoute && globalAnyRoute.steps.length > 0) return globalAnyRoute as ResolvedRoute;
+  warnIfEmpty(globalAnyRoute, 'global+any');
 
   return null;
 }
