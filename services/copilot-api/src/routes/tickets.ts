@@ -668,7 +668,7 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     const scopeWhere = scopeToWhere(scope);
     const ticket = await fastify.db.ticket.findFirst({
       where: { id: request.params.id, ...scopeWhere },
-      select: { id: true, clientId: true, source: true, category: true },
+      select: { id: true, clientId: true, source: true, category: true, analysisStatus: true, analysisError: true },
     });
     if (!ticket) return fastify.httpErrors.notFound('Ticket not found');
     if (!opts?.ticketCreatedQueue) return fastify.httpErrors.serviceUnavailable('Ticket queue not available');
@@ -676,24 +676,46 @@ export async function ticketRoutes(fastify: FastifyInstance, opts?: TicketRouteO
     const enqueuedAt = Date.now();
     const jobId = `ticket-created-reanalyze-${ticket.id}-${enqueuedAt}`;
 
+    // Capture pre-update analysis state so we can revert if the enqueue throws.
+    // Race fix (#380 thread 1): previously the status was flipped to PENDING
+    // BEFORE queue.add(); a transient Redis exception left the ticket stuck in
+    // PENDING with no job running. Now we still update first (so the UI sees
+    // immediate feedback) but wrap the enqueue in try/catch and revert on
+    // failure. A 409 dedupe (existing job returned) is treated as
+    // success-with-existing-job — the prior job is still running/completed, so
+    // the PENDING status is not a lie.
+    const priorAnalysisStatus = ticket.analysisStatus;
+    const priorAnalysisError = ticket.analysisError;
+
     await fastify.db.ticket.update({
       where: { id: ticket.id },
       data: { analysisStatus: AnalysisStatus.PENDING, analysisError: null },
     });
 
-    const enqueuedJob = await opts.ticketCreatedQueue.add('ticket-created', {
-      ticketId: ticket.id,
-      clientId: ticket.clientId,
-      source: (ticket.source ?? TicketSource.MANUAL) as TicketCreatedJob['source'],
-      category: ticket.category ?? null,
-      reanalysis: true,
-    }, {
-      jobId,
-      attempts: 4,
-      backoff: { type: 'exponential', delay: 30_000 },
-      removeOnComplete: { age: 3600, count: 1000 },
-      removeOnFail: { age: 24 * 3600, count: 1000 },
-    });
+    let enqueuedJob;
+    try {
+      enqueuedJob = await opts.ticketCreatedQueue.add('ticket-created', {
+        ticketId: ticket.id,
+        clientId: ticket.clientId,
+        source: (ticket.source ?? TicketSource.MANUAL) as TicketCreatedJob['source'],
+        category: ticket.category ?? null,
+        reanalysis: true,
+      }, {
+        jobId,
+        attempts: 4,
+        backoff: { type: 'exponential', delay: 30_000 },
+        removeOnComplete: { age: 3600, count: 1000 },
+        removeOnFail: { age: 24 * 3600, count: 1000 },
+      });
+    } catch (err) {
+      // Revert the optimistic PENDING update so the ticket isn't stuck.
+      await fastify.db.ticket.update({
+        where: { id: ticket.id },
+        data: { analysisStatus: priorAnalysisStatus, analysisError: priorAnalysisError },
+      }).catch(() => { /* best-effort revert */ });
+      request.log.error({ err, ticketId: ticket.id, jobId }, 'Failed to enqueue reanalyze job — reverted analysisStatus');
+      throw err;
+    }
 
     // Belt-and-braces dedupe check. With a timestamped jobId this should never
     // trigger, but catching it here means we never lie to the UI.
