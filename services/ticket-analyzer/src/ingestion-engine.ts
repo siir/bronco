@@ -1046,8 +1046,43 @@ async function executeIngestionPipeline(
         break;
       }
 
+      // Known route step types that are valid in the analysis phase but have
+      // no ingestion-phase implementation. Operators wire these into routes
+      // expecting them to do something here; surface the skip so it's visible
+      // in WARN logs and in ingestion_run_steps history rather than failing
+      // silently. Implementing the actual handlers is a separate scope (#430).
+      case RouteStepType.LOAD_CLIENT_CONTEXT:
+      case RouteStepType.LOAD_ENVIRONMENT_CONTEXT:
+      case RouteStepType.DISPATCH_TO_ROUTE:
+      case RouteStepType.NOTIFY_OPERATOR: {
+        logger.warn(
+          {
+            stepType: step.stepType,
+            stepName: step.name,
+            clientId,
+            ticketId: ctx.ticketId,
+            routeId: route!.id,
+            routeName: route!.name,
+          },
+          'Step skipped — not implemented in ingestion phase',
+        );
+        await safeTracker.skipStep(stepId, `Step skipped — ${step.stepType} not implemented in ingestion phase`);
+        stepsSkipped++;
+        break;
+      }
+
       default:
-        logger.warn({ stepType: step.stepType, clientId }, `Unknown ingestion step type: ${step.stepType} — skipping`);
+        logger.warn(
+          {
+            stepType: step.stepType,
+            stepName: step.name,
+            clientId,
+            ticketId: ctx.ticketId,
+            routeId: route!.id,
+            routeName: route!.name,
+          },
+          `Unknown ingestion step type: ${step.stepType} — skipping`,
+        );
         await safeTracker.skipStep(stepId, `Unknown step type: ${step.stepType}`);
         stepsSkipped++;
         break;

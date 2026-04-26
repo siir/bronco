@@ -26,7 +26,8 @@ import type { PrismaClient } from '@bronco/db';
 // ---------------------------------------------------------------------------
 
 // Shared logger mock — hoisted so the SUT and the test both reference the same
-// instance, allowing assertions on logger.warn/info calls.
+// instance, allowing assertions on logger.warn/info calls (e.g. the "not
+// implemented in ingestion phase" branch).
 const mockLogger = vi.hoisted(() => ({
   info: vi.fn(),
   warn: vi.fn(),
@@ -1078,6 +1079,80 @@ describe('ingestion-engine: unknown step type', () => {
     ).resolves.toBeUndefined();
 
     // Pipeline continued to CREATE_TICKET
+    expect(db.ticket.create).toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Unhandled-but-known step types — analysis-phase steps that have no ingestion
+// implementation must skip with a WARN log + tracker entry whose reason flags
+// "not implemented in ingestion phase", NOT fall through to the unknown/default
+// case path. (PR #451 — Copilot review feedback for issue #430.)
+// ---------------------------------------------------------------------------
+
+describe('ingestion-engine: unhandled-but-known step types skip with WARN + tracker entry', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it.each([
+    'LOAD_CLIENT_CONTEXT',
+    'LOAD_ENVIRONMENT_CONTEXT',
+    'DISPATCH_TO_ROUTE',
+    'NOTIFY_OPERATOR',
+  ])('%s: emits logger.warn + tracker.skipStep with "not implemented in ingestion phase" reason', async (stepType) => {
+    const db = makeMockDb();
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([makeRoute([stepType, 'CREATE_TICKET'])]);
+
+    const ai = makeMockAI('GENERAL');
+    const ticketCreatedQueue = makeMockQueue();
+
+    const processor = createIngestionProcessor({
+      db,
+      ai: ai as never,
+      mailer: null,
+      ticketCreatedQueue: ticketCreatedQueue as never,
+      senderSignature: 'Test',
+      smtpFrom: 'test@example.com',
+    });
+
+    await processor(makeJob({
+      source: TicketSource.MANUAL,
+      clientId: 'client-1',
+      payload: { description: 'Something' },
+    }) as never);
+
+    // 1. tracker.skipStep was called with status=skipped + reason matching
+    //    "not implemented in ingestion phase" (skipStep updates the
+    //    ingestionRunStep row to status=skipped with output=reason).
+    const skipUpdateCalls = (db.ingestionRunStep.update as ReturnType<typeof vi.fn>).mock.calls
+      .filter((call) => (call[0] as { data?: { status?: string } }).data?.status === 'skipped');
+    expect(skipUpdateCalls.length).toBeGreaterThan(0);
+
+    const reasonMatch = skipUpdateCalls.some((call) => {
+      const data = (call[0] as { data?: { output?: string } }).data;
+      return typeof data?.output === 'string' && data.output.includes('not implemented in ingestion phase');
+    });
+    expect(reasonMatch).toBe(true);
+
+    // 2. logger.warn was invoked with the same "not implemented" message.
+    const warnMatch = mockLogger.warn.mock.calls.some((call) => {
+      // Logger calls follow Pino shape: (obj, message)
+      const message = call[1];
+      return typeof message === 'string' && message.includes('not implemented in ingestion phase');
+    });
+    expect(warnMatch).toBe(true);
+
+    // 3. Did NOT fall through to the unknown/default case path. The default
+    //    case logs "Unknown ingestion step type: <type>" — assert that
+    //    message was never emitted for our known-but-unhandled step.
+    const fellThroughToUnknown = mockLogger.warn.mock.calls.some((call) => {
+      const message = call[1];
+      return typeof message === 'string' && message.startsWith('Unknown ingestion step type:');
+    });
+    expect(fellThroughToUnknown).toBe(false);
+
+    // Pipeline still continued — CREATE_TICKET ran after the skip.
     expect(db.ticket.create).toHaveBeenCalled();
   });
 });
