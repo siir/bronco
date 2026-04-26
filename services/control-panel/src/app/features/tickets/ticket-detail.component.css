@@ -9,17 +9,47 @@
   position: relative;
 }
 
-.page-header {
+/*
+ * Sticky header: keeps title + ticket number + meta pills + edit/refresh
+ * buttons pinned at the top of the viewport while the operator scrolls
+ * through long log/analysis tabs. Background must be opaque so content
+ * scrolling beneath does not bleed through. A subtle bottom shadow
+ * separates it visually from the scrolling content. Z-index sits above
+ * tab content but below the AI-help FAB (z-index: 100) and any modal
+ * dialogs (z-index: 1000).
+ */
+.ticket-sticky-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: var(--bg-page, var(--bg-card));
+  padding-bottom: 8px;
   margin-bottom: 16px;
+  box-shadow: 0 1px 0 var(--border-light);
+}
+
+.page-header {
+  margin-bottom: 8px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  padding-top: 8px;
 }
 
 .header-left {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.page-subline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 2px;
 }
 
 .back-link {
@@ -45,25 +75,33 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 24px;
+  flex-wrap: wrap;
+  padding-bottom: 4px;
+}
+.ticket-pills {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   flex-wrap: wrap;
 }
-.ticket-meta app-select {
-  display: inline-block;
-  min-width: 140px;
+.ticket-meta-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
 }
 
 /*
- * Mobile (< 768px): the ticket meta row has 3 form-field selects plus
- * source/date/analysis chips. The 140px select min-width overflows
- * 375px screens. Stretch each app-form-field to fill the row so Priority,
- * Status, Category stack vertically. The metadata chips keep flex-wrap
- * so they pile below.
+ * Mobile (< 768px): pills + actions row stays inline but wraps. Title
+ * shrinks; back link + meta pills + buttons all fit on screen. The
+ * sticky header keeps a tight footprint so it doesn't dominate the
+ * viewport while the operator scrolls.
  */
 @media (max-width: 767.98px) {
   .page-header {
     align-items: flex-start;
     gap: 8px;
+    padding-top: 4px;
   }
   .page-title {
     font-size: 18px;
@@ -72,14 +110,12 @@
   }
   .ticket-meta {
     gap: 8px;
-    margin-bottom: 16px;
   }
-  .ticket-meta app-form-field {
-    flex: 1 1 100%;
+  .ticket-meta-actions {
+    margin-left: 0;
   }
-  .ticket-meta app-select {
-    width: 100%;
-    min-width: 0;
+  .ticket-sticky-header {
+    margin-bottom: 12px;
   }
 }
 .source {
@@ -681,11 +717,6 @@
   display: flex;
   justify-content: flex-end;
   margin-top: 12px;
-}
-
-/* Re-run analysis bar */
-.reanalyze-bar {
-  margin-bottom: 16px;
 }
 
 /* Floating AI help button */

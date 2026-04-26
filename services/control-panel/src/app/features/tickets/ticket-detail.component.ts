@@ -25,6 +25,12 @@ import { AnalysisTraceComponent } from './analysis-trace/analysis-trace.componen
 import { computeStrategyStamp, formatStrategyStamp } from './analysis-strategy-stamp.js';
 import { TicketDetailSummaryComponent } from './ticket-detail-summary.component.js';
 import { TicketDetailResolutionComponent } from './ticket-detail-resolution.component.js';
+import { TicketQuickActionsDialogComponent } from './ticket-quick-actions-dialog.component.js';
+import {
+  PriorityPillComponent,
+  StatusBadgeComponent,
+  CategoryChipComponent,
+} from '../../shared/components/index.js';
 import { TicketDetailDetailsComponent } from './ticket-detail-details.component.js';
 import { TicketDetailKnowledgeComponent } from './ticket-detail-knowledge.component.js';
 import { ChatTabComponent } from './chat/chat-tab.component.js';
@@ -85,55 +91,68 @@ interface ConvTreeNode {
     TicketDetailTimelineComponent,
     AttachmentsListComponent,
     IconComponent,
+    TicketQuickActionsDialogComponent,
+    PriorityPillComponent,
+    StatusBadgeComponent,
+    CategoryChipComponent,
   ],
   template: `
     @if (ticket(); as t) {
       <div class="page-wrapper">
-        <div class="page-header">
-          <div class="header-left">
-            <a routerLink="/tickets" class="back-link"><app-icon name="back" size="sm" /> Tickets</a>
-            <h1 class="page-title">
-              @if (t.ticketNumber) { <span class="ticket-number">#{{ t.ticketNumber }}</span> }
-              {{ t.subject }}
-            </h1>
+        <div class="ticket-sticky-header">
+          <div class="page-header">
+            <div class="header-left">
+              <a routerLink="/tickets" class="back-link"><app-icon name="back" size="sm" /> Tickets</a>
+              <h1 class="page-title">
+                @if (t.ticketNumber) { <span class="ticket-number">#{{ t.ticketNumber }}</span> }
+                {{ t.subject }}
+              </h1>
+              <div class="page-subline">
+                <span class="source">via {{ t.source }}</span>
+                <span class="date">{{ t.createdAt | date:'medium' }}</span>
+                <span class="analysis-badge analysis-{{ t.analysisStatus.toLowerCase() }}">
+                  @if (t.analysisStatus === 'IN_PROGRESS') {
+                    <app-icon name="spinner" size="sm" class="spin-icon" />
+                  }
+                  {{ formatAnalysisStatus(t.analysisStatus) }}
+                  @if (t.analysisStatus === 'COMPLETED' && t.lastAnalyzedAt) {
+                    <span class="analysis-time">{{ t.lastAnalyzedAt | date:'short' }}</span>
+                  }
+                </span>
+              </div>
+            </div>
           </div>
-        </div>
 
-        <div class="ticket-meta">
-          <app-form-field label="Priority">
-            <app-select
-              [value]="t.priority"
-              [options]="priorityOptions"
-              (valueChange)="updateField('priority', $event)" />
-          </app-form-field>
-          <app-form-field label="Status">
-            <app-select
-              [value]="t.status"
-              [options]="statusOptions"
-              (valueChange)="updateStatus($event)" />
-          </app-form-field>
-          <app-form-field label="Category">
-            <app-select
-              [value]="t.category ?? ''"
-              [options]="categoryOptions"
-              (valueChange)="updateField('category', $event || null)" />
-          </app-form-field>
-          <span class="source">via {{ t.source }}</span>
-          <span class="date">{{ t.createdAt | date:'medium' }}</span>
-          <span class="analysis-badge analysis-{{ t.analysisStatus.toLowerCase() }}">
-            @if (t.analysisStatus === 'IN_PROGRESS') {
-              <app-icon name="spinner" size="sm" class="spin-icon" />
-            }
-            {{ formatAnalysisStatus(t.analysisStatus) }}
-            @if (t.analysisStatus === 'COMPLETED' && t.lastAnalyzedAt) {
-              <span class="analysis-time">{{ t.lastAnalyzedAt | date:'short' }}</span>
-            }
-          </span>
-          @if (t.analysisStatus === 'FAILED') {
-            <app-bronco-button variant="destructive" size="sm" (click)="reanalyze()" [disabled]="reanalyzing()">
-              <app-icon name="refresh" size="sm" /> Retry Analysis
-            </app-bronco-button>
-          }
+          <div class="ticket-meta">
+            <div class="ticket-pills">
+              <app-priority-pill [priority]="$any(t.priority)" />
+              <app-status-badge [status]="$any(t.status.toLowerCase())" />
+              @if (t.category) {
+                <app-category-chip [category]="t.category" />
+              }
+            </div>
+            <div class="ticket-meta-actions">
+              <app-bronco-button
+                variant="icon"
+                size="sm"
+                ariaLabel="Edit ticket attributes"
+                (click)="openQuickActionsDialog()">
+                <app-icon name="edit" size="sm" />
+              </app-bronco-button>
+              <app-bronco-button
+                variant="icon"
+                size="sm"
+                ariaLabel="Refresh ticket"
+                (click)="refreshTicket()">
+                <app-icon name="refresh" size="sm" />
+              </app-bronco-button>
+              @if (t.analysisStatus === 'FAILED') {
+                <app-bronco-button variant="destructive" size="sm" (click)="reanalyze()" [disabled]="reanalyzing()">
+                  <app-icon name="refresh" size="sm" /> Retry Analysis
+                </app-bronco-button>
+              }
+            </div>
+          </div>
         </div>
 
         @if (t.analysisStatus === 'FAILED' && t.analysisError) {
@@ -159,11 +178,12 @@ interface ConvTreeNode {
               <app-ticket-detail-summary [emailBlurb]="emailBlurb()!" />
             </app-tab>
           }
-          @if (t.summary) {
-            <app-tab label="Resolution Summary">
-              <app-ticket-detail-resolution [summary]="t.summary" />
-            </app-tab>
-          }
+          <app-tab label="Resolution">
+            <app-ticket-detail-resolution
+              [summary]="t.summary"
+              [reanalyzing]="reanalyzing()"
+              (reanalyze)="reanalyze()" />
+          </app-tab>
           <app-tab label="Details">
             <app-ticket-detail-details
               [description]="t.description"
@@ -677,12 +697,6 @@ interface ConvTreeNode {
           </app-tab>
         </app-tab-group>
 
-        <div class="reanalyze-bar">
-          <app-bronco-button variant="secondary" (click)="reanalyze()" [disabled]="reanalyzing()">
-            <app-icon name="refresh" size="sm" /> Re-run Analysis
-          </app-bronco-button>
-        </div>
-
         <button class="ai-fab" type="button" aria-label="Ask AI for Help" (click)="openAiHelp()">
           <app-icon name="sparkles" size="md" />
         </button>
@@ -696,6 +710,19 @@ interface ConvTreeNode {
         <app-ai-help-dialog-content
           [submitFn]="aiHelpSubmitFn"
           (closed)="onAiHelpClosed()" />
+      </app-dialog>
+    }
+
+    @if (showQuickActionsDialog() && ticket(); as t) {
+      <app-dialog
+        [open]="true"
+        title="Edit ticket attributes"
+        maxWidth="420px"
+        (openChange)="closeQuickActionsDialog()">
+        <app-ticket-quick-actions-content
+          [ticket]="t"
+          (saved)="onQuickActionsSaved()"
+          (cancelled)="closeQuickActionsDialog()" />
       </app-dialog>
     }
   `,
@@ -715,6 +742,7 @@ export class TicketDetailComponent implements OnInit {
   showAiHelpDialog = signal(false);
   aiHelpTitle = signal('');
   aiHelpSubmitFn: (params: { question?: string; provider?: string; model?: string }) => Promise<AiHelpResponse> = () => Promise.reject(new Error('not initialized'));
+  showQuickActionsDialog = signal(false);
 
   private pollHandle: ReturnType<typeof setInterval> | null = null;
   private readonly POLL_INTERVAL_MS = 4_000;
@@ -774,7 +802,7 @@ export class TicketDetailComponent implements OnInit {
     const labels: string[] = [];
     labels.push('AI Cost');
     if (this.emailBlurb()) labels.push('AI Summary');
-    if (t?.summary) labels.push('Resolution Summary');
+    labels.push('Resolution');
     labels.push('Details');
     labels.push('Attachments');
     if (t?.knowledgeDoc || this.editingKnowledgeDoc()) labels.push('Knowledge');
@@ -1450,6 +1478,38 @@ export class TicketDetailComponent implements OnInit {
     this.aiHelpTitle.set(`Ask AI — ${ticketSubject}`);
     this.aiHelpSubmitFn = (params) => firstValueFrom(this.ticketService.askAi(ticketId, params));
     this.showAiHelpDialog.set(true);
+  }
+
+  openQuickActionsDialog(): void {
+    this.showQuickActionsDialog.set(true);
+  }
+
+  closeQuickActionsDialog(): void {
+    this.showQuickActionsDialog.set(false);
+  }
+
+  onQuickActionsSaved(): void {
+    this.showQuickActionsDialog.set(false);
+    this.toast.success('Ticket updated');
+    this.load();
+  }
+
+  /**
+   * Manually refresh ticket data + cost summaries without scrolling to top.
+   * Captures window.scrollY before re-fetching and restores it on the next
+   * macrotask once the new data has rendered.
+   */
+  refreshTicket(): void {
+    const savedScrollY = typeof window !== 'undefined' ? window.scrollY : 0;
+    this.load();
+    this.loadTicketCost();
+    this.loadCostSummary();
+    this.loadUnifiedLogs();
+    if (typeof window !== 'undefined') {
+      // Restore after Angular flushes the resulting view updates. setTimeout(0)
+      // queues the restore behind the change detection pass triggered by load().
+      setTimeout(() => window.scrollTo(0, savedScrollY), 0);
+    }
   }
 
   onAiHelpClosed(): void {
