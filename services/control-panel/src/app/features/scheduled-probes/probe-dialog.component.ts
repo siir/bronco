@@ -234,6 +234,12 @@ export class ProbeDialogComponent implements OnInit {
   }
 
   setToolParam(name: string, val: string, type: string): void {
+    if (val === '' || val === undefined || val === null) {
+      const next = { ...this.toolParams };
+      delete next[name];
+      this.toolParams = next;
+      return;
+    }
     this.toolParams = { ...this.toolParams, [name]: type === 'number' ? +val : val };
   }
 
