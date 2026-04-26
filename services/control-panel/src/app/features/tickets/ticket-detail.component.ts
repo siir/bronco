@@ -1,10 +1,11 @@
-import { Component, DestroyRef, inject, OnInit, signal, input, computed } from '@angular/core';
+import { AfterViewInit, Component, DestroyRef, ElementRef, inject, OnInit, signal, input, computed, ViewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CommonModule, DatePipe, DecimalPipe, JsonPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, forkJoin, of } from 'rxjs';
+import { catchError } from 'rxjs/operators';
 import { TicketService, Ticket, TicketEvent, type PendingAction, type UnifiedLogEntry, type TicketCostSummary, type AiHelpResponse } from '../../core/services/ticket.service.js';
 import { LogSummaryService, type LogSummary } from '../../core/services/log-summary.service.js';
 import { AiUsageService, type TicketCostResponse } from '../../core/services/ai-usage.service.js';
@@ -25,6 +26,12 @@ import { AnalysisTraceComponent } from './analysis-trace/analysis-trace.componen
 import { computeStrategyStamp, formatStrategyStamp } from './analysis-strategy-stamp.js';
 import { TicketDetailSummaryComponent } from './ticket-detail-summary.component.js';
 import { TicketDetailResolutionComponent } from './ticket-detail-resolution.component.js';
+import { TicketQuickActionsDialogComponent } from './ticket-quick-actions-dialog.component.js';
+import {
+  PriorityPillComponent,
+  StatusBadgeComponent,
+  CategoryChipComponent,
+} from '../../shared/components/index.js';
 import { TicketDetailDetailsComponent } from './ticket-detail-details.component.js';
 import { TicketDetailKnowledgeComponent } from './ticket-detail-knowledge.component.js';
 import { ChatTabComponent } from './chat/chat-tab.component.js';
@@ -85,55 +92,76 @@ interface ConvTreeNode {
     TicketDetailTimelineComponent,
     AttachmentsListComponent,
     IconComponent,
+    TicketQuickActionsDialogComponent,
+    PriorityPillComponent,
+    StatusBadgeComponent,
+    CategoryChipComponent,
   ],
   template: `
     @if (ticket(); as t) {
       <div class="page-wrapper">
-        <div class="page-header">
-          <div class="header-left">
-            <a routerLink="/tickets" class="back-link"><app-icon name="back" size="sm" /> Tickets</a>
-            <h1 class="page-title">
-              @if (t.ticketNumber) { <span class="ticket-number">#{{ t.ticketNumber }}</span> }
-              {{ t.subject }}
-            </h1>
+        <!--
+          Sentinel sits at the very top of the page-wrapper. While it is
+          visible (intersecting the viewport) the page is not scrolled, so we
+          omit the sticky-header drop shadow. Once the sentinel scrolls
+          out of view, we toggle .scrolled on the sticky header to draw the
+          shadow — keeps the visual cue meaningful instead of always-on.
+        -->
+        <div #stickySentinel class="ticket-sticky-sentinel" aria-hidden="true"></div>
+        <div class="ticket-sticky-header" [class.scrolled]="stickyScrolled()">
+          <div class="page-header">
+            <div class="header-left">
+              <a routerLink="/tickets" class="back-link"><app-icon name="back" size="sm" /> Tickets</a>
+              <h1 class="page-title">
+                @if (t.ticketNumber) { <span class="ticket-number">#{{ t.ticketNumber }}</span> }
+                {{ t.subject }}
+              </h1>
+              <div class="page-subline">
+                <span class="source">via {{ t.source }}</span>
+                <span class="date">{{ t.createdAt | date:'medium' }}</span>
+                <span class="analysis-badge analysis-{{ t.analysisStatus.toLowerCase() }}">
+                  @if (t.analysisStatus === 'IN_PROGRESS') {
+                    <app-icon name="spinner" size="sm" class="spin-icon" />
+                  }
+                  {{ formatAnalysisStatus(t.analysisStatus) }}
+                  @if (t.analysisStatus === 'COMPLETED' && t.lastAnalyzedAt) {
+                    <span class="analysis-time">{{ t.lastAnalyzedAt | date:'short' }}</span>
+                  }
+                </span>
+              </div>
+            </div>
           </div>
-        </div>
 
-        <div class="ticket-meta">
-          <app-form-field label="Priority">
-            <app-select
-              [value]="t.priority"
-              [options]="priorityOptions"
-              (valueChange)="updateField('priority', $event)" />
-          </app-form-field>
-          <app-form-field label="Status">
-            <app-select
-              [value]="t.status"
-              [options]="statusOptions"
-              (valueChange)="updateStatus($event)" />
-          </app-form-field>
-          <app-form-field label="Category">
-            <app-select
-              [value]="t.category ?? ''"
-              [options]="categoryOptions"
-              (valueChange)="updateField('category', $event || null)" />
-          </app-form-field>
-          <span class="source">via {{ t.source }}</span>
-          <span class="date">{{ t.createdAt | date:'medium' }}</span>
-          <span class="analysis-badge analysis-{{ t.analysisStatus.toLowerCase() }}">
-            @if (t.analysisStatus === 'IN_PROGRESS') {
-              <app-icon name="spinner" size="sm" class="spin-icon" />
-            }
-            {{ formatAnalysisStatus(t.analysisStatus) }}
-            @if (t.analysisStatus === 'COMPLETED' && t.lastAnalyzedAt) {
-              <span class="analysis-time">{{ t.lastAnalyzedAt | date:'short' }}</span>
-            }
-          </span>
-          @if (t.analysisStatus === 'FAILED') {
-            <app-bronco-button variant="destructive" size="sm" (click)="reanalyze()" [disabled]="reanalyzing()">
-              <app-icon name="refresh" size="sm" /> Retry Analysis
-            </app-bronco-button>
-          }
+          <div class="ticket-meta">
+            <div class="ticket-pills">
+              <app-priority-pill [priority]="$any(t.priority)" />
+              <app-status-badge [status]="t.status" />
+              @if (t.category) {
+                <app-category-chip [category]="t.category" />
+              }
+            </div>
+            <div class="ticket-meta-actions">
+              <app-bronco-button
+                variant="icon"
+                size="sm"
+                ariaLabel="Edit ticket attributes"
+                (click)="openQuickActionsDialog()">
+                <app-icon name="edit" size="sm" />
+              </app-bronco-button>
+              <app-bronco-button
+                variant="icon"
+                size="sm"
+                ariaLabel="Refresh ticket"
+                (click)="refreshTicket()">
+                <app-icon name="refresh" size="sm" />
+              </app-bronco-button>
+              @if (t.analysisStatus === 'FAILED') {
+                <app-bronco-button variant="destructive" size="sm" (click)="reanalyze()" [disabled]="reanalyzing()">
+                  <app-icon name="refresh" size="sm" /> Retry Analysis
+                </app-bronco-button>
+              }
+            </div>
+          </div>
         </div>
 
         @if (t.analysisStatus === 'FAILED' && t.analysisError) {
@@ -159,11 +187,12 @@ interface ConvTreeNode {
               <app-ticket-detail-summary [emailBlurb]="emailBlurb()!" />
             </app-tab>
           }
-          @if (t.summary) {
-            <app-tab label="Resolution Summary">
-              <app-ticket-detail-resolution [summary]="t.summary" />
-            </app-tab>
-          }
+          <app-tab label="Resolution">
+            <app-ticket-detail-resolution
+              [summary]="t.summary"
+              [reanalyzing]="reanalyzing()"
+              (reanalyze)="reanalyze()" />
+          </app-tab>
           <app-tab label="Details">
             <app-ticket-detail-details
               [description]="t.description"
@@ -677,12 +706,6 @@ interface ConvTreeNode {
           </app-tab>
         </app-tab-group>
 
-        <div class="reanalyze-bar">
-          <app-bronco-button variant="secondary" (click)="reanalyze()" [disabled]="reanalyzing()">
-            <app-icon name="refresh" size="sm" /> Re-run Analysis
-          </app-bronco-button>
-        </div>
-
         <button class="ai-fab" type="button" aria-label="Ask AI for Help" (click)="openAiHelp()">
           <app-icon name="sparkles" size="md" />
         </button>
@@ -698,10 +721,23 @@ interface ConvTreeNode {
           (closed)="onAiHelpClosed()" />
       </app-dialog>
     }
+
+    @if (showQuickActionsDialog() && ticket(); as t) {
+      <app-dialog
+        [open]="true"
+        title="Edit ticket attributes"
+        maxWidth="420px"
+        (openChange)="closeQuickActionsDialog()">
+        <app-ticket-quick-actions-content
+          [ticket]="t"
+          (saved)="onQuickActionsSaved()"
+          (cancelled)="closeQuickActionsDialog()" />
+      </app-dialog>
+    }
   `,
   styleUrl: './ticket-detail.component.css',
 })
-export class TicketDetailComponent implements OnInit {
+export class TicketDetailComponent implements OnInit, AfterViewInit {
   id = input.required<string>();
 
   readonly ticketService = inject(TicketService);
@@ -715,6 +751,14 @@ export class TicketDetailComponent implements OnInit {
   showAiHelpDialog = signal(false);
   aiHelpTitle = signal('');
   aiHelpSubmitFn: (params: { question?: string; provider?: string; model?: string }) => Promise<AiHelpResponse> = () => Promise.reject(new Error('not initialized'));
+  showQuickActionsDialog = signal(false);
+
+  // Sentinel + IntersectionObserver drive the sticky-header bottom shadow:
+  // the shadow only appears once the page has actually scrolled past the
+  // top, instead of being permanently rendered.
+  @ViewChild('stickySentinel', { static: false }) private stickySentinel?: ElementRef<HTMLElement>;
+  stickyScrolled = signal(false);
+  private stickyObserver?: IntersectionObserver;
 
   private pollHandle: ReturnType<typeof setInterval> | null = null;
   private readonly POLL_INTERVAL_MS = 4_000;
@@ -774,7 +818,7 @@ export class TicketDetailComponent implements OnInit {
     const labels: string[] = [];
     labels.push('AI Cost');
     if (this.emailBlurb()) labels.push('AI Summary');
-    if (t?.summary) labels.push('Resolution Summary');
+    labels.push('Resolution');
     labels.push('Details');
     labels.push('Attachments');
     if (t?.knowledgeDoc || this.editingKnowledgeDoc()) labels.push('Knowledge');
@@ -936,8 +980,30 @@ export class TicketDetailComponent implements OnInit {
     this.loadUnifiedLogs();
     this.loadCostSummary();
     this.loadPendingActions();
-    this.destroyRef.onDestroy(() => this.stopPolling());
+    this.destroyRef.onDestroy(() => {
+      this.stopPolling();
+      this.stickyObserver?.disconnect();
+      this.stickyObserver = undefined;
+    });
+  }
 
+  ngAfterViewInit(): void {
+    // The sentinel lives inside an `@if (ticket(); as t)` block, so on the
+    // first AfterViewInit it likely isn't in the DOM yet. Try once now and
+    // retry on a microtask if not — `load()` will also kick this off again
+    // via `tryInitStickyObserver()` once the ticket signal is populated.
+    this.tryInitStickyObserver();
+  }
+
+  private tryInitStickyObserver(): void {
+    if (this.stickyObserver || typeof IntersectionObserver === 'undefined') return;
+    const el = this.stickySentinel?.nativeElement;
+    if (!el) return;
+    this.stickyObserver = new IntersectionObserver(
+      ([entry]) => this.stickyScrolled.set(!entry.isIntersecting),
+      { threshold: 0 },
+    );
+    this.stickyObserver.observe(el);
   }
 
   loadPendingActions(): void {
@@ -955,6 +1021,11 @@ export class TicketDetailComponent implements OnInit {
   load(): void {
     this.ticketService.getTicket(this.id()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(t => {
       this.ticket.set(t);
+
+      // Sentinel only renders once the ticket signal is populated, so wire up
+      // the IntersectionObserver after the next microtask to ensure the DOM
+      // has caught up with the signal.
+      queueMicrotask(() => this.tryInitStickyObserver());
 
       // Restore tab from query param on first load (after ticket is available so tabsInOrder is correct)
       if (!this.tabRestored) {
@@ -1202,8 +1273,16 @@ export class TicketDetailComponent implements OnInit {
     return this.conversationEntries().some(e => !!e.parentLogId);
   }
 
-  loadConversationEntries(): void {
-    if (this.conversationLoaded()) return;
+  /**
+   * Load (or reload) the Conversation tab's unified-log entries.
+   *
+   * @param force When true, bypass the `conversationLoaded` guard and
+   *   re-fetch — used by manual refresh so the operator's click on the
+   *   refresh button always pulls fresh data, even if the conversation
+   *   was already loaded once.
+   */
+  loadConversationEntries(force = false): void {
+    if (!force && this.conversationLoaded()) return;
     const ticketId = this.ticket()?.id;
     if (!ticketId) return;
     this.conversationLoading.set(true);
@@ -1450,6 +1529,112 @@ export class TicketDetailComponent implements OnInit {
     this.aiHelpTitle.set(`Ask AI — ${ticketSubject}`);
     this.aiHelpSubmitFn = (params) => firstValueFrom(this.ticketService.askAi(ticketId, params));
     this.showAiHelpDialog.set(true);
+  }
+
+  openQuickActionsDialog(): void {
+    this.showQuickActionsDialog.set(true);
+  }
+
+  closeQuickActionsDialog(): void {
+    this.showQuickActionsDialog.set(false);
+  }
+
+  onQuickActionsSaved(): void {
+    // Note: app-ticket-quick-actions-content already shows a 'Ticket updated'
+    // toast on successful save — don't double-toast here.
+    this.showQuickActionsDialog.set(false);
+    this.load();
+  }
+
+  /**
+   * Manually refresh ticket data + cost summaries without scrolling to top.
+   *
+   * Captures `window.scrollY` before re-fetching, runs all loads in parallel
+   * via forkJoin, and restores the scroll position only after every fetch
+   * has resolved AND the view has had a chance to paint
+   * (`requestAnimationFrame`). This avoids the prior `setTimeout(0)` race
+   * where the restore could fire before async fetches inside the load
+   * methods had finished re-rendering, defeating the purpose.
+   *
+   * Also force-reloads the Conversation tab's entries — the regular
+   * `loadConversationEntries()` is guarded by `conversationLoaded()` so a
+   * manual refresh on the Conversation tab would otherwise be a no-op.
+   */
+  refreshTicket(): void {
+    const ticketId = this.id();
+    const savedScrollY = typeof window !== 'undefined' ? window.scrollY : 0;
+
+    const ticket$ = this.ticketService
+      .getTicket(ticketId)
+      .pipe(takeUntilDestroyed(this.destroyRef), catchError(() => of(null)));
+    const cost$ = this.aiUsageService
+      .getTicketCost(ticketId)
+      .pipe(takeUntilDestroyed(this.destroyRef), catchError(() => of(null)));
+    const costSummary$ = this.ticketService
+      .getCostSummary(ticketId)
+      .pipe(takeUntilDestroyed(this.destroyRef), catchError(() => of(null)));
+
+    const filters: Record<string, string | number> = { limit: 200 };
+    const type = this.unifiedTypeFilter();
+    const level = this.logsLevelFilter();
+    const search = this.logsSearchFilter();
+    if (type) filters['type'] = type;
+    if (level) filters['level'] = level;
+    if (search) filters['search'] = search;
+    this.unifiedLogsLoading.set(true);
+    const unifiedLogs$ = this.ticketService
+      .getUnifiedLogs(ticketId, filters as never)
+      .pipe(takeUntilDestroyed(this.destroyRef), catchError(() => of(null)));
+
+    // Conversation entries — force a reload regardless of `conversationLoaded`.
+    this.conversationLoading.set(true);
+    const conv$ = this.ticketService
+      .getUnifiedLogs(ticketId, { limit: 200 })
+      .pipe(takeUntilDestroyed(this.destroyRef), catchError(() => of(null)));
+
+    forkJoin({
+      ticket: ticket$,
+      cost: cost$,
+      costSummary: costSummary$,
+      unifiedLogs: unifiedLogs$,
+      conv: conv$,
+    }).subscribe(({ ticket, cost, costSummary, unifiedLogs, conv }) => {
+      if (ticket) {
+        this.ticket.set(ticket);
+        const incoming = ticket.events ?? [];
+        const newEvents = incoming.filter(e => !this.knownEventIds.has(e.id));
+        if (newEvents.length > 0) {
+          this.events.update(current => [...current, ...newEvents]);
+          for (const e of newEvents) this.knownEventIds.add(e.id);
+        }
+        this.managePoll(ticket.analysisStatus);
+      }
+      if (cost) this.ticketCost.set(cost);
+      if (costSummary) this.costSummary.set(costSummary);
+      if (unifiedLogs) {
+        this.unifiedLogs.set(unifiedLogs.entries);
+        this.buildStepGroups(unifiedLogs.entries);
+        this.unifiedLogsTotal.set(unifiedLogs.total);
+        this.knownUnifiedLogIds.clear();
+        for (const e of unifiedLogs.entries) this.knownUnifiedLogIds.add(e.id);
+        if (unifiedLogs.entries.length > 0) {
+          this.lastUnifiedLogAt = unifiedLogs.entries[unifiedLogs.entries.length - 1].timestamp;
+        }
+      }
+      this.unifiedLogsLoading.set(false);
+      if (conv) {
+        this.conversationEntries.set(conv.entries);
+        this.buildConvGroups(conv.entries);
+        this.conversationLoaded.set(true);
+      }
+      this.conversationLoading.set(false);
+
+      // Restore scroll on the next paint, after Angular has flushed change
+      // detection from the signal updates above.
+      if (typeof window !== 'undefined') {
+        requestAnimationFrame(() => window.scrollTo(0, savedScrollY));
+      }
+    });
   }
 
   onAiHelpClosed(): void {

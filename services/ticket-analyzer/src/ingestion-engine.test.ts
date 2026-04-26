@@ -25,26 +25,21 @@ import type { PrismaClient } from '@bronco/db';
 // hoist them to the top of the transformed module.
 // ---------------------------------------------------------------------------
 
-// Shared logger spies — exposed so individual tests can assert on logger.warn
-// calls (e.g. the "not implemented in ingestion phase" branch). Use
-// `vi.hoisted` so the spies exist before `vi.mock` factories run.
-const { loggerWarnSpy, loggerInfoSpy, loggerErrorSpy, loggerDebugSpy } = vi.hoisted(() => ({
-  loggerWarnSpy: vi.fn(),
-  loggerInfoSpy: vi.fn(),
-  loggerErrorSpy: vi.fn(),
-  loggerDebugSpy: vi.fn(),
+// Shared logger mock — hoisted so the SUT and the test both reference the same
+// instance, allowing assertions on logger.warn/info calls (e.g. the "not
+// implemented in ingestion phase" branch).
+const mockLogger = vi.hoisted(() => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
 }));
 
 vi.mock('@bronco/shared-utils', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@bronco/shared-utils')>();
   return {
     ...actual,
-    createLogger: () => ({
-      info: loggerInfoSpy,
-      warn: loggerWarnSpy,
-      error: loggerErrorSpy,
-      debug: loggerDebugSpy,
-    }),
+    createLogger: () => mockLogger,
   };
 });
 
@@ -69,7 +64,10 @@ function makeMockDb(overrides: Record<string, unknown> = {}): PrismaClient {
       create: vi.fn().mockResolvedValue({}),
       findFirst: vi.fn().mockResolvedValue(null),
     },
-    ticketRoute: { findFirst: vi.fn().mockResolvedValue(null) },
+    ticketRoute: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      findMany: vi.fn().mockResolvedValue([]),
+    },
     person: { findFirst: vi.fn().mockResolvedValue(null) },
     ticketFollower: { create: vi.fn().mockResolvedValue({}) },
     ingestionRun: {
@@ -151,7 +149,7 @@ describe('ingestion-engine: CATEGORIZE step', () => {
   it('sets ctx.category from a valid AI response', async () => {
     const db = makeMockDb();
     // The only route returned from DB is our mock route
-    (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(makeRoute(['CATEGORIZE', 'CREATE_TICKET']));
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([makeRoute(['CATEGORIZE', 'CREATE_TICKET'])]);
 
     const ai = makeMockAI('DATABASE_PERF');
     const ticketCreatedQueue = makeMockQueue();
@@ -181,7 +179,7 @@ describe('ingestion-engine: CATEGORIZE step', () => {
 
   it('falls back to GENERAL for an unrecognised AI response', async () => {
     const db = makeMockDb();
-    (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(makeRoute(['CATEGORIZE', 'CREATE_TICKET']));
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([makeRoute(['CATEGORIZE', 'CREATE_TICKET'])]);
 
     const ai = makeMockAI('NOT_A_REAL_CATEGORY');
     const ticketCreatedQueue = makeMockQueue();
@@ -210,7 +208,7 @@ describe('ingestion-engine: CATEGORIZE step', () => {
 
   it('falls back to GENERAL when AI throws', async () => {
     const db = makeMockDb();
-    (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(makeRoute(['CATEGORIZE', 'CREATE_TICKET']));
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([makeRoute(['CATEGORIZE', 'CREATE_TICKET'])]);
 
     const ai = {
       generate: vi.fn().mockRejectedValue(new Error('Ollama offline')),
@@ -241,7 +239,7 @@ describe('ingestion-engine: CATEGORIZE step', () => {
 
   it('skips CATEGORIZE and uses payload category when operator provides a valid category', async () => {
     const db = makeMockDb();
-    (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(makeRoute(['CATEGORIZE', 'CREATE_TICKET']));
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([makeRoute(['CATEGORIZE', 'CREATE_TICKET'])]);
 
     const ai = makeMockAI('BUG_FIX');
     const ticketCreatedQueue = makeMockQueue();
@@ -273,7 +271,7 @@ describe('ingestion-engine: CATEGORIZE step', () => {
 
   it('trims and uppercases the AI response before checking validity', async () => {
     const db = makeMockDb();
-    (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(makeRoute(['CATEGORIZE', 'CREATE_TICKET']));
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([makeRoute(['CATEGORIZE', 'CREATE_TICKET'])]);
 
     // AI returns with leading/trailing whitespace and mixed case
     const ai = makeMockAI('  bug_fix  ');
@@ -318,7 +316,7 @@ describe('ingestion-engine: TRIAGE_PRIORITY step', () => {
     ['CRITICAL', 'CRITICAL'],
   ])('sets priority to %s from valid AI response %s', async (expected, aiResponse) => {
     const db = makeMockDb();
-    (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(makeRoute(['TRIAGE_PRIORITY', 'CREATE_TICKET']));
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([makeRoute(['TRIAGE_PRIORITY', 'CREATE_TICKET'])]);
 
     const ai = makeMockAI(aiResponse);
     const ticketCreatedQueue = makeMockQueue();
@@ -347,7 +345,7 @@ describe('ingestion-engine: TRIAGE_PRIORITY step', () => {
 
   it('falls back to MEDIUM for an unrecognised AI priority response', async () => {
     const db = makeMockDb();
-    (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(makeRoute(['TRIAGE_PRIORITY', 'CREATE_TICKET']));
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([makeRoute(['TRIAGE_PRIORITY', 'CREATE_TICKET'])]);
 
     const ai = makeMockAI('URGENT'); // not valid
     const ticketCreatedQueue = makeMockQueue();
@@ -376,7 +374,7 @@ describe('ingestion-engine: TRIAGE_PRIORITY step', () => {
 
   it('falls back to MEDIUM when AI throws', async () => {
     const db = makeMockDb();
-    (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(makeRoute(['TRIAGE_PRIORITY', 'CREATE_TICKET']));
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([makeRoute(['TRIAGE_PRIORITY', 'CREATE_TICKET'])]);
 
     const ai = { generate: vi.fn().mockRejectedValue(new Error('AI error')) };
     const ticketCreatedQueue = makeMockQueue();
@@ -405,7 +403,7 @@ describe('ingestion-engine: TRIAGE_PRIORITY step', () => {
 
   it('skips TRIAGE_PRIORITY and preserves payload priority when operator provides HIGH', async () => {
     const db = makeMockDb();
-    (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(makeRoute(['TRIAGE_PRIORITY', 'CREATE_TICKET']));
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([makeRoute(['TRIAGE_PRIORITY', 'CREATE_TICKET'])]);
 
     const ai = makeMockAI('LOW');
     const ticketCreatedQueue = makeMockQueue();
@@ -445,7 +443,7 @@ describe('ingestion-engine: GENERATE_TITLE step', () => {
 
   it('strips leading/trailing quotes from AI title', async () => {
     const db = makeMockDb();
-    (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(makeRoute(['GENERATE_TITLE', 'CREATE_TICKET']));
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([makeRoute(['GENERATE_TITLE', 'CREATE_TICKET'])]);
 
     const ai = makeMockAI('"Database performance issue"');
     const ticketCreatedQueue = makeMockQueue();
@@ -474,7 +472,7 @@ describe('ingestion-engine: GENERATE_TITLE step', () => {
 
   it('strips "Here\'s a concise ticket title:" preamble', async () => {
     const db = makeMockDb();
-    (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(makeRoute(['GENERATE_TITLE', 'CREATE_TICKET']));
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([makeRoute(['GENERATE_TITLE', 'CREATE_TICKET'])]);
 
     const ai = makeMockAI("Here's a concise ticket title: My Issue Title");
     const ticketCreatedQueue = makeMockQueue();
@@ -503,7 +501,7 @@ describe('ingestion-engine: GENERATE_TITLE step', () => {
 
   it('strips "Title:" prefix', async () => {
     const db = makeMockDb();
-    (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(makeRoute(['GENERATE_TITLE', 'CREATE_TICKET']));
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([makeRoute(['GENERATE_TITLE', 'CREATE_TICKET'])]);
 
     const ai = makeMockAI('Title: My Issue Title');
     const ticketCreatedQueue = makeMockQueue();
@@ -532,7 +530,7 @@ describe('ingestion-engine: GENERATE_TITLE step', () => {
 
   it('truncates title to 80 characters', async () => {
     const db = makeMockDb();
-    (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(makeRoute(['GENERATE_TITLE', 'CREATE_TICKET']));
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([makeRoute(['GENERATE_TITLE', 'CREATE_TICKET'])]);
 
     const ai = makeMockAI('A'.repeat(150));
     const ticketCreatedQueue = makeMockQueue();
@@ -558,7 +556,7 @@ describe('ingestion-engine: GENERATE_TITLE step', () => {
 
   it('keeps original title when AI returns empty string', async () => {
     const db = makeMockDb();
-    (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(makeRoute(['GENERATE_TITLE', 'CREATE_TICKET']));
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([makeRoute(['GENERATE_TITLE', 'CREATE_TICKET'])]);
 
     const ai = makeMockAI('');
     const ticketCreatedQueue = makeMockQueue();
@@ -587,7 +585,7 @@ describe('ingestion-engine: GENERATE_TITLE step', () => {
 
   it('pipeline continues after GENERATE_TITLE failure — uses original title', async () => {
     const db = makeMockDb();
-    (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(makeRoute(['GENERATE_TITLE', 'CREATE_TICKET']));
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([makeRoute(['GENERATE_TITLE', 'CREATE_TICKET'])]);
 
     const ai = { generate: vi.fn().mockRejectedValue(new Error('AI error')) };
     const ticketCreatedQueue = makeMockQueue();
@@ -627,7 +625,7 @@ describe('ingestion-engine: initial priority from numeric payload', () => {
     const db = makeMockDb();
     // No route found → uses default fallback pipeline
     // Payload has a valid priority so TRIAGE_PRIORITY will skip (operator-provided)
-    (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(makeRoute(['CREATE_TICKET']));
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([makeRoute(['CREATE_TICKET'])]);
 
     const ai = makeMockAI('GENERAL');
     const ticketCreatedQueue = makeMockQueue();
@@ -664,7 +662,7 @@ describe('ingestion-engine: CREATE_TICKET skip when ticket already exists', () =
     const db = makeMockDb();
 
     // Simulate a route with RESOLVE_THREAD + CREATE_TICKET
-    (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(makeRoute(['RESOLVE_THREAD', 'CREATE_TICKET']));
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([makeRoute(['RESOLVE_THREAD', 'CREATE_TICKET'])]);
 
     // Simulate RESOLVE_THREAD finding an existing ticket
     (db.ticketEvent.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -712,7 +710,7 @@ describe('ingestion-engine: CREATE_TICKET skip when ticket already exists', () =
 describe('ingestion-engine: step error accumulation', () => {
   it('continues to CREATE_TICKET after CATEGORIZE failure', async () => {
     const db = makeMockDb();
-    (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(makeRoute(['CATEGORIZE', 'CREATE_TICKET']));
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([makeRoute(['CATEGORIZE', 'CREATE_TICKET'])]);
 
     const ai = { generate: vi.fn().mockRejectedValue(new Error('Categorize failed')) };
     const ticketCreatedQueue = makeMockQueue();
@@ -738,7 +736,7 @@ describe('ingestion-engine: step error accumulation', () => {
 
   it('continues to CREATE_TICKET after both CATEGORIZE and TRIAGE_PRIORITY fail', async () => {
     const db = makeMockDb();
-    (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(makeRoute(['CATEGORIZE', 'TRIAGE_PRIORITY', 'CREATE_TICKET']));
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([makeRoute(['CATEGORIZE', 'TRIAGE_PRIORITY', 'CREATE_TICKET'])]);
 
     let callCount = 0;
     const ai = {
@@ -788,7 +786,7 @@ describe('ingestion-engine: safeTracker proxy', () => {
         update: vi.fn().mockResolvedValue({}),
       },
     });
-    (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(makeRoute(['CREATE_TICKET']));
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([makeRoute(['CREATE_TICKET'])]);
 
     const ai = makeMockAI('GENERAL');
     const ticketCreatedQueue = makeMockQueue();
@@ -822,7 +820,7 @@ describe('ingestion-engine: safeTracker proxy', () => {
         update: vi.fn().mockResolvedValue({}),
       },
     });
-    (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(makeRoute(['CREATE_TICKET']));
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([makeRoute(['CREATE_TICKET'])]);
 
     const ai = makeMockAI('GENERAL');
     const ticketCreatedQueue = makeMockQueue();
@@ -853,13 +851,17 @@ describe('ingestion-engine: safeTracker proxy', () => {
 // ---------------------------------------------------------------------------
 
 describe('ingestion-engine: zero-step route fallback', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it('falls back to built-in default pipeline when all DB routes have zero steps', async () => {
     // The route resolution logic skips routes with zero active steps and falls
     // through to null, causing the engine to use the built-in default pipeline.
     // This is the designed behavior: a zero-step route is not usable.
     const db = makeMockDb();
     // All 4 DB queries return a zero-step route → resolveIngestionRoute returns null
-    (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(makeRoute([]));
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([makeRoute([])]);
 
     const ai = makeMockAI('GENERAL');
     const ticketCreatedQueue = makeMockQueue();
@@ -888,7 +890,7 @@ describe('ingestion-engine: zero-step route fallback', () => {
   it('no DB route and no-route mock → uses built-in default', async () => {
     const db = makeMockDb();
     // All DB queries return null → route falls back to built-in default
-    (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
     const ai = makeMockAI('GENERAL');
     const ticketCreatedQueue = makeMockQueue();
@@ -913,6 +915,138 @@ describe('ingestion-engine: zero-step route fallback', () => {
     // Default pipeline includes CREATE_TICKET
     expect(db.ticket.create).toHaveBeenCalled();
   });
+
+  it('emits WARN with the route id when a route has zero active steps', async () => {
+    const db = makeMockDb();
+    const emptyRoute = { ...makeRoute([]), id: 'empty-route-xyz', name: 'Empty Route' };
+    // All four tier queries return the same empty route → cascade exhausts to null
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([emptyRoute]);
+
+    const ai = makeMockAI('GENERAL');
+    const ticketCreatedQueue = makeMockQueue();
+
+    const processor = createIngestionProcessor({
+      db,
+      ai: ai as never,
+      mailer: null,
+      ticketCreatedQueue: ticketCreatedQueue as never,
+      senderSignature: 'Test',
+      smtpFrom: 'test@example.com',
+    });
+
+    await processor(makeJob({
+      source: TicketSource.MANUAL,
+      clientId: 'client-1',
+      payload: { description: 'Something' },
+    }) as never);
+
+    // WARN should have been emitted for each tier the empty route appeared in.
+    // The mocked findMany returns the empty route on every tier query (4 total),
+    // so we expect at least one WARN call referencing the route id.
+    const warnCalls = (mockLogger.warn as ReturnType<typeof vi.fn>).mock.calls;
+    const matchingCalls = warnCalls.filter((call) => {
+      const ctx = call[0] as { routeId?: string } | undefined;
+      const msg = call[1] as string | undefined;
+      return ctx?.routeId === 'empty-route-xyz' && typeof msg === 'string' && msg.includes('no active steps');
+    });
+    expect(matchingCalls.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Within-tier preference: a non-empty route should win over an empty one with
+// a lower sortOrder in the same tier (no shadowing).
+// ---------------------------------------------------------------------------
+
+describe('ingestion-engine: within-tier non-empty route preference', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('selects the non-empty route from a tier even when an empty route comes first', async () => {
+    const db = makeMockDb();
+    const emptyRoute = { ...makeRoute([]), id: 'empty-1', name: 'Empty', sortOrder: 1 };
+    const workingRoute = {
+      ...makeRoute(['CREATE_TICKET']),
+      id: 'working-1',
+      name: 'Working',
+      sortOrder: 2,
+    };
+
+    // First (client+source) tier returns both; the resolver should skip the
+    // empty one and pick the working one — no fallthrough to later tiers.
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce([emptyRoute, workingRoute]);
+
+    const ai = makeMockAI('GENERAL');
+    const ticketCreatedQueue = makeMockQueue();
+
+    const processor = createIngestionProcessor({
+      db,
+      ai: ai as never,
+      mailer: null,
+      ticketCreatedQueue: ticketCreatedQueue as never,
+      senderSignature: 'Test',
+      smtpFrom: 'test@example.com',
+    });
+
+    await processor(makeJob({
+      source: TicketSource.MANUAL,
+      clientId: 'client-1',
+      payload: { description: 'Something' },
+    }) as never);
+
+    // Ticket created via the working route's CREATE_TICKET step
+    expect(db.ticket.create).toHaveBeenCalled();
+
+    // Only one tier was queried (we returned a non-empty match) so there's
+    // exactly one findMany call.
+    expect(db.ticketRoute.findMany as ReturnType<typeof vi.fn>).toHaveBeenCalledTimes(1);
+
+    // WARN should fire for the empty route that was skipped within the tier
+    const warnCalls = (mockLogger.warn as ReturnType<typeof vi.fn>).mock.calls;
+    const skipWarn = warnCalls.find((call) => {
+      const ctx = call[0] as { routeId?: string } | undefined;
+      return ctx?.routeId === 'empty-1';
+    });
+    expect(skipWarn).toBeDefined();
+  });
+
+  it('does not emit a WARN when the only route in a tier is non-empty', async () => {
+    const db = makeMockDb();
+    const workingRoute = makeRoute(['CREATE_TICKET']);
+
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce([workingRoute]);
+
+    const ai = makeMockAI('GENERAL');
+    const ticketCreatedQueue = makeMockQueue();
+
+    const processor = createIngestionProcessor({
+      db,
+      ai: ai as never,
+      mailer: null,
+      ticketCreatedQueue: ticketCreatedQueue as never,
+      senderSignature: 'Test',
+      smtpFrom: 'test@example.com',
+    });
+
+    await processor(makeJob({
+      source: TicketSource.MANUAL,
+      clientId: 'client-1',
+      payload: { description: 'Something' },
+    }) as never);
+
+    expect(db.ticket.create).toHaveBeenCalled();
+
+    // No empty route → no WARN about empty active steps
+    const warnCalls = (mockLogger.warn as ReturnType<typeof vi.fn>).mock.calls;
+    const emptyWarn = warnCalls.find((call) => {
+      const msg = call[1] as string | undefined;
+      return typeof msg === 'string' && msg.includes('no active steps');
+    });
+    expect(emptyWarn).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -922,7 +1056,7 @@ describe('ingestion-engine: zero-step route fallback', () => {
 describe('ingestion-engine: unknown step type', () => {
   it('skips unknown step type without throwing', async () => {
     const db = makeMockDb();
-    (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(makeRoute(['UNKNOWN_FUTURE_STEP_TYPE', 'CREATE_TICKET']));
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([makeRoute(['UNKNOWN_FUTURE_STEP_TYPE', 'CREATE_TICKET'])]);
 
     const ai = makeMockAI('GENERAL');
     const ticketCreatedQueue = makeMockQueue();
@@ -968,7 +1102,7 @@ describe('ingestion-engine: unhandled-but-known step types skip with WARN + trac
     'NOTIFY_OPERATOR',
   ])('%s: emits logger.warn + tracker.skipStep with "not implemented in ingestion phase" reason', async (stepType) => {
     const db = makeMockDb();
-    (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(makeRoute([stepType, 'CREATE_TICKET']));
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([makeRoute([stepType, 'CREATE_TICKET'])]);
 
     const ai = makeMockAI('GENERAL');
     const ticketCreatedQueue = makeMockQueue();
@@ -1002,7 +1136,7 @@ describe('ingestion-engine: unhandled-but-known step types skip with WARN + trac
     expect(reasonMatch).toBe(true);
 
     // 2. logger.warn was invoked with the same "not implemented" message.
-    const warnMatch = loggerWarnSpy.mock.calls.some((call) => {
+    const warnMatch = mockLogger.warn.mock.calls.some((call) => {
       // Logger calls follow Pino shape: (obj, message)
       const message = call[1];
       return typeof message === 'string' && message.includes('not implemented in ingestion phase');
@@ -1012,7 +1146,7 @@ describe('ingestion-engine: unhandled-but-known step types skip with WARN + trac
     // 3. Did NOT fall through to the unknown/default case path. The default
     //    case logs "Unknown ingestion step type: <type>" — assert that
     //    message was never emitted for our known-but-unhandled step.
-    const fellThroughToUnknown = loggerWarnSpy.mock.calls.some((call) => {
+    const fellThroughToUnknown = mockLogger.warn.mock.calls.some((call) => {
       const message = call[1];
       return typeof message === 'string' && message.startsWith('Unknown ingestion step type:');
     });
@@ -1064,7 +1198,7 @@ describe('ingestion-engine: ADD_FOLLOWER step', () => {
   it('skips ADD_FOLLOWER when no ticket has been created', async () => {
     const db = makeMockDb();
     // Route with ADD_FOLLOWER first (no CREATE_TICKET before it)
-    (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(makeRoute(['ADD_FOLLOWER']));
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([makeRoute(['ADD_FOLLOWER'])]);
 
     const ai = makeMockAI('GENERAL');
     const ticketCreatedQueue = makeMockQueue();
@@ -1089,22 +1223,8 @@ describe('ingestion-engine: ADD_FOLLOWER step', () => {
 
   it('adds follower by email after CREATE_TICKET', async () => {
     const db = makeMockDb();
-    (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(
-      makeRoute(['CREATE_TICKET', 'ADD_FOLLOWER']),
-    );
-
-    // Patch step config for ADD_FOLLOWER
-    const route = (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mock.results[0]?.value;
-    if (route) {
-      const addFollowerStep = route.steps.find((s: { stepType: string }) => s.stepType === 'ADD_FOLLOWER');
-      if (addFollowerStep) {
-        addFollowerStep.config = { email: 'follower@example.com', followerType: 'FOLLOWER' };
-      }
-    }
-
-    // The route mock is evaluated lazily (mockResolvedValue stores the value, not a ref)
-    // Re-declare to include config:
-    (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
+    // Explicit route with config on the ADD_FOLLOWER step
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([{
       id: 'route-1',
       name: 'Test Route',
       description: null,
@@ -1121,7 +1241,7 @@ describe('ingestion-engine: ADD_FOLLOWER step', () => {
         { id: 'step-0', stepOrder: 1, name: 'CREATE_TICKET', stepType: 'CREATE_TICKET', taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
         { id: 'step-1', stepOrder: 2, name: 'ADD_FOLLOWER', stepType: 'ADD_FOLLOWER', taskTypeOverride: null, promptKeyOverride: null, config: { email: 'follower@example.com', followerType: 'FOLLOWER' }, isActive: true },
       ],
-    });
+    }]);
 
     (db.person.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'person-1' });
 
@@ -1161,7 +1281,7 @@ describe('ingestion-engine: ADD_FOLLOWER step', () => {
 describe('ingestion-engine: context accumulation', () => {
   it('uses summary from SUMMARIZE_EMAIL in CATEGORIZE prompt', async () => {
     const db = makeMockDb();
-    (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(makeRoute(['SUMMARIZE_EMAIL', 'CATEGORIZE', 'CREATE_TICKET']));
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([makeRoute(['SUMMARIZE_EMAIL', 'CATEGORIZE', 'CREATE_TICKET'])]);
 
     let callOrder: string[] = [];
     const ai = {
@@ -1214,7 +1334,7 @@ describe('ingestion-engine: context accumulation', () => {
 describe('ingestion-engine: ticket-created queue enqueue', () => {
   it('adds to ticketCreatedQueue after successful ticket creation', async () => {
     const db = makeMockDb();
-    (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(makeRoute(['CREATE_TICKET']));
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([makeRoute(['CREATE_TICKET'])]);
 
     const ai = makeMockAI('GENERAL');
     const ticketCreatedQueue = makeMockQueue();
@@ -1243,7 +1363,7 @@ describe('ingestion-engine: ticket-created queue enqueue', () => {
 
   it('does NOT add to ticketCreatedQueue when no CREATE_TICKET step', async () => {
     const db = makeMockDb();
-    (db.ticketRoute.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(makeRoute(['CATEGORIZE']));
+    (db.ticketRoute.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([makeRoute(['CATEGORIZE'])]);
 
     const ai = makeMockAI('BUG_FIX');
     const ticketCreatedQueue = makeMockQueue();

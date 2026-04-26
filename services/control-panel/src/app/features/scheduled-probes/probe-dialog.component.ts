@@ -234,6 +234,12 @@ export class ProbeDialogComponent implements OnInit {
   }
 
   setToolParam(name: string, val: string, type: string): void {
+    if (val === '' || val === undefined || val === null) {
+      const next = { ...this.toolParams };
+      delete next[name];
+      this.toolParams = next;
+      return;
+    }
     this.toolParams = { ...this.toolParams, [name]: type === 'number' ? +val : val };
   }
 
@@ -412,6 +418,7 @@ export class ProbeDialogComponent implements OnInit {
         category: this.category,
         action: this.action,
         actionConfig,
+        toolParams: cleanParams,
         retentionDays: this.isValidRetention(this.retentionDays, 1, 365)
           ? Math.round(this.retentionDays) : undefined,
         retentionMaxRuns: this.isValidRetention(this.retentionMaxRuns, 5, 10000)
