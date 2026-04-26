@@ -13,11 +13,19 @@
  * Sticky header: keeps title + ticket number + meta pills + edit/refresh
  * buttons pinned at the top of the viewport while the operator scrolls
  * through long log/analysis tabs. Background must be opaque so content
- * scrolling beneath does not bleed through. A subtle bottom shadow
- * separates it visually from the scrolling content. Z-index sits above
- * tab content but below the AI-help FAB (z-index: 100) and any modal
- * dialogs (z-index: 1000).
+ * scrolling beneath does not bleed through. The bottom shadow is only
+ * applied once the page has actually scrolled (.scrolled is toggled by an
+ * IntersectionObserver on .ticket-sticky-sentinel just above), so an
+ * un-scrolled page doesn't show a stray hairline. Z-index sits above tab
+ * content but below the AI-help FAB (z-index: 100) and any modal dialogs
+ * (z-index: 1000).
  */
+.ticket-sticky-sentinel {
+  /* Zero-height marker observed by IntersectionObserver. */
+  height: 1px;
+  width: 100%;
+  pointer-events: none;
+}
 .ticket-sticky-header {
   position: sticky;
   top: 0;
@@ -25,6 +33,9 @@
   background: var(--bg-page, var(--bg-card));
   padding-bottom: 8px;
   margin-bottom: 16px;
+  transition: box-shadow 120ms ease-out;
+}
+.ticket-sticky-header.scrolled {
   box-shadow: 0 1px 0 var(--border-light);
 }
 
