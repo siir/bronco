@@ -410,11 +410,12 @@ export async function scheduledProbeRoutes(
       return fastify.httpErrors.badRequest(`Invalid category. Must be one of: ${[...VALID_CATEGORIES].join(', ')}`);
     }
 
-    // toolName and toolParams are immutable via PATCH to avoid persisting
-    // probes that reference invalid or disabled tools
-    if (updates.toolName !== undefined || updates.toolParams !== undefined) {
+    // toolName is immutable via PATCH — changing the tool changes the probe
+    // identity. Create a new probe instead. toolParams remains editable so
+    // operators can adjust tool inputs (e.g. lookback windows) on existing probes.
+    if (updates.toolName !== undefined) {
       return fastify.httpErrors.badRequest(
-        'Updating toolName or toolParams is not supported; create a new probe instead',
+        'Updating toolName is not supported; create a new probe instead',
       );
     }
 
@@ -443,6 +444,9 @@ export async function scheduledProbeRoutes(
     if (updates.scheduleDaysOfWeek !== undefined) data.scheduleDaysOfWeek = updates.scheduleDaysOfWeek;
     if (updates.retentionDays !== undefined) data.retentionDays = updates.retentionDays;
     if (updates.retentionMaxRuns !== undefined) data.retentionMaxRuns = updates.retentionMaxRuns;
+    if (updates.toolParams !== undefined) {
+      data.toolParams = updates.toolParams as Prisma.InputJsonValue;
+    }
 
     try {
       return await fastify.db.scheduledProbe.update({

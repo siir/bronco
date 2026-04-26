@@ -63,6 +63,7 @@ export interface UpdateProbeRequest {
   category?: string | null;
   action?: string;
   actionConfig?: Record<string, unknown> | null;
+  toolParams?: Record<string, unknown>;
   isActive?: boolean;
   scheduleHour?: number | null;
   scheduleMinute?: number | null;
