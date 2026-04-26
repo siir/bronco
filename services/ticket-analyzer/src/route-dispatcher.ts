@@ -67,16 +67,26 @@ export function createRouteDispatcher(deps: {
     // Job ID strategy (#375):
     //   - Initial ticket-created dispatch uses the deterministic `analysis-<ticketId>`
     //     ID so a burst of duplicate ticket-created events collapses to one job.
-    //   - Retries (operator-clicked Retry Analysis) use `reanalysis-<ticketId>-<ts>`
-    //     so every click produces a unique job and is not silently deduped against
-    //     the completed initial run. The timestamp also makes retries easy to count
-    //     in Redis telemetry.
+    //   - Retries (operator-clicked Retry Analysis) use `reanalysis-<ticketId>-<key>`
+    //     where <key> is derived from the OUTER ticket-created job. Every operator
+    //     click produces a fresh outer job (the reanalyze API endpoint timestamps
+    //     the outer jobId), so each click maps to a unique inner analysis job; but
+    //     if BullMQ retries or stalls and reprocesses the SAME outer job, the inner
+    //     jobId stays stable and dedupes correctly.
+    //
+    //   #380 thread 2: Was previously `Date.now()`. That was wrong — Date.now()
+    //   inside a BullMQ processor regenerates on every retry of the outer job,
+    //   spawning a new inner analysis job per retry attempt. job.id is stable
+    //   across retries; job.timestamp is the fallback for the unlikely case where
+    //   job.id is missing (BullMQ always assigns one, but the type is `string |
+    //   undefined`).
     //
     // `removeOnComplete` ages completed jobs out of Redis after 1 hour so the
     // initial-run ID can be reused if the pipeline genuinely needs to rerun later
     // (defence-in-depth against the same dedupe-on-completed failure class).
+    const reanalysisJobKey = String(job.id ?? job.timestamp);
     const analysisJobId = reanalysis === true
-      ? `reanalysis-${ticketId}-${Date.now()}`
+      ? `reanalysis-${ticketId}-${reanalysisJobKey}`
       : `analysis-${ticketId}`;
 
     const enqueuedJob = await deps.analysisQueue.add('analyze-ticket', {

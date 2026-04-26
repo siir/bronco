@@ -95,9 +95,9 @@ describe.skipIf(!hasDb)('integration: CREATE_TICKET step', () => {
       ],
     };
 
-    // Stub db.ticketRoute.findFirst to return our route
-    const origFindFirst = db.ticketRoute.findFirst.bind(db.ticketRoute);
-    vi.spyOn(db.ticketRoute, 'findFirst').mockResolvedValueOnce(route as never);
+    // Stub db.ticketRoute.findMany to return our route
+    const origFindMany = db.ticketRoute.findMany.bind(db.ticketRoute);
+    vi.spyOn(db.ticketRoute, 'findMany').mockResolvedValueOnce([route] as never);
 
     const processor = createIngestionProcessor({
       db,
@@ -137,7 +137,7 @@ describe.skipIf(!hasDb)('integration: CREATE_TICKET step', () => {
 
     // Restore
     vi.restoreAllMocks();
-    void origFindFirst;
+    void origFindMany;
   });
 
   it('assigns sequential ticketNumbers per client', async () => {
@@ -147,7 +147,7 @@ describe.skipIf(!hasDb)('integration: CREATE_TICKET step', () => {
     const ai = makeMockAI('GENERAL');
     const ticketCreatedQueue = makeMockQueue();
 
-    vi.spyOn(db.ticketRoute, 'findFirst').mockResolvedValue({
+    vi.spyOn(db.ticketRoute, 'findMany').mockResolvedValue([{
       id: null,
       name: 'Test',
       description: null,
@@ -163,7 +163,7 @@ describe.skipIf(!hasDb)('integration: CREATE_TICKET step', () => {
       steps: [
         { id: 's1', stepOrder: 1, name: 'Create Ticket', stepType: RouteStepType.CREATE_TICKET, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
       ],
-    } as never);
+    }] as never);
 
     const processor = createIngestionProcessor({
       db,
@@ -199,7 +199,7 @@ describe.skipIf(!hasDb)('integration: CREATE_TICKET step', () => {
     const ai = makeMockAI('GENERAL');
     const ticketCreatedQueue = makeMockQueue();
 
-    vi.spyOn(db.ticketRoute, 'findFirst').mockResolvedValue({
+    vi.spyOn(db.ticketRoute, 'findMany').mockResolvedValue([{
       id: null,
       name: 'Test',
       description: null,
@@ -215,7 +215,7 @@ describe.skipIf(!hasDb)('integration: CREATE_TICKET step', () => {
       steps: [
         { id: 's1', stepOrder: 1, name: 'Create Ticket', stepType: RouteStepType.CREATE_TICKET, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
       ],
-    } as never);
+    }] as never);
 
     const processor = createIngestionProcessor({
       db,
@@ -259,7 +259,7 @@ describe.skipIf(!hasDb)('integration: CREATE_TICKET step', () => {
     const ai = makeMockAI('GENERAL');
     const ticketCreatedQueue = makeMockQueue();
 
-    vi.spyOn(db.ticketRoute, 'findFirst').mockResolvedValue({
+    vi.spyOn(db.ticketRoute, 'findMany').mockResolvedValue([{
       id: null,
       name: 'Test',
       description: null,
@@ -275,7 +275,7 @@ describe.skipIf(!hasDb)('integration: CREATE_TICKET step', () => {
       steps: [
         { id: 's1', stepOrder: 1, name: 'Create Ticket', stepType: RouteStepType.CREATE_TICKET, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
       ],
-    } as never);
+    }] as never);
 
     const processor = createIngestionProcessor({
       db,
@@ -313,7 +313,7 @@ describe.skipIf(!hasDb)('integration: CREATE_TICKET step', () => {
     const ai = makeMockAI('GENERAL');
     const ticketCreatedQueue = makeMockQueue();
 
-    vi.spyOn(db.ticketRoute, 'findFirst').mockResolvedValue({
+    vi.spyOn(db.ticketRoute, 'findMany').mockResolvedValue([{
       id: null,
       name: 'Test',
       description: null,
@@ -329,7 +329,7 @@ describe.skipIf(!hasDb)('integration: CREATE_TICKET step', () => {
       steps: [
         { id: 's1', stepOrder: 1, name: 'Create Ticket', stepType: RouteStepType.CREATE_TICKET, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
       ],
-    } as never);
+    }] as never);
 
     const processor = createIngestionProcessor({
       db,
@@ -377,7 +377,7 @@ describe.skipIf(!hasDb)('integration: CREATE_TICKET step', () => {
     const ai = makeMockAI('GENERAL');
     const ticketCreatedQueue = makeMockQueue();
 
-    vi.spyOn(db.ticketRoute, 'findFirst').mockResolvedValue({
+    vi.spyOn(db.ticketRoute, 'findMany').mockResolvedValue([{
       id: null,
       name: 'Test',
       description: null,
@@ -393,7 +393,7 @@ describe.skipIf(!hasDb)('integration: CREATE_TICKET step', () => {
       steps: [
         { id: 's1', stepOrder: 1, name: 'Create Ticket', stepType: RouteStepType.CREATE_TICKET, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
       ],
-    } as never);
+    }] as never);
 
     const processor = createIngestionProcessor({
       db,
@@ -448,7 +448,7 @@ describe.skipIf(!hasDb)('integration: CREATE_TICKET step', () => {
     const ai = makeMockAI('GENERAL');
     const ticketCreatedQueue = makeMockQueue();
 
-    vi.spyOn(db.ticketRoute, 'findFirst').mockResolvedValue({
+    vi.spyOn(db.ticketRoute, 'findMany').mockResolvedValue([{
       id: null,
       name: 'Test',
       description: null,
@@ -464,7 +464,7 @@ describe.skipIf(!hasDb)('integration: CREATE_TICKET step', () => {
       steps: [
         { id: 's1', stepOrder: 1, name: 'Create Ticket', stepType: RouteStepType.CREATE_TICKET, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
       ],
-    } as never);
+    }] as never);
 
     const processor = createIngestionProcessor({
       db,
@@ -539,7 +539,7 @@ describe.skipIf(!hasDb)('integration: ADD_FOLLOWER step', () => {
     const ai = makeMockAI('GENERAL');
     const ticketCreatedQueue = makeMockQueue();
 
-    vi.spyOn(db.ticketRoute, 'findFirst').mockResolvedValue({
+    vi.spyOn(db.ticketRoute, 'findMany').mockResolvedValue([{
       id: null,
       name: 'Test',
       description: null,
@@ -556,7 +556,7 @@ describe.skipIf(!hasDb)('integration: ADD_FOLLOWER step', () => {
         { id: 's1', stepOrder: 1, name: 'Create Ticket', stepType: RouteStepType.CREATE_TICKET, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
         { id: 's2', stepOrder: 2, name: 'Add Follower', stepType: RouteStepType.ADD_FOLLOWER, taskTypeOverride: null, promptKeyOverride: null, config: { email: 'bob@example.com', followerType: 'FOLLOWER' }, isActive: true },
       ],
-    } as never);
+    }] as never);
 
     const processor = createIngestionProcessor({
       db,
@@ -612,7 +612,7 @@ describe.skipIf(!hasDb)('integration: ADD_FOLLOWER step', () => {
     const ticketCreatedQueue = makeMockQueue();
 
     // Stub ticketRoute + ticket.create to reuse the existing ticket
-    vi.spyOn(db.ticketRoute, 'findFirst').mockResolvedValue({
+    vi.spyOn(db.ticketRoute, 'findMany').mockResolvedValue([{
       id: null,
       name: 'Test',
       description: null,
@@ -629,13 +629,13 @@ describe.skipIf(!hasDb)('integration: ADD_FOLLOWER step', () => {
         // No CREATE_TICKET — inject ticketId directly via mock
         { id: 's1', stepOrder: 1, name: 'Add Follower', stepType: RouteStepType.ADD_FOLLOWER, taskTypeOverride: null, promptKeyOverride: null, config: { email: 'carol@example.com', followerType: 'FOLLOWER' }, isActive: true },
       ],
-    } as never);
+    }] as never);
 
     // We need ctx.ticketId to be set for ADD_FOLLOWER to run.
     // Since there's no CREATE_TICKET step, ADD_FOLLOWER will be skipped (ctx.ticketId = null).
     // Use CREATE_TICKET step to set up the context, but with the existing ticket.
     // Instead, directly test by running a route that includes both steps:
-    vi.spyOn(db.ticketRoute, 'findFirst').mockResolvedValue({
+    vi.spyOn(db.ticketRoute, 'findMany').mockResolvedValue([{
       id: null,
       name: 'Test',
       description: null,
@@ -652,7 +652,7 @@ describe.skipIf(!hasDb)('integration: ADD_FOLLOWER step', () => {
         { id: 's1', stepOrder: 1, name: 'Create Ticket', stepType: RouteStepType.CREATE_TICKET, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
         { id: 's2', stepOrder: 2, name: 'Add Follower', stepType: RouteStepType.ADD_FOLLOWER, taskTypeOverride: null, promptKeyOverride: null, config: { email: 'carol@example.com', followerType: 'FOLLOWER' }, isActive: true },
       ],
-    } as never);
+    }] as never);
 
     const processor = createIngestionProcessor({
       db,
@@ -717,7 +717,7 @@ describe.skipIf(!hasDb)('integration: pipeline orchestration', () => {
       }),
     };
 
-    vi.spyOn(db.ticketRoute, 'findFirst').mockResolvedValue({
+    vi.spyOn(db.ticketRoute, 'findMany').mockResolvedValue([{
       id: null,
       name: 'Test',
       description: null,
@@ -735,7 +735,7 @@ describe.skipIf(!hasDb)('integration: pipeline orchestration', () => {
         { id: 's2', stepOrder: 2, name: 'Triage', stepType: RouteStepType.TRIAGE_PRIORITY, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
         { id: 's3', stepOrder: 3, name: 'Create Ticket', stepType: RouteStepType.CREATE_TICKET, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
       ],
-    } as never);
+    }] as never);
 
     const ticketCreatedQueue = makeMockQueue();
     const processor = createIngestionProcessor({
@@ -766,8 +766,8 @@ describe.skipIf(!hasDb)('integration: pipeline orchestration', () => {
   });
 
   it('uses default fallback route when no DB route matches', async () => {
-    // ticketRoute.findFirst returns null → engine should use built-in default
-    vi.spyOn(db.ticketRoute, 'findFirst').mockResolvedValue(null);
+    // ticketRoute.findMany returns [] → engine should use built-in default
+    vi.spyOn(db.ticketRoute, 'findMany').mockResolvedValue([]);
 
     let categorizeCalled = false;
     const ai = {
@@ -804,7 +804,7 @@ describe.skipIf(!hasDb)('integration: pipeline orchestration', () => {
   });
 
   it('writes ingestion_run tracking rows for the full pipeline', async () => {
-    vi.spyOn(db.ticketRoute, 'findFirst').mockResolvedValue({
+    vi.spyOn(db.ticketRoute, 'findMany').mockResolvedValue([{
       id: null,
       name: 'Tracked Pipeline',
       description: null,
@@ -821,7 +821,7 @@ describe.skipIf(!hasDb)('integration: pipeline orchestration', () => {
         { id: 's1', stepOrder: 1, name: 'Categorize', stepType: RouteStepType.CATEGORIZE, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
         { id: 's2', stepOrder: 2, name: 'Create Ticket', stepType: RouteStepType.CREATE_TICKET, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
       ],
-    } as never);
+    }] as never);
 
     const ai = makeMockAI('BUG_FIX');
     const ticketCreatedQueue = makeMockQueue();
@@ -869,7 +869,7 @@ describe.skipIf(!hasDb)('integration: pipeline orchestration', () => {
 
   it('marks ingestion_run as error when pipeline throws', async () => {
     // Make ticket.create throw to cause a hard pipeline failure
-    vi.spyOn(db.ticketRoute, 'findFirst').mockResolvedValue({
+    vi.spyOn(db.ticketRoute, 'findMany').mockResolvedValue([{
       id: null,
       name: 'Failing Pipeline',
       description: null,
@@ -885,7 +885,7 @@ describe.skipIf(!hasDb)('integration: pipeline orchestration', () => {
       steps: [
         { id: 's1', stepOrder: 1, name: 'Create Ticket', stepType: RouteStepType.CREATE_TICKET, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
       ],
-    } as never);
+    }] as never);
 
     vi.spyOn(db.ticket, 'create').mockRejectedValue(new Error('DB insert failed'));
 
@@ -931,7 +931,7 @@ describe.skipIf(!hasDb)('integration: pipeline orchestration', () => {
       return originalFindFirst(args as Parameters<typeof originalFindFirst>[0]);
     }) as never);
 
-    vi.spyOn(db.ticketRoute, 'findFirst').mockResolvedValue({
+    vi.spyOn(db.ticketRoute, 'findMany').mockResolvedValue([{
       id: null,
       name: 'Test',
       description: null,
@@ -948,7 +948,7 @@ describe.skipIf(!hasDb)('integration: pipeline orchestration', () => {
         { id: 's1', stepOrder: 1, name: 'Resolve Thread', stepType: RouteStepType.RESOLVE_THREAD, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
         { id: 's2', stepOrder: 2, name: 'Create Ticket', stepType: RouteStepType.CREATE_TICKET, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
       ],
-    } as never);
+    }] as never);
 
     const ai = makeMockAI('GENERAL');
     const ticketCreatedQueue = makeMockQueue();
@@ -991,7 +991,7 @@ describe.skipIf(!hasDb)('integration: pipeline orchestration', () => {
       },
     });
 
-    vi.spyOn(db.ticketRoute, 'findFirst').mockResolvedValue({
+    vi.spyOn(db.ticketRoute, 'findMany').mockResolvedValue([{
       id: null,
       name: 'Test',
       description: null,
@@ -1008,7 +1008,7 @@ describe.skipIf(!hasDb)('integration: pipeline orchestration', () => {
         { id: 's1', stepOrder: 1, name: 'Resolve Thread', stepType: RouteStepType.RESOLVE_THREAD, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
         { id: 's2', stepOrder: 2, name: 'Create Ticket', stepType: RouteStepType.CREATE_TICKET, taskTypeOverride: null, promptKeyOverride: null, config: null, isActive: true },
       ],
-    } as never);
+    }] as never);
 
     const ai = makeMockAI('GENERAL');
     const ticketCreatedQueue = makeMockQueue();

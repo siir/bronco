@@ -1,11 +1,20 @@
 import { Component, computed, input } from '@angular/core';
 
+export type StatusBadgeValue =
+  | 'new'
+  | 'open'
+  | 'in_progress'
+  | 'waiting'
+  | 'analyzing'
+  | 'resolved'
+  | 'closed';
+
 @Component({
   selector: 'app-status-badge',
   standalone: true,
   template: `
     <span class="status-badge">
-      <span [class]="'status-dot dot-' + status()"></span>
+      <span [class]="'status-dot dot-' + normalizedStatus()"></span>
       <span class="status-label">{{ displayLabel() }}</span>
     </span>
   `,
@@ -23,8 +32,10 @@ import { Component, computed, input } from '@angular/core';
       flex-shrink: 0;
     }
 
+    .dot-new { background: var(--color-info); }
     .dot-open { background: var(--color-info); }
     .dot-in_progress { background: var(--color-warning); }
+    .dot-waiting { background: var(--color-warning); }
     .dot-analyzing { background: var(--accent); }
     .dot-resolved { background: var(--color-success); }
     .dot-closed { background: var(--text-tertiary); }
@@ -38,16 +49,24 @@ import { Component, computed, input } from '@angular/core';
   `],
 })
 export class StatusBadgeComponent {
-  status = input.required<'open' | 'in_progress' | 'analyzing' | 'resolved' | 'closed'>();
+  // Accept any string so callers passing the raw API enum (e.g. 'WAITING')
+  // don't need to lowercase or cast at the call site.
+  status = input.required<StatusBadgeValue | string>();
+
+  /** Lowercased status for use in dot-* class lookup. */
+  normalizedStatus = computed(() => (this.status() ?? '').toLowerCase());
 
   displayLabel = computed(() => {
     const labels: Record<string, string> = {
+      new: 'New',
       open: 'Open',
       in_progress: 'In Progress',
+      waiting: 'Waiting',
       analyzing: 'Analyzing',
       resolved: 'Resolved',
       closed: 'Closed',
     };
-    return labels[this.status()] ?? this.status();
+    const key = this.normalizedStatus();
+    return labels[key] ?? this.status();
   });
 }
