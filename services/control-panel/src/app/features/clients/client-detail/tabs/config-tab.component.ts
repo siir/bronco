@@ -98,7 +98,7 @@ import {
           <app-bronco-button
             variant="primary"
             size="sm"
-            [disabled]="searchIgnoreTermsValue() === (c.searchIgnoreTerms ?? []).join(', ')"
+            [disabled]="!isSearchIgnoreTermsDirty(c)"
             (click)="saveSearchIgnoreTerms()">
             Save
           </app-bronco-button>
@@ -169,6 +169,25 @@ export class ClientConfigTabComponent {
     }
   }
 
+  private normalizeTerms(input: string | string[]): string[] {
+    const raw = Array.isArray(input) ? input.join(',') : input;
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const t of raw.split(',')) {
+      const norm = t.trim().toLowerCase();
+      if (norm && !seen.has(norm)) {
+        seen.add(norm);
+        result.push(norm);
+      }
+    }
+    return result;
+  }
+
+  isSearchIgnoreTermsDirty(c: Client): boolean {
+    return JSON.stringify(this.normalizeTerms(this.searchIgnoreTermsValue())) !==
+      JSON.stringify(this.normalizeTerms(c.searchIgnoreTerms ?? []));
+  }
+
   toggle(field: 'isActive' | 'autoRouteTickets' | 'allowSelfRegistration', value: boolean): void {
     this.patch({ [field]: value });
   }
@@ -190,10 +209,7 @@ export class ClientConfigTabComponent {
   }
 
   saveSearchIgnoreTerms(): void {
-    const terms = this.searchIgnoreTermsValue()
-      .split(',')
-      .map(t => t.trim())
-      .filter(Boolean);
+    const terms = this.normalizeTerms(this.searchIgnoreTermsValue());
     this.patch({ searchIgnoreTerms: terms } as Partial<Client>, 'Search ignore terms saved');
   }
 
