@@ -2024,18 +2024,18 @@ async function executeRoutePipeline(
             // Drop terms that are guaranteed noise for this client: the client's
             // own name, short code, any operator-configured ignore terms, and
             // anything shorter than 4 characters.
-            const clientNameLower = ticket.client.name.toLowerCase();
-            const clientShortCodeLower = ticket.client.shortCode.toLowerCase();
+            const clientNameLower = ticket.client.name.trim().toLowerCase();
+            const clientShortCodeLower = ticket.client.shortCode.trim().toLowerCase();
             const ignoreSet = new Set<string>(
-              (ticket.client.searchIgnoreTerms ?? []).map((t) => t.toLowerCase()),
+              (ticket.client.searchIgnoreTerms ?? []).map((t) => t.trim().toLowerCase()),
             );
             const preFilterCount = searchTerms.length;
             searchTerms = searchTerms.filter((t) => {
-              const lower = t.toLowerCase();
-              if (lower.length < 4) return false;
-              if (lower === clientNameLower) return false;
-              if (lower === clientShortCodeLower) return false;
-              if (ignoreSet.has(lower)) return false;
+              const normalized = t.trim().toLowerCase();
+              if (normalized.length < 4) return false;
+              if (normalized === clientNameLower) return false;
+              if (normalized === clientShortCodeLower) return false;
+              if (ignoreSet.has(normalized)) return false;
               return true;
             });
             if (searchTerms.length === 0) {

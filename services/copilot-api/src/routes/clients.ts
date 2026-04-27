@@ -7,6 +7,19 @@ const VALID_AI_MODES = new Set<string>(Object.values(AiMode));
 // Basic domain format validation: alphanumeric labels separated by dots, no protocol prefix
 const DOMAIN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
 
+function normalizeSearchIgnoreTerms(raw: unknown): string[] {
+  if (!Array.isArray(raw)) {
+    throw Object.assign(new Error('searchIgnoreTerms must be an array of strings'), { statusCode: 400 });
+  }
+  for (const item of raw) {
+    if (typeof item !== 'string') {
+      throw Object.assign(new Error('searchIgnoreTerms must be an array of strings'), { statusCode: 400 });
+    }
+  }
+  const trimmed = (raw as string[]).map(t => t.trim().toLowerCase()).filter(Boolean);
+  return [...new Set(trimmed)];
+}
+
 function validateDomainMappings(domains: string[] | undefined): string[] | undefined {
   if (!domains) return undefined;
   const cleaned = domains.map(d => d.trim().toLowerCase()).filter(Boolean);
@@ -149,16 +162,19 @@ export async function clientRoutes(fastify: FastifyInstance): Promise<void> {
     };
   });
 
-  fastify.post<{ Body: { name: string; shortCode: string; notes?: string; domainMappings?: string[]; searchIgnoreTerms?: string[] } }>(
+  fastify.post<{ Body: { name: string; shortCode: string; notes?: string; domainMappings?: string[]; searchIgnoreTerms?: unknown } }>(
     '/api/clients',
     async (request, reply) => {
       const domainMappings = validateDomainMappings(request.body.domainMappings);
-      const { searchIgnoreTerms, ...rest } = request.body;
+      const { searchIgnoreTerms: rawSearchIgnoreTerms, ...rest } = request.body;
+      const searchIgnoreTerms = rawSearchIgnoreTerms !== undefined
+        ? normalizeSearchIgnoreTerms(rawSearchIgnoreTerms)
+        : [];
       const client = await fastify.db.client.create({
         data: {
           ...rest,
           domainMappings,
-          ...(searchIgnoreTerms !== undefined && { searchIgnoreTerms }),
+          searchIgnoreTerms,
         },
       });
       reply.code(201);
@@ -166,10 +182,13 @@ export async function clientRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  fastify.patch<{ Params: { id: string }; Body: { name?: string; notes?: string; isActive?: boolean; autoRouteTickets?: boolean; allowSelfRegistration?: boolean; domainMappings?: string[]; searchIgnoreTerms?: string[]; companyProfile?: string | null; systemsProfile?: string | null; aiMode?: string; billingPeriod?: string; billingAnchorDay?: number; billingMarkupPercent?: number; slackChannelId?: string | null; notificationMode?: string } }>(
+  fastify.patch<{ Params: { id: string }; Body: { name?: string; notes?: string; isActive?: boolean; autoRouteTickets?: boolean; allowSelfRegistration?: boolean; domainMappings?: string[]; searchIgnoreTerms?: unknown; companyProfile?: string | null; systemsProfile?: string | null; aiMode?: string; billingPeriod?: string; billingAnchorDay?: number; billingMarkupPercent?: number; slackChannelId?: string | null; notificationMode?: string } }>(
     '/api/clients/:id',
     async (request, reply) => {
-      const { aiMode, billingPeriod, billingAnchorDay, billingMarkupPercent, notificationMode, searchIgnoreTerms, ...rest } = request.body;
+      const { aiMode, billingPeriod, billingAnchorDay, billingMarkupPercent, notificationMode, searchIgnoreTerms: rawSearchIgnoreTerms, ...rest } = request.body;
+      const searchIgnoreTerms = rawSearchIgnoreTerms !== undefined
+        ? normalizeSearchIgnoreTerms(rawSearchIgnoreTerms)
+        : undefined;
       if (aiMode !== undefined && !VALID_AI_MODES.has(aiMode)) {
         return reply.code(400).send({ error: `Invalid aiMode "${aiMode}". Valid: ${[...VALID_AI_MODES].join(', ')}` });
       }
