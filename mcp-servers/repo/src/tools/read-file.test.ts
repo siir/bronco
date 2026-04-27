@@ -5,8 +5,11 @@
  * we re-implement the same logic here so the contract is crystal-clear.
  * Any divergence between this test and the production code is a bug.
  *
- * We also test the secondary path-traversal guard (resolve + relative check)
- * using a real temp dir so symlink edge-cases are covered.
+ * We also exercise the secondary path-traversal guard (resolve + relative
+ * check) on real temp dirs to verify its string-level semantics. Note: this
+ * guard does NOT detect OS-level symlink escapes — `path.resolve()` only
+ * normalizes path segments, it does not follow symlinks. See the test below
+ * that documents this limitation.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -112,32 +115,25 @@ describe('read-file: secondary path guard (resolve + relative)', () => {
     expect(sanitizeFilePath('/etc/passwd')).toBeNull();
   });
 
-  it('symlink escaping the worktree is detected via resolve', async () => {
-    // Create a temp worktree dir + a symlink pointing outside it
+  it('documents limitation: string-level resolve does not detect symlink escape', async () => {
+    // Create a temp worktree + a symlink pointing outside it. We're explicitly
+    // documenting that the resolve+relative guard catches string-level `..`
+    // traversal but NOT OS-level symlinks: `path.resolve()` normalizes segments,
+    // it doesn't follow links. Real symlink-escape protection would require
+    // `fs.realpath()` (or stat-based checks) before the relative comparison.
     const tmpBase = await mkdtemp(join(tmpdir(), 'bronco-test-'));
     const worktree = join(tmpBase, 'worktree');
     const outside = join(tmpBase, 'outside');
     await mkdir(worktree);
     await mkdir(outside);
 
-    // Create a symlink inside worktree → outside
     const symlinkPath = join(worktree, 'evil-link');
     await symlink(outside, symlinkPath);
 
-    // isInsideWorktree with the symlink target should resolve to outside
-    // and the relative check should flag it as outside the worktree.
-    const symlinkRel = 'evil-link';
-    const absoluteResolved = resolve(join(worktree, symlinkRel));
-    const rel = relative(worktree, absoluteResolved);
-    // The resolved path IS inside the worktree directory here because symlink
-    // resolve joins the worktree + name — only if it then points outside would
-    // the relative check fail. Let's verify the actual resolved path.
-    // The symlink itself is inside worktree/, so isInsideWorktree returns true
-    // for the link *itself* — but reading through it reaches outside/.
-    // This is the belt-and-suspenders limitation: it catches path traversal
-    // at the string level (..); OS-level symlink escape is a separate concern.
-    // Document the current behavior:
-    expect(typeof rel).toBe('string');
+    // The symlink path itself is inside worktree/ at the string level,
+    // so the guard incorrectly classifies it as "inside" — proving the
+    // limitation.
+    expect(isInsideWorktree(worktree, 'evil-link')).toBe(true);
 
     await rm(tmpBase, { recursive: true, force: true });
   });
