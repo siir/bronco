@@ -149,22 +149,27 @@ export async function clientRoutes(fastify: FastifyInstance): Promise<void> {
     };
   });
 
-  fastify.post<{ Body: { name: string; shortCode: string; notes?: string; domainMappings?: string[] } }>(
+  fastify.post<{ Body: { name: string; shortCode: string; notes?: string; domainMappings?: string[]; searchIgnoreTerms?: string[] } }>(
     '/api/clients',
     async (request, reply) => {
       const domainMappings = validateDomainMappings(request.body.domainMappings);
+      const { searchIgnoreTerms, ...rest } = request.body;
       const client = await fastify.db.client.create({
-        data: { ...request.body, domainMappings },
+        data: {
+          ...rest,
+          domainMappings,
+          ...(searchIgnoreTerms !== undefined && { searchIgnoreTerms }),
+        },
       });
       reply.code(201);
       return client;
     },
   );
 
-  fastify.patch<{ Params: { id: string }; Body: { name?: string; notes?: string; isActive?: boolean; autoRouteTickets?: boolean; allowSelfRegistration?: boolean; domainMappings?: string[]; companyProfile?: string | null; systemsProfile?: string | null; aiMode?: string; billingPeriod?: string; billingAnchorDay?: number; billingMarkupPercent?: number; slackChannelId?: string | null; notificationMode?: string } }>(
+  fastify.patch<{ Params: { id: string }; Body: { name?: string; notes?: string; isActive?: boolean; autoRouteTickets?: boolean; allowSelfRegistration?: boolean; domainMappings?: string[]; searchIgnoreTerms?: string[]; companyProfile?: string | null; systemsProfile?: string | null; aiMode?: string; billingPeriod?: string; billingAnchorDay?: number; billingMarkupPercent?: number; slackChannelId?: string | null; notificationMode?: string } }>(
     '/api/clients/:id',
     async (request, reply) => {
-      const { aiMode, billingPeriod, billingAnchorDay, billingMarkupPercent, notificationMode, ...rest } = request.body;
+      const { aiMode, billingPeriod, billingAnchorDay, billingMarkupPercent, notificationMode, searchIgnoreTerms, ...rest } = request.body;
       if (aiMode !== undefined && !VALID_AI_MODES.has(aiMode)) {
         return reply.code(400).send({ error: `Invalid aiMode "${aiMode}". Valid: ${[...VALID_AI_MODES].join(', ')}` });
       }
@@ -195,6 +200,7 @@ export async function clientRoutes(fastify: FastifyInstance): Promise<void> {
         data: {
           ...rest,
           ...(domainMappings !== undefined && { domainMappings }),
+          ...(searchIgnoreTerms !== undefined && { searchIgnoreTerms }),
           ...(aiMode !== undefined && { aiMode }),
           ...(billingPeriod !== undefined && { billingPeriod }),
           ...(billingAnchorDay !== undefined && { billingAnchorDay }),
