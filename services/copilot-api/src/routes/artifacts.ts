@@ -60,41 +60,40 @@ export async function artifactRoutes(fastify: FastifyInstance, opts: { config: C
 
   fastify.get<{ Params: { id: string } }>('/api/artifacts/:id', async (request) => {
     const scope = await resolveClientScope(request);
-    // Load the artifact with its ticket's clientId so we can enforce scope.
     const artifact = await fastify.db.artifact.findFirst({
-      where: {
-        id: request.params.id,
-        OR: [
-          // Artifact is ticket-linked — enforce ticket scope.
-          { ticket: { ...scopeToWhere(scope) } },
-          // Artifact has no ticket (finding-only or unlinked) — allow all authenticated callers.
-          { ticketId: null },
-        ],
-      },
+      where: { id: request.params.id },
       select: ARTIFACT_SELECT,
     });
     if (!artifact) return fastify.httpErrors.notFound('Artifact not found');
+    if (artifact.ticketId) {
+      const ticketInScope = await fastify.db.ticket.findFirst({
+        where: { id: artifact.ticketId, ...scopeToWhere(scope) },
+        select: { id: true },
+      });
+      if (!ticketInScope) return fastify.httpErrors.notFound('Artifact not found');
+    }
     return artifact;
   });
 
   fastify.get<{ Params: { id: string } }>('/api/artifacts/:id/download', async (request, reply) => {
     const scope = await resolveClientScope(request);
-    // Load the artifact with its ticket's clientId so we can enforce scope.
     const artifact = await fastify.db.artifact.findFirst({
-      where: {
-        id: request.params.id,
-        OR: [
-          { ticket: { ...scopeToWhere(scope) } },
-          { ticketId: null },
-        ],
-      },
+      where: { id: request.params.id },
       select: {
+        ticketId: true,
         storagePath: true,
         filename: true,
         mimeType: true,
       },
     });
     if (!artifact) return fastify.httpErrors.notFound('Artifact not found');
+    if (artifact.ticketId) {
+      const ticketInScope = await fastify.db.ticket.findFirst({
+        where: { id: artifact.ticketId, ...scopeToWhere(scope) },
+        select: { id: true },
+      });
+      if (!ticketInScope) return fastify.httpErrors.notFound('Artifact not found');
+    }
 
     const filePath = join(storagePath, artifact.storagePath);
     const filename = artifact.filename;
@@ -117,23 +116,23 @@ export async function artifactRoutes(fastify: FastifyInstance, opts: { config: C
 
   fastify.get<{ Params: { id: string } }>('/api/artifacts/:id/content', async (request, reply) => {
     const scope = await resolveClientScope(request);
-    // Same scope check as /download — but serve with Content-Disposition: inline so
-    // browsers preview viewable content (text / json / images / pdf) instead of saving.
     const artifact = await fastify.db.artifact.findFirst({
-      where: {
-        id: request.params.id,
-        OR: [
-          { ticket: { ...scopeToWhere(scope) } },
-          { ticketId: null },
-        ],
-      },
+      where: { id: request.params.id },
       select: {
+        ticketId: true,
         storagePath: true,
         filename: true,
         mimeType: true,
       },
     });
     if (!artifact) return fastify.httpErrors.notFound('Artifact not found');
+    if (artifact.ticketId) {
+      const ticketInScope = await fastify.db.ticket.findFirst({
+        where: { id: artifact.ticketId, ...scopeToWhere(scope) },
+        select: { id: true },
+      });
+      if (!ticketInScope) return fastify.httpErrors.notFound('Artifact not found');
+    }
 
     const filePath = join(storagePath, artifact.storagePath);
     const filename = artifact.filename;
