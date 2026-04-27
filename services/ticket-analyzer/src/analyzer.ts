@@ -2018,6 +2018,31 @@ async function executeRoutePipeline(
               searchTerms = [...searchTerms, ...subjectTokens].slice(0, 10);
             }
 
+            // Drop terms that are guaranteed noise for this client: the client's
+            // own name, short code, any operator-configured ignore terms, and
+            // anything shorter than 4 characters.
+            const clientNameLower = ticket.client.name.toLowerCase();
+            const clientShortCodeLower = ticket.client.shortCode.toLowerCase();
+            const ignoreSet = new Set<string>(
+              (ticket.client.searchIgnoreTerms ?? []).map((t) => t.toLowerCase()),
+            );
+            const preFilterCount = searchTerms.length;
+            searchTerms = searchTerms.filter((t) => {
+              const lower = t.toLowerCase();
+              if (lower.length < 4) return false;
+              if (lower === clientNameLower) return false;
+              if (lower === clientShortCodeLower) return false;
+              if (ignoreSet.has(lower)) return false;
+              return true;
+            });
+            if (searchTerms.length === 0) {
+              appLog.info(
+                `pre-gather: all ${preFilterCount} term(s) filtered out for ${repo.name}, skipping search`,
+                { ticketId, repo: repo.name },
+                ticketId, 'ticket',
+              );
+            }
+
             const exts = (repo.fileExtensions && repo.fileExtensions.length > 0)
               ? repo.fileExtensions
               : [...DEFAULT_REPO_FILE_EXTENSIONS];

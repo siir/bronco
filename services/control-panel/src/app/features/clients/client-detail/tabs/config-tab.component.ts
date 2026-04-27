@@ -88,6 +88,23 @@ import {
         </div>
 
         <div class="config-section">
+          <h3 class="section-title">Repo Search</h3>
+          <app-form-field label="Search Ignore Terms" hint="Terms to skip during repo pre-gather searches (e.g., client name, common but uninformative words)">
+            <app-text-input
+              [value]="searchIgnoreTermsValue()"
+              placeholder="acme, myapp, support"
+              (valueChange)="searchIgnoreTermsValue.set($event)" />
+          </app-form-field>
+          <app-bronco-button
+            variant="primary"
+            size="sm"
+            [disabled]="searchIgnoreTermsValue() === (c.searchIgnoreTerms ?? []).join(', ')"
+            (click)="saveSearchIgnoreTerms()">
+            Save
+          </app-bronco-button>
+        </div>
+
+        <div class="config-section">
           <h3 class="section-title">Notes</h3>
           <app-form-field label="Internal Notes">
             <app-textarea
@@ -139,6 +156,7 @@ export class ClientConfigTabComponent {
 
   slackValue = signal('');
   domainsValue = signal('');
+  searchIgnoreTermsValue = signal('');
   notesValue = signal('');
 
   ngOnChanges(): void {
@@ -146,6 +164,7 @@ export class ClientConfigTabComponent {
     if (c) {
       this.slackValue.set(c.slackChannelId ?? '');
       this.domainsValue.set((c.domainMappings).join(', '));
+      this.searchIgnoreTermsValue.set((c.searchIgnoreTerms ?? []).join(', '));
       this.notesValue.set(c.notes ?? '');
     }
   }
@@ -168,6 +187,14 @@ export class ClientConfigTabComponent {
       .map(d => d.trim())
       .filter(Boolean);
     this.patch({ domainMappings: domains } as Partial<Client>, 'Domains saved');
+  }
+
+  saveSearchIgnoreTerms(): void {
+    const terms = this.searchIgnoreTermsValue()
+      .split(',')
+      .map(t => t.trim())
+      .filter(Boolean);
+    this.patch({ searchIgnoreTerms: terms } as Partial<Client>, 'Search ignore terms saved');
   }
 
   saveNotes(): void {
