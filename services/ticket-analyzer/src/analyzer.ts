@@ -924,7 +924,7 @@ async function deepAnalysis(
 
       for (const rawTerm of searchTerms) {
         if (!rawTerm || rawTerm.replace(/[\x00-\x1f\x7f]/g, '').trim().length === 0) continue;
-        const sanitized = rawTerm.replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200);
+        const sanitized = rawTerm.replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, 200);
         try {
           const searchResult = await callMcpToolViaSdk(
             deps.mcpRepoUrl, '/mcp', 'search_code',
@@ -2024,18 +2024,18 @@ async function executeRoutePipeline(
             // Drop terms that are guaranteed noise for this client: the client's
             // own name, short code, any operator-configured ignore terms, and
             // anything shorter than 4 characters.
-            const clientNameLower = ticket.client.name.toLowerCase();
-            const clientShortCodeLower = ticket.client.shortCode.toLowerCase();
+            const clientNameLower = ticket.client.name.trim().toLowerCase();
+            const clientShortCodeLower = ticket.client.shortCode.trim().toLowerCase();
             const ignoreSet = new Set<string>(
-              (ticket.client.searchIgnoreTerms ?? []).map((t) => t.toLowerCase()),
+              (ticket.client.searchIgnoreTerms ?? []).map((t) => t.trim().toLowerCase()),
             );
             const preFilterCount = searchTerms.length;
             searchTerms = searchTerms.filter((t) => {
-              const lower = t.toLowerCase();
-              if (lower.length < 4) return false;
-              if (lower === clientNameLower) return false;
-              if (lower === clientShortCodeLower) return false;
-              if (ignoreSet.has(lower)) return false;
+              const normalized = t.trim().toLowerCase();
+              if (normalized.length < 4) return false;
+              if (normalized === clientNameLower) return false;
+              if (normalized === clientShortCodeLower) return false;
+              if (ignoreSet.has(normalized)) return false;
               return true;
             });
             if (searchTerms.length === 0) {
@@ -2053,7 +2053,7 @@ async function executeRoutePipeline(
             const relevantFiles = new Set<string>();
             for (const rawTerm of searchTerms) {
               if (!rawTerm || rawTerm.replace(/[\x00-\x1f\x7f]/g, '').trim().length === 0) continue;
-              const sanitized = rawTerm.replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200);
+              const sanitized = rawTerm.replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, 200);
               try {
                 const searchResult = await callMcpToolViaSdk(
                   mcpRepoUrl, '/mcp', 'search_code',
@@ -2631,7 +2631,7 @@ async function executeRoutePipeline(
                   // Search by terms (skip non-string entries from untyped JSON config)
                   for (const rawTerm of rs.searchTerms ?? []) {
                     if (typeof rawTerm !== 'string') continue;
-                    const sanitized = rawTerm.replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200);
+                    const sanitized = rawTerm.replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, 200);
                     if (!sanitized) continue;
                     try {
                       const searchResult = await callMcpToolViaSdk(
