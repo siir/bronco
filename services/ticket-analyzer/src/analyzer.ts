@@ -924,7 +924,7 @@ async function deepAnalysis(
 
       for (const rawTerm of searchTerms) {
         if (!rawTerm || rawTerm.replace(/[\x00-\x1f\x7f]/g, '').trim().length === 0) continue;
-        const sanitized = rawTerm.replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200);
+        const sanitized = rawTerm.replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, 200);
         try {
           const searchResult = await callMcpToolViaSdk(
             deps.mcpRepoUrl, '/mcp', 'search_code',
@@ -2053,7 +2053,7 @@ async function executeRoutePipeline(
             const relevantFiles = new Set<string>();
             for (const rawTerm of searchTerms) {
               if (!rawTerm || rawTerm.replace(/[\x00-\x1f\x7f]/g, '').trim().length === 0) continue;
-              const sanitized = rawTerm.replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200);
+              const sanitized = rawTerm.replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, 200);
               try {
                 const searchResult = await callMcpToolViaSdk(
                   mcpRepoUrl, '/mcp', 'search_code',
@@ -2631,7 +2631,7 @@ async function executeRoutePipeline(
                   // Search by terms (skip non-string entries from untyped JSON config)
                   for (const rawTerm of rs.searchTerms ?? []) {
                     if (typeof rawTerm !== 'string') continue;
-                    const sanitized = rawTerm.replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200);
+                    const sanitized = rawTerm.replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, 200);
                     if (!sanitized) continue;
                     try {
                       const searchResult = await callMcpToolViaSdk(
