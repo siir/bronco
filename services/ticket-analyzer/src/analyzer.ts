@@ -926,20 +926,23 @@ async function deepAnalysis(
         if (!rawTerm || rawTerm.replace(/[\x00-\x1f\x7f]/g, '').trim().length === 0) continue;
         const sanitized = rawTerm.replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200);
         try {
-          const grepResult = await callMcpToolViaSdk(
-            deps.mcpRepoUrl, '/mcp', 'repo_exec',
-            { repoId: repo.id, sessionId: initialSessionId, clientId: ticket.clientId, command: `grep -rnil "${sanitized.replace(/"/g, '\\"')}" .` },
+          const searchResult = await callMcpToolViaSdk(
+            deps.mcpRepoUrl, '/mcp', 'search_code',
+            { repoId: repo.id, sessionId: initialSessionId, clientId: ticket.clientId, query: sanitized, maxResults: 200 },
             repoAuth, repoAuthHeader,
           );
           const exts = ['.sql', '.cs', '.ts'];
-          for (const line of grepResult.split('\n')) {
-            const trimmed = line.trim();
-            if (trimmed && !trimmed.startsWith('[session:') && !trimmed.startsWith('[stderr]') && exts.some(e => trimmed.endsWith(e))) {
-              relevantFiles.add(trimmed);
+          for (const line of searchResult.split('\n')) {
+            const m = line.match(/^\.?\/?([^:]+):(\d+):/);
+            if (m) {
+              const fp = m[1].trim();
+              if (fp && exts.some(e => fp.endsWith(e))) {
+                relevantFiles.add(fp);
+              }
             }
           }
         } catch {
-          // grep found nothing — that's fine
+          // search found nothing — that's fine
         }
       }
 
@@ -2052,34 +2055,23 @@ async function executeRoutePipeline(
               if (!rawTerm || rawTerm.replace(/[\x00-\x1f\x7f]/g, '').trim().length === 0) continue;
               const sanitized = rawTerm.replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200);
               try {
-                // Use `-e` so patterns beginning with `-` are not treated as grep options.
-                const grepResult = await callMcpToolViaSdk(
-                  mcpRepoUrl, '/mcp', 'repo_exec',
-                  { repoId: repo.id, sessionId: gatherSessionId, clientId: ticket.clientId, command: `grep -rnilI -e "${sanitized.replace(/"/g, '\\"')}" .` },
+                const searchResult = await callMcpToolViaSdk(
+                  mcpRepoUrl, '/mcp', 'search_code',
+                  { repoId: repo.id, sessionId: gatherSessionId, clientId: ticket.clientId, query: sanitized, maxResults: 200 },
                   repoAuth, repoAuthHeader,
                 );
-                // `callMcpToolViaSdk` doesn't surface MCP-level isError. `repo_exec`
-                // emits distinct markers we can use to separate real errors from
-                // the "grep exited 1 with no output" no-match case.
-                if (grepResult.startsWith('Command rejected:') || grepResult.startsWith('Error:') || grepResult.includes('[stderr]')) {
-                  grepErrors++;
-                  appLog.warn(
-                    `search_code pre-gather error for ${repo.name}:${rawTerm}`,
-                    { ticketId, repo: repo.name, term: rawTerm, result: grepResult.slice(0, 500) },
-                    ticketId, 'ticket',
-                  );
-                } else {
-                  // Parse file paths from stdout (skip the [session:...] line)
-                  let matchedAny = false;
-                  for (const line of grepResult.split('\n')) {
-                    const trimmed = line.trim();
-                    if (trimmed && !trimmed.startsWith('[session:') && exts.some(e => trimmed.endsWith(e))) {
-                      relevantFiles.add(trimmed);
+                let matchedAny = false;
+                for (const line of searchResult.split('\n')) {
+                  const m = line.match(/^\.?\/?([^:]+):(\d+):/);
+                  if (m) {
+                    const fp = m[1].trim();
+                    if (fp && exts.some(e => fp.endsWith(e))) {
+                      relevantFiles.add(fp);
                       matchedAny = true;
                     }
                   }
-                  if (!matchedAny) grepNoMatch++;
                 }
+                if (!matchedAny) grepNoMatch++;
               } catch (err) {
                 grepErrors++;
                 appLog.warn(
@@ -2642,19 +2634,22 @@ async function executeRoutePipeline(
                     const sanitized = rawTerm.replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200);
                     if (!sanitized) continue;
                     try {
-                      const grepResult = await callMcpToolViaSdk(
-                        deps.mcpRepoUrl, '/mcp', 'repo_exec',
-                        { repoId: repo.id, sessionId: customSessionId, clientId, command: `grep -rnil "${sanitized.replace(/"/g, '\\"')}" .` },
+                      const searchResult = await callMcpToolViaSdk(
+                        deps.mcpRepoUrl, '/mcp', 'search_code',
+                        { repoId: repo.id, sessionId: customSessionId, clientId, query: sanitized, maxResults: 200 },
                         customRepoAuth, customRepoAuthHeader,
                       );
                       const exts = ['.sql', '.cs', '.ts'];
-                      for (const line of grepResult.split('\n')) {
-                        const trimmed = line.trim();
-                        if (trimmed && !trimmed.startsWith('[session:') && !trimmed.startsWith('[stderr]') && exts.some(e => trimmed.endsWith(e))) {
-                          relevantFiles.add(trimmed);
+                      for (const line of searchResult.split('\n')) {
+                        const m = line.match(/^\.?\/?([^:]+):(\d+):/);
+                        if (m) {
+                          const fp = m[1].trim();
+                          if (fp && exts.some(e => fp.endsWith(e))) {
+                            relevantFiles.add(fp);
+                          }
                         }
                       }
-                    } catch { /* grep found nothing */ }
+                    } catch { /* search found nothing */ }
                   }
 
                   // Add explicit file paths, rejecting paths that could expose

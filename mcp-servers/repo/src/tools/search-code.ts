@@ -1,9 +1,12 @@
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { PrismaClient } from '@bronco/db';
 import type { RepoManager } from '../repo-manager.js';
-import { executeCommand } from '../command-validator.js';
+
+const execAsync = promisify(exec);
 
 const DEFAULT_FILE_EXTENSIONS = [
   '.cs', '.sql', '.ts', '.tsx', '.js', '.jsx',
@@ -69,48 +72,59 @@ export function registerSearchCodeTool(
           ? repo.fileExtensions
           : [...DEFAULT_FILE_EXTENSIONS];
 
-      const flags: string[] = ['-rn', '-I'];
+      // Per-file match cap: give a representative sample without walking huge files fully.
+      const perFileCap = Math.max(2, Math.ceil(cap / 8));
+
+      const flags: string[] = ['-n', '--no-heading', '--color', 'never', '-m', String(perFileCap)];
       if (!caseSensitive) flags.push('-i');
       if (wordBoundary) flags.push('-w');
 
-      const includeArgs = effectiveExtensions
+      const globArgs = effectiveExtensions
         .map(ext => {
           const clean = ext.startsWith('.') ? ext.slice(1) : ext;
           if (!/^[A-Za-z0-9._-]+$/.test(clean)) return null;
-          return `--include=*.${clean}`;
+          return `--glob=*.${clean}`;
         })
         .filter((v): v is string => v !== null);
 
       if (filePattern) {
         if (/^[A-Za-z0-9._*?\[\]/-]+$/.test(filePattern)) {
-          includeArgs.push(`--include=${filePattern}`);
+          globArgs.push(`--glob=${filePattern}`);
         }
       }
 
-      // Use `-e` so patterns beginning with `-` are not treated as grep options.
+      // Use `--` so patterns beginning with `-` are not treated as rg options.
       const command = [
-        'grep',
+        'rg',
         ...flags,
-        ...includeArgs,
-        '-e',
+        ...globArgs,
+        '--',
         shellQuote(query),
         '.',
       ].join(' ');
 
       try {
         const worktreePath = await repoManager.getOrCreateWorktree(repoId, sid);
-        const result = await executeCommand(command, worktreePath);
 
-        // grep exits 1 when no match — not an error for us
-        if (result.exitCode !== 0 && result.exitCode !== 1) {
-          const stderr = result.stderr || '(no stderr)';
-          return {
-            content: [{ type: 'text' as const, text: `[${describeRepo(repo)}] search_code error on ${repo.name}: exit=${result.exitCode}\n${stderr}` }],
-            isError: true,
-          };
+        let stdout = '';
+        try {
+          const result = await execAsync(command, { cwd: worktreePath, timeout: 30_000, maxBuffer: 1024 * 1024 });
+          stdout = result.stdout;
+        } catch (err: unknown) {
+          const execErr = err as { stdout?: string; stderr?: string; code?: number };
+          const exitCode = execErr.code ?? 1;
+          stdout = execErr.stdout ?? '';
+          // rg exits 1 when no matches found — not an error for us.
+          if (exitCode !== 1) {
+            const stderr = execErr.stderr || '(no stderr)';
+            return {
+              content: [{ type: 'text' as const, text: `[${describeRepo(repo)}] search_code error on ${repo.name}: exit=${exitCode}\n${stderr}` }],
+              isError: true,
+            };
+          }
         }
 
-        const lines = result.stdout.split('\n').filter(l => l.length > 0);
+        const lines = stdout.split('\n').filter(l => l.length > 0);
         const files = new Set<string>();
         const outputLines: string[] = [];
         for (const line of lines) {
