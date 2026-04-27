@@ -1,4 +1,4 @@
-import { Component, DestroyRef, OnInit, computed, inject, input, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, effect, inject, input, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { TicketService, type ArtifactKind, type TicketArtifact } from '../../core/services/ticket.service.js';
@@ -267,6 +267,14 @@ import { RelativeTimePipe } from '../../shared/pipes/relative-time.pipe.js';
 })
 export class AttachmentsListComponent implements OnInit {
   ticketId = input.required<string>();
+  /**
+   * Manual-refresh fan-out token from the parent ticket-detail component.
+   * Bumped after the parent's forkJoin lands; we re-run refresh() so newly
+   * uploaded or AI-generated artifacts surface immediately. The first
+   * emission on mount (token=0) is skipped to avoid double-fetching with
+   * ngOnInit.
+   */
+  refreshToken = input<number>(0);
 
   private ticketService = inject(TicketService);
   private toast = inject(ToastService);
@@ -277,16 +285,37 @@ export class AttachmentsListComponent implements OnInit {
   loading = signal(false);
   uploading = signal(false);
 
+  /** Sentinel for refresh-token effect — see chat-tab for the same pattern. */
+  private lastRefreshToken = -1;
+
   // Already sorted desc by API; keep client-side sort as a safety net.
   sortedArtifacts = computed(() =>
     [...this.artifacts()].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)),
   );
+
+  constructor() {
+    effect(() => {
+      const token = this.refreshToken();
+      if (this.lastRefreshToken === -1) {
+        this.lastRefreshToken = token;
+        return;
+      }
+      if (token === this.lastRefreshToken) return;
+      this.lastRefreshToken = token;
+      this.refresh();
+    });
+  }
 
   ngOnInit(): void {
     this.refresh();
   }
 
   refresh(): void {
+    // Bail if a fetch is already in flight — prevents overlapping requests
+    // from rapid refreshToken bumps. The UI button has its own guard via
+    // [disabled]="loading()", but the refreshToken effect bypasses it, so
+    // we re-check here.
+    if (this.loading()) return;
     this.loading.set(true);
     this.ticketService
       .getArtifacts(this.ticketId())

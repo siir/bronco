@@ -31,6 +31,7 @@ import {
 } from './v2-knowledge-doc.js';
 import {
   AD_HOC_QUERY_PAIRING_SNIPPET,
+  buildAttachmentsBlock,
   KD_SYSTEM_PROMPT_SNIPPET,
   PREFER_EXISTING_TOOLS_SNIPPET,
   REQUEST_NEW_TOOL_SNIPPET,
@@ -54,7 +55,7 @@ export async function runFlatV2(
   opts: { maxIterations: number; reanalysisCtx?: ReanalysisContext },
 ): Promise<AnalysisResult> {
   const { db, ai, appLog, artifactStoragePath } = deps;
-  const { ticketId, clientId, category, priority, emailSubject, emailBody, clientContext, environmentContext, codeContext, dbContext, facts, summary } = ctx;
+  const { ticketId, clientId, category, priority, emailSubject, emailBody, clientContext, environmentContext, codeContext, dbContext, facts, summary, attachments } = ctx;
   const { maxIterations, reanalysisCtx } = opts;
   const { tools: agenticTools, mcpIntegrations, repoIdByPrefix, repos: clientRepos } = tools;
 
@@ -79,6 +80,10 @@ export async function runFlatV2(
       `Subject: ${emailSubject}`,
       `Category: ${category}`,
       `Priority: ${priority}`,
+    );
+    const reanalAttBlock = buildAttachmentsBlock(attachments);
+    if (reanalAttBlock) systemParts.push(reanalAttBlock);
+    systemParts.push(
       '',
       '## Conversation History',
       '',
@@ -104,6 +109,8 @@ export async function runFlatV2(
       `Priority: ${priority}`,
       '', emailBody,
     );
+    const initAttBlock = buildAttachmentsBlock(attachments);
+    if (initAttBlock) systemParts.push(initAttBlock);
   }
 
   if (summary) systemParts.push('', `## Summary`, summary);

@@ -150,6 +150,7 @@ model Client {
   companyProfile       String?  @map("company_profile")
   systemsProfile       String?  @map("systems_profile")
   domainMappings       String[] @default([]) @map("domain_mappings") // e.g. ["altmanplants.com", "altman.com"]
+  searchIgnoreTerms    String[] @default([]) @map("search_ignore_terms")
   billingMarkupPercent Float    @default(1.0) @map("billing_markup_percent")
   billingPeriod        String   @default("disabled") @map("billing_period")
   billingAnchorDay     Int      @default(1) @map("billing_anchor_day")
@@ -469,6 +470,7 @@ model Artifact {
   addedBySystem        String?       @map("added_by_system")
   originatingEventId   String?       @map("originating_event_id")
   originatingEventType String?       @map("originating_event_type")
+  schemaJson           Json?         @map("schema_json")
 
   ticket        Ticket?  @relation(fields: [ticketId], references: [id])
   finding       Finding? @relation(fields: [findingId], references: [id])

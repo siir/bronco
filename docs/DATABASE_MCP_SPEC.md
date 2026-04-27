@@ -1,9 +1,9 @@
 <!-- MCP_SPEC_META
-version: 2026-04-13T17:25:17Z
-source_commit: 1049c0ebefaffe588015eefa034b51daac882ff5
+version: 2026-04-26T20:04:08Z
+source_commit: a80b751f60dd9b92cdc3750de394cee0ed9516ee
 generator: ai
 proc_count: 106
-mcp_proc_count: 67
+mcp_proc_count: 15
 table_count: 52
 func_count: 9
 view_count: 7
@@ -51,24 +51,6 @@ trigger_count: 1
   - `@Debug BIT = 0` — Debug mode
 - **Description**: Extract blocking events from the ring buffer, parse XML blocked process reports, and persist to `cdre.BlockingLogDetails`. Captures full blocker and blocked session context including SQL text, login, host, application, database, isolation level, and wait resource. Auto-restarts the XE session based on `MinutesBetweenRestart` from `cdre.BlockingMonitorLogStatus`. Updates `LastPull` and `LastBlockingEvent` timestamps. Scheduled every 5 minutes via the `DBA - Blocking Monitor Pull` SQL Agent job.
 
-#### `blocking_monitor_status`
-- **Procedure**: `cdre.BlockingMonitorStatus`
-- **Parameters**: None
-- **Returns**: Two result sets: (1) monitoring status from `cdre.BlockingMonitorLogStatus` including session state, threshold seconds, last pull time, and last blocking event time; (2) recent blocking event rows from `cdre.BlockingLogDetails` (TOP 100, most recent first).
-
-#### `blocking_monitor_analysis`
-- **Procedure**: `cdre.BlockingMonitorAnalysis`
-- **Parameters**:
-  - `@Hours INT = 24` — Hours of history to analyze
-  - `@MinDurationMs INT = 0` — Minimum blocking duration in milliseconds to include
-  - `@Report VARCHAR(20) = 'summary'` — Report type: `summary`, `topblockers`, `topresources`, or `timeline`
-  - `@Debug BIT = 0` — Debug mode
-- **Returns**: Report result set based on `@Report` parameter:
-  - `summary` — Overall blocking statistics and recent events from `cdre.BlockingLogDetails`
-  - `topblockers` — Sessions, logins, and applications causing the most blocking
-  - `topresources` — Most frequently blocked wait resources
-  - `timeline` — Blocking events over time
-
 #### `blocking_alert_active`
 - **Procedure**: `cdre.BlockingAlertActive`
 - **Parameters**: None
@@ -85,6 +67,11 @@ trigger_count: 1
 - **Parameters**:
   - `@EventId UNIQUEIDENTIFIER` — Event ID to retrieve detail for (required); obtain from `blocking_alert_history` or `blocking_alert_active`
 - **Description**: Return the full snapshot history for a single blocking alert event from `cdre.BlockingAlertSnapshot`. Shows every DMV poll captured during the event, including all sessions in the blocking chain with query text, wait type, elapsed time, CPU, and logical reads.
+
+#### `blocking_alert_monitor`
+- **Procedure**: `cdre.BlockingAlertMonitor`
+- **Parameters**: None
+- **Description**: DMV-based blocking alert monitor. Polls active sessions to detect blocking chains in databases listed in `cdre.BlockingAlertConfig` with `ConfigType = 'WatchDatabase'`. Persists events to `cdre.BlockingAlertEvent` and snapshots to `cdre.BlockingAlertSnapshot`. Sends a single start alert and a single end alert per blocking event via `cdre.NotificationTargets`. Normally invoked by the `DBA - Blocking Session Alert` SQL Agent job every 2 minutes — call this tool manually only for testing or on-demand checks.
 
 ---
 
@@ -110,32 +97,6 @@ trigger_count: 1
 - **Parameters**: None
 - **Description**: Extract deadlock events from the ring buffer, parse XML deadlock graphs, and persist to `cdre.DeadlocksLogDetails`. Idempotent — deduplicates on `(DeadlockTime, SessionId)`. Auto-restarts the session based on `MinutesBetweenRestart` from `cdre.DeadLocksLogStatus`. Updates `LastPull` and `LastDeadLock` timestamps. Schedule every 5–15 minutes via SQL Agent.
 
-#### `deadlock_status`
-- **Procedure**: `cdre.DeadlocksStatus`
-- **Parameters**: None
-- **Returns**: Two result sets: (1) monitoring status from `cdre.DeadLocksLogStatus` including session state, last pull time, last restart time, and last deadlock time; (2) recent deadlock detail rows from `cdre.DeadlocksLogDetails` (TOP 1000, most recent first).
-
-#### `deadlock_events`
-- **Procedure**: `cdre.DeadlocksEvents`
-- **Parameters**:
-  - `@StartTime DATETIMEOFFSET = NULL` — Start of time window (NULL = use `@Hours`)
-  - `@EndTime DATETIMEOFFSET = NULL` — End of time window (NULL = now)
-  - `@Hours INT = 24` — Hours to look back when `@StartTime` is NULL
-- **Description**: Return deadlock events from `cdre.DeadlocksLogDetails` within the specified time window. Includes session ID, host, login, application, database, deadlock role, wait resource, wait type, statement, and deadlock graph XML. Useful for targeted investigation of a specific incident window.
-
-#### `deadlock_graph`
-- **Procedure**: `cdre.DeadlocksGraph`
-- **Parameters**:
-  - `@Id INT` — Row ID from `cdre.DeadlocksLogDetails` (required); obtain from `deadlock_events` or `deadlock_status`
-- **Description**: Return the raw XML deadlock graph for a single deadlock event. Use to inspect the full deadlock graph structure including all participants, resources, and lock modes.
-
-#### `deadlock_analysis`
-- **Procedure**: `cdre.DeadlocksAnalysis`
-- **Parameters**:
-  - `@DAYS_BACK INT = 7` — Number of days to analyze
-  - `@DatabaseName SYSNAME = NULL` — Filter to a specific database (NULL = all)
-- **Returns**: Multiple result sets including daily deadlock incident counts, trend comparison, top wait resources, top applications involved, top victim queries, and top resource pairs that deadlock together.
-
 ---
 
 ### Query Monitor
@@ -160,35 +121,6 @@ trigger_count: 1
 - **Parameters**: None
 - **Description**: Extract query events from the ring buffer, apply INCLUDE/EXCLUDE filters from `cdre.QueryMonitorConfig`, and persist to `cdre.QueryMonitorLogDetails`. Aggregates execution statistics per query hash. Auto-restarts the session based on `MinutesBetweenRestart`. Updates `LastPull`, `LastQueryCaptured`, and `TotalQueriesTracked`. Scheduled every 10 minutes via the `DBA - Query Monitor Pull` SQL Agent job.
 
-#### `query_monitor_status`
-- **Procedure**: `cdre.QueryMonitorStatus`
-- **Parameters**: None
-- **Returns**: Multiple result sets: (1) monitoring status from `cdre.QueryMonitorLogStatus` with session state, last pull time, last query captured, and total queries tracked; (2) XE session state from `sys.dm_xe_sessions` / `sys.server_event_sessions`; (3) active filter configuration rows from `cdre.QueryMonitorConfig`; (4) recent query summary from `cdre.QueryMonitorLogDetails` (TOP 20 by last execution time). MCP implementations must consume all result sets.
-
-#### `query_monitor_analysis`
-- **Procedure**: `cdre.QueryMonitorAnalysis`
-- **Parameters**:
-  - `@LoginName NVARCHAR(128) = NULL` — Filter by login name (NULL = all)
-  - `@DatabaseName NVARCHAR(128) = NULL` — Filter by database (NULL = all)
-  - `@DAYS_BACK INT = 7` — Days of history to analyze
-- **Returns**: Multiple result sets including top queries by execution count, average duration, total duration, and logical reads; summary by login; and summary by database from `cdre.QueryMonitorLogDetails`.
-
-#### `query_monitor_concurrent_activity`
-- **Procedure**: `cdre.QueryMonitorConcurrentActivity`
-- **Parameters**:
-  - `@StartTime DATETIME2` — Start of window to analyze (required)
-  - `@EndTime DATETIME2` — End of window to analyze (required)
-  - `@DatabaseName NVARCHAR(128) = NULL` — Filter by database (NULL = all)
-- **Description**: Analyze concurrent query activity from `cdre.QueryMonitorLogDetails` to identify overlapping execution windows within a specific time range. Useful for understanding resource contention patterns during an incident.
-
-#### `query_monitor_extract_index_info`
-- **Procedure**: `cdre.QueryMonitorExtractIndexInfo`
-- **Parameters**:
-  - `@QueryId BIGINT = NULL` — Specific query ID to analyze (NULL = all eligible)
-  - `@LoginName NVARCHAR(128) = NULL` — Filter by login
-  - `@DatabaseName NVARCHAR(128) = NULL` — Filter by database
-- **Description**: Parse XML execution plans stored in `cdre.QueryMonitorLogDetails` to identify indexes used and their fragmentation levels. Updates `IndexesUsed` and `IndexFragmentation` fields on matching rows.
-
 ---
 
 ### User Statements
@@ -208,16 +140,6 @@ trigger_count: 1
 - **Parameters**: None
 - **Description**: Extract user statements from the ring buffer, apply include/exclude filters from `cdre.CapturedUserStatementsConfig`, and persist to `cdre.CapturedUserStatements`. Uses deduplication on `(EventTimeUtc, SessionId, EventName, SqlHash)`. Enforces `RetentionDays` from `cdre.CapturedUserStatementsStatus`.
 
-#### `user_statements_recent`
-- **Procedure**: `cdre.CapturedUserStatements_Recent`
-- **Parameters**:
-  - `@Top INT = 50` — Number of recent statements to return
-  - `@LoginName NVARCHAR(128) = NULL` — Filter by login name (NULL = all)
-  - `@DatabaseName SYSNAME = NULL` — Filter by database (NULL = all)
-  - `@Debug BIT = 0` — Debug mode
-  - `@Help BIT = 0` — Display help information
-- **Description**: Return recently captured user statements from `cdre.CapturedUserStatements`, ordered by most recent event time. Includes event time, session ID, database, login, host, application, duration, CPU, logical reads, row count, and SQL text. Useful for real-time visibility into what users are executing.
-
 ---
 
 ### Index Maintenance
@@ -226,38 +148,13 @@ trigger_count: 1
 - **Procedure**: `cdre.IndexAnalysis`
 - **Parameters**:
   - `@DatabaseName SYSNAME = NULL` — Database to analyze (required for `unused` report; NULL = all for `missing`)
-  - `@SchemaName SYSNAME = NULL` — Filter by schema (NULL = all)
-  - `@TableName SYSNAME = NULL` — Filter by table (NULL = all)
   - `@Report NVARCHAR(20) = 'missing'` — Report type: `missing`, `unused`, or `all`
-  - `@MinImpact INT = 0` — Minimum estimated impact score to include in missing index results
-  - `@Debug BIT = 0` — Debug mode
 - **Description**: Analyze missing and unused indexes using DMV data. The `missing` report uses `sys.dm_db_missing_index_details`; the `unused` report uses `sys.dm_db_index_usage_stats`. `@DatabaseName` is required for the `unused` report.
 
-#### `index_maint_config`
-- **Procedure**: `cdre.IndexMaint_Config`
-- **Parameters**:
-  - `@Database SYSNAME = NULL` — Filter to a specific database (NULL = all)
-  - `@Debug BIT = 0` — Debug mode
-  - `@Help BIT = 0` — Display help information
-- **Description**: Display the current effective index maintenance configuration, showing the resolved cascade of settings from `cdre.IndexMaintConfig_Database`, `cdre.IndexMaintConfig_Schema`, `cdre.IndexMaintConfig_Table`, and `cdre.IndexMaintConfig_Index`. NULL values at any level mean "inherit from parent."
-
-#### `index_maint_history`
-- **Procedure**: `cdre.IndexMaintIndexHistory`
-- **Parameters**:
-  - `@Database SYSNAME` — Database name (required)
-  - `@Schema SYSNAME = NULL` — Schema filter (NULL = all)
-  - `@Table SYSNAME = NULL` — Table filter (NULL = all)
-  - `@Index SYSNAME = NULL` — Index filter (NULL = all)
-  - `@Last INT = 10` — Number of recent records to return
-  - `@Debug BIT = 0` — Debug mode
-- **Description**: Query historical index maintenance operations for a specific index or set of indexes from `cdre.IndexMaintHistoryDetails`. Shows fragmentation before and after, maintenance action taken, duration, and thresholds applied.
-
-#### `index_maint_job_review`
-- **Procedure**: `cdre.IndexMaintJobReview`
-- **Parameters**:
-  - `@JobsAgo INT = 1` — Which execution to review (1 = most recent)
-  - `@Debug BIT = 0` — Debug mode
-- **Description**: Review an index maintenance job execution with summary statistics, per-database breakdown, and stuck index detection from `cdre.IndexMaintHistory` and `cdre.IndexMaintHistoryDatabases`. Useful for post-maintenance validation.
+#### `index_maint`
+- **Procedure**: `cdre.IndexMaint`
+- **Parameters**: None (configuration is table-driven via `cdre.IndexMaintConfig_*`)
+- **Description**: Execute the custom index maintenance orchestrator. Reads fragmentation thresholds from the `cdre.IndexMaintConfig_Database`, `cdre.IndexMaintConfig_Schema`, `cdre.IndexMaintConfig_Table`, and `cdre.IndexMaintConfig_Index` cascade. Logs results to `cdre.IndexMaintHistory`, `cdre.IndexMaintHistoryDatabases`, and `cdre.IndexMaintHistoryDetails`. Use a long or unlimited command timeout — this procedure can run for hours on large environments.
 
 ---
 
@@ -267,146 +164,41 @@ trigger_count: 1
 - **Procedure**: `cdre.JobStepHistory`
 - **Parameters**:
   - `@JobName NVARCHAR(128)` — Job name (required)
-  - `@RunDate DATE = NULL` — Filter to a specific run date (NULL = most recent runs)
   - `@Runs INT = 10` — Number of recent runs to return
   - `@Debug BIT = 0` — Debug mode
   - `@Help BIT = 0` — Display help information
 - **Description**: Return per-step execution history for a SQL Agent job. Uses `JOBHISTORY_ALL` view if available (Azure Managed Instance), otherwise falls back to `msdb.dbo.sysjobhistory`. Shows step name, status, duration, and message for each step of each run.
-
-#### `job_history`
-- **Procedure**: `cdre.Job_History`
-- **Parameters**:
-  - `@JobName NVARCHAR(128) = NULL` — Filter to a specific job (NULL = all jobs)
-  - `@DaysBack INT = 7` — Days of history to return
-  - `@FailuresOnly BIT = 0` — Return only failed runs when set to 1
-  - `@Debug BIT = 0` — Debug mode
-  - `@Help BIT = 0` — Display help information
-- **Description**: Return SQL Agent job execution history with status, duration, and outcome details from `msdb`.
-
-#### `job_schedules`
-- **Procedure**: `cdre.Job_Schedules`
-- **Parameters**:
-  - `@JobName NVARCHAR(128) = NULL` — Filter to a specific job (NULL = all jobs)
-  - `@Debug BIT = 0` — Debug mode
-  - `@Help BIT = 0` — Display help information
-- **Description**: Return SQL Agent job schedule definitions, showing next run times and frequency settings.
-
-#### `job_runtime_baselines`
-- **Procedure**: `cdre.JobRuntimeBaselines`
-- **Parameters**:
-  - `@Debug BIT = 0` — Debug mode
-  - `@Help BIT = 0` — Display help information
-- **Description**: Return the current stored baseline statistics for all SQL Agent jobs from `cdre.JobRuntimeBaseline`. Shows median, average, min, max, and percentile (P75, P90, P95) runtimes, outlier exclusion counts, and calculation metadata. Baselines are updated daily by the `DBA - Job Runtime Baseline Update` job.
 
 #### `job_runtime_anomaly_detection`
 - **Procedure**: `cdre.JobRuntimeAnomaly_Detection`
 - **Parameters**:
   - `@Debug BIT = 0` — Show detailed debug output
   - `@Help BIT = 0` — Display help information
-- **Description**: Detect currently running SQL Agent jobs that exceed baseline thresholds. Compares running jobs against baselines stored in `cdre.JobRuntimeBaseline` using `RuntimeThresholdMultiplier` (default 3×), `MinimumRuntimeMinutes`, and `MaximumRuntimeMinutes` from `cdre.JobRuntimeAnomalyConfig`. Prerequisite: baselines must be calculated first via the `DBA - Job Runtime Baseline Update` job. Scheduled every 15 minutes via the `DBA - Job Runtime Anomaly Detection` job.
+- **Description**: Detect currently running SQL Agent jobs that exceed baseline thresholds. Compares running jobs against baselines stored in `cdre.JobRuntimeBaseline` using `RuntimeThresholdMultiplier` (default 3×), `MinimumRuntimeMinutes`, and `MaximumRuntimeMinutes` from `cdre.JobRuntimeAnomalyConfig`. Prerequisite: baselines must be calculated first via the `DBA - Job Runtime Baseline Update` job. If `cdre.JobRuntimeBaseline` is empty, the procedure returns no results rather than an error. Scheduled every 15 minutes via the `DBA - Job Runtime Anomaly Detection` job.
 
-#### `msdb_failed_jobs`
-- **Procedure**: `cdre.Msdb_FailedJobs`
+#### `job_runtime_baseline_update`
+- **Procedure**: `cdre.JobRuntimeBaseline_Update`
 - **Parameters**:
-  - `@DaysBack INT = 1` — Days of history to return
   - `@Debug BIT = 0` — Debug mode
-  - `@Help BIT = 0` — Display help information
-- **Description**: Return recently failed SQL Agent jobs from `msdb`, showing job name, step, error message, and failure time.
+- **Description**: Calculate and store runtime baselines (median, average, percentiles, standard deviation) for all SQL Agent jobs based on historical execution data from `msdb`. Uses outlier detection (IQR, StdDev, or Percentile method per `cdre.JobRuntimeAnomalyConfig`) to exclude abnormal runs. Results are upserted into `cdre.JobRuntimeBaseline` — one row per `job_id`. Normally run daily at 1:00 AM by the `DBA - Job Runtime Baseline Update` SQL Agent job; call manually to force a refresh after significant job schedule changes.
 
 ---
 
 ### Maintenance
 
-#### `maintenance_results`
-- **Procedure**: `cdre.Maintenance_Results`
-- **Parameters**:
-  - `@Operation VARCHAR(100) = NULL` — Filter by operation type (NULL = all)
-  - `@DaysBack INT = 7` — Days of history to return
-  - `@Debug BIT = 0` — Debug mode
-  - `@Help BIT = 0` — Display help information
-- **Description**: Return recent maintenance operation results from `cdre.MaintenanceResults`, showing DBCC, statistics update, and other maintenance outcomes with status and duration.
+#### `maintenance_dbcc_checkdb`
+- **Procedure**: `cdre.Maintenance_DBCCCheckDB`
+- **Parameters**: None (database exclusions configured via `cdre.SettingsDB`)
+- **Description**: Run `DBCC CHECKDB` across all non-excluded databases. Logs results to `cdre.MaintenanceResults`. Use `cdre.SettingsDB` with `ExecName = 'CheckDB'` to exclude specific databases. Use a long or unlimited command timeout — this procedure can run for hours on large databases.
 
-#### `invalid_objects_report`
-- **Procedure**: `cdre.InvalidObjects_Report`
-- **Parameters**:
-  - `@Debug BIT = 0` — Debug mode
-  - `@Help BIT = 0` — Display help information
-- **Description**: Report on invalid objects found across databases from `cdre.InvalidObjects`. Groups by database and object type, showing object name, error message, and detection timestamp.
-
-#### `storage_usage_database`
-- **Procedure**: `cdre.StorageUsage_Database`
-- **Parameters**:
-  - `@DatabaseName SYSNAME = NULL` — Filter to a specific database (NULL = all)
-  - `@DaysBack INT = 30` — Days of history to include
-  - `@Debug BIT = 0` — Debug mode
-  - `@Help BIT = 0` — Display help information
-- **Description**: Report current and historical database size trends from `cdre.SizeLogs_Database`. Shows total, data, and log size over time to identify growth patterns.
-
-#### `storage_usage_tables`
-- **Procedure**: `cdre.StorageUsage_Tables`
-- **Parameters**:
-  - `@DatabaseName SYSNAME = NULL` — Filter to a specific database (NULL = all)
-  - `@TableName SYSNAME = NULL` — Filter to a specific table (NULL = all)
-  - `@DaysBack INT = 30` — Days of history to include
-  - `@Debug BIT = 0` — Debug mode
-  - `@Help BIT = 0` — Display help information
-- **Description**: Report current and historical table size trends from `cdre.SizeLogs_Tables`. Shows the largest tables and growth patterns over time.
-
-#### `msdb_maintenance_plans`
-- **Procedure**: `cdre.Msdb_MaintenancePlans`
-- **Parameters**:
-  - `@Debug BIT = 0` — Debug mode
-  - `@Help BIT = 0` — Display help information
-- **Description**: Return SQL Server Maintenance Plan definitions and last execution status from `msdb`.
+#### `maintenance_update_all_stats`
+- **Procedure**: `cdre.Maintenance_UpdateAllStats`
+- **Parameters**: None (database exclusions configured via `cdre.SettingsDB`)
+- **Description**: Update statistics across all non-excluded databases. Logs results to `cdre.MaintenanceResults`. Use `cdre.SettingsDB` with `ExecName = 'UpdateStats'` to exclude specific databases. Use a long or unlimited command timeout.
 
 ---
 
 ### System Health
-
-#### `server_health_overview`
-- **Procedure**: `cdre.ServerHealth_Overview`
-- **Parameters**:
-  - `@Debug BIT = 0` — Debug mode
-  - `@Help BIT = 0` — Display help information
-- **Description**: High-level server health summary including SQL Server version, memory, CPU, database count, and key configuration settings.
-
-#### `server_health_database_check`
-- **Procedure**: `cdre.ServerHealth_DatabaseCheck`
-- **Parameters**:
-  - `@DatabaseName SYSNAME` — Database to check (required)
-  - `@Debug BIT = 0` — Debug mode
-  - `@Help BIT = 0` — Display help information
-- **Description**: Per-database health check reporting on database state, recovery model, compatibility level, last backup, and suspect pages.
-
-#### `backup_status`
-- **Procedure**: `cdre.BackupStatus`
-- **Parameters**:
-  - `@Debug BIT = 0` — Debug mode
-  - `@Help BIT = 0` — Display help information
-- **Description**: Report backup status across all databases, showing last full, differential, and log backup times with age calculations.
-
-#### `msdb_suspect_pages`
-- **Procedure**: `cdre.Msdb_SuspectPages`
-- **Parameters**:
-  - `@Debug BIT = 0` — Debug mode
-  - `@Help BIT = 0` — Display help information
-- **Description**: Return suspect pages from `msdb.dbo.suspect_pages`, indicating potential database corruption.
-
-#### `msdb_alert_history`
-- **Procedure**: `cdre.Msdb_AlertHistory`
-- **Parameters**:
-  - `@DaysBack INT = 7` — Days of history to return
-  - `@Debug BIT = 0` — Debug mode
-  - `@Help BIT = 0` — Display help information
-- **Description**: Return SQL Server Agent alert history from `msdb`, showing recent alert firings and counts by alert name.
-
-#### `msdb_database_mail_log`
-- **Procedure**: `cdre.Msdb_DatabaseMailLog`
-- **Parameters**:
-  - `@DaysBack INT = 3` — Days of history to return
-  - `@Debug BIT = 0` — Debug mode
-  - `@Help BIT = 0` — Display help information
-- **Description**: Return Database Mail send log from `msdb`, showing recent email delivery status and errors.
 
 #### `resolve_wait_resource`
 - **Procedure**: `cdre.ResolveWaitResource`
@@ -414,161 +206,49 @@ trigger_count: 1
   - `@WaitResource NVARCHAR(256)` — Wait resource string to resolve (required); e.g., `KEY: 5:72057594038321152 (8194443284a0)`, `PAGE: 5:1:12345`, `RID: 5:1:12345:0`
   - `@Debug BIT = 0` — Debug mode
   - `@Help BIT = 0` — Display help information
-- **Description**: Resolve a SQL Server wait resource string to a human-readable object name (database, schema, table, index). Handles KEY, PAGE, RID, and OBJECT lock types. Uses `DBCC PAGE` for page-level resolution. System/IAM/GAM pages return a descriptive error row rather than raising an exception. For KEY locks, resolves via `sys.dm_tran_locks` `hobt_id`.
-
-#### `user_mapping`
-- **Procedure**: `cdre.UserMapping`
-- **Parameters**: None
-- **Description**: Report user-to-database-principal-role-permission mappings across all databases. Useful for security audits and access reviews.
-
-#### `schema_change_log`
-- **Procedure**: `cdre.SchemaChangeLog`
-- **Parameters**:
-  - `@DaysBack INT = 7` — Days of history to return
-  - `@Debug BIT = 0` — Debug mode
-  - `@Help BIT = 0` — Display help information
-- **Description**: Return recent schema change events from `dev.SchemaChangeLog`, captured by the `dev_trg_LogSchemaChanges` DDL trigger. Includes event type, object name, login, program, and the T-SQL command executed. Useful for auditing recent deployments or tracking unintended schema changes.
-
-#### `evo_error_log`
-- **Procedure**: `cdre.Evo_ErrorLog`
-- **Parameters**:
-  - `@DaysBack INT = 7` — Days of history to return
-  - `@ErrorProcedure NVARCHAR(200) = NULL` — Filter by procedure name (NULL = all)
-  - `@LoginName NVARCHAR(200) = NULL` — Filter by login name (NULL = all)
-  - `@Severity INT = NULL` — Filter by error severity (NULL = all)
-  - `@MessageSearch NVARCHAR(500) = NULL` — Filter by message text substring (NULL = all)
-  - `@MaxRows INT = 100` — Maximum rows to return
-  - `@Debug BIT = 0` — Debug mode
-  - `@Help BIT = 0` — Display help information
-- **Description**: Query the Evolution application error log table for recent errors with filtering by procedure, login, severity, and message text. This is a tracked legacy exception that queries a cross-application database.
-
-#### `evo_error_log_summary`
-- **Procedure**: `cdre.Evo_ErrorLogSummary`
-- **Parameters**:
-  - `@DaysBack INT = 7` — Days of history to return
-  - `@Debug BIT = 0` — Debug mode
-  - `@Help BIT = 0` — Display help information
-- **Description**: Summarize Evolution application errors grouped by procedure and error message, showing frequency and most recent occurrence. This is a tracked legacy exception that queries a cross-application database.
+- **Description**: Resolve a SQL Server wait resource string to a human-readable object name (database, schema, table, index). Handles KEY, PAGE, RID, and OBJECT lock types. Uses `DBCC PAGE` for page-level resolution. System/IAM/GAM pages return a descriptive error row rather than raising an exception. For KEY locks, resolves via `sys.dm_tran_locks` `hobt_id` — a live lock must exist at call time for KEY resolution to succeed.
 
 ---
 
 ### Configuration
 
-#### `config_alerts`
-- **Procedure**: `cdre.Config_Alerts`
-- **Parameters**:
-  - `@Debug BIT = 0` — Debug mode
-  - `@Help BIT = 0` — Display help information
-- **Description**: Display alert configuration from `dbo.AlertConfig` and `dbo.NotificationTargets`, showing active alerts, severity levels, and notification targets.
+#### `config_blocking_alert`
+- **Procedure**: `cdre.Config_BlockingAlert` *(or direct table read)*
+- **Parameters**: None
+- **Description**: Display current blocking alert configuration from `cdre.BlockingAlertConfig`, showing all rules by `ConfigType` (`ThresholdSeconds`, `RetentionDays`, `NotificationName`, `WatchDatabase`, `ExcludeLogin`, `ExcludeProgram`) with their `MatchType` and `IsEnabled` state. Use to verify which databases are being watched and which logins or programs are excluded before investigating a blocking alert.
 
-#### `config_blitz_skip_checks`
-- **Procedure**: `cdre.Config_BlitzSkipChecks`
-- **Parameters**:
-  - `@Debug BIT = 0` — Debug mode
-  - `@Help BIT = 0` — Display help information
-- **Description**: Display current `BrentOzar.Config_Blitz_SkipChecks` entries showing which Blitz health check IDs are suppressed and for which server/database combinations.
-
-#### `config_deadlock_monitor`
-- **Procedure**: `cdre.Config_DeadlockMonitor`
-- **Parameters**:
-  - `@Debug BIT = 0` — Debug mode
-  - `@Help BIT = 0` — Display help information
-- **Description**: Display deadlock monitor configuration from `cdre.DeadLocksLogStatus`, showing current session state, restart interval, and last event timestamps.
-
-#### `config_query_monitor`
-- **Procedure**: `cdre.Config_QueryMonitor`
-- **Parameters**:
-  - `@Debug BIT = 0` — Debug mode
-  - `@Help BIT = 0` — Display help information
-- **Description**: Display query monitor configuration from `cdre.QueryMonitorConfig` and `cdre.QueryMonitorLogStatus`, showing active INCLUDE/EXCLUDE filters and session state.
-
-#### `config_settings`
-- **Procedure**: `cdre.Config_Settings`
-- **Parameters**:
-  - `@Debug BIT = 0` — Debug mode
-  - `@Help BIT = 0` — Display help information
-- **Description**: Display general DBA toolkit settings from `cdre.SettingsDB` and related configuration tables, showing database exclusions and execution settings.
+#### `config_notification_targets`
+- **Procedure**: `cdre.Config_NotificationTargets` *(or direct table read)*
+- **Parameters**: None
+- **Description**: Display current email notification targets from `cdre.NotificationTargets`, grouped by `NotificationName`. Shows which email addresses receive alerts for each named notification group and which Database Mail profile is used.
 
 ---
 
 ### DevOps
 
-#### `activity_monitor`
-- **Procedure**: `dbo.ActivityMonitor`
-- **Parameters**:
-  - `@ShowDetails BIT = 0` — Show SQL text for active sessions
-  - `@HideDbs VARCHAR(MAX) = 'master,msdb,'` — Comma-separated databases to hide
-  - `@HideLogins VARCHAR(MAX) = 'sa'` — Comma-separated logins to hide
-  - `@ShowLogins VARCHAR(MAX) = ''` — Only show these logins (empty = all)
-  - `@ShowDbs VARCHAR(MAX) = ''` — Only show these databases (empty = all)
-  - `@BlockingRelevantOnly BIT = 0` — Show only sessions involved in blocking
-  - `@CommandSearch VARCHAR(MAX) = ''` — Filter by command text substring
-- **Description**: Display active sessions with blocking chain analysis, filtering, and search capabilities. Parses `sys.dm_exec_sessions` and `sys.dm_exec_requests` with configurable filters.
-
-#### `data_sync_job_history`
-- **Procedure**: `cdre.DataSync_JobHistory`
-- **Parameters**:
-  - `@DaysBack INT = 3` — Number of days of history to return
-  - `@Debug BIT = 0` — Debug mode
-  - `@Help BIT = 0` — Display help information
-- **Description**: Report on Azure Data Sync job history, showing sync status, errors, and timing for recent sync operations.
-
-#### `data_sync_queue_status`
-- **Procedure**: `cdre.DataSync_QueueStatus`
-- **Parameters**:
-  - `@HoursBack INT = 24` — Hours of history to return
-  - `@Debug BIT = 0` — Debug mode
-  - `@Help BIT = 0` — Display help information
-- **Description**: Report on Azure Data Sync queue depth and processing status. Shows pending, processing, and completed sync operations within the specified window. Note: this tool uses a dynamic database name sourced from an environment variable and is a tracked legacy exception using `ExecuteQueryAsync`.
+#### `schema_change_log`
+- **Procedure**: `dev.SchemaChanges` *(view)* or a wrapping `cdre.*` procedure
+- **Parameters**: None
+- **Description**: Return recent schema change events captured by the `dev_trg_LogSchemaChanges` DDL trigger from `dev.SchemaChangeLog`. Includes event type, database, schema, object name, object type, login, program name, T-SQL command executed, and before/after object definitions. The `dev.SchemaChanges` view adds `ObjectDefinitionBefore` by joining each version to its predecessor. Useful for auditing recent deployments or tracking unintended schema changes.
 
 ---
 
 ### Development
 
-#### `sp_blitz`
-- **Procedure**: `BrentOzar.sp_Blitz`
-- **Parameters**:
-  - `@Help TINYINT = 0`
-  - `@CheckUserDatabaseObjects TINYINT = 1`
-  - `@CheckProcedureCache TINYINT = 0`
-  - `@OutputType VARCHAR(20) = 'TABLE'`
-  - `@CheckServerInfo TINYINT = 0`
-  - `@IgnorePrioritiesBelow INT = NULL`
-  - `@IgnorePrioritiesAbove INT = NULL`
-  - `@SummaryMode TINYINT = 0`
-  - `@BringThePain TINYINT = 0`
-  - `@Debug TINYINT = 0`
-- **Description**: Third-party First Responder Kit server health check. Returns prioritized findings across configuration, security, and performance categories. Customized with skip checks for standard service accounts and accepted configuration values. **Do not modify source.** Configure via `BrentOzar.Config_Blitz_SkipChecks`.
+#### `deadlocks_analysis`
+- **Procedure**: `cdre.DeadlocksAnalysis`
+- **Parameters**: None (report type and date range vary by procedure implementation)
+- **Description**: Generate deadlock trend reports from persisted data in `cdre.DeadlocksLogDetails`. Summarizes deadlock frequency, affected databases, victim sessions, wait resources, and involved SQL statements. Works from historical data — does not require the XE session to be running. Use after `deadlock_pull` has populated the log table.
 
-#### `sp_blitz_cache`
-- **Procedure**: `BrentOzar.sp_BlitzCache`
-- **Parameters**:
-  - `@Help BIT = 0`
-  - `@Top INT = NULL`
-  - `@SortOrder VARCHAR(50) = 'CPU'` — Sort by: `CPU`, `reads`, `duration`, `executions`, `writes`, `memory grant`, `spills`
-  - `@ExpertMode TINYINT = 0`
-  - `@DurationFilter DECIMAL(38,4) = NULL`
-  - `@IgnoreSystemDBs BIT = 1`
-  - `@DatabaseName NVARCHAR(128) = NULL`
-  - `@StoredProcName NVARCHAR(128) = NULL`
-  - `@MinimumExecutionCount INT = 0`
-  - `@MinutesBack INT = NULL`
-  - `@Debug BIT = 0`
-- **Description**: Analyze plan cache for resource-intensive queries. Sort by CPU, reads, duration, executions, etc. **Do not modify source.**
+#### `blocking_monitor_analysis`
+- **Procedure**: `cdre.BlockingMonitorAnalysis`
+- **Parameters**: None (report type varies by procedure implementation — summary, topblockers, topresources, timeline)
+- **Description**: Generate blocking trend reports from persisted data in `cdre.BlockingLogDetails`. Report modes include summary, top blockers, top wait resources, and timeline views. Works from historical data — does not require the XE session to be running. Use after `blocking_monitor_pull` has populated the log table.
 
-#### `sp_blitz_first`
-- **Procedure**: `BrentOzar.sp_BlitzFirst`
-- **Parameters**:
-  - `@Help TINYINT = 0`
-  - `@ExpertMode TINYINT = 0`
-  - `@Seconds INT = 5`
-  - `@OutputType VARCHAR(20) = 'TABLE'`
-  - `@CheckProcedureCache TINYINT = 0`
-  - `@CheckServerInfo TINYINT = 1`
-  - `@FileLatencyThresholdMS INT = 100`
-  - `@SinceStartup TINYINT = 0`
-  - `@Debug BIT = 0`
-- **Description**: Real-time server performance snapshot — waits, file stats, and perfmon counters sampled over `@Seconds`. **Do not modify source.**
+#### `query_monitor_analysis`
+- **Procedure**: `cdre.QueryMonitorAnalysis`
+- **Parameters**: None (report type and filters vary by procedure implementation)
+- **Description**: Generate query performance reports from persisted data in `cdre.QueryMonitorLogDetails`. Surfaces top queries by total duration, CPU, logical reads, and execution count. Works from historical data — does not require the XE session to be running. Use after `query_monitor_pull` has populated the log table.
 
 ## MCP Resources to Expose
 
@@ -581,7 +261,7 @@ These are data sources the MCP server should expose as resources. Unless otherwi
 #### `resource://cdre/blocking-alert-config`
 - **Table**: `cdre.BlockingAlertConfig`
 - **Access**: Read/Write
-- **Description**: Controls the `cdre.BlockingAlertMonitor` DMV-based blocking alert system. Each row is a typed rule. Operators add rows to define which databases to watch, which logins/programs to exclude, and what threshold to apply. The `MatchType` column supports exact or `LIKE`-style matching.
+- **Description**: Controls the `cdre.BlockingAlertMonitor` DMV-based blocking alert system. Each row is a typed rule. Operators add rows to define which databases to watch, which logins/programs to exclude, and what threshold to apply. The `MatchType` column supports exact or `LIKE`-style matching. The `ConfigType` column determines the rule's role in the system.
 
 | Column | Type | Nullable | Default | Purpose |
 |--------|------|----------|---------|---------|
@@ -617,7 +297,7 @@ These are data sources the MCP server should expose as resources. Unless otherwi
 #### `resource://cdre/query-monitor-config`
 - **Table**: `cdre.QueryMonitorConfig`
 - **Access**: Read/Write
-- **Description**: INCLUDE/EXCLUDE filter rules applied when `cdre.QueryMonitorPullFromRingBuffer` processes ring buffer events. Rows with `FilterType = 'INCLUDE'` restrict capture to matching sessions; rows with `FilterType = 'EXCLUDE'` suppress matching sessions. NULL columns act as wildcards.
+- **Description**: INCLUDE/EXCLUDE filter rules applied when `cdre.QueryMonitorPullFromRingBuffer` processes ring buffer events. Rows with `FilterType = 'INCLUDE'` restrict capture to matching sessions; rows with `FilterType = 'EXCLUDE'` suppress matching sessions. NULL columns act as wildcards. The `FilterType` column is constrained to `'INCLUDE'` or `'EXCLUDE'` — validate client-side before insert/update.
 
 | Column | Type | Nullable | Default | Purpose |
 |--------|------|----------|---------|---------|
@@ -638,7 +318,7 @@ These are data sources the MCP server should expose as resources. Unless otherwi
 #### `resource://cdre/blocking-monitor-status`
 - **Table**: `cdre.BlockingMonitorLogStatus`
 - **Access**: Read-only
-- **Description**: Single-row state table for the `BlockingMonitor` Extended Event session. Used by `cdre.BlockingMonitorStatus` and `cdre.BlockingMonitorPullFromRingBuffer` to track session health, auto-restart timing, and last activity. Query this to determine whether the XE session is running and when it last captured data.
+- **Description**: Single-row state table for the `BlockingMonitor` Extended Event session. Used by `cdre.BlockingMonitorPullFromRingBuffer` to track session health, auto-restart timing, and last activity. Query this to determine whether the XE session is running and when it last captured data.
 
 | Column | Type | Nullable | Default | Purpose |
 |--------|------|----------|---------|---------|
@@ -728,7 +408,7 @@ These are data sources the MCP server should expose as resources. Unless otherwi
 #### `resource://cdre/index-maint-config-database`
 - **Table**: `cdre.IndexMaintConfig_Database`
 - **Access**: Read/Write
-- **Description**: Database-level index maintenance thresholds. Settings here override server defaults and are inherited by all schemas, tables, and indexes in the named database unless overridden at a lower level. Set `Ignore = 1` to skip an entire database.
+- **Description**: Database-level index maintenance thresholds. Settings here override server defaults and are inherited by all schemas, tables, and indexes in the named database unless overridden at a lower level. Set `Ignore = 1` to skip an entire database. NULL threshold values mean "inherit from server default."
 
 | Column | Type | Nullable | Default | Purpose |
 |--------|------|----------|---------|---------|
@@ -813,7 +493,7 @@ These are data sources the MCP server should expose as resources. Unless otherwi
 | `MinimumRuntimeMinutes` | `INT` | No | `30` | Jobs running less than this many minutes are not flagged |
 | `MaximumRuntimeMinutes` | `INT` | Yes | NULL | Jobs running longer than this are always flagged regardless of baseline (NULL = no cap) |
 | `ExcludeOutliers` | `BIT` | No | `1` | Whether to exclude outlier runs when calculating the baseline |
-| `OutlierMethod` | `VARCHAR(20)` | No | `'IQR'` | Outlier detection method: `IQR`, `StdDev`, or `Percentile` |
+| `OutlierMethod` | `VARCHAR(20)` | No | `'IQR'` | Outlier detection method (e.g., `IQR`) |
 | `OutlierThreshold` | `DECIMAL(5,2)` | Yes | `1.5` | Sensitivity for the outlier method (e.g., 1.5 = 1.5× IQR) |
 | `ExcludeHistoricalMaxMinutes` | `INT` | Yes | NULL | Exclude historical runs longer than this from baseline calculation (NULL = no exclusion) |
 | `UseMedianInsteadOfAvg` | `BIT` | No | `1` | Use median runtime as the baseline reference instead of average |
@@ -829,7 +509,7 @@ These are data sources the MCP server should expose as resources. Unless otherwi
 #### `resource://cdre/job-runtime-baselines`
 - **Table**: `cdre.JobRuntimeBaseline`
 - **Access**: Read-only
-- **Description**: Calculated baseline statistics for each SQL Agent job, updated daily by the `DBA - Job Runtime Baseline Update` job. One row per `job_id` (unique constraint). Used by `cdre.JobRuntimeAnomaly_Detection` to compare currently running jobs against historical norms.
+- **Description**: Calculated baseline statistics for each SQL Agent job, updated daily by the `DBA - Job Runtime Baseline Update` job. One row per `job_id` (unique constraint). Used by `cdre.JobRuntimeAnomaly_Detection` to compare currently running jobs against historical norms. If this table is empty, anomaly detection will return no results — run the baseline update job first.
 
 | Column | Type | Nullable | Default | Purpose |
 |--------|------|----------|---------|---------|
@@ -860,7 +540,7 @@ These are data sources the MCP server should expose as resources. Unless otherwi
 #### `resource://BrentOzar/blitz-skip-checks`
 - **Table**: `BrentOzar.Config_Blitz_SkipChecks`
 - **Access**: Read/Write
-- **Description**: Suppresses specific `sp_Blitz` health check findings. Add a row to permanently silence a check for a given server/database combination. NULL in `ServerName` or `DatabaseName` acts as a wildcard. **Do not modify the `BrentOzar` schema objects themselves** — this table is the approved configuration interface.
+- **Description**: Suppresses specific `sp_Blitz` health check findings. Add a row to permanently silence a check for a given server/database combination. NULL in `ServerName` or `DatabaseName` acts as a wildcard. **Do not modify the `BrentOzar` schema objects themselves** — this table is the approved configuration interface for the First Responder Kit.
 
 | Column | Type | Nullable | Default | Purpose |
 |--------|------|----------|---------|---------|
@@ -875,7 +555,7 @@ These are data sources the MCP server should expose as resources. Unless otherwi
 #### `resource://cdre/settings-db`
 - **Table**: `cdre.SettingsDB`
 - **Access**: Read/Write
-- **Description**: Controls which databases are excluded from specific maintenance operations (DBCC CheckDB, statistics updates, etc.). Each row associates a database name with a named operation. Set `Exclude = 1` to skip the database for that operation.
+- **Description**: Controls which databases are excluded from specific maintenance operations (DBCC CheckDB, statistics updates, etc.). Each row associates a database name with a named operation via `ExecName`. Set `Exclude = 1` to skip the database for that operation.
 
 | Column | Type | Nullable | Default | Purpose |
 |--------|------|----------|---------|---------|
@@ -912,11 +592,11 @@ The MCP server connects to a single **administrative database** (conventionally 
 - Authentication: SQL Server Authentication or Windows Authentication (Integrated Security)
 - `MultipleActiveResultSets=True` — several procedures return multiple result sets
 - `Connect Timeout`: Recommend ≥ 30 seconds; some maintenance procedures run long
-- `Command Timeout`: Set per-tool — use a short timeout (30s) for status and query tools, and a long or unlimited timeout (0) for maintenance operations such as `cdre.IndexMaint`, `cdre.Maintenance_DBCCCheckDB`, and `cdre.Maintenance_UpdateAllStats`
+- `Command Timeout`: Set per-tool — use a short timeout (30–60 seconds) for status and query tools, and a long or unlimited timeout (`0`) for maintenance operations such as `cdre.IndexMaint`, `cdre.Maintenance_DBCCCheckDB`, and `cdre.Maintenance_UpdateAllStats`
 
 **Secondary connections (cross-database tools):**
-- `cdre.DataSync_QueueStatus` uses a dynamic database name sourced from an environment variable — this is a known legacy exception tracked in `TODO.md` and uses `ExecuteQueryAsync` rather than `ExecuteProcedureAsync`
-- `cdre.Evo_ErrorLog` and `cdre.Evo_ErrorLogSummary` query a separate application database — also a tracked legacy exception
+- `DataSyncTools.GetDataSyncQueueStatus` uses a dynamic database name sourced from an environment variable — this is a known legacy exception tracked in `TODO.md` and uses `ExecuteQueryAsync` rather than `ExecuteProcedureAsync`
+- `EvolutionErrorLogTools.*` queries a separate application database — also a tracked legacy exception
 - All other tools connect exclusively to the admin database
 
 ### Authentication and Authorization
@@ -927,7 +607,7 @@ The SQL login used by the MCP server requires:
 - `VIEW SERVER STATE` — required by blocking, query monitor, and activity monitor tools that query DMVs (`sys.dm_exec_requests`, `sys.dm_exec_sessions`, `sys.dm_tran_locks`, `sys.dm_db_missing_index_details`, etc.)
 - `VIEW DATABASE STATE` — required for XE ring buffer access and `sys.dm_db_index_physical_stats`
 - `ALTER SETTINGS` — required by `cdre.BlockingMonitorDeploy` (sets `blocked process threshold` via `sp_configure`)
-- Access to `msdb` — required by job history procedures (`cdre.Job_History`, `cdre.JobStepHistory`, `cdre.Msdb_*`) which query `msdb.dbo.sysjobs`, `msdb.dbo.sysjobhistory`, `msdb.dbo.suspect_pages`, and related tables
+- Access to `msdb` — required by job history procedures that query `msdb.dbo.sysjobs`, `msdb.dbo.sysjobhistory`, and related tables
 
 For the SaaS/central-polling architecture, the Worker Service uses JWT bearer + API key dual authentication with reader/operator/admin RBAC tiers. Reader-tier tokens should be restricted from calling destructive procedures (`*Destroy`, `*Deploy`).
 
@@ -942,13 +622,19 @@ EXEC [cdre].[ProcedureName] @Param1 = @value1, @Param2 = @value2
 
 Parameters with defaults do not need to be passed unless overriding the default. The `@Debug BIT = 0` and `@Help BIT = 0` parameters present on most `cdre.*` procedures should be exposed as optional tool parameters. `@Debug = 1` causes procedures to emit `RAISERROR ... WITH NOWAIT` progress messages and may return additional diagnostic result sets.
 
+**Schema envelope pattern:** Tools that return structured data should call `ExecuteProcedureWithSchemaAsync` (not the bare `ExecuteProcedureAsync`) and pass a hand-written `SchemaDescriptor` describing the response shape. The helper wraps the result in `{ "_schema": ..., "data": ... }` so downstream consumers get tier-1 schema fidelity. When authoring a `SchemaDescriptor`:
+- Read the actual stored procedure to get column names — do not guess. Schema keys must match the proc's `SELECT` aliases exactly (case included).
+- Mark fields as `string|null`, `int|null`, etc. when the underlying column is nullable or the XE shred can produce NULLs.
+- For multi-result-set procs, use `Kind: "json_object"` with `TopLevelKeys` and set `Partial: true`.
+- XE lifecycle commands (`*_deploy` / `*_destroy` / `*_restart` / `*_pull`) return tiny status payloads and don't need the envelope.
+
 ### Error Handling Patterns
 
 All `cdre.*` procedures use `TRY/CATCH` blocks internally. The MCP server should:
 
 1. **Propagate SQL errors** — catch `SqlException` and surface the error message and severity to the MCP client. SQL Server severity ≥ 16 indicates a procedure-level error; severity 11–15 are warnings.
 2. **Handle multiple result sets** — many analysis and status procedures return 2–5 result sets. The C# layer must read all result sets in order using `NextResultAsync()`. Stopping after the first result set will leave the connection in a dirty state.
-3. **Handle empty result sets gracefully** — status procedures (e.g., `cdre.BlockingMonitorStatus`, `cdre.DeadlocksStatus`, `cdre.QueryMonitorStatus`) return empty sets when no data has been collected yet. This is not an error.
+3. **Handle empty result sets gracefully** — status procedures return empty sets when no data has been collected yet. This is not an error.
 4. **Respect `RAISERROR WITH NOWAIT`** — progress messages from long-running procedures (index maintenance, DBCC) are emitted as informational messages (severity 0–10) via `SqlConnection.InfoMessage`. Wire up the `InfoMessage` event handler to stream these to the MCP client as progress notifications rather than discarding them.
 5. **Timeout handling** — maintenance procedures (`cdre.IndexMaint`, `cdre.Maintenance_DBCCCheckDB`, `cdre.Maintenance_UpdateAllStats`) should use `CommandTimeout = 0` (unlimited). Status and query tools should use a bounded timeout (30–60 seconds).
 
@@ -957,12 +643,10 @@ All `cdre.*` procedures use `TRY/CATCH` blocks internally. The MCP server should
 The toolkit uses a **central admin database model** — all procedures, tables, and configuration live in the single admin database. Procedures that need to inspect other databases do so internally via:
 
 - **Dynamic SQL with `USE [database]`** — used by index maintenance, DBCC, statistics update, and invalid object detection procedures. The MCP server passes database names as parameters; the procedures handle cross-database execution internally.
-- **`msdb` queries** — job history, alert history, suspect pages, and maintenance plan procedures query `msdb` directly. The SQL login must have appropriate `msdb` access.
+- **`msdb` queries** — job history and related procedures query `msdb` directly. The SQL login must have appropriate `msdb` access.
 - **`sys.databases` / DMV queries** — server-scope views are accessible from the admin database context with `VIEW SERVER STATE`.
 
 The MCP server **never needs to switch its connection's database context** — all calls go to the admin database, and procedures handle any cross-database work internally.
-
-For `cdre.IndexAnalysis` with `@Report = 'unused'` or `'all'`, the `@DatabaseName` parameter is required (the procedure queries `sys.dm_db_index_usage_stats` in the context of the target database via dynamic SQL). Validate that `@DatabaseName` is provided before calling when `@Report` is `'unused'` or `'all'`.
 
 ### Extended Events Monitoring Architecture
 
@@ -976,7 +660,27 @@ The three XE monitoring systems (Deadlock, Query, Blocking) follow an identical 
 
 The MCP server should check the `Status` column in the relevant `*LogStatus` table (single-character: `R` = running, `S` = stopped) before surfacing analysis results, and warn the client if the session is not running.
 
-A fourth monitoring system — User Statement Capture (`cdre.CapturedUserStatements*`) — follows the same Deploy → PullFromBuffer → Recent pattern. Its status is tracked in `cdre.CapturedUserStatementsStatus`.
+A fourth monitoring system — User Statement Capture (`cdre.CapturedUserStatements*`) — follows the same Deploy → PullFromBuffer pattern. Its status is tracked in `cdre.CapturedUserStatementsStatus`.
+
+The MCP-wired XE lifecycle procedures and their parameters are:
+
+| Procedure | Key Parameters |
+|-----------|---------------|
+| `cdre.BlockingMonitorDeploy` | `@ThresholdSeconds INT = 15`, `@MinutesBetweenRestart INT = 480`, `@Debug BIT = 0` |
+| `cdre.BlockingMonitorDestroy` | `@ResetThreshold BIT = 0`, `@Debug BIT = 0` |
+| `cdre.BlockingMonitorPullFromRingBuffer` | `@Debug BIT = 0` |
+| `cdre.BlockingMonitorRestart` | `@Debug BIT = 0` |
+| `cdre.DeadlocksMonitorDeploy` | None |
+| `cdre.DeadlocksMonitorDestroy` | None |
+| `cdre.DeadlocksPullFromRingBuffer` | None |
+| `cdre.DeadlocksRestart` | None |
+| `cdre.QueryMonitorDeploy` | None |
+| `cdre.QueryMonitorDestroy` | None |
+| `cdre.QueryMonitorPullFromRingBuffer` | None |
+| `cdre.QueryMonitorRestart` | None |
+| `cdre.CapturedUserStatementsDeploy` | None |
+| `cdre.CaptureUserStatementsDestroy` | None |
+| `cdre.CapturedUserStatementsPullFromBuffer` | None |
 
 ### Blocking Alert Monitor (DMV-Based)
 
@@ -987,7 +691,7 @@ A fourth monitoring system — User Statement Capture (`cdre.CapturedUserStateme
 - Sends a single start alert and a single end alert per blocking event (no repeat emails for the same ongoing event)
 - Uses `cdre.NotificationTargets` for email recipients grouped by `NotificationName`
 
-The MCP tools `blocking_alert_active`, `blocking_alert_history`, and `blocking_alert_detail` read from these tables. `blocking_alert_detail` requires `@EventId UNIQUEIDENTIFIER` — obtain this from the `EventId` column returned by `blocking_alert_history` or `blocking_alert_active`.
+The `blocking_alert_detail` tool requires `@EventId UNIQUEIDENTIFIER` — obtain this from the `EventId` column returned by `blocking_alert_history` or `blocking_alert_active`. The `cdre.BlockingAlertConfig` `MatchType` column is constrained to `'Exact'` or `'Like'`; validate this client-side before insert/update to avoid a check constraint violation.
 
 ### Third-Party Schema Constraints
 
@@ -1007,10 +711,9 @@ In the SaaS architecture, the Worker Service (Quartz.NET) connects to client ser
 - **`cdre.ResolveWaitResource`** — system/IAM/GAM pages return a descriptive error row (not a SQL exception) when `DBCC PAGE` output lacks `Metadata: ObjectId`. The MCP tool should treat a non-empty result set as success even if the resolved object name is NULL. For KEY locks, the procedure resolves via `sys.dm_tran_locks` `hobt_id`; a live lock must exist at call time for resolution to succeed.
 - **`cdre.JobStepHistory`** — falls back from `JOBHISTORY_ALL` (Azure Managed Instance view) to `msdb.dbo.sysjobhistory` automatically. No special handling needed in the MCP layer.
 - **`ConfigTools.RunCustomQuery`** — executes user-supplied SQL by design and is a permanent exception to the `ExecuteProcedureAsync` rule. Do not use it as a pattern for new tools.
-- **Timezone views** — `cdre.DeadLockLogDetails_CST`, `cdre.DeadLockLogStatus_CST`, `cdre.DeadLocksLogDetails_CST`, and `cdre.DeadLocksLogStatus_CST` convert `datetimeoffset` columns to Central Standard Time using `AT TIME ZONE`. Use these views for display when the client is in the Central timezone; use the base tables (`cdre.DeadlocksLogDetails`, `cdre.DeadLocksLogStatus`) for UTC-normalized comparisons.
-- **Index maintenance config cascade** — the effective threshold for any index is resolved Server → Database → Schema → Table → Index, with NULL meaning "inherit from parent." The `cdre.IndexMaint_Config` procedure resolves and displays the effective values; use it to validate configuration before running maintenance.
+- **Timezone views** — `cdre.DeadLockLogDetails_CST`, `cdre.DeadLockLogStatus_CST`, `cdre.DeadLocksLogDetails_CST`, and `cdre.DeadLocksLogStatus_CST` convert `datetimeoffset` columns to Central Standard Time using `AT TIME ZONE`. Use these views for display when the client is in the Central timezone; use the base tables (`cdre.DeadlocksLogDetails`, `cdre.DeadLocksLogStatus`) for UTC-normalized comparisons. Note that two pairs of CST views exist with slightly different column sets — `cdre.DeadLocksLogDetails_CST` includes `ResolvedDatabaseName` and `ResolvedResource` columns aliased as `DatabaseName` and `ResolvedResource`; `cdre.DeadLockLogDetails_CST` (without the `s` in `Lock`) does not.
+- **Index maintenance config cascade** — the effective threshold for any index is resolved Server → Database → Schema → Table → Index, with NULL meaning "inherit from parent." Validate configuration at each level before running maintenance.
 - **Job runtime anomaly prerequisites** — `cdre.JobRuntimeAnomaly_Detection` requires that baselines have been calculated first by the `DBA - Job Runtime Baseline Update` job (runs daily at 1:00 AM). If `cdre.JobRuntimeBaseline` is empty, the detection procedure will return no results rather than an error. Surface a warning to the MCP client in this case.
-- **`cdre.BlockingAlertConfig` `MatchType`** — the `MatchType` column is constrained to `'Exact'` or `'Like'`. When writing MCP resource update logic for this table, validate this constraint client-side before submitting to avoid a check constraint violation.
 - **`cdre.QueryMonitorConfig` `FilterType`** — constrained to `'INCLUDE'` or `'EXCLUDE'`. Validate client-side before insert/update.
-- **Deployment order dependency** — the toolkit must be deployed in the order: Schemas → Tables → Functions → Stored Procedures → SQL Agent Jobs → configuration table population. MCP tools that call procedures referencing configuration tables (e.g., `cdre.BlockingAlertMonitor`, `cdre.QueryMonitorPullFromRingBuffer`) will return empty or unexpected results if the corresponding configuration tables have not been populated after deployment.
+- **Deployment order dependency** — the toolkit must be deployed in the order: Schemas → Tables → Functions → Stored Procedures → SQL Agent Jobs → configuration table population. MCP tools that call procedures referencing configuration tables (e.g., `cdre.BlockingAlertMonitor`, `cdre.QueryMonitorPullFromRingBuffer`) will return empty or unexpected results if the corresponding configuration tables have not been populated after deployment. Migration scripts must use a `.txt` extension (not `.sql`) to prevent Red Gate SQL Source Control from treating them as database objects.
 - **Post-investigation tooling review** — after any debugging session using MCP tools, review every tool call and `run_custom_query` made and evaluate whether new stored procedures, MCP tools, or logging improvements should be proposed. Any reusable query run more than once is a candidate for a `cdre.*` procedure and corresponding MCP tool. Track gaps in `TODO.md`.

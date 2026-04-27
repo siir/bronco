@@ -129,6 +129,13 @@ export class AnalysisTraceComponent {
   ticketId = input.required<string>();
   /** Parent-provided ticket events (used for strategy fallback). Optional. */
   events = input<TicketEvent[]>([]);
+  /**
+   * Manual-refresh fan-out token from the parent ticket-detail component.
+   * Bumped after the parent's forkJoin lands; we re-run `load(ticketId)`
+   * so the trace re-fetches on operator-initiated refresh. Tracked in the
+   * existing constructor effect alongside `ticketId()` — no separate effect.
+   */
+  refreshToken = input<number>(0);
 
   /** Emitted when the operator clicks "View chronological Raw Logs" on the deep-tree banner. */
   viewRawLogs = output<void>();
@@ -165,12 +172,24 @@ export class AnalysisTraceComponent {
 
   constructor() {
     effect(() => {
+      // Track refreshToken so manual-refresh fan-out from the parent
+      // re-runs load(). Initial mount already runs because ticketId() is
+      // also tracked.
+      this.refreshToken();
       const id = this.ticketId();
       if (id) this.load(id);
     });
   }
 
+  // Monotonic counter for the unified-logs fetch path inside load(). Each
+  // call captures the current value; out-of-order responses (e.g. from rapid
+  // refreshToken bumps) are discarded if a newer request has since started.
+  // The cost-summary path uses costSub.unsubscribe() instead since it's a
+  // single in-flight request tracked by the subscription handle.
+  private requestId = 0;
+
   private load(ticketId: string): void {
+    const myRequestId = ++this.requestId;
     this.loading.set(true);
 
     // Cancel any prior in-flight cost request and clear stale data before fetching for the new ticket.
@@ -181,7 +200,10 @@ export class AnalysisTraceComponent {
     this.costSub = this.ticketService.getCostSummary(ticketId)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (cs) => this.costSummary.set(cs),
+        next: (cs) => {
+          if (myRequestId !== this.requestId) return; // stale — discard
+          this.costSummary.set(cs);
+        },
         error: () => { /* non-fatal — cost badge just won't render */ },
       });
 
@@ -193,6 +215,7 @@ export class AnalysisTraceComponent {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
+          if (myRequestId !== this.requestId) return; // stale — discard
           const total = typeof res.total === 'number' ? res.total : res.entries.length;
           const recentOffset = Math.max(0, total - PAGE_SIZE);
           if (recentOffset === 0 || res.entries.length >= total) {
@@ -204,13 +227,20 @@ export class AnalysisTraceComponent {
             .pipe(takeUntilDestroyed(this.destroyRef))
             .subscribe({
               next: (recentRes) => {
+                if (myRequestId !== this.requestId) return; // stale — discard
                 this.entries.set(recentRes.entries);
                 this.loading.set(false);
               },
-              error: () => this.loading.set(false),
+              error: () => {
+                if (myRequestId !== this.requestId) return;
+                this.loading.set(false);
+              },
             });
         },
-        error: () => this.loading.set(false),
+        error: () => {
+          if (myRequestId !== this.requestId) return;
+          this.loading.set(false);
+        },
       });
   }
 

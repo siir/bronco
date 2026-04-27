@@ -41,6 +41,9 @@ export interface Artifact {
   addedBySystem: string | null;
   originatingEventId: string | null;
   originatingEventType: string | null;
+  // Inferred or MCP-provided schema (JSONPath-style summary of contents).
+  // Used by the agentic prompt to surface attachment shape without inlining content.
+  schemaJson: Record<string, unknown> | null;
 }
 
 export interface Finding {

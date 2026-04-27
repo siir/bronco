@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, open, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
-import { join, relative, resolve } from 'node:path';
+import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Job } from 'bullmq';
 import { Prisma } from '@bronco/db';
@@ -14,7 +14,6 @@ import { executeRecommendations } from './recommendation-executor.js';
 import type { ParsedAction } from './recommendation-executor.js';
 import {
   buildAgenticTools,
-  buildTruncatedPreview,
   DEFAULT_REPO_FILE_EXTENSIONS,
   parseSufficiencyEvaluation,
   resolveAnalysisStrategy,
@@ -214,6 +213,23 @@ async function sendReplyWithRetry(
 // Re-export AnalysisJob from shared-types for backward compatibility with existing imports.
 export type { AnalysisJob } from '@bronco/shared-types';
 
+/**
+ * One row in the structured `## Attachments` block surfaced to the v2 agentic
+ * prompt. Sourced from the `artifacts` table (probe results, MCP tool results,
+ * email attachments, operator uploads).
+ */
+export interface AttachmentSummary {
+  artifactId: string;
+  kind: string | null;
+  displayName: string | null;
+  filename: string;
+  mimeType: string | null;
+  sizeBytes: number;
+  description: string | null;
+  /** InferredSchema (parsed JSON), null when not yet inferred. */
+  schemaJson: unknown;
+}
+
 /** Internal resolved context — loaded from DB at the start of the analysis pipeline. */
 interface AnalysisContext {
   ticketId: string;
@@ -226,6 +242,12 @@ interface AnalysisContext {
   ticketSource: TicketSource;
   /** Populated by AGENTIC_ANALYSIS or UPDATE_ANALYSIS — consumed by DRAFT_FINDINGS_EMAIL. */
   sufficiencyEval?: SufficiencyEvaluation;
+  /**
+   * All artifacts currently attached to this ticket (probe + email attachments
+   * + MCP tool results + operator uploads). Surfaced to the v2 agentic prompt
+   * as a structured `## Attachments` block. v1 paths ignore this field.
+   */
+  attachments?: AttachmentSummary[];
 }
 
 export interface AnalyzerDeps {
@@ -259,16 +281,49 @@ export interface AnalyzerDeps {
 // ---------------------------------------------------------------------------
 
 /**
- * Inline threshold: probe artifacts ≤ this many bytes are included verbatim in
- * the initial emailBody; larger ones are included as a 2000-char preview plus
- * an artifact-ref footer so Claude knows to call platform__read_tool_result_artifact.
+ * Load all artifacts for a ticket and project the fields the v2 agentic prompt
+ * surfaces in the structured `## Attachments` block. Best-effort — returns []
+ * on DB error (logged) so analysis never fails on attachment metadata.
  */
-const PROBE_ARTIFACT_INLINE_BYTES = 8 * 1024; // 8 KB
+async function loadTicketAttachments(
+  db: PrismaClient,
+  ticketId: string,
+): Promise<AttachmentSummary[]> {
+  try {
+    const rows = await db.artifact.findMany({
+      where: { ticketId },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        kind: true,
+        displayName: true,
+        filename: true,
+        mimeType: true,
+        sizeBytes: true,
+        description: true,
+        schemaJson: true,
+      },
+    });
+    return rows.map((r) => ({
+      artifactId: r.id,
+      kind: r.kind,
+      displayName: r.displayName,
+      filename: r.filename,
+      mimeType: r.mimeType,
+      sizeBytes: r.sizeBytes,
+      description: r.description,
+      schemaJson: r.schemaJson,
+    }));
+  } catch (err) {
+    logger.warn({ err, ticketId }, 'Failed to load ticket attachments — continuing without attachment block');
+    return [];
+  }
+}
 
 async function loadAnalysisContext(
   db: PrismaClient,
   job: AnalysisJob,
-  artifactStoragePath?: string,
+  _artifactStoragePath?: string,
 ): Promise<AnalysisContext> {
   const { ticketId, reanalysis, triggerEventId } = job;
 
@@ -280,6 +335,10 @@ async function loadAnalysisContext(
   if (!ticket) {
     throw new Error(`Ticket ${ticketId} not found — cannot load analysis context`);
   }
+
+  // Always load all artifacts for the ticket — surfaced to v2 agentic prompts
+  // as a structured `## Attachments` block. v1 ignores this field.
+  const attachments = await loadTicketAttachments(db, ticketId);
 
   // For re-analysis, prefer the trigger event for sender/messageId/body context.
   // This ensures replies are sent to the actual replier (not always the original sender)
@@ -301,6 +360,7 @@ async function loadAnalysisContext(
           emailBody: triggerEvent.content ?? '',
           emailMessageId: triggerEvent.emailMessageId ?? undefined,
           ticketSource: ticket.source,
+          attachments,
         };
       }
     }
@@ -314,79 +374,21 @@ async function loadAnalysisContext(
   });
 
   if (!inboundEvent) {
-    // Non-email ticket (probe, manual, AI-detected) — fall back to requester email for notifications
-    logger.info({ ticketId, source: ticket.source }, 'No EMAIL_INBOUND event found — loading non-email context');
-
-    // If a probe artifact was saved at ingestion time, use its full content (or a
-    // preview-with-artifact-ref) instead of the 2000-char truncated description.
-    let emailBody = ticket.description ?? '';
-    const ticketMeta = ticket.metadata as Record<string, unknown> | null;
-    const probeArtifactId = typeof ticketMeta?.['probeArtifactId'] === 'string' ? ticketMeta['probeArtifactId'] : null;
-
-    if (probeArtifactId && artifactStoragePath) {
-      try {
-        const artifact = await db.artifact.findFirst({
-          where: { id: probeArtifactId, ticketId },
-          select: { storagePath: true, sizeBytes: true },
-        });
-        if (artifact) {
-          const resolvedStorage = resolve(artifactStoragePath);
-          const absPath = resolve(resolvedStorage, artifact.storagePath);
-          const rel = relative(resolvedStorage, absPath);
-          if (!rel.startsWith('..') && rel !== '' && !rel.startsWith('/')) {
-            if (artifact.sizeBytes <= PROBE_ARTIFACT_INLINE_BYTES) {
-              // Small enough to inline — read the full file; Claude sees the full probe result immediately
-              const rawContent = await readFile(absPath, 'utf-8');
-              emailBody = rawContent;
-              logger.info({ ticketId, probeArtifactId, sizeBytes: artifact.sizeBytes }, 'Probe artifact inlined in analysis context');
-            } else {
-              // Too large to inline — read only head and tail bytes to avoid loading the
-              // entire file into memory, then build a canonical truncated preview so
-              // Claude can page the rest via platform__read_tool_result_artifact.
-              const HEAD_BYTES = 1500;
-              const TAIL_BYTES = 500;
-              const fh = await open(absPath, 'r');
-              try {
-                const headBuf = Buffer.alloc(HEAD_BYTES);
-                const { bytesRead: headRead } = await fh.read(headBuf, 0, HEAD_BYTES, 0);
-                const tailOffset = Math.max(HEAD_BYTES, artifact.sizeBytes - TAIL_BYTES);
-                const tailBuf = Buffer.alloc(TAIL_BYTES);
-                const { bytesRead: tailRead } = await fh.read(tailBuf, 0, TAIL_BYTES, tailOffset);
-                const head = headBuf.subarray(0, headRead).toString('utf-8');
-                const tail = tailBuf.subarray(0, tailRead).toString('utf-8');
-                const approxChars = artifact.sizeBytes; // byte count ≈ char count for UTF-8 text
-                emailBody = buildTruncatedPreview(head + '\n...\n' + tail, probeArtifactId)
-                  .replace(/^size: \d+ chars$/m, `size: ~${approxChars} bytes`);
-              } finally {
-                await fh.close();
-              }
-              logger.info({ ticketId, probeArtifactId, sizeBytes: artifact.sizeBytes }, 'Probe artifact preview-with-ref added to analysis context');
-            }
-          } else {
-            logger.warn({ ticketId, probeArtifactId }, 'Probe artifact path escaped storage root — falling back to description');
-          }
-        }
-      } catch (artifactErr) {
-        logger.warn({ artifactErr, ticketId, probeArtifactId }, 'Failed to load probe artifact for analysis context — falling back to description');
-      }
-    } else if (probeArtifactId && !artifactStoragePath) {
-      // Artifact exists but no storage path — append a reference so Claude knows to fetch it
-      emailBody = [
-        ticket.description ?? '',
-        '',
-        `[Full probe result available at artifact ${probeArtifactId}. Use platform__read_tool_result_artifact to retrieve.]`,
-      ].join('\n').trim();
-      logger.info({ ticketId, probeArtifactId }, 'Probe artifact ID appended to analysis context (no storage path available)');
-    }
+    // Non-email ticket (probe, manual, AI-detected). Body = ticket.description verbatim
+    // (which is the Haiku narrative for probe-sourced tickets — Phase 4 generates this).
+    // Artifacts are surfaced to the v2 agentic prompt via the `attachments` field, NOT
+    // by overwriting emailBody. v1 paths render emailBody as-is.
+    logger.info({ ticketId, source: ticket.source, attachmentCount: attachments.length }, 'No EMAIL_INBOUND event found — loading non-email context');
 
     return {
       ticketId,
       clientId: ticket.clientId,
       emailFrom: ticket.followers[0]?.person?.email ?? undefined,
       emailSubject: ticket.subject ?? '(No subject)',
-      emailBody,
+      emailBody: ticket.description ?? '',
       emailMessageId: undefined,
       ticketSource: ticket.source,
+      attachments,
     };
   }
 
@@ -403,6 +405,7 @@ async function loadAnalysisContext(
       emailBody: inboundEvent.content ?? '',
       emailMessageId: undefined,
       ticketSource: ticket.source,
+      attachments,
     };
   }
 
@@ -414,6 +417,7 @@ async function loadAnalysisContext(
     emailBody: inboundEvent.content ?? '',
     emailMessageId: inboundEvent.emailMessageId ?? undefined,
     ticketSource: ticket.source,
+    attachments,
   };
 }
 
@@ -922,20 +926,23 @@ async function deepAnalysis(
         if (!rawTerm || rawTerm.replace(/[\x00-\x1f\x7f]/g, '').trim().length === 0) continue;
         const sanitized = rawTerm.replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200);
         try {
-          const grepResult = await callMcpToolViaSdk(
-            deps.mcpRepoUrl, '/mcp', 'repo_exec',
-            { repoId: repo.id, sessionId: initialSessionId, clientId: ticket.clientId, command: `grep -rnil "${sanitized.replace(/"/g, '\\"')}" .` },
+          const searchResult = await callMcpToolViaSdk(
+            deps.mcpRepoUrl, '/mcp', 'search_code',
+            { repoId: repo.id, sessionId: initialSessionId, clientId: ticket.clientId, query: sanitized, maxResults: 200 },
             repoAuth, repoAuthHeader,
           );
           const exts = ['.sql', '.cs', '.ts'];
-          for (const line of grepResult.split('\n')) {
-            const trimmed = line.trim();
-            if (trimmed && !trimmed.startsWith('[session:') && !trimmed.startsWith('[stderr]') && exts.some(e => trimmed.endsWith(e))) {
-              relevantFiles.add(trimmed);
+          for (const line of searchResult.split('\n')) {
+            const m = line.match(/^\.?\/?([^:]+):(\d+):/);
+            if (m) {
+              const fp = m[1].trim();
+              if (fp && exts.some(e => fp.endsWith(e))) {
+                relevantFiles.add(fp);
+              }
             }
           }
         } catch {
-          // grep found nothing — that's fine
+          // search found nothing — that's fine
         }
       }
 
@@ -2014,6 +2021,31 @@ async function executeRoutePipeline(
               searchTerms = [...searchTerms, ...subjectTokens].slice(0, 10);
             }
 
+            // Drop terms that are guaranteed noise for this client: the client's
+            // own name, short code, any operator-configured ignore terms, and
+            // anything shorter than 4 characters.
+            const clientNameLower = ticket.client.name.toLowerCase();
+            const clientShortCodeLower = ticket.client.shortCode.toLowerCase();
+            const ignoreSet = new Set<string>(
+              (ticket.client.searchIgnoreTerms ?? []).map((t) => t.toLowerCase()),
+            );
+            const preFilterCount = searchTerms.length;
+            searchTerms = searchTerms.filter((t) => {
+              const lower = t.toLowerCase();
+              if (lower.length < 4) return false;
+              if (lower === clientNameLower) return false;
+              if (lower === clientShortCodeLower) return false;
+              if (ignoreSet.has(lower)) return false;
+              return true;
+            });
+            if (searchTerms.length === 0) {
+              appLog.info(
+                `pre-gather: all ${preFilterCount} term(s) filtered out for ${repo.name}, skipping search`,
+                { ticketId, repo: repo.name },
+                ticketId, 'ticket',
+              );
+            }
+
             const exts = (repo.fileExtensions && repo.fileExtensions.length > 0)
               ? repo.fileExtensions
               : [...DEFAULT_REPO_FILE_EXTENSIONS];
@@ -2023,34 +2055,23 @@ async function executeRoutePipeline(
               if (!rawTerm || rawTerm.replace(/[\x00-\x1f\x7f]/g, '').trim().length === 0) continue;
               const sanitized = rawTerm.replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200);
               try {
-                // Use `-e` so patterns beginning with `-` are not treated as grep options.
-                const grepResult = await callMcpToolViaSdk(
-                  mcpRepoUrl, '/mcp', 'repo_exec',
-                  { repoId: repo.id, sessionId: gatherSessionId, clientId: ticket.clientId, command: `grep -rnilI -e "${sanitized.replace(/"/g, '\\"')}" .` },
+                const searchResult = await callMcpToolViaSdk(
+                  mcpRepoUrl, '/mcp', 'search_code',
+                  { repoId: repo.id, sessionId: gatherSessionId, clientId: ticket.clientId, query: sanitized, maxResults: 200 },
                   repoAuth, repoAuthHeader,
                 );
-                // `callMcpToolViaSdk` doesn't surface MCP-level isError. `repo_exec`
-                // emits distinct markers we can use to separate real errors from
-                // the "grep exited 1 with no output" no-match case.
-                if (grepResult.startsWith('Command rejected:') || grepResult.startsWith('Error:') || grepResult.includes('[stderr]')) {
-                  grepErrors++;
-                  appLog.warn(
-                    `search_code pre-gather error for ${repo.name}:${rawTerm}`,
-                    { ticketId, repo: repo.name, term: rawTerm, result: grepResult.slice(0, 500) },
-                    ticketId, 'ticket',
-                  );
-                } else {
-                  // Parse file paths from stdout (skip the [session:...] line)
-                  let matchedAny = false;
-                  for (const line of grepResult.split('\n')) {
-                    const trimmed = line.trim();
-                    if (trimmed && !trimmed.startsWith('[session:') && exts.some(e => trimmed.endsWith(e))) {
-                      relevantFiles.add(trimmed);
+                let matchedAny = false;
+                for (const line of searchResult.split('\n')) {
+                  const m = line.match(/^\.?\/?([^:]+):(\d+):/);
+                  if (m) {
+                    const fp = m[1].trim();
+                    if (fp && exts.some(e => fp.endsWith(e))) {
+                      relevantFiles.add(fp);
                       matchedAny = true;
                     }
                   }
-                  if (!matchedAny) grepNoMatch++;
                 }
+                if (!matchedAny) grepNoMatch++;
               } catch (err) {
                 grepErrors++;
                 appLog.warn(
@@ -2294,6 +2315,7 @@ async function executeRoutePipeline(
         const analysisCtx: AnalysisPipelineContext = {
           ticketId, clientId, category, priority, emailSubject, emailBody,
           clientContext, environmentContext, codeContext, dbContext, facts, summary,
+          attachments: ctx.attachments,
         };
         const toolCtx = { tools: agenticTools, mcpIntegrations, repoIdByPrefix, repos: agenticRepos };
 
@@ -2612,19 +2634,22 @@ async function executeRoutePipeline(
                     const sanitized = rawTerm.replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200);
                     if (!sanitized) continue;
                     try {
-                      const grepResult = await callMcpToolViaSdk(
-                        deps.mcpRepoUrl, '/mcp', 'repo_exec',
-                        { repoId: repo.id, sessionId: customSessionId, clientId, command: `grep -rnil "${sanitized.replace(/"/g, '\\"')}" .` },
+                      const searchResult = await callMcpToolViaSdk(
+                        deps.mcpRepoUrl, '/mcp', 'search_code',
+                        { repoId: repo.id, sessionId: customSessionId, clientId, query: sanitized, maxResults: 200 },
                         customRepoAuth, customRepoAuthHeader,
                       );
                       const exts = ['.sql', '.cs', '.ts'];
-                      for (const line of grepResult.split('\n')) {
-                        const trimmed = line.trim();
-                        if (trimmed && !trimmed.startsWith('[session:') && !trimmed.startsWith('[stderr]') && exts.some(e => trimmed.endsWith(e))) {
-                          relevantFiles.add(trimmed);
+                      for (const line of searchResult.split('\n')) {
+                        const m = line.match(/^\.?\/?([^:]+):(\d+):/);
+                        if (m) {
+                          const fp = m[1].trim();
+                          if (fp && exts.some(e => fp.endsWith(e))) {
+                            relevantFiles.add(fp);
+                          }
                         }
                       }
-                    } catch { /* grep found nothing */ }
+                    } catch { /* search found nothing */ }
                   }
 
                   // Add explicit file paths, rejecting paths that could expose

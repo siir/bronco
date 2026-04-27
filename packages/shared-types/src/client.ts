@@ -39,6 +39,7 @@ export interface Client {
   companyProfile: string | null;
   systemsProfile: string | null;
   domainMappings: string[];
+  searchIgnoreTerms: string[];
   billingMarkupPercent: number;
   billingPeriod: BillingPeriod;
   billingAnchorDay: number;

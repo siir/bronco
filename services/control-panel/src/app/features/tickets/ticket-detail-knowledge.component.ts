@@ -238,6 +238,13 @@ export class TicketDetailKnowledgeComponent {
   knowledgeDoc = input<string | null>(null);
   sectionMeta = input<Record<string, unknown> | null>(null);
   editing = input<boolean>(false);
+  /**
+   * Manual-refresh fan-out token from the parent ticket-detail component.
+   * Tracked in the TOC effect so the operator's refresh re-fetches the doc
+   * structure. Pure-prop fields (knowledgeDoc, sectionMeta) re-render via
+   * the parent's signal updates without help.
+   */
+  refreshToken = input<number>(0);
 
   startEdit = output<void>();
   cancelEdit = output<void>();
@@ -263,6 +270,8 @@ export class TicketDetailKnowledgeComponent {
     // subscription so effect re-runs cancel their prior fetch rather than
     // stacking multiple concurrent requests.
     effect((onCleanup) => {
+      // Track refreshToken so manual refresh re-fetches the TOC.
+      this.refreshToken();
       const id = this.ticketId();
       const hasMeta = this.showToc();
       if (!id || !hasMeta) {

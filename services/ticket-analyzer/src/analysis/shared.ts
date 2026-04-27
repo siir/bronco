@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 import type { PrismaClient } from '@bronco/db';
+import { Prisma } from '@bronco/db';
 import { AIRouter } from '@bronco/ai-provider';
 import {
   TaskType,
@@ -15,6 +16,8 @@ import {
   decrypt,
   looksEncrypted,
   callMcpToolViaSdk,
+  inferSchemaFromHeadTail,
+  adoptMcpSchema,
 } from '@bronco/shared-utils';
 import { enqueueArtifactNameGeneration } from '../artifact-name-queue.js';
 
@@ -445,6 +448,20 @@ export async function buildAgenticTools(
   });
 
   tools.push({
+    name: 'platform__query_artifact',
+    description: 'Run a path query against an artifact and return matching slices. Use to pull surgical pieces of structured data (JSON, XML, CSV) without reading the whole file. JSON: JSONPath ($.x.y or $.items[*].name). XML: XPath (/root/elem). CSV: column name to return that column, or @N for row index N.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        artifact_id: { type: 'string', description: 'The artifact ID to query' },
+        path: { type: 'string', description: 'JSONPath ($.x.y) for JSON, XPath (/root/elem) for XML, header column name (or @N for row N) for CSV' },
+        format: { type: 'string', enum: ['json', 'xml', 'csv'], description: 'Override format auto-detection (otherwise inferred from artifact mimeType + content)' },
+      },
+      required: ['artifact_id', 'path'],
+    },
+  });
+
+  tools.push({
     name: 'platform__request_tool',
     description: [
       'Flag a capability gap discovered during analysis.',
@@ -705,6 +722,10 @@ export async function executeAgenticToolCall(
     } else if (actualToolName === 'list_repos' && clientId) {
       toolInput = { ...input, clientId };
     } else if (actualToolName === 'read_tool_result_artifact' && ticketId) {
+      toolInput = { ...input, ticketId };
+    } else if (actualToolName === 'query_artifact' && ticketId) {
+      // Inject ticketId so the platform server can scope the artifact lookup
+      // to this ticket (defense-in-depth — the agent never sets it directly).
       toolInput = { ...input, ticketId };
     } else if (actualToolName === 'request_tool' && ticketId) {
       // Inject ticketId so the MCP server can derive clientId from the ticket
@@ -1050,6 +1071,33 @@ export async function saveMcpToolArtifact(
     await mkdir(ticketDir, { recursive: true });
     await writeFile(fullPath, rawResult, 'utf-8');
     const relativePath = `tickets/${ticketId}/${filename}`;
+    // Best-effort schema capture: prefer a top-level `_schema` field in the MCP tool envelope
+    // (tier 1 — `mcp_provided`); else infer from head + tail (tier 2 — `head_tail_infer`).
+    let schemaJson: Prisma.InputJsonValue | undefined;
+    try {
+      let producerSchema: unknown = undefined;
+      if (isJson) {
+        try {
+          const parsed = JSON.parse(rawResult) as unknown;
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            const env = parsed as Record<string, unknown>;
+            if (env._schema !== undefined) {
+              producerSchema = env._schema;
+            }
+          }
+        } catch { /* ignore parse */ }
+      }
+      const inferred = producerSchema !== undefined
+        ? adoptMcpSchema(producerSchema)
+        : inferSchemaFromHeadTail(
+            rawResult.slice(0, 2048),
+            rawResult.length > 2048 ? rawResult.slice(-512) : '',
+            mimeType,
+          );
+      schemaJson = inferred as unknown as Prisma.InputJsonValue;
+    } catch (err) {
+      logger.warn({ err, ticketId, toolName }, 'MCP tool artifact schema inference failed — continuing without schema');
+    }
     const created = await db.artifact.create({
       data: {
         ...(artifactId ? { id: artifactId } : {}),
@@ -1064,6 +1112,7 @@ export async function saveMcpToolArtifact(
         source: `mcp_tool:${toolName}`,
         addedBySystem: 'ticket-analyzer:agentic',
         addedByPersonId: null,
+        ...(schemaJson !== undefined ? { schemaJson } : {}),
       },
       select: { id: true },
     });
@@ -1201,6 +1250,22 @@ export interface AnalysisDeps {
   loadDefaultMaxTokens?: () => Promise<number | undefined>;
 }
 
+/**
+ * One row in the structured `## Attachments` block surfaced to the v2 agentic
+ * prompt. Mirrors AttachmentSummary in analyzer.ts; defined here as well so
+ * v2 strategy modules can consume it without depending on analyzer.ts.
+ */
+export interface PipelineAttachment {
+  artifactId: string;
+  kind: string | null;
+  displayName: string | null;
+  filename: string;
+  mimeType: string | null;
+  sizeBytes: number;
+  description: string | null;
+  schemaJson: unknown;
+}
+
 export interface AnalysisPipelineContext {
   ticketId: string;
   clientId: string;
@@ -1221,6 +1286,12 @@ export interface AnalysisPipelineContext {
   };
   summary: string;
   sufficiencyEval?: SufficiencyEvaluation;
+  /**
+   * v2 only: structured artifact catalog rendered as `## Attachments` block in
+   * the agentic prompt. Optional — missing/empty array means no block is rendered.
+   * v1 strategy modules ignore this field.
+   */
+  attachments?: PipelineAttachment[];
 }
 
 export interface AnalysisResult {
