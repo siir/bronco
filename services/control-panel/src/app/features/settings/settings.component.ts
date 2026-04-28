@@ -1,4 +1,4 @@
-import { Component, inject, signal, OnInit, OnDestroy } from '@angular/core';
+import { Component, inject, signal, computed, OnInit, OnDestroy } from '@angular/core';
 import { Subject, Subscription, debounceTime, switchMap } from 'rxjs';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
@@ -18,6 +18,7 @@ import {
   SlackSystemConfig,
   PromptRetentionConfig,
   ToolRequestRateLimitConfig,
+  OrchestratedV2BudgetConfig,
 } from '../../core/services/settings.service.js';
 import { ExternalServiceDialogComponent } from './external-service-dialog.component.js';
 import { StatusConfigDialogComponent } from './status-config-dialog.component.js';
@@ -426,6 +427,101 @@ function getTabIndexFromSlug(tab: string | null | undefined): number {
             </app-card>
 
             <app-card>
+              <h2 class="section-title">Orchestrated v2 Budget Limits</h2>
+              <p class="hint">
+                Numeric guardrails for the orchestrated-v2 analysis engine. Sub-task limits apply per
+                dispatched task; ticket limits cap the whole run. Ratios are fractions of the
+                respective budget (0.1&ndash;0.99). Changes take effect on the next analysis run.
+              </p>
+              @if (budgetConfigLoading()) {
+                <div class="loading-wrapper"><span class="loading-text">Loading...</span></div>
+              } @else {
+                <h3 class="subsection-title">Sub-task limits</h3>
+                <div class="form-grid">
+                  <app-form-field label="Iteration cap" hint="Max tool-call iterations per sub-task (1–50)">
+                    <input class="text-input" type="number" min="1" max="50"
+                      [value]="budgetConfig().subTask.iterationCap"
+                      (input)="updateSubTaskField('iterationCap', +$any($event.target).value)">
+                  </app-form-field>
+                  <app-form-field label="Token budget" hint="Max tokens per sub-task (5000–500000)">
+                    <input class="text-input" type="number" min="5000" max="500000" step="1000"
+                      [value]="budgetConfig().subTask.tokenBudget"
+                      (input)="updateSubTaskField('tokenBudget', +$any($event.target).value)">
+                  </app-form-field>
+                  <app-form-field label="Tool call budget" hint="Max tool calls per sub-task (1–100)">
+                    <input class="text-input" type="number" min="1" max="100"
+                      [value]="budgetConfig().subTask.callBudget"
+                      (input)="updateSubTaskField('callBudget', +$any($event.target).value)">
+                  </app-form-field>
+                  <app-form-field label="Soft-nudge ratio" hint="Fraction of token budget at which a soft nudge fires (0.1–0.99)">
+                    <input class="text-input" type="number" min="0.1" max="0.99" step="0.05"
+                      [value]="budgetConfig().subTask.softNudgeRatio"
+                      (input)="updateSubTaskField('softNudgeRatio', +$any($event.target).value)">
+                  </app-form-field>
+                  <app-form-field label="Hard-stop ratio" hint="Fraction of token budget at which the sub-task is force-stopped (0.1–0.99)">
+                    <input class="text-input" type="number" min="0.1" max="0.99" step="0.05"
+                      [value]="budgetConfig().subTask.hardStopRatio"
+                      (input)="updateSubTaskField('hardStopRatio', +$any($event.target).value)">
+                  </app-form-field>
+                </div>
+
+                <h3 class="subsection-title">Ticket-level cap</h3>
+                <div class="form-grid">
+                  <app-form-field label="Total token budget" hint="Max tokens across the entire orchestrated run (50000–5000000)">
+                    <input class="text-input" type="number" min="50000" max="5000000" step="10000"
+                      [value]="budgetConfig().ticket.totalTokenBudget"
+                      (input)="updateTicketField('totalTokenBudget', +$any($event.target).value)">
+                  </app-form-field>
+                  <app-form-field label="Soft-nudge ratio" hint="Fraction of ticket token budget for a soft nudge (0.1–0.99)">
+                    <input class="text-input" type="number" min="0.1" max="0.99" step="0.05"
+                      [value]="budgetConfig().ticket.softNudgeRatio"
+                      (input)="updateTicketField('softNudgeRatio', +$any($event.target).value)">
+                  </app-form-field>
+                  <app-form-field label="Hard-stop ratio" hint="Fraction of ticket token budget at which the run is force-stopped (0.1–0.99)">
+                    <input class="text-input" type="number" min="0.1" max="0.99" step="0.05"
+                      [value]="budgetConfig().ticket.hardStopRatio"
+                      (input)="updateTicketField('hardStopRatio', +$any($event.target).value)">
+                  </app-form-field>
+                </div>
+
+                <h3 class="subsection-title">Strategist guard</h3>
+                <div class="form-grid">
+                  <app-form-field label="Soft-nudge batch exhausted ratio" hint="Fraction of batches exhausted before a soft nudge fires (0.1–0.99)">
+                    <input class="text-input" type="number" min="0.1" max="0.99" step="0.05"
+                      [value]="budgetConfig().strategistGuard.softNudgeBatchExhaustedRatio"
+                      (input)="updateGuardField('softNudgeBatchExhaustedRatio', +$any($event.target).value)">
+                  </app-form-field>
+                  <app-form-field label="Hard-stop cumulative ratio" hint="Cumulative exhausted-batch fraction for a hard stop (0.1–0.99)">
+                    <input class="text-input" type="number" min="0.1" max="0.99" step="0.05"
+                      [value]="budgetConfig().strategistGuard.hardStopCumulativeExhaustedRatio"
+                      (input)="updateGuardField('hardStopCumulativeExhaustedRatio', +$any($event.target).value)">
+                  </app-form-field>
+                  <app-form-field label="Hard-stop consecutive batches ratio" hint="Consecutive fully-exhausted batches fraction for a hard stop (0.1–0.99)">
+                    <input class="text-input" type="number" min="0.1" max="0.99" step="0.05"
+                      [value]="budgetConfig().strategistGuard.hardStopConsecutiveBatchesRatio"
+                      (input)="updateGuardField('hardStopConsecutiveBatchesRatio', +$any($event.target).value)">
+                  </app-form-field>
+                </div>
+
+                <h3 class="subsection-title">Re-read detector</h3>
+                <div class="form-grid">
+                  <app-form-field label="Warn after read count" hint="Number of times a sub-task re-reads the same section before a warning is logged (2–20)">
+                    <input class="text-input" type="number" min="2" max="20"
+                      [value]="budgetConfig().subTaskReReadDetector.warnAfterReadCount"
+                      (input)="updateReReadField(+$any($event.target).value)">
+                  </app-form-field>
+                </div>
+
+                <div class="card-actions">
+                  <app-bronco-button variant="primary" (click)="saveBudgetConfig()" [disabled]="!budgetConfigDirty() || budgetConfigSaving()">
+                    @if (budgetConfigSaving()) { Saving... } @else { Save }
+                  </app-bronco-button>
+                  <app-bronco-button variant="secondary" (click)="reloadBudgetConfig()" [disabled]="!budgetConfigDirty()">Reset</app-bronco-button>
+                </div>
+              }
+            </app-card>
+
+            <app-card>
               <h2 class="section-title">Self Analysis</h2>
               <p class="hint">
                 Configure triggers for Bronco to analyze its own operations and suggest improvements.
@@ -676,6 +772,12 @@ function getTabIndexFromSlug(tab: string | null | undefined): number {
       font-weight: 600;
       color: var(--text-primary);
     }
+    .subsection-title {
+      margin: 16px 0 8px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
     .hint {
       color: var(--text-tertiary);
       margin-bottom: 16px;
@@ -866,6 +968,21 @@ export class SettingsComponent implements OnInit, OnDestroy {
     { value: 'v1', label: 'v1 (legacy \u2014 full context per call + raw-append knowledge doc)' },
   ];
 
+  // Orchestrated v2 Budget Config
+  private readonly budgetConfigDefaults: OrchestratedV2BudgetConfig = {
+    subTask: { iterationCap: 8, tokenBudget: 50_000, callBudget: 20, softNudgeRatio: 0.6, hardStopRatio: 0.85 },
+    ticket: { totalTokenBudget: 300_000, softNudgeRatio: 0.75, hardStopRatio: 0.95 },
+    strategistGuard: { softNudgeBatchExhaustedRatio: 0.5, hardStopCumulativeExhaustedRatio: 0.5, hardStopConsecutiveBatchesRatio: 0.8 },
+    subTaskReReadDetector: { warnAfterReadCount: 2 },
+  };
+  budgetConfig = signal<OrchestratedV2BudgetConfig>({ ...this.budgetConfigDefaults });
+  private budgetConfigInitial = signal<OrchestratedV2BudgetConfig>({ ...this.budgetConfigDefaults });
+  budgetConfigDirty = computed(() =>
+    JSON.stringify(this.budgetConfig()) !== JSON.stringify(this.budgetConfigInitial()),
+  );
+  budgetConfigLoading = signal(true);
+  budgetConfigSaving = signal(false);
+
   // Self Analysis tab
   selfAnalysisLoading = signal(true);
   selfAnalysisPostAnalysis = signal(false);
@@ -900,6 +1017,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
     this.loadActionSafety();
     this.loadAnalysisStrategy();
     this.loadAnalysisStrategyVersion();
+    this.reloadBudgetConfig();
     this.loadSelfAnalysis();
     this.loadSystemConfigs();
 
@@ -1188,6 +1306,59 @@ export class SettingsComponent implements OnInit, OnDestroy {
         this.toast.error('Failed to save analysis strategy version');
       },
     });
+  }
+
+  // ─── Orchestrated v2 Budget Config ───
+
+  reloadBudgetConfig(): void {
+    this.budgetConfigLoading.set(true);
+    this.settingsSvc.getOrchestratedV2BudgetConfig().subscribe({
+      next: (cfg) => {
+        this.budgetConfig.set(cfg);
+        this.budgetConfigInitial.set(cfg);
+        this.budgetConfigLoading.set(false);
+      },
+      error: () => {
+        this.budgetConfigLoading.set(false);
+        this.toast.error('Failed to load orchestrated v2 budget config');
+      },
+    });
+  }
+
+  saveBudgetConfig(): void {
+    this.budgetConfigSaving.set(true);
+    this.settingsSvc.saveOrchestratedV2BudgetConfig(this.budgetConfig()).subscribe({
+      next: (cfg) => {
+        this.budgetConfig.set(cfg);
+        this.budgetConfigInitial.set(cfg);
+        this.budgetConfigSaving.set(false);
+        this.toast.success('Budget config saved');
+      },
+      error: () => {
+        this.budgetConfigSaving.set(false);
+        this.toast.error('Failed to save budget config');
+      },
+    });
+  }
+
+  updateSubTaskField<K extends keyof OrchestratedV2BudgetConfig['subTask']>(field: K, value: number): void {
+    if (Number.isNaN(value)) return;
+    this.budgetConfig.update(c => ({ ...c, subTask: { ...c.subTask, [field]: value } }));
+  }
+
+  updateTicketField<K extends keyof OrchestratedV2BudgetConfig['ticket']>(field: K, value: number): void {
+    if (Number.isNaN(value)) return;
+    this.budgetConfig.update(c => ({ ...c, ticket: { ...c.ticket, [field]: value } }));
+  }
+
+  updateGuardField<K extends keyof OrchestratedV2BudgetConfig['strategistGuard']>(field: K, value: number): void {
+    if (Number.isNaN(value)) return;
+    this.budgetConfig.update(c => ({ ...c, strategistGuard: { ...c.strategistGuard, [field]: value } }));
+  }
+
+  updateReReadField(value: number): void {
+    if (Number.isNaN(value)) return;
+    this.budgetConfig.update(c => ({ ...c, subTaskReReadDetector: { warnAfterReadCount: value } }));
   }
 
   // ─── Self Analysis ───
