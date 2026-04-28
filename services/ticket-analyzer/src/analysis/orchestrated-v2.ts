@@ -16,7 +16,7 @@ import type {
   AIMessage,
   OrchestratedV2BudgetConfig,
 } from '@bronco/shared-types';
-import { detectArtifactReread, evaluateSubTaskBudget, evaluateBatchFailureGuard, type BatchFailureGuardState } from './budget-thresholds.js';
+import { detectArtifactReread, evaluateSubTaskBudget, evaluateBatchFailureGuard, evaluateTicketBudget, type BatchFailureGuardState } from './budget-thresholds.js';
 import {
   buildArtifactCatalog,
   buildRepoNudgeSnippet,
@@ -1072,6 +1072,10 @@ export async function runOrchestratedV2(
   };
   let strategistHardStopActive = false;
 
+  // Layer E: ticket-level total-token budget state
+  let ticketSoftNudgeFired = false;
+  let ticketHardStopActive = false;
+
   // Pre-build the restricted strategist tool list (computed once for the run)
   const restrictedStrategistTools: AIToolDefinition[] = finalStrategistTools.filter(
     t =>
@@ -1103,6 +1107,75 @@ export async function runOrchestratedV2(
     const orchestrationId = randomUUID();
     appLog.info(`Orchestrated analysis iteration ${i + 1}/${orchMaxIterations}`, { ticketId, iteration: i + 1, orchestrationId }, ticketId, 'ticket');
 
+    // Layer E: ticket-level total-token budget evaluation
+    const totalTokensSoFar = orchTotalInputTokens + orchTotalOutputTokens;
+    const ticketVerdict = evaluateTicketBudget(totalTokensSoFar, budgetConfig.ticket);
+
+    if (ticketVerdict === 'SOFT_NUDGE' && !ticketSoftNudgeFired) {
+      ticketSoftNudgeFired = true;
+      const pct = Math.round((totalTokensSoFar / budgetConfig.ticket.totalTokenBudget) * 100);
+      strategistMessages.push({
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: `⚠️ Ticket budget at ${pct}% (${totalTokensSoFar} / ${budgetConfig.ticket.totalTokenBudget} tokens). You are approaching the cost cap. Consider whether enough findings are in the knowledge doc to call complete_analysis. Further dispatch will be blocked at 95%.`,
+          },
+        ],
+      });
+      appLog.info(
+        `Ticket soft-nudge at iteration ${i + 1} (${pct}% of budget consumed)`,
+        { ticketId, iteration: i + 1, totalTokensSoFar, budget: budgetConfig.ticket.totalTokenBudget },
+        ticketId,
+        'ticket',
+      );
+    }
+
+    if (ticketVerdict === 'HARD_STOP' && !ticketHardStopActive) {
+      ticketHardStopActive = true;
+      const pct = Math.round((totalTokensSoFar / budgetConfig.ticket.totalTokenBudget) * 100);
+      appLog.warn(
+        `Ticket hard-stop activated at iteration ${i + 1} (${pct}% of budget consumed)`,
+        { ticketId, iteration: i + 1, totalTokensSoFar, budget: budgetConfig.ticket.totalTokenBudget },
+        ticketId,
+        'ticket',
+      );
+
+      // Layer E.1: continuation-summary directive
+      strategistMessages.push({
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: [
+              `⚠️ Ticket budget hard-cap reached (${totalTokensSoFar} / ${budgetConfig.ticket.totalTokenBudget} tokens, ${pct}%). You can no longer dispatch sub-tasks.`,
+              `Read the knowledge doc with \`kd_read_toc\` / \`kd_read_section\` and call \`complete_analysis\` next.`,
+              ``,
+              `**Required:** include a \`## Continuation Notes\` section in your \`finalAnalysis\` with the following structure (use exactly these subheadings):`,
+              ``,
+              `\`\`\``,
+              `## Continuation Notes`,
+              ``,
+              `### What we established`,
+              `- <bullet list of confirmed findings, each with KD section reference>`,
+              ``,
+              `### Hypotheses still open`,
+              `- <bullet list of hypotheses introduced but not verified>`,
+              ``,
+              `### Investigation threads not completed`,
+              `- <bullet list of sub-task intents that hit BUDGET_EXHAUSTED with no usable summary>`,
+              ``,
+              `### Suggested next batch`,
+              `- <2-3 sub-task intents that would be most valuable to retry on continuation, with which artifacts/sections to load as context>`,
+              `\`\`\``,
+              ``,
+              `Going slightly over the budget cap to write this summary is permitted and expected.`,
+            ].join('\n'),
+          },
+        ],
+      });
+    }
+
     const strategistLogId = randomUUID();
 
     // --- Inner tool loop: call generateWithTools until strategist dispatches or completes ---
@@ -1129,7 +1202,7 @@ export async function runOrchestratedV2(
           strategyVersion: 'v2' as const,
         },
         messages: strategistMessages,
-        tools: strategistHardStopActive ? restrictedStrategistTools : finalStrategistTools,
+        tools: (strategistHardStopActive || ticketHardStopActive) ? restrictedStrategistTools : finalStrategistTools,
         systemPrompt: strategistSystemPrompt,
         providerOverride: 'CLAUDE',
         modelOverride: 'claude-opus-4-6',

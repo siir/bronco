@@ -1249,6 +1249,99 @@ describe('runOrchestratedV2 — batch-failure guard (Layer D)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// runOrchestratedV2 — ticket budget (Layer E + E.1)
+// ---------------------------------------------------------------------------
+
+describe('runOrchestratedV2 — ticket budget (Layer E + E.1)', () => {
+  beforeEach(() => {
+    resetKdMocks();
+  });
+
+  it('hard-stops at 95% of totalTokenBudget and injects the continuation-notes directive', async () => {
+    // The default ticket.totalTokenBudget is 300_000 with hardStopRatio=0.95.
+    // Hard-stop fires when totalTokensSoFar >= 285_000 (95% of 300_000).
+    //
+    // Sequence:
+    //   - Strategist iter 1: dispatch 1 sub-task, returns 285_001 inputTokens
+    //     → orchTotalInputTokens = 285_001 after iter 1 completes
+    //   - Sub-task: finalize immediately with 0 tokens
+    //   - Strategist iter 2: top-of-loop evaluation sees 285_001 >= 285_000 → E hard-stop fires
+    //   - E.1 directive injected into strategistMessages
+    //   - Iter 2 strategist call: restricted tool list (no dispatch_subtasks)
+    //   - Iter 2 strategist: calls complete_analysis → run ends
+
+    const calls: Array<{ role: 'strategist' | 'subtask'; messages: unknown[]; tools: { name: string }[] }> = [];
+
+    const generateWithTools = vi.fn(async ({ messages, tools }: { messages: unknown[]; tools: Array<{ name: string }> }) => {
+      const isStrategist = tools.some(t => t.name === 'dispatch_subtasks' || t.name === 'complete_analysis');
+      const role = isStrategist ? 'strategist' : 'subtask';
+      calls.push({ role, messages: structuredClone(messages), tools: tools.map(t => ({ name: t.name })) });
+
+      if (isStrategist) {
+        const strategistCallNum = calls.filter(c => c.role === 'strategist').length;
+        if (strategistCallNum === 1) {
+          // Iter 1 strategist: dispatch one sub-task; report 285_001 tokens consumed
+          // (just over the 95% threshold of 300_000) so iter 2 fires the hard-stop
+          return {
+            stopReason: 'tool_use' as const,
+            usage: { inputTokens: 285_001, outputTokens: 0 },
+            contentBlocks: [{
+              type: 'tool_use' as const, id: 'd1', name: 'dispatch_subtasks',
+              input: { subtasks: [{ id: 'st-1', intent: 'check', tools: [], model: 'haiku' }] },
+            } satisfies AIToolUseBlock],
+          };
+        }
+        // Iter 2 strategist (after E hard-stop should be active): immediate complete_analysis
+        return {
+          stopReason: 'tool_use' as const,
+          usage: { inputTokens: 0, outputTokens: 0 },
+          contentBlocks: [{
+            type: 'tool_use' as const, id: 'c1', name: 'complete_analysis',
+            input: { finalAnalysis: 'completed under hard-stop' },
+          } satisfies AIToolUseBlock],
+        };
+      }
+      // Sub-task: finalize immediately, zero tokens
+      return {
+        stopReason: 'tool_use' as const,
+        usage: { inputTokens: 0, outputTokens: 0 },
+        contentBlocks: [{
+          type: 'tool_use' as const, id: 'f1', name: 'finalize_subtask',
+          input: { summary: 'minimal', updatedKdSections: [] },
+        } satisfies AIToolUseBlock],
+      };
+    });
+
+    const ai = { generateWithTools, generate: vi.fn() } as unknown as AIRouter;
+    await runOrchestratedV2(
+      makeDeps(ai),
+      makeCtx(),
+      makeStep(),
+      makeToolCtx(),
+      { maxIterations: 5, existingKnowledgeDoc: '' },
+    );
+
+    // Verify we got at least 2 strategist calls
+    const strategistCalls = calls.filter(c => c.role === 'strategist');
+    expect(strategistCalls.length).toBeGreaterThanOrEqual(2);
+
+    const iter2 = strategistCalls[1];
+    const iter2MessagesStr = JSON.stringify(iter2.messages);
+
+    // The iter-2 messages should contain the continuation-notes directive
+    expect(iter2MessagesStr).toMatch(/## Continuation Notes/);
+    expect(iter2MessagesStr).toMatch(/What we established/);
+    expect(iter2MessagesStr).toMatch(/Hypotheses still open/);
+    expect(iter2MessagesStr).toMatch(/Investigation threads not completed/);
+    expect(iter2MessagesStr).toMatch(/Suggested next batch/);
+
+    // The iter-2 strategist call's tool list must be restricted (no dispatch_subtasks)
+    expect(iter2.tools.map(t => t.name)).not.toContain('dispatch_subtasks');
+    expect(iter2.tools.map(t => t.name)).toContain('complete_analysis');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // v1 orchestrated re-analysis redirect (dispatcher in analyzer.ts)
 // ---------------------------------------------------------------------------
 
