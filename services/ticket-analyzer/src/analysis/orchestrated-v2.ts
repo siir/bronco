@@ -16,7 +16,7 @@ import type {
   AIMessage,
   OrchestratedV2BudgetConfig,
 } from '@bronco/shared-types';
-import { detectArtifactReread } from './budget-thresholds.js';
+import { detectArtifactReread, evaluateSubTaskBudget } from './budget-thresholds.js';
 import {
   buildArtifactCatalog,
   buildRepoNudgeSnippet,
@@ -222,9 +222,53 @@ export async function runSubTaskLoop(
     : { logId: subTaskLogId };
 
   let lastIterationRun = 0;
+  let softNudgeFired = false;
+  let hardStopActive = false;
+  const finalizeOnlyTools: AIToolDefinition[] = [FINALIZE_SUBTASK_TOOL];
+
   for (let iteration = 0; iteration < SUB_TASK_ITERATION_CAP; iteration++) {
     lastIterationRun = iteration + 1;
     const tokensSoFar = totalInputTokens + totalOutputTokens;
+
+    // Layer B: evaluator-based soft-nudge + hard-stop (fires ABOVE the legacy safety-net breaks)
+    const verdict = evaluateSubTaskBudget(
+      { tokensUsed: tokensSoFar, iterationsUsed: iteration, toolCallsUsed: totalToolCalls },
+      budgetConfig.subTask,
+    );
+
+    if (verdict === 'SOFT_NUDGE' && !softNudgeFired) {
+      softNudgeFired = true;
+      const tokenPct = Math.round((tokensSoFar / budgetConfig.subTask.tokenBudget) * 100);
+      const callPct = Math.round((totalToolCalls / budgetConfig.subTask.callBudget) * 100);
+      const iterPct = Math.round((iteration / budgetConfig.subTask.iterationCap) * 100);
+      messages.push({
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: `⚠️ Budget warning: tokens ${tokenPct}%, tool calls ${callPct}%, iterations ${iterPct}%. You are crossing 60% of one or more budgets. Consider finalizing soon — call \`finalize_subtask\` with what you have if your findings already support a useful summary. Further tool calls will be cut off at 85%.`,
+          },
+        ],
+      });
+      appLog.info(
+        `Sub-task ${subTaskId} soft-nudge fired at iteration ${iteration + 1} (tokens=${tokenPct}%, calls=${callPct}%, iter=${iterPct}%)`,
+        { ticketId, subTaskId, iteration: iteration + 1 },
+        ticketId,
+        'ticket',
+      );
+    }
+
+    if (verdict === 'HARD_STOP') {
+      hardStopActive = true;
+      appLog.info(
+        `Sub-task ${subTaskId} hard-stop active at iteration ${iteration + 1} — restricting tools to [finalize_subtask]`,
+        { ticketId, subTaskId, iteration: iteration + 1, tokensSoFar, totalToolCalls },
+        ticketId,
+        'ticket',
+      );
+    }
+
+    // Legacy safety-net break checks (use hardcoded constants; T10 will remove these)
     if (tokensSoFar >= SUB_TASK_TOKEN_BUDGET) {
       appLog.info(
         `Sub-task ${subTaskId} exhausted token budget (${tokensSoFar} >= ${SUB_TASK_TOKEN_BUDGET}) at iteration ${iteration + 1}`,
@@ -267,7 +311,7 @@ export async function runSubTaskLoop(
           ...orchCtx,
         },
         messages,
-        tools: toolsWithFinalize,
+        tools: hardStopActive ? finalizeOnlyTools : toolsWithFinalize,
         systemPrompt: subTaskSystemPrompt,
         providerOverride: 'CLAUDE',
         modelOverride: model,

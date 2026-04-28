@@ -1011,6 +1011,112 @@ describe('runSubTaskLoop — re-read detector (Layer C)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// runSubTaskLoop — budget thresholds (Layer B)
+// ---------------------------------------------------------------------------
+
+describe('runSubTaskLoop — budget thresholds (Layer B)', () => {
+  beforeEach(() => {
+    resetKdMocks();
+  });
+
+  it('injects a soft-nudge text message on the iteration that crosses 60%', async () => {
+    // Default config: tokenBudget=50_000, softNudgeRatio=0.6 → soft threshold at 30_000 tokens.
+    // iter1 returns 31_000 input tokens (pushes total past 30k, below 42.5k hard-stop).
+    // iter2 calls finalize_subtask → loop exits.
+    // We assert that the messages array passed to iter2 includes a 'Budget warning' user message.
+    const calls: Array<{ messages: unknown[]; tools: { name: string }[] }> = [];
+    const ai = {
+      generateWithTools: vi.fn(async ({ messages, tools }: { messages: unknown[]; tools: { name: string }[] }) => {
+        calls.push({ messages: structuredClone(messages), tools: tools.map(t => ({ name: t.name })) });
+        const idx = calls.length;
+        if (idx === 1) {
+          return {
+            stopReason: 'tool_use' as const,
+            usage: { inputTokens: 31_000, outputTokens: 100 },
+            contentBlocks: [{
+              type: 'tool_use' as const, id: 't1', name: 'platform__kd_read_toc',
+              input: { ticketId: 'tk' },
+            } satisfies AIToolUseBlock],
+          };
+        }
+        return {
+          stopReason: 'tool_use' as const,
+          usage: { inputTokens: 100, outputTokens: 50 },
+          contentBlocks: [{
+            type: 'tool_use' as const, id: 't2', name: 'finalize_subtask',
+            input: { summary: 'done', updatedKdSections: [] },
+          } satisfies AIToolUseBlock],
+        };
+      }),
+    };
+
+    const config = OrchestratedV2BudgetConfigSchema.parse({});
+
+    const { runSubTaskLoop } = await import('./orchestrated-v2.js');
+    await runSubTaskLoop(
+      { ai, db: undefined as never, appLog: { info: vi.fn(), warn: vi.fn() }, artifactStoragePath: undefined } as never,
+      'tk', 'cl', 'GENERAL', false, 'st-1', 'test intent',
+      [], [],
+      new Map(), new Map(),
+      'sp', 'haiku',
+      config,
+    );
+
+    // Soft-nudge fires AT TOP of iter2 — the messages passed to calls[1] must include it
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    const iter2Messages = calls[1].messages as Array<{ role: string; content: unknown }>;
+    const stringified = JSON.stringify(iter2Messages);
+    expect(stringified).toMatch(/Budget warning/i);
+  });
+
+  it('restricts tool list to [finalize_subtask] only when crossing 85%', async () => {
+    // Default config: tokenBudget=50_000, hardStopRatio=0.85 → hard threshold at 42_500 tokens.
+    // iter1 returns 43_000 input tokens (pushes total past 42.5k → HARD_STOP on iter2 top).
+    // iter2 call should have tools restricted to [finalize_subtask] only.
+    const calls: Array<{ messages: unknown[]; tools: { name: string }[] }> = [];
+    const ai = {
+      generateWithTools: vi.fn(async ({ messages, tools }: { messages: unknown[]; tools: { name: string }[] }) => {
+        calls.push({ messages: structuredClone(messages), tools: tools.map(t => ({ name: t.name })) });
+        const idx = calls.length;
+        if (idx === 1) {
+          return {
+            stopReason: 'tool_use' as const,
+            usage: { inputTokens: 43_000, outputTokens: 100 },
+            contentBlocks: [{
+              type: 'tool_use' as const, id: 't1', name: 'platform__kd_read_toc',
+              input: { ticketId: 'tk' },
+            } satisfies AIToolUseBlock],
+          };
+        }
+        return {
+          stopReason: 'tool_use' as const,
+          usage: { inputTokens: 100, outputTokens: 50 },
+          contentBlocks: [{
+            type: 'tool_use' as const, id: 't2', name: 'finalize_subtask',
+            input: { summary: 'done', updatedKdSections: [] },
+          } satisfies AIToolUseBlock],
+        };
+      }),
+    };
+
+    const config = OrchestratedV2BudgetConfigSchema.parse({});
+
+    const { runSubTaskLoop } = await import('./orchestrated-v2.js');
+    await runSubTaskLoop(
+      { ai, db: undefined as never, appLog: { info: vi.fn(), warn: vi.fn() }, artifactStoragePath: undefined } as never,
+      'tk', 'cl', 'GENERAL', false, 'st-1', 'test intent',
+      [], [],
+      new Map(), new Map(),
+      'sp', 'haiku',
+      config,
+    );
+
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    expect(calls[1].tools.map(t => t.name)).toEqual(['finalize_subtask']);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // v2-knowledge-doc: writeStallMarker body content is verified in
 // v2-knowledge-doc.test.ts (see the "writeStallMarker" describe block there).
 // That test file does NOT mock v2-knowledge-doc, so the real function runs.
