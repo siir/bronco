@@ -524,9 +524,14 @@ async function executeOrchestratedSubTaskV2(
     'You are a focused investigator. Execute your sub-task intent thoroughly using the available tools.',
     'Record each finding by calling kd_* tools (platform__kd_add_subsection, platform__kd_update_section).',
     'Do NOT dump raw tool output into your response — the knowledge doc is the source of truth.',
-    'When you have completed your investigation, call `finalize_subtask` with a concise summary (100-300 words)',
-    'and the list of KD section keys you updated. Call `finalize_subtask` as the LAST action — do not call',
-    'it before you have gathered all the data you need.',
+    '',
+    'BUDGET DISCIPLINE — read carefully:',
+    '- You have a hard budget (tokens, iterations, tool calls). The runner will warn you when you cross 60%.',
+    '- When using `platform__read_tool_result_artifact`, prefer `grep` mode to find specific patterns over paging through chunks. If the truncated preview shown in the prior tool_result is enough to support a finding, work from that — do NOT re-read the same artifact.',
+    '- Re-reading the same artifact more than once will trigger a warning. Heed it.',
+    '- Partial findings with what you have are MORE useful than burning the entire budget chasing more.',
+    'When you have enough to justify a finding, call `finalize_subtask` with a concise summary (100-300 words)',
+    'and the list of KD section keys you updated. Earlier finalize is better than budget-exhausted.',
   ].join(' ');
 
   const priorArtifactsHint = task.priorArtifactIds && task.priorArtifactIds.length > 0
