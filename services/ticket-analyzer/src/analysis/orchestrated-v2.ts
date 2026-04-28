@@ -7,14 +7,16 @@ import {
   updateSection,
   withTicketLock,
 } from '@bronco/shared-utils';
-import { KnowledgeDocSectionKey, KnowledgeDocUpdateMode, TaskType } from '@bronco/shared-types';
+import { KnowledgeDocSectionKey, KnowledgeDocUpdateMode, OrchestratedV2BudgetConfigSchema, TaskType } from '@bronco/shared-types';
 import type {
   AITextBlock,
   AIToolDefinition,
   AIToolResultBlock,
   AIToolUseBlock,
   AIMessage,
+  OrchestratedV2BudgetConfig,
 } from '@bronco/shared-types';
+import { detectArtifactReread } from './budget-thresholds.js';
 import {
   buildArtifactCatalog,
   buildRepoNudgeSnippet,
@@ -145,7 +147,7 @@ function formatKdSectionFromDoc(
  * `buildAgenticTools` returned — it is NOT part of `buildAgenticTools` because
  * it is orchestrated-v2–only and must not be visible to flat-v2 / v1 agents.
  */
-async function runSubTaskLoop(
+export async function runSubTaskLoop(
   deps: AnalysisDeps,
   ticketId: string,
   clientId: string,
@@ -159,6 +161,7 @@ async function runSubTaskLoop(
   repoIdByPrefix: Map<string, string>,
   subTaskSystemPrompt: string,
   model: string,
+  budgetConfig: OrchestratedV2BudgetConfig,
   orchestration?: { id: string; iteration: number; parentLogId?: string },
   toolResultMaxTokens?: number,
   defaultMaxTokens?: number,
@@ -170,6 +173,7 @@ async function runSubTaskLoop(
   let totalOutputTokens = 0;
   let totalToolCalls = 0;
   const failureTracker = new Map<string, number>();
+  const artifactReadCounts = new Map<string, number>();
 
   // Build the tool list: requested tools + finalize_subtask (always appended)
   const toolsWithFinalize: AIToolDefinition[] = [
@@ -370,10 +374,31 @@ async function runSubTaskLoop(
         durationMs: elapsed,
       });
 
+      // Layer C: detect re-reads of the same artifact and append a guidance nudge
+      let contentWithMaybeNudge: string = contentForModel;
+      if (toolUse.name === 'platform__read_tool_result_artifact') {
+        const inputArtifactId = (toolUse.input as Record<string, unknown>)?.artifactId;
+        if (typeof inputArtifactId === 'string' && inputArtifactId.length > 0) {
+          const fired = detectArtifactReread(
+            artifactReadCounts,
+            inputArtifactId,
+            budgetConfig.subTaskReReadDetector.warnAfterReadCount,
+          );
+          if (fired) {
+            const count = artifactReadCounts.get(inputArtifactId) ?? 0;
+            contentWithMaybeNudge = [
+              contentForModel,
+              '',
+              `⚠️ You have read artifact ${inputArtifactId} ${count} times in this sub-task. Use \`grep\` mode to find specific patterns, or proceed with the data you have and call \`finalize_subtask\`.`,
+            ].join('\n');
+          }
+        }
+      }
+
       toolResults.push({
         type: 'tool_result',
         tool_use_id: toolUse.id,
-        content: contentForModel,
+        content: contentWithMaybeNudge,
         ...(result.isError ? { is_error: true } : {}),
       });
 
@@ -510,6 +535,7 @@ async function executeOrchestratedSubTaskV2(
   agenticTools: AIToolDefinition[],
   mcpIntegrations: Map<string, McpIntegrationInfo>,
   repoIdByPrefix: Map<string, string>,
+  budgetConfig: OrchestratedV2BudgetConfig,
   orchestration?: { id: string; iteration: number; parentLogId?: string },
   modelMap?: Record<string, string>,
   toolResultMaxTokens?: number,
@@ -613,6 +639,7 @@ async function executeOrchestratedSubTaskV2(
     repoIdByPrefix,
     subTaskSystemPrompt,
     model,
+    budgetConfig,
     orchestration,
     toolResultMaxTokens,
     defaultMaxTokens,
@@ -647,6 +674,7 @@ async function executeOrchestratedSubTaskV2(
         repoIdByPrefix,
         subTaskSystemPrompt,
         model,
+        budgetConfig,
         orchestration,
         toolResultMaxTokens,
         defaultMaxTokens,
@@ -860,6 +888,9 @@ export async function runOrchestratedV2(
 
   const defaultMaxTokens = await deps.loadDefaultMaxTokens?.() ?? undefined;
   const toolResultMaxTokens = await getToolResultMaxTokens(db);
+
+  // T10 will replace this with: const budgetConfig = await resolveOrchestratedV2BudgetConfig(db);
+  const budgetConfig = OrchestratedV2BudgetConfigSchema.parse({});
 
   const maxParallelTasks = await resolveMaxParallelTasks(db);
   const orchModelMap = await resolveOrchestratedModelMap(db);
@@ -1267,6 +1298,7 @@ export async function runOrchestratedV2(
               agenticTools,
               mcpIntegrations,
               repoIdByPrefix,
+              budgetConfig,
               { id: orchestrationId, iteration: i + 1, parentLogId: strategistLogId },
               orchModelMap,
               toolResultMaxTokens,
@@ -1317,6 +1349,7 @@ export async function runOrchestratedV2(
                 agenticTools,
                 mcpIntegrations,
                 repoIdByPrefix,
+                budgetConfig,
                 { id: orchestrationId, iteration: i + 1, parentLogId: strategistLogId },
                 orchModelMap,
                 toolResultMaxTokens,

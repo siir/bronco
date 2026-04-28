@@ -19,6 +19,8 @@ import type { PrismaClient } from '@bronco/db';
 import type { AIRouter } from '@bronco/ai-provider';
 import type { AppLogger } from '@bronco/shared-utils';
 import { initEmptyKnowledgeDoc } from '@bronco/shared-utils';
+import type { AIToolUseBlock } from '@bronco/shared-types';
+import { OrchestratedV2BudgetConfigSchema } from '@bronco/shared-types';
 
 // ---------------------------------------------------------------------------
 // Module-level mocks — must precede SUT import
@@ -44,6 +46,21 @@ vi.mock('@bronco/shared-utils', async (importOriginal) => {
   };
 });
 
+// Stub executeAgenticToolCall in shared.js so tests run without live MCP servers.
+// importOriginal preserves all other exports (constants, types, helpers) used by
+// orchestrated-v2.ts so existing tests are unaffected.
+vi.mock('./shared.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./shared.js')>();
+  return {
+    ...actual,
+    executeAgenticToolCall: vi.fn(async (toolUse: AIToolUseBlock) => ({
+      toolUseId: toolUse.id,
+      result: 'fake tool result content',
+      isError: false,
+    })),
+  };
+});
+
 // Stub v2-knowledge-doc helpers so they don't touch the DB.
 vi.mock('./v2-knowledge-doc.js', () => ({
   composeFinalAnalysis: vi.fn().mockReturnValue('composed analysis'),
@@ -61,7 +78,7 @@ import {
 } from './v2-knowledge-doc.js';
 
 // Import the SUT (after mocks are in place)
-import { runOrchestratedV2 } from './orchestrated-v2.js';
+import { runOrchestratedV2, runSubTaskLoop } from './orchestrated-v2.js';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -890,6 +907,106 @@ describe('stall guard: writeStallMarker is called with ⚠️ marker text', () =
     expect(ticketId).toBe('ticket-stall-check');
     expect(iteration).toBe(3); // stalls on 3rd identical iteration
     expect(reason).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runSubTaskLoop — re-read detector (Layer C)
+// ---------------------------------------------------------------------------
+
+describe('runSubTaskLoop — re-read detector (Layer C)', () => {
+  beforeEach(() => {
+    resetKdMocks();
+  });
+
+  it('appends a re-read warning to the second tool_result for the same artifactId', async () => {
+    // Three iterations:
+    //   iter1: tool_use platform__read_tool_result_artifact (artifactId=A) → first read, no warning
+    //   iter2: tool_use platform__read_tool_result_artifact (artifactId=A) → second read (count=2), warning fires
+    //   iter3: tool_use finalize_subtask → loop exits
+    //
+    // We capture every messages array passed to generateWithTools.
+    // After iter2's tool_result is appended, iter3's call receives messages
+    // that include the nudge text in the tool_result for tu-2.
+
+    const sameArtifactId = '11111111-1111-1111-1111-111111111111';
+    const capturedMessages: Array<Array<{ role: string; content: unknown }>> = [];
+
+    const generateWithToolsMock = vi.fn(async ({ messages }: { messages: Array<{ role: string; content: unknown }> }) => {
+      capturedMessages.push(structuredClone(messages) as Array<{ role: string; content: unknown }>);
+      const idx = capturedMessages.length;
+
+      if (idx === 1) {
+        return {
+          stopReason: 'tool_use' as const,
+          usage: { inputTokens: 100, outputTokens: 50 },
+          contentBlocks: [{
+            type: 'tool_use' as const,
+            id: 'tu-1',
+            name: 'platform__read_tool_result_artifact',
+            input: { artifactId: sameArtifactId, ticketId: 'tk', offset: 0, limit: 4000 },
+          } satisfies AIToolUseBlock],
+        };
+      }
+      if (idx === 2) {
+        return {
+          stopReason: 'tool_use' as const,
+          usage: { inputTokens: 100, outputTokens: 50 },
+          contentBlocks: [{
+            type: 'tool_use' as const,
+            id: 'tu-2',
+            name: 'platform__read_tool_result_artifact',
+            input: { artifactId: sameArtifactId, ticketId: 'tk', offset: 4000, limit: 4000 },
+          } satisfies AIToolUseBlock],
+        };
+      }
+      // idx === 3: finalize_subtask → loop exits
+      return {
+        stopReason: 'tool_use' as const,
+        usage: { inputTokens: 100, outputTokens: 50 },
+        contentBlocks: [{
+          type: 'tool_use' as const,
+          id: 'tu-3',
+          name: 'finalize_subtask',
+          input: { summary: 'done', updatedKdSections: [] },
+        } satisfies AIToolUseBlock],
+      };
+    });
+
+    const ai = { generateWithTools: generateWithToolsMock, generate: vi.fn() } as unknown as AIRouter;
+    const config = OrchestratedV2BudgetConfigSchema.parse({});
+
+    await runSubTaskLoop(
+      {
+        ai,
+        db: undefined as never,
+        appLog: makeAppLog(),
+        artifactStoragePath: undefined,
+      } as never,
+      'tk',          // ticketId
+      'cl',          // clientId
+      'GENERAL',     // category
+      false,         // skipClientMemory
+      'st-1',        // subTaskId
+      'test intent', // intent
+      [],            // contextKdSections (empty → no DB load)
+      [],            // tools
+      new Map(),     // mcpIntegrations
+      new Map(),     // repoIdByPrefix
+      'test system prompt', // subTaskSystemPrompt
+      'haiku',       // model
+      config,        // budgetConfig
+    );
+
+    // Should have been called exactly 3 times
+    expect(capturedMessages.length).toBeGreaterThanOrEqual(3);
+
+    // The third call's messages should include the re-read warning in a tool_result
+    const thirdCallMessages = capturedMessages[2];
+    const lastUser = [...thirdCallMessages].reverse().find(m => m.role === 'user');
+    const lastContent = JSON.stringify(lastUser?.content ?? '');
+    expect(lastContent).toMatch(/you have read artifact/i);
+    expect(lastContent).toMatch(/2 times/i);
   });
 });
 
