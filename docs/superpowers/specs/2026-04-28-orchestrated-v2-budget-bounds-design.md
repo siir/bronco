@@ -86,11 +86,43 @@ Track `totalTokensConsumed` = strategist usage (input + output) + sum of every s
 After each strategist iteration, before the next strategist `generateWithTools` call:
 
 - **Soft-nudge** at 75% of `TICKET_TOTAL_TOKEN_BUDGET`: inject `tool_result` warning on next strategist turn.
-- **Hard-stop** at 95%: strategist tool list reduced to `[COMPLETE_ANALYSIS_TOOL, kd_read_toc, kd_read_section]`.
+- **Hard-stop** at 95%: strategist tool list reduced to `[COMPLETE_ANALYSIS_TOOL, kd_read_toc, kd_read_section]`. The `tool_result` injected with this restriction includes a **continuation-summary directive** (see below).
 
 Default value: `300_000` tokens (≈$5 hard ceiling at Opus rate). The user explicitly chose 300k; v1 handles the same workload for ~$1–2, so 300k leaves ~3× headroom for v2's strategist overhead.
 
 Side benefit: bounds runaway *strategist* cost from any source (including its own `read_tool_result_artifact` access, which is currently unguarded).
+
+#### E.1. Continuation summary on hard-stop
+
+When E's hard-stop fires, the user wants the run to close out with a **structured "where I left off" summary** so a manual re-analysis can pick up the thread. The strategist's forced `complete_analysis` call must include this even if it pushes the run slightly over budget — bounded overshoot of one strategist call (~8k output tokens) is the explicit trade-off.
+
+The injected `tool_result` accompanying the hard-stop tool-list restriction reads (verbatim):
+
+> ⚠️ Ticket budget hard-cap reached (X / Y tokens, Z%). You can no longer dispatch sub-tasks. Read the knowledge doc with `kd_read_toc` / `kd_read_section` and call `complete_analysis` next.
+>
+> **Required:** include a `## Continuation Notes` section in your `finalAnalysis` with the following structure (use exactly these subheadings):
+>
+> ```
+> ## Continuation Notes
+>
+> ### What we established
+> - <bullet list of confirmed findings, each with KD section reference>
+>
+> ### Hypotheses still open
+> - <bullet list of hypotheses introduced but not verified>
+>
+> ### Investigation threads not completed
+> - <bullet list of sub-task intents that hit BUDGET_EXHAUSTED with no usable summary>
+>
+> ### Suggested next batch
+> - <2–3 sub-task intents that would be most valuable to retry on continuation, with which artifacts/sections to load as context>
+> ```
+>
+> Going slightly over the budget cap to write this summary is permitted and expected.
+
+The `composeFinalAnalysis` function does NOT need changes — the strategist's `finalAnalysis` text flows through untouched, and the executive-summary section in the AI_ANALYSIS event will surface the continuation notes. The Knowledge Doc itself is unchanged by this; the notes live only in the executive summary.
+
+Composes with the future #48 Item 7 (re-analysis steering with prior executive summary) — the `## Continuation Notes` section IS the steering input for that follow-up.
 
 ## Configuration via DB AppSetting
 
@@ -162,12 +194,13 @@ New card in the existing **Analysis tab** of `services/control-panel/src/app/fea
 - Save button → `settingsSvc.saveOrchestratedV2BudgetConfig(value)` (new service method, mirrors `saveAnalysisStrategyVersion` at `settings.service.ts:302-307`)
 - Footer help text: "Lower values reduce worst-case cost; too low may cut healthy analyses short. See docs."
 
-## MCP Platform Server sync
+## MCP Platform Server sync — DEFERRED
 
-CLAUDE.md mandates that every API operation should be accessible via both REST and MCP. The new endpoint pair therefore needs a corresponding MCP tool in `mcp-servers/platform/src/tools/`:
+CLAUDE.md mandates REST/MCP parity for new API operations. The MCP tool pair is **deferred to issue #475** because of a self-modification risk: if `set_orchestrated_v2_budget_config` were exposed to the analyzer's caller allowlist, the analysis agent could in principle re-configure its own cost limits — an unacceptable foot-gun for a runaway-cost guardrail.
 
-- `get_orchestrated_v2_budget_config` (read-only, allowed for analyzer / admin callers)
-- `set_orchestrated_v2_budget_config` (admin-only — gated by caller registry)
+The follow-up issue (#475) covers building the tool pair with strict caller scoping (analyzer can READ but not WRITE) and a slack-integration use case for admin runtime tuning.
+
+For this PR: REST endpoints only. The control panel uses REST. The analyzer reads its budget directly via Prisma (no MCP needed).
 
 ## Testing strategy
 
@@ -181,6 +214,7 @@ File: `services/ticket-analyzer/src/analysis/orchestrated-v2.test.ts` (extend ex
 - D (soft-nudge): mock dispatch_subtasks result with 50% BUDGET_EXHAUSTED + empty updatedKdSections; assert tool_result injected on next strategist turn
 - D (hard-stop): mock cumulative metrics crossing 50% threshold; assert strategist tool list reduced to finalization tools
 - E: mock budget config with `totalTokenBudget: 100_000`; track usage from a stub strategist + sub-tasks crossing 75% / 95%; assert the corresponding nudge / hard-stop behaviors
+- E.1: assert hard-stop tool_result content includes the `## Continuation Notes` directive with all four required subheadings
 - Config resolver: missing AppSetting → all defaults; malformed JSON → all defaults; partial JSON → defaults merge with provided values
 
 ### Integration smoke
@@ -201,11 +235,11 @@ v1 paths (flat-v1, orchestrated-v1) — no test changes.
 ## Files modified
 
 ### Backend
-- `services/ticket-analyzer/src/analysis/orchestrated-v2.ts` — main logic for A, B, C, D, E + config plumbing
+- `services/ticket-analyzer/src/analysis/orchestrated-v2.ts` — main logic for A, B, C, D, E + config plumbing + E.1 continuation-summary directive
 - `services/ticket-analyzer/src/analysis/shared.ts` — `resolveOrchestratedV2BudgetConfig` helper, `AnalysisDeps` extension
 - `services/copilot-api/src/routes/settings.ts` — new GET/PUT endpoint pair
 - `packages/shared-types/src/analysis.ts` — `OrchestratedV2BudgetConfigSchema` + type
-- `mcp-servers/platform/src/tools/` — new MCP tool pair (REST/MCP parity)
+- (MCP tool pair deferred — see #475)
 
 ### Frontend
 - `services/control-panel/src/app/features/settings/settings.component.ts` — new card in Analysis tab
@@ -219,13 +253,15 @@ v1 paths (flat-v1, orchestrated-v1) — no test changes.
 - Strategist `read_tool_result_artifact` loop detection (#470 successor — addressing the loop itself, not just its cost)
 - Per-ticket-category budget tuning (e.g. DATABASE_PERF gets larger budget than BUG_FIX)
 - Replay harness / cost regression test in CI
+- MCP tool pair for budget config — deferred to #475 (admin-scoped, slack-integration use case)
+- Re-analysis flow that consumes `## Continuation Notes` — deferred to #48 Item 7
 - Issue #471 (sub-task tool allowlist inconsistency) — independent root cause; separate fix
 - Issue #472 (worktree concurrency) — independent root cause; separate fix
 
 ## Acceptance criteria
 
-1. With default config, replaying ticket #49 (`cf1b96e8`) terminates within 300k tokens (~$5) and produces a non-empty executive summary, even if degraded vs a perfect run.
+1. With default config, replaying ticket #49 (`cf1b96e8`) terminates within 300k tokens (~$5) plus the bounded continuation-summary overshoot (≤8k strategist output tokens) and produces a non-empty executive summary that includes the `## Continuation Notes` section when E hard-stop fires.
 2. Healthy tickets that previously analyzed in <100k tokens continue to complete without hitting any soft-nudge.
 3. Operator can change `totalTokenBudget` via the control panel and the next analysis picks up the new value.
-4. All five layers (A–E) have unit-test coverage for their trigger conditions.
+4. All five layers (A–E) have unit-test coverage for their trigger conditions; E.1's continuation-summary directive is asserted by an additional test.
 5. v1 paths and other v2 features (sub-task tool allowlist, KD writes, fallback compose) unchanged — verified by existing tests passing.
