@@ -252,7 +252,7 @@ export async function runSubTaskLoop(
       );
     }
 
-    if (verdict === 'HARD_STOP') {
+    if (verdict === 'HARD_STOP' && !hardStopActive) {
       hardStopActive = true;
       appLog.info(
         `Sub-task ${subTaskId} hard-stop active at iteration ${iteration + 1} — restricting tools to [finalize_subtask]`,
@@ -260,6 +260,9 @@ export async function runSubTaskLoop(
         ticketId,
         'ticket',
       );
+    } else if (verdict === 'HARD_STOP') {
+      // Sticky after first transition; no further log to keep the loop quiet
+      hardStopActive = true;
     }
 
     // Legacy safety-net break checks (backed by runtime budgetConfig values)
