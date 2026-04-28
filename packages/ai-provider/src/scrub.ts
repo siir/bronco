@@ -23,8 +23,17 @@
 const NUL = String.fromCharCode(0);
 const NUL_PATTERN = new RegExp(NUL, 'g');
 
-export function stripNulBytes<T extends string | null | undefined>(value: T): T {
+// Overloads keep the return type sound: a `string` input returns a `string`,
+// and `null` / `undefined` pass through with their exact types preserved.
+// The previous generic `T extends string | null | undefined` + `as T` cast
+// would mis-declare the result for branded / literal-string inputs, since the
+// stripped value is no longer assignable to the branded input type.
+export function stripNulBytes(value: string): string;
+export function stripNulBytes(value: null): null;
+export function stripNulBytes(value: undefined): undefined;
+export function stripNulBytes(value: string | null | undefined): string | null | undefined;
+export function stripNulBytes(value: string | null | undefined): string | null | undefined {
   if (value == null) return value;
   if (!value.includes(NUL)) return value;
-  return value.replace(NUL_PATTERN, '') as T;
+  return value.replace(NUL_PATTERN, '');
 }

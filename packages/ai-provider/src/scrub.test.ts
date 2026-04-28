@@ -6,7 +6,7 @@ describe('stripNulBytes', () => {
     expect(stripNulBytes('hello world')).toBe('hello world');
   });
 
-  it('returns the same reference (no allocation) when no NUL bytes are present', () => {
+  it('returns the same string when no NUL bytes are present', () => {
     const input = 'hello world';
     expect(stripNulBytes(input)).toBe(input);
   });
