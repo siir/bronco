@@ -88,21 +88,9 @@ const logger = createLogger('ticket-analyzer');
  */
 const STRATEGIST_MAX_TOKENS = 8192;
 
-// ---------------------------------------------------------------------------
-// Sub-task budget constants
-// ---------------------------------------------------------------------------
-
-/**
- * Hard-coded fallback values for the orchestrated-v2 sub-task budget. These are
- * the schema defaults from `OrchestratedV2BudgetConfigSchema` — kept here for
- * reference. Live runtime values come from `resolveOrchestratedV2BudgetConfig(db)`
- * and are passed through `runOrchestratedV2` -> `runSubTaskLoop` via `budgetConfig`.
- */
-const DEFAULT_SUB_TASK_BUDGET = {
-  iterationCap: 8,
-  tokenBudget: 50_000,
-  callBudget: 20,
-} as const;
+// Sub-task budget values now come from `OrchestratedV2BudgetConfigSchema` defaults
+// in @bronco/shared-types, loaded at runtime via `resolveOrchestratedV2BudgetConfig(db)`
+// and threaded through `runOrchestratedV2` -> `runSubTaskLoop` as `budgetConfig`.
 
 // ---------------------------------------------------------------------------
 // Helpers
