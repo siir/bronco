@@ -16,7 +16,7 @@ import type {
   AIMessage,
   OrchestratedV2BudgetConfig,
 } from '@bronco/shared-types';
-import { detectArtifactReread, evaluateSubTaskBudget } from './budget-thresholds.js';
+import { detectArtifactReread, evaluateSubTaskBudget, evaluateBatchFailureGuard, type BatchFailureGuardState } from './budget-thresholds.js';
 import {
   buildArtifactCatalog,
   buildRepoNudgeSnippet,
@@ -1064,6 +1064,22 @@ export async function runOrchestratedV2(
   let stallReason: string | null = null;
   let stallIteration = 0;
 
+  // Layer D: strategist batch-failure guard state
+  const batchFailureState: BatchFailureGuardState = {
+    cumulativeExhausted: 0,
+    cumulativeTotal: 0,
+    consecutiveBadBatches: 0,
+  };
+  let strategistHardStopActive = false;
+
+  // Pre-build the restricted strategist tool list (computed once for the run)
+  const restrictedStrategistTools: AIToolDefinition[] = finalStrategistTools.filter(
+    t =>
+      t.name === 'complete_analysis' ||
+      t.name === 'platform__kd_read_toc' ||
+      t.name === 'platform__kd_read_section',
+  );
+
   // ---------------------------------------------------------------------------
   // Strategist message loop
   // ---------------------------------------------------------------------------
@@ -1113,7 +1129,7 @@ export async function runOrchestratedV2(
           strategyVersion: 'v2' as const,
         },
         messages: strategistMessages,
-        tools: finalStrategistTools,
+        tools: strategistHardStopActive ? restrictedStrategistTools : finalStrategistTools,
         systemPrompt: strategistSystemPrompt,
         providerOverride: 'CLAUDE',
         modelOverride: 'claude-opus-4-6',
@@ -1434,6 +1450,25 @@ export async function runOrchestratedV2(
         }
       }
 
+      // Layer D: evaluate batch-failure guard
+      const isFirstBatch = batchFailureState.cumulativeTotal === 0;
+      const guardVerdict = evaluateBatchFailureGuard(
+        batchFailureState,
+        allSubTaskResults.map(r => ({ stopReason: r.stopReason, updatedKdSections: r.updatedKdSections })),
+        budgetConfig.strategistGuard,
+        isFirstBatch,
+      );
+
+      if (guardVerdict === 'HARD_STOP') {
+        strategistHardStopActive = true;
+        appLog.warn(
+          `Strategist hard-stop activated at iteration ${i + 1} — cumulative ${batchFailureState.cumulativeExhausted}/${batchFailureState.cumulativeTotal} sub-tasks BUDGET_EXHAUSTED, consecutiveBadBatches=${batchFailureState.consecutiveBadBatches}`,
+          { ticketId, iteration: i + 1, cumulative: { ...batchFailureState } },
+          ticketId,
+          'ticket',
+        );
+      }
+
       // Append sub-task results to strategist messages as tool_result for the dispatch_subtasks call.
       // Use the captured `dispatchCallId` from this iteration (not a history scan) to ensure
       // the tool_result is threaded onto the correct dispatch_subtasks tool_use block.
@@ -1448,13 +1483,22 @@ export async function runOrchestratedV2(
           tokensUsed: r.tokensUsed,
         }));
 
+        let guardWarning = '';
+        if (guardVerdict === 'SOFT_NUDGE') {
+          guardWarning = `⚠️ ${batchFailureState.cumulativeExhausted}/${batchFailureState.cumulativeTotal} sub-tasks BUDGET_EXHAUSTED so far. Many produced no usable findings (empty updatedKdSections). Before dispatching another batch, read the knowledge doc with kd_read_toc to see what's been written, and consider whether complete_analysis is the right next call.\n\n`;
+        } else if (guardVerdict === 'HARD_STOP') {
+          guardWarning = `⚠️ Cost guard hard-stop: too many sub-tasks BUDGET_EXHAUSTED. Further dispatch is blocked. You may now ONLY call complete_analysis (or kd_read_toc / kd_read_section to inspect findings before doing so). Wrap up the analysis with what's available.\n\n`;
+        }
+
+        const content = guardWarning + JSON.stringify(resultPayload, null, 2);
+
         strategistMessages.push({
           role: 'user',
           content: [
             {
               type: 'tool_result',
               tool_use_id: dispatchCallId,
-              content: JSON.stringify(resultPayload, null, 2),
+              content,
             } satisfies AIToolResultBlock,
           ],
         });

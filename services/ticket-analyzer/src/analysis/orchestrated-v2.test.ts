@@ -1133,6 +1133,122 @@ describe('writeStallMarker (v2-knowledge-doc)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// runOrchestratedV2 — batch-failure guard (Layer D)
+// ---------------------------------------------------------------------------
+
+describe('runOrchestratedV2 — batch-failure guard (Layer D)', () => {
+  beforeEach(() => {
+    resetKdMocks();
+  });
+
+  it('hard-stops strategist tool list when 80% of two consecutive batches were BUDGET_EXHAUSTED', async () => {
+    // Approach B: distinguish strategist vs sub-task calls by tools parameter.
+    // Sub-tasks return a huge inputTokens value (> SUB_TASK_TOKEN_BUDGET=50_000) on
+    // their first call so the legacy token-budget check fires and the sub-task loop
+    // returns BUDGET_EXHAUSTED after exactly one generateWithTools call.
+    //
+    // Sequence:
+    //   - Strategist iter 1: dispatch_subtasks → 5 sub-tasks (all BUDGET_EXHAUSTED)
+    //   - Batch 1 guard: isFirstBatch=true → OK (free pass); cumulativeExhausted=5
+    //   - Strategist iter 2: dispatch_subtasks → 5 more sub-tasks (all BUDGET_EXHAUSTED)
+    //   - Batch 2 guard: cumulative 10/10 > 0.5 → HARD_STOP; strategistHardStopActive=true
+    //   - Strategist iter 3: should receive restrictedStrategistTools (no dispatch_subtasks)
+    //   - Strategist iter 3: calls complete_analysis → run ends
+    //
+    // The default strategistGuard config: hardStopCumulativeExhaustedRatio=0.5, so
+    // 10/10 > 0.5 triggers HARD_STOP on the cumulative rule.
+
+    const fiveSubtasks = (prefix: string) =>
+      Array.from({ length: 5 }, (_, i) => ({
+        id: `${prefix}-st-${i + 1}`,
+        intent: `Intent ${prefix} ${i + 1}`,
+        tools: [],
+        model: 'sonnet',
+      }));
+
+    // Capture the tools list passed to each strategist call (non-finalize tools)
+    const strategistToolLists: Array<string[]> = [];
+    let strategistCallCount = 0;
+
+    const generateWithTools = vi.fn().mockImplementation(
+      ({ tools }: { tools: Array<{ name: string }> }) => {
+        const hasDispatch = tools.some(t => t.name === 'dispatch_subtasks');
+        const hasFinalize = tools.some(t => t.name === 'finalize_subtask');
+
+        if (hasFinalize) {
+          // Sub-task call — return a large token count to trigger token budget exhaustion
+          // (SUB_TASK_TOKEN_BUDGET=50_000; reporting 51_000 exceeds it)
+          return Promise.resolve({
+            contentBlocks: [makeToolUseBlock('platform__kd_read_toc', { ticketId: 'ticket-test-001' })],
+            stopReason: 'tool_use' as const,
+            usage: { inputTokens: 51_000, outputTokens: 100 },
+          });
+        }
+
+        // Strategist call
+        strategistCallCount++;
+        strategistToolLists.push(tools.map(t => t.name));
+
+        if (strategistCallCount === 1) {
+          // Iter 1: dispatch 5 sub-tasks (batch 1)
+          return Promise.resolve({
+            contentBlocks: [makeToolUseBlock('dispatch_subtasks', {
+              subtasks: fiveSubtasks('b1'),
+            }, `tu_dispatch_1`)],
+            stopReason: 'tool_use' as const,
+            usage: { inputTokens: 100, outputTokens: 80 },
+          });
+        }
+        if (strategistCallCount === 2) {
+          // Iter 2: dispatch 5 sub-tasks (batch 2) — still has dispatch_subtasks available
+          // because hard-stop fires AFTER this batch resolves (at end of iter 2)
+          expect(hasDispatch).toBe(true);
+          return Promise.resolve({
+            contentBlocks: [makeToolUseBlock('dispatch_subtasks', {
+              subtasks: fiveSubtasks('b2'),
+            }, `tu_dispatch_2`)],
+            stopReason: 'tool_use' as const,
+            usage: { inputTokens: 100, outputTokens: 80 },
+          });
+        }
+        // Strategist call 3+: should be restricted (no dispatch_subtasks)
+        return Promise.resolve({
+          contentBlocks: [makeToolUseBlock('complete_analysis', {
+            finalAnalysis: 'Guard fired — wrapping up with available findings.',
+          }, 'tu_complete')],
+          stopReason: 'tool_use' as const,
+          usage: { inputTokens: 50, outputTokens: 25 },
+        });
+      },
+    );
+
+    const ai = { generateWithTools, generate: vi.fn() } as unknown as AIRouter;
+    await runOrchestratedV2(
+      makeDeps(ai),
+      makeCtx(),
+      makeStep(),
+      makeToolCtx(),
+      { maxIterations: 10, existingKnowledgeDoc: '' },
+    );
+
+    // Strategist must have been called at least 3 times
+    expect(strategistCallCount).toBeGreaterThanOrEqual(3);
+
+    // Strategist call 1 and 2: full tool list — includes dispatch_subtasks
+    expect(strategistToolLists[0]).toContain('dispatch_subtasks');
+    expect(strategistToolLists[1]).toContain('dispatch_subtasks');
+
+    // Strategist call 3 (after HARD_STOP): restricted — no dispatch_subtasks
+    expect(strategistToolLists[2]).not.toContain('dispatch_subtasks');
+    // Restricted list must contain exactly the three permitted tools
+    expect(strategistToolLists[2]).toContain('complete_analysis');
+    expect(strategistToolLists[2]).toContain('platform__kd_read_toc');
+    expect(strategistToolLists[2]).toContain('platform__kd_read_section');
+    expect(strategistToolLists[2]).toHaveLength(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // v1 orchestrated re-analysis redirect (dispatcher in analyzer.ts)
 // ---------------------------------------------------------------------------
 
