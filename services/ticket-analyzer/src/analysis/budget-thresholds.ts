@@ -111,7 +111,12 @@ export function evaluateBatchFailureGuard(
   // Free first batch
   if (isFirstBatch) return 'OK';
 
-  // HARD_STOP rule 1: cumulative exhausted ratio crosses threshold (strictly over)
+  // HARD_STOP rule 1: cumulative exhausted ratio crosses threshold.
+  // Strictly `>` (not `>=`): when softNudgeBatchExhaustedRatio and
+  // hardStopCumulativeExhaustedRatio are equal (e.g. both 0.5 by default),
+  // the boundary value belongs to SOFT_NUDGE so the nudge always fires at
+  // least once before the hard stop. Reverting this to `>=` will silently
+  // break the SOFT_NUDGE-at-50% test in budget-thresholds.test.ts.
   if (state.cumulativeTotal > 0
     && state.cumulativeExhausted / state.cumulativeTotal > config.hardStopCumulativeExhaustedRatio) {
     return 'HARD_STOP';

@@ -44,6 +44,10 @@ describe('evaluateTicketBudget', () => {
     expect(evaluateTicketBudget(150_000, config.ticket)).toBe('OK');
   });
 
+  it('returns OK just below 75% (boundary inclusivity check)', () => {
+    expect(evaluateTicketBudget(224_999, config.ticket)).toBe('OK');
+  });
+
   it('returns SOFT_NUDGE at 75%', () => {
     expect(evaluateTicketBudget(225_000, config.ticket)).toBe('SOFT_NUDGE');
   });
