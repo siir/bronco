@@ -38,6 +38,10 @@ export const OrchestratedV2BudgetConfigSchema = z
   .refine(
     (cfg) => cfg.ticket.softNudgeRatio < cfg.ticket.hardStopRatio,
     { message: 'ticket.softNudgeRatio must be less than ticket.hardStopRatio' },
+  )
+  .refine(
+    (cfg) => cfg.strategistGuard.softNudgeBatchExhaustedRatio <= cfg.strategistGuard.hardStopCumulativeExhaustedRatio,
+    { message: 'strategistGuard.softNudgeBatchExhaustedRatio must be less than or equal to strategistGuard.hardStopCumulativeExhaustedRatio (otherwise the soft nudge would never fire before the hard stop)' },
   );
 
 export type OrchestratedV2BudgetConfig = z.output<typeof OrchestratedV2BudgetConfigSchema>;
