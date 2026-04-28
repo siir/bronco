@@ -7,7 +7,7 @@ import {
   updateSection,
   withTicketLock,
 } from '@bronco/shared-utils';
-import { KnowledgeDocSectionKey, KnowledgeDocUpdateMode, OrchestratedV2BudgetConfigSchema, TaskType } from '@bronco/shared-types';
+import { KnowledgeDocSectionKey, KnowledgeDocUpdateMode, TaskType } from '@bronco/shared-types';
 import type {
   AITextBlock,
   AIToolDefinition,
@@ -30,6 +30,7 @@ import {
   ReanalysisMode,
   resolveMaxParallelTasks,
   resolveOrchestratedModelMap,
+  resolveOrchestratedV2BudgetConfig,
   resolveTaskTools,
   saveMcpToolArtifact,
   shouldTruncate,
@@ -91,12 +92,17 @@ const STRATEGIST_MAX_TOKENS = 8192;
 // Sub-task budget constants
 // ---------------------------------------------------------------------------
 
-/** Maximum model iterations per sub-task (each iteration = one generateWithTools call). */
-const SUB_TASK_ITERATION_CAP = 8;
-/** Maximum total tokens (input + output) a single sub-task may consume. */
-const SUB_TASK_TOKEN_BUDGET = 50_000;
-/** Maximum tool calls a single sub-task may make (not counting finalize_subtask). */
-const SUB_TASK_CALL_BUDGET = 20;
+/**
+ * Hard-coded fallback values for the orchestrated-v2 sub-task budget. These are
+ * the schema defaults from `OrchestratedV2BudgetConfigSchema` — kept here for
+ * reference. Live runtime values come from `resolveOrchestratedV2BudgetConfig(db)`
+ * and are passed through `runOrchestratedV2` -> `runSubTaskLoop` via `budgetConfig`.
+ */
+const DEFAULT_SUB_TASK_BUDGET = {
+  iterationCap: 8,
+  tokenBudget: 50_000,
+  callBudget: 20,
+} as const;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -197,7 +203,7 @@ export async function runSubTaskLoop(
       }
     }
   }
-  const budgetLine = `## Budget\nMax ${SUB_TASK_ITERATION_CAP} iterations, max ${SUB_TASK_TOKEN_BUDGET.toLocaleString()} tokens total, max ${SUB_TASK_CALL_BUDGET} tool calls. Call \`finalize_subtask\` once you are done — do not wait until budget is exhausted.`;
+  const budgetLine = `## Budget\nMax ${budgetConfig.subTask.iterationCap} iterations, max ${budgetConfig.subTask.tokenBudget.toLocaleString()} tokens total, max ${budgetConfig.subTask.callBudget} tool calls. Call \`finalize_subtask\` once you are done — do not wait until budget is exhausted.`;
   const userPrompt = [
     '## Intent',
     intent,
@@ -226,7 +232,7 @@ export async function runSubTaskLoop(
   let hardStopActive = false;
   const finalizeOnlyTools: AIToolDefinition[] = [FINALIZE_SUBTASK_TOOL];
 
-  for (let iteration = 0; iteration < SUB_TASK_ITERATION_CAP; iteration++) {
+  for (let iteration = 0; iteration < budgetConfig.subTask.iterationCap; iteration++) {
     lastIterationRun = iteration + 1;
     const tokensSoFar = totalInputTokens + totalOutputTokens;
 
@@ -268,19 +274,19 @@ export async function runSubTaskLoop(
       );
     }
 
-    // Legacy safety-net break checks (use hardcoded constants; T10 will remove these)
-    if (tokensSoFar >= SUB_TASK_TOKEN_BUDGET) {
+    // Legacy safety-net break checks (backed by runtime budgetConfig values)
+    if (tokensSoFar >= budgetConfig.subTask.tokenBudget) {
       appLog.info(
-        `Sub-task ${subTaskId} exhausted token budget (${tokensSoFar} >= ${SUB_TASK_TOKEN_BUDGET}) at iteration ${iteration + 1}`,
+        `Sub-task ${subTaskId} exhausted token budget (${tokensSoFar} >= ${budgetConfig.subTask.tokenBudget}) at iteration ${iteration + 1}`,
         { ticketId, subTaskId, tokensSoFar, iteration: iteration + 1 },
         ticketId,
         'ticket',
       );
       break;
     }
-    if (totalToolCalls >= SUB_TASK_CALL_BUDGET) {
+    if (totalToolCalls >= budgetConfig.subTask.callBudget) {
       appLog.info(
-        `Sub-task ${subTaskId} exhausted call budget (${totalToolCalls} >= ${SUB_TASK_CALL_BUDGET}) at iteration ${iteration + 1}`,
+        `Sub-task ${subTaskId} exhausted call budget (${totalToolCalls} >= ${budgetConfig.subTask.callBudget}) at iteration ${iteration + 1}`,
         { ticketId, subTaskId, totalToolCalls, iteration: iteration + 1 },
         ticketId,
         'ticket',
@@ -289,7 +295,7 @@ export async function runSubTaskLoop(
     }
 
     appLog.info(
-      `Sub-task ${subTaskId} iteration ${iteration + 1}/${SUB_TASK_ITERATION_CAP}`,
+      `Sub-task ${subTaskId} iteration ${iteration + 1}/${budgetConfig.subTask.iterationCap}`,
       { ticketId, subTaskId, iteration: iteration + 1, tokensSoFar },
       ticketId,
       'ticket',
@@ -933,8 +939,13 @@ export async function runOrchestratedV2(
   const defaultMaxTokens = await deps.loadDefaultMaxTokens?.() ?? undefined;
   const toolResultMaxTokens = await getToolResultMaxTokens(db);
 
-  // T10 will replace this with: const budgetConfig = await resolveOrchestratedV2BudgetConfig(db);
-  const budgetConfig = OrchestratedV2BudgetConfigSchema.parse({});
+  const budgetConfig = await resolveOrchestratedV2BudgetConfig(db);
+  appLog.info(
+    `Orchestrated v2 run starting with budget config: ticket.totalTokenBudget=${budgetConfig.ticket.totalTokenBudget}, subTask.tokenBudget=${budgetConfig.subTask.tokenBudget}`,
+    { ticketId, budgetConfig },
+    ticketId,
+    'ticket',
+  );
 
   const maxParallelTasks = await resolveMaxParallelTasks(db);
   const orchModelMap = await resolveOrchestratedModelMap(db);
