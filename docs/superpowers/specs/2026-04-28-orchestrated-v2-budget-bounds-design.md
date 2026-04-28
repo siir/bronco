@@ -251,7 +251,7 @@ v1 paths (flat-v1, orchestrated-v1) — no test changes.
 ## Out of scope (future work / separate issues)
 
 - Strategist `read_tool_result_artifact` loop detection (#470 successor — addressing the loop itself, not just its cost)
-- Per-ticket-category budget tuning (e.g. DATABASE_PERF gets larger budget than BUG_FIX)
+- Per-ticket-category budget tuning — deferred to #476 (e.g. DATABASE_PERF gets larger budget than BUG_FIX). Trigger: measure first, extend the schema once real-world data shows a category-cost gradient.
 - Replay harness / cost regression test in CI
 - MCP tool pair for budget config — deferred to #475 (admin-scoped, slack-integration use case)
 - Re-analysis flow that consumes `## Continuation Notes` — deferred to #48 Item 7
