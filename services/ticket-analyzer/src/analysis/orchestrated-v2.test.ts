@@ -1339,6 +1339,90 @@ describe('runOrchestratedV2 — ticket budget (Layer E + E.1)', () => {
     expect(iter2.tools.map(t => t.name)).not.toContain('dispatch_subtasks');
     expect(iter2.tools.map(t => t.name)).toContain('complete_analysis');
   });
+
+  it('aborts dispatch and injects directive when batch worst-case would overflow ticket cap (#477 review)', async () => {
+    // Pre-batch overshoot guard. Top-of-iteration is below HARD_STOP, but the
+    // batch's worst-case cost would push past the cap.
+    //
+    // Configure a tight ticket budget where iter 1 stays under HARD_STOP at
+    // top-of-iter, but the dispatched batch (5 sub-tasks × 50_000 token
+    // budget = 250_000 worst-case) would overflow.
+    //
+    // ticket.totalTokenBudget = 300_000 (default), iter 1 strategist returns
+    // 200_000 inputTokens (~67%, below soft-nudge of 75%). Then iter 1's
+    // dispatch is 5 sub-tasks; pre-batch worst-case = 5 × 50_000 = 250_000;
+    // 200_000 + 250_000 = 450_000 > 300_000 → wouldOverflow = true.
+    //
+    // Expected: iter 1's batch is aborted; directive is injected; the
+    // dispatch_subtasks call gets a synthetic abort tool_result; iter 2's
+    // strategist tool list is restricted.
+
+    const calls: Array<{ role: 'strategist' | 'subtask'; messages: unknown[]; tools: { name: string }[] }> = [];
+
+    const generateWithTools = vi.fn(async ({ messages, tools }: { messages: unknown[]; tools: Array<{ name: string }> }) => {
+      const isStrategist = tools.some(t => t.name === 'dispatch_subtasks' || t.name === 'complete_analysis');
+      const role = isStrategist ? 'strategist' : 'subtask';
+      calls.push({ role, messages: structuredClone(messages), tools: tools.map(t => ({ name: t.name })) });
+
+      if (isStrategist) {
+        const strategistCallNum = calls.filter(c => c.role === 'strategist').length;
+        if (strategistCallNum === 1) {
+          // Iter 1: dispatch 5 sub-tasks, consume 200_000 tokens (below top-of-iter HARD_STOP at 285k).
+          // Worst-case batch cost: 5 × 50_000 = 250_000. Total worst-case: 450_000 > 300_000.
+          return {
+            stopReason: 'tool_use' as const,
+            usage: { inputTokens: 200_000, outputTokens: 0 },
+            contentBlocks: [{
+              type: 'tool_use' as const, id: 'd1', name: 'dispatch_subtasks',
+              input: {
+                subtasks: [
+                  { id: 'st-1', intent: 'a', tools: [], model: 'haiku' },
+                  { id: 'st-2', intent: 'b', tools: [], model: 'haiku' },
+                  { id: 'st-3', intent: 'c', tools: [], model: 'haiku' },
+                  { id: 'st-4', intent: 'd', tools: [], model: 'haiku' },
+                  { id: 'st-5', intent: 'e', tools: [], model: 'haiku' },
+                ],
+              },
+            } satisfies AIToolUseBlock],
+          };
+        }
+        // Iter 2: complete_analysis (after batch was aborted)
+        return {
+          stopReason: 'tool_use' as const,
+          usage: { inputTokens: 0, outputTokens: 0 },
+          contentBlocks: [{
+            type: 'tool_use' as const, id: 'c1', name: 'complete_analysis',
+            input: { finalAnalysis: 'completed under pre-batch hard-stop' },
+          } satisfies AIToolUseBlock],
+        };
+      }
+      // Sub-task path should NEVER be hit if pre-batch guard works.
+      throw new Error('Sub-task generateWithTools called — pre-batch guard failed to abort');
+    });
+
+    const ai = { generateWithTools, generate: vi.fn() } as unknown as AIRouter;
+    await runOrchestratedV2(
+      makeDeps(ai),
+      makeCtx(),
+      makeStep(),
+      makeToolCtx(),
+      { maxIterations: 5, existingKnowledgeDoc: '' },
+    );
+
+    // Verify the sub-task path was never invoked (pre-batch guard aborted before execution)
+    const subtaskCalls = calls.filter(c => c.role === 'subtask');
+    expect(subtaskCalls).toHaveLength(0);
+
+    // Iter 2 strategist must have seen the directive AND have a restricted tool list
+    const strategistCalls = calls.filter(c => c.role === 'strategist');
+    expect(strategistCalls.length).toBeGreaterThanOrEqual(2);
+    const iter2 = strategistCalls[1];
+    const iter2MessagesStr = JSON.stringify(iter2.messages);
+    expect(iter2MessagesStr).toMatch(/## Continuation Notes/);
+    expect(iter2MessagesStr).toMatch(/Dispatch aborted/);
+    expect(iter2.tools.map(t => t.name)).not.toContain('dispatch_subtasks');
+    expect(iter2.tools.map(t => t.name)).toContain('complete_analysis');
+  });
 });
 
 // ---------------------------------------------------------------------------

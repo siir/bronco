@@ -1086,6 +1086,52 @@ export async function runOrchestratedV2(
       t.name === 'platform__kd_read_section',
   );
 
+  // E.1: continuation-summary directive injection. Used by both the top-of-iteration
+  // ticket budget check and the pre-batch overshoot guard, so each path can transition
+  // ticketHardStopActive without duplicating the directive content. Caller is
+  // responsible for the `!ticketHardStopActive` one-shot guard.
+  const injectTicketHardStopDirective = (iteration: number, totalTokensSoFar: number): void => {
+    const pct = Math.round((totalTokensSoFar / budgetConfig.ticket.totalTokenBudget) * 100);
+    appLog.warn(
+      `Ticket hard-stop activated at iteration ${iteration} (${pct}% of budget consumed)`,
+      { ticketId, iteration, totalTokensSoFar, budget: budgetConfig.ticket.totalTokenBudget },
+      ticketId,
+      'ticket',
+    );
+    strategistMessages.push({
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: [
+            `⚠️ Ticket budget hard-cap reached (${totalTokensSoFar} / ${budgetConfig.ticket.totalTokenBudget} tokens, ${pct}%). You can no longer dispatch sub-tasks.`,
+            `Read the knowledge doc with \`kd_read_toc\` / \`kd_read_section\` and call \`complete_analysis\` next.`,
+            ``,
+            `**Required:** include a \`## Continuation Notes\` section in your \`finalAnalysis\` with the following structure (use exactly these subheadings):`,
+            ``,
+            `\`\`\``,
+            `## Continuation Notes`,
+            ``,
+            `### What we established`,
+            `- <bullet list of confirmed findings, each with KD section reference>`,
+            ``,
+            `### Hypotheses still open`,
+            `- <bullet list of hypotheses introduced but not verified>`,
+            ``,
+            `### Investigation threads not completed`,
+            `- <bullet list of sub-task intents that hit BUDGET_EXHAUSTED with no usable summary>`,
+            ``,
+            `### Suggested next batch`,
+            `- <2-3 sub-task intents that would be most valuable to retry on continuation, with which artifacts/sections to load as context>`,
+            `\`\`\``,
+            ``,
+            `Going slightly over the budget cap to write this summary is permitted and expected.`,
+          ].join('\n'),
+        },
+      ],
+    });
+  };
+
   // ---------------------------------------------------------------------------
   // Strategist message loop
   // ---------------------------------------------------------------------------
@@ -1135,47 +1181,7 @@ export async function runOrchestratedV2(
 
     if (ticketVerdict === 'HARD_STOP' && !ticketHardStopActive) {
       ticketHardStopActive = true;
-      const pct = Math.round((totalTokensSoFar / budgetConfig.ticket.totalTokenBudget) * 100);
-      appLog.warn(
-        `Ticket hard-stop activated at iteration ${i + 1} (${pct}% of budget consumed)`,
-        { ticketId, iteration: i + 1, totalTokensSoFar, budget: budgetConfig.ticket.totalTokenBudget },
-        ticketId,
-        'ticket',
-      );
-
-      // Layer E.1: continuation-summary directive
-      strategistMessages.push({
-        role: 'user',
-        content: [
-          {
-            type: 'text',
-            text: [
-              `⚠️ Ticket budget hard-cap reached (${totalTokensSoFar} / ${budgetConfig.ticket.totalTokenBudget} tokens, ${pct}%). You can no longer dispatch sub-tasks.`,
-              `Read the knowledge doc with \`kd_read_toc\` / \`kd_read_section\` and call \`complete_analysis\` next.`,
-              ``,
-              `**Required:** include a \`## Continuation Notes\` section in your \`finalAnalysis\` with the following structure (use exactly these subheadings):`,
-              ``,
-              `\`\`\``,
-              `## Continuation Notes`,
-              ``,
-              `### What we established`,
-              `- <bullet list of confirmed findings, each with KD section reference>`,
-              ``,
-              `### Hypotheses still open`,
-              `- <bullet list of hypotheses introduced but not verified>`,
-              ``,
-              `### Investigation threads not completed`,
-              `- <bullet list of sub-task intents that hit BUDGET_EXHAUSTED with no usable summary>`,
-              ``,
-              `### Suggested next batch`,
-              `- <2-3 sub-task intents that would be most valuable to retry on continuation, with which artifacts/sections to load as context>`,
-              `\`\`\``,
-              ``,
-              `Going slightly over the budget cap to write this summary is permitted and expected.`,
-            ].join('\n'),
-          },
-        ],
-      });
+      injectTicketHardStopDirective(i + 1, totalTokensSoFar);
     }
 
     const strategistLogId = randomUUID();
@@ -1390,6 +1396,53 @@ export async function runOrchestratedV2(
         ticketId,
         'ticket',
       );
+
+      // Layer E pre-batch overshoot guard.
+      // Top-of-iteration ticketVerdict only catches budget after sub-tasks have already
+      // run. Without this, a batch dispatched at e.g. 80% can burn (subtaskCount × subTask.tokenBudget)
+      // worth of tokens before the next iteration notices — overshooting the cap by 100%+ in the
+      // worst case. Re-evaluate just before executing the batch and abort if the worst-case
+      // batch cost would push past the cap.
+      const preBatchTokens = orchTotalInputTokens + orchTotalOutputTokens;
+      const preBatchVerdict = evaluateTicketBudget(preBatchTokens, budgetConfig.ticket);
+      const worstCaseBatchTokens = plan.subtasks.length * budgetConfig.subTask.tokenBudget;
+      const wouldOverflow = preBatchTokens + worstCaseBatchTokens > budgetConfig.ticket.totalTokenBudget;
+
+      if (preBatchVerdict === 'HARD_STOP' || wouldOverflow) {
+        const reason = preBatchVerdict === 'HARD_STOP'
+          ? 'ticket budget already at hard-stop'
+          : 'worst-case batch cost would overflow ticket cap';
+        appLog.warn(
+          `Pre-batch ticket budget abort at iteration ${i + 1}: ${reason} — current=${preBatchTokens}, worst-case=${worstCaseBatchTokens}, cap=${budgetConfig.ticket.totalTokenBudget}`,
+          { ticketId, iteration: i + 1, current: preBatchTokens, worstCase: worstCaseBatchTokens, cap: budgetConfig.ticket.totalTokenBudget, reason },
+          ticketId,
+          'ticket',
+        );
+
+        if (!ticketHardStopActive) {
+          ticketHardStopActive = true;
+          injectTicketHardStopDirective(i + 1, preBatchTokens);
+        }
+
+        // Anthropic's API requires a tool_result for every tool_use. Synthesize one for the
+        // dispatch_subtasks call so the next strategist turn has a well-formed conversation,
+        // and so the strategist sees concretely what aborted the batch.
+        if (dispatchCallId) {
+          strategistMessages.push({
+            role: 'user',
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: dispatchCallId,
+                content: `⚠️ Dispatch aborted: ${reason}. Current ticket cost: ${preBatchTokens} tokens; planned batch worst-case adds ${worstCaseBatchTokens}; cap is ${budgetConfig.ticket.totalTokenBudget}. You must call complete_analysis next, including the ## Continuation Notes section per the directive.`,
+              } satisfies AIToolResultBlock,
+            ],
+          });
+        }
+
+        await writeKnowledgeDocSnapshot(db, ticketId, i + 1);
+        continue;
+      }
 
       // Record iteration start in Run Log
       try {
