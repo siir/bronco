@@ -9,6 +9,7 @@ import type { ProviderConfigRow } from './provider-config-resolver.js';
 import { PromptResolver } from './prompt-resolver.js';
 import type { PromptOverrideRow } from './prompt-resolver.js';
 import type { AiUsageEntry, AiArchiveEntry, AiCostLookup } from './types.js';
+import { stripNulBytes } from './scrub.js';
 
 const log = createLogger('ai-router');
 
@@ -255,13 +256,22 @@ export function createAIRouter(
 
   const usageWriter = async (entry: AiUsageEntry): Promise<string | undefined> => {
     if (!dbReady) return undefined;
-    // Prisma JSON fields need undefined (not null) for "no value" — strip null conversationMetadata
+    // Prisma JSON fields need undefined (not null) for "no value" — strip null conversationMetadata.
+    // Also scrub NUL bytes from the three free-text columns (#473): Postgres TEXT rejects 0x00,
+    // and inbound conversation content can carry stray NULs from UTF-16 LE source-file reads or
+    // binary artifact content. Without this scrub the entire audit-log row is dropped on insert.
     const { conversationMetadata, logId, ...rest } = entry;
+    const scrubbedRest = {
+      ...rest,
+      promptText: stripNulBytes(rest.promptText),
+      systemPrompt: stripNulBytes(rest.systemPrompt),
+      responseText: stripNulBytes(rest.responseText),
+    };
     const data = {
       ...(logId ? { id: logId } : {}),
       ...(conversationMetadata != null
-        ? { ...rest, conversationMetadata: conversationMetadata as unknown as Record<string, unknown> }
-        : rest),
+        ? { ...scrubbedRest, conversationMetadata: conversationMetadata as unknown as Record<string, unknown> }
+        : scrubbedRest),
     };
     const row = await db.aiUsageLog.create({ data: data as Record<string, unknown> });
     return row.id;
@@ -269,9 +279,15 @@ export function createAIRouter(
 
   const archiveWriter = async (entry: AiArchiveEntry): Promise<void> => {
     if (!dbReady) return;
-    // Cast conversationMessages to satisfy Prisma's JSON type
+    // Cast conversationMessages to satisfy Prisma's JSON type. Scrub NUL bytes from the
+    // three free-text columns for the same reason as usageWriter (see #473).
     const { conversationMessages, ...rest } = entry;
-    const data: Record<string, unknown> = { ...rest };
+    const data: Record<string, unknown> = {
+      ...rest,
+      fullPrompt: stripNulBytes(rest.fullPrompt),
+      fullResponse: stripNulBytes(rest.fullResponse),
+      systemPrompt: stripNulBytes(rest.systemPrompt),
+    };
     if (conversationMessages != null) {
       data.conversationMessages = conversationMessages;
     }

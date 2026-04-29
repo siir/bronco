@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { TicketStatus, TicketCategory, DEFAULT_OPERATIONAL_ALERT_CONFIG, DEFAULT_ACTION_SAFETY_CONFIG, OperatorRole } from '@bronco/shared-types';
+import { TicketStatus, TicketCategory, DEFAULT_OPERATIONAL_ALERT_CONFIG, DEFAULT_ACTION_SAFETY_CONFIG, OperatorRole, OrchestratedV2BudgetConfigSchema } from '@bronco/shared-types';
 import type { OperationalAlertConfig, ActionSafetyConfig, ActionSafetyLevel } from '@bronco/shared-types';
 import { Mailer, createLogger, decrypt, encrypt, loadSmtpFromDb, looksEncrypted } from '@bronco/shared-utils';
 import { z } from 'zod';
@@ -44,6 +44,7 @@ const SETTINGS_KEY_PROMPT_RETENTION = 'system-config-prompt-retention';
 const SETTINGS_KEY_ACTION_SAFETY = 'system-config-action-safety';
 const SETTINGS_KEY_ANALYSIS_STRATEGY = 'system-config-analysis-strategy';
 const SETTINGS_KEY_ANALYSIS_STRATEGY_VERSION = 'analysis-strategy-version';
+const SETTINGS_KEY_ORCHESTRATED_V2_BUDGET_CONFIG = 'orchestrated-v2-budget-config';
 const SETTINGS_KEY_SELF_ANALYSIS = 'self_analysis_config';
 const SETTINGS_KEY_TOOL_REQUEST_RATE_LIMIT = 'tool-request-rate-limit-per-run';
 
@@ -1196,6 +1197,50 @@ export async function settingsRoutes(fastify: FastifyInstance, opts: SettingsRou
         create: { key: SETTINGS_KEY_ANALYSIS_STRATEGY_VERSION, value: config as unknown as object },
       });
       return row.value as AnalysisStrategyVersionConfig;
+    },
+  );
+
+  // ---------------------------------------------------------------------------
+  // Orchestrated v2 Budget Config (#470)
+  // ---------------------------------------------------------------------------
+
+  fastify.get('/api/settings/orchestrated-v2-budget-config', async () => {
+    const row = await fastify.db.appSetting.findUnique({
+      where: { key: SETTINGS_KEY_ORCHESTRATED_V2_BUDGET_CONFIG },
+    });
+    if (!row) return OrchestratedV2BudgetConfigSchema.parse({});
+    const parsed = OrchestratedV2BudgetConfigSchema.safeParse(row.value);
+    if (!parsed.success) {
+      logger.warn(
+        { key: SETTINGS_KEY_ORCHESTRATED_V2_BUDGET_CONFIG, errors: parsed.error.issues },
+        'Stored orchestrated-v2 budget config is malformed — resetting to defaults',
+      );
+      const defaults = OrchestratedV2BudgetConfigSchema.parse({});
+      await fastify.db.appSetting.update({
+        where: { key: SETTINGS_KEY_ORCHESTRATED_V2_BUDGET_CONFIG },
+        data: { value: defaults as unknown as object },
+      });
+      return defaults;
+    }
+    return parsed.data;
+  });
+
+  fastify.put<{ Body: Record<string, unknown> }>(
+    '/api/settings/orchestrated-v2-budget-config',
+    { preHandler: requireRole(OperatorRole.ADMIN) },
+    async (request) => {
+      const parsed = OrchestratedV2BudgetConfigSchema.safeParse(request.body);
+      if (!parsed.success) {
+        const msg = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+        return fastify.httpErrors.badRequest(`Invalid orchestrated-v2 budget config: ${msg}`);
+      }
+      const config = parsed.data;
+      const row = await fastify.db.appSetting.upsert({
+        where: { key: SETTINGS_KEY_ORCHESTRATED_V2_BUDGET_CONFIG },
+        update: { value: config as unknown as object },
+        create: { key: SETTINGS_KEY_ORCHESTRATED_V2_BUDGET_CONFIG, value: config as unknown as object },
+      });
+      return row.value as typeof config;
     },
   );
 

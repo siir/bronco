@@ -30,4 +30,5 @@ export * from './action-safety.js';
 export * from './self-client.js';
 export * from './person.js';
 export * from './access-type.js';
+export * from './analysis.js';
 export * from './auth.js';

@@ -14,7 +14,9 @@ import type {
   AIToolResultBlock,
   AIToolUseBlock,
   AIMessage,
+  OrchestratedV2BudgetConfig,
 } from '@bronco/shared-types';
+import { detectArtifactReread, evaluateSubTaskBudget, evaluateBatchFailureGuard, evaluateTicketBudget, type BatchFailureGuardState } from './budget-thresholds.js';
 import {
   buildArtifactCatalog,
   buildRepoNudgeSnippet,
@@ -28,9 +30,11 @@ import {
   ReanalysisMode,
   resolveMaxParallelTasks,
   resolveOrchestratedModelMap,
+  resolveOrchestratedV2BudgetConfig,
   resolveTaskTools,
   saveMcpToolArtifact,
   shouldTruncate,
+  truncatePriorExecutiveSummary,
   type AgenticToolContext,
   type AnalysisDeps,
   type AnalysisPipelineContext,
@@ -85,16 +89,9 @@ const logger = createLogger('ticket-analyzer');
  */
 const STRATEGIST_MAX_TOKENS = 8192;
 
-// ---------------------------------------------------------------------------
-// Sub-task budget constants
-// ---------------------------------------------------------------------------
-
-/** Maximum model iterations per sub-task (each iteration = one generateWithTools call). */
-const SUB_TASK_ITERATION_CAP = 8;
-/** Maximum total tokens (input + output) a single sub-task may consume. */
-const SUB_TASK_TOKEN_BUDGET = 50_000;
-/** Maximum tool calls a single sub-task may make (not counting finalize_subtask). */
-const SUB_TASK_CALL_BUDGET = 20;
+// Sub-task budget values now come from `OrchestratedV2BudgetConfigSchema` defaults
+// in @bronco/shared-types, loaded at runtime via `resolveOrchestratedV2BudgetConfig(db)`
+// and threaded through `runOrchestratedV2` -> `runSubTaskLoop` as `budgetConfig`.
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -145,7 +142,7 @@ function formatKdSectionFromDoc(
  * `buildAgenticTools` returned — it is NOT part of `buildAgenticTools` because
  * it is orchestrated-v2–only and must not be visible to flat-v2 / v1 agents.
  */
-async function runSubTaskLoop(
+export async function runSubTaskLoop(
   deps: AnalysisDeps,
   ticketId: string,
   clientId: string,
@@ -159,6 +156,7 @@ async function runSubTaskLoop(
   repoIdByPrefix: Map<string, string>,
   subTaskSystemPrompt: string,
   model: string,
+  budgetConfig: OrchestratedV2BudgetConfig,
   orchestration?: { id: string; iteration: number; parentLogId?: string },
   toolResultMaxTokens?: number,
   defaultMaxTokens?: number,
@@ -170,6 +168,7 @@ async function runSubTaskLoop(
   let totalOutputTokens = 0;
   let totalToolCalls = 0;
   const failureTracker = new Map<string, number>();
+  const artifactReadCounts = new Map<string, number>();
 
   // Build the tool list: requested tools + finalize_subtask (always appended)
   const toolsWithFinalize: AIToolDefinition[] = [
@@ -193,7 +192,7 @@ async function runSubTaskLoop(
       }
     }
   }
-  const budgetLine = `## Budget\nMax ${SUB_TASK_ITERATION_CAP} iterations, max ${SUB_TASK_TOKEN_BUDGET.toLocaleString()} tokens total, max ${SUB_TASK_CALL_BUDGET} tool calls. Call \`finalize_subtask\` once you are done — do not wait until budget is exhausted.`;
+  const budgetLine = `## Budget\nMax ${budgetConfig.subTask.iterationCap} iterations, max ${budgetConfig.subTask.tokenBudget.toLocaleString()} tokens total, max ${budgetConfig.subTask.callBudget} tool calls. Call \`finalize_subtask\` once you are done — do not wait until budget is exhausted.`;
   const userPrompt = [
     '## Intent',
     intent,
@@ -218,21 +217,68 @@ async function runSubTaskLoop(
     : { logId: subTaskLogId };
 
   let lastIterationRun = 0;
-  for (let iteration = 0; iteration < SUB_TASK_ITERATION_CAP; iteration++) {
+  let softNudgeFired = false;
+  let hardStopActive = false;
+  const finalizeOnlyTools: AIToolDefinition[] = [FINALIZE_SUBTASK_TOOL];
+
+  for (let iteration = 0; iteration < budgetConfig.subTask.iterationCap; iteration++) {
     lastIterationRun = iteration + 1;
     const tokensSoFar = totalInputTokens + totalOutputTokens;
-    if (tokensSoFar >= SUB_TASK_TOKEN_BUDGET) {
+
+    // Layer B: evaluator-based soft-nudge + hard-stop (fires ABOVE the legacy safety-net breaks)
+    const verdict = evaluateSubTaskBudget(
+      { tokensUsed: tokensSoFar, iterationsUsed: iteration, toolCallsUsed: totalToolCalls },
+      budgetConfig.subTask,
+    );
+
+    if (verdict === 'SOFT_NUDGE' && !softNudgeFired) {
+      softNudgeFired = true;
+      const tokenPct = Math.round((tokensSoFar / budgetConfig.subTask.tokenBudget) * 100);
+      const callPct = Math.round((totalToolCalls / budgetConfig.subTask.callBudget) * 100);
+      const iterPct = Math.round((iteration / budgetConfig.subTask.iterationCap) * 100);
+      messages.push({
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: `⚠️ Budget warning: tokens ${tokenPct}%, tool calls ${callPct}%, iterations ${iterPct}%. You are crossing 60% of one or more budgets. Consider finalizing soon — call \`finalize_subtask\` with what you have if your findings already support a useful summary. Further tool calls will be cut off at 85%.`,
+          },
+        ],
+      });
       appLog.info(
-        `Sub-task ${subTaskId} exhausted token budget (${tokensSoFar} >= ${SUB_TASK_TOKEN_BUDGET}) at iteration ${iteration + 1}`,
+        `Sub-task ${subTaskId} soft-nudge fired at iteration ${iteration + 1} (tokens=${tokenPct}%, calls=${callPct}%, iter=${iterPct}%)`,
+        { ticketId, subTaskId, iteration: iteration + 1 },
+        ticketId,
+        'ticket',
+      );
+    }
+
+    if (verdict === 'HARD_STOP' && !hardStopActive) {
+      hardStopActive = true;
+      appLog.info(
+        `Sub-task ${subTaskId} hard-stop active at iteration ${iteration + 1} — restricting tools to [finalize_subtask]`,
+        { ticketId, subTaskId, iteration: iteration + 1, tokensSoFar, totalToolCalls },
+        ticketId,
+        'ticket',
+      );
+    } else if (verdict === 'HARD_STOP') {
+      // Sticky after first transition; no further log to keep the loop quiet
+      hardStopActive = true;
+    }
+
+    // Legacy safety-net break checks (backed by runtime budgetConfig values)
+    if (tokensSoFar >= budgetConfig.subTask.tokenBudget) {
+      appLog.info(
+        `Sub-task ${subTaskId} exhausted token budget (${tokensSoFar} >= ${budgetConfig.subTask.tokenBudget}) at iteration ${iteration + 1}`,
         { ticketId, subTaskId, tokensSoFar, iteration: iteration + 1 },
         ticketId,
         'ticket',
       );
       break;
     }
-    if (totalToolCalls >= SUB_TASK_CALL_BUDGET) {
+    if (totalToolCalls >= budgetConfig.subTask.callBudget) {
       appLog.info(
-        `Sub-task ${subTaskId} exhausted call budget (${totalToolCalls} >= ${SUB_TASK_CALL_BUDGET}) at iteration ${iteration + 1}`,
+        `Sub-task ${subTaskId} exhausted call budget (${totalToolCalls} >= ${budgetConfig.subTask.callBudget}) at iteration ${iteration + 1}`,
         { ticketId, subTaskId, totalToolCalls, iteration: iteration + 1 },
         ticketId,
         'ticket',
@@ -241,7 +287,7 @@ async function runSubTaskLoop(
     }
 
     appLog.info(
-      `Sub-task ${subTaskId} iteration ${iteration + 1}/${SUB_TASK_ITERATION_CAP}`,
+      `Sub-task ${subTaskId} iteration ${iteration + 1}/${budgetConfig.subTask.iterationCap}`,
       { ticketId, subTaskId, iteration: iteration + 1, tokensSoFar },
       ticketId,
       'ticket',
@@ -263,7 +309,7 @@ async function runSubTaskLoop(
           ...orchCtx,
         },
         messages,
-        tools: toolsWithFinalize,
+        tools: hardStopActive ? finalizeOnlyTools : toolsWithFinalize,
         systemPrompt: subTaskSystemPrompt,
         providerOverride: 'CLAUDE',
         modelOverride: model,
@@ -370,10 +416,31 @@ async function runSubTaskLoop(
         durationMs: elapsed,
       });
 
+      // Layer C: detect re-reads of the same artifact and append a guidance nudge
+      let contentWithMaybeNudge: string = contentForModel;
+      if (toolUse.name === 'platform__read_tool_result_artifact') {
+        const inputArtifactId = (toolUse.input as Record<string, unknown>)?.artifactId;
+        if (typeof inputArtifactId === 'string' && inputArtifactId.length > 0) {
+          const fired = detectArtifactReread(
+            artifactReadCounts,
+            inputArtifactId,
+            budgetConfig.subTaskReReadDetector.warnAfterReadCount,
+          );
+          if (fired) {
+            const count = artifactReadCounts.get(inputArtifactId) ?? 0;
+            contentWithMaybeNudge = [
+              contentForModel,
+              '',
+              `⚠️ You have read artifact ${inputArtifactId} ${count} times in this sub-task. Use \`grep\` mode to find specific patterns, or proceed with the data you have and call \`finalize_subtask\`.`,
+            ].join('\n');
+          }
+        }
+      }
+
       toolResults.push({
         type: 'tool_result',
         tool_use_id: toolUse.id,
-        content: contentForModel,
+        content: contentWithMaybeNudge,
         ...(result.isError ? { is_error: true } : {}),
       });
 
@@ -510,6 +577,7 @@ async function executeOrchestratedSubTaskV2(
   agenticTools: AIToolDefinition[],
   mcpIntegrations: Map<string, McpIntegrationInfo>,
   repoIdByPrefix: Map<string, string>,
+  budgetConfig: OrchestratedV2BudgetConfig,
   orchestration?: { id: string; iteration: number; parentLogId?: string },
   modelMap?: Record<string, string>,
   toolResultMaxTokens?: number,
@@ -524,9 +592,14 @@ async function executeOrchestratedSubTaskV2(
     'You are a focused investigator. Execute your sub-task intent thoroughly using the available tools.',
     'Record each finding by calling kd_* tools (platform__kd_add_subsection, platform__kd_update_section).',
     'Do NOT dump raw tool output into your response — the knowledge doc is the source of truth.',
-    'When you have completed your investigation, call `finalize_subtask` with a concise summary (100-300 words)',
-    'and the list of KD section keys you updated. Call `finalize_subtask` as the LAST action — do not call',
-    'it before you have gathered all the data you need.',
+    '',
+    'BUDGET DISCIPLINE — read carefully:',
+    '- You have a hard budget (tokens, iterations, tool calls). The runner will warn you when you cross 60%.',
+    '- When using `platform__read_tool_result_artifact`, prefer `grep` mode to find specific patterns over paging through chunks. If the truncated preview shown in the prior tool_result is enough to support a finding, work from that — do NOT re-read the same artifact.',
+    '- Re-reading the same artifact more than once will trigger a warning. Heed it.',
+    '- Partial findings with what you have are MORE useful than burning the entire budget chasing more.',
+    'When you have enough to justify a finding, call `finalize_subtask` with a concise summary (100-300 words)',
+    'and the list of KD section keys you updated. Earlier finalize is better than budget-exhausted.',
   ].join(' ');
 
   const priorArtifactsHint = task.priorArtifactIds && task.priorArtifactIds.length > 0
@@ -570,9 +643,17 @@ async function executeOrchestratedSubTaskV2(
     initialToolNames.add(artifactTool.name);
   }
 
-  // If tools were requested but none matched at all (kd_* tools excluded), return early with guidance
-  const nonKdInitial = initialTools.filter(t => !t.name.startsWith('platform__kd_') && t.name !== 'platform__read_tool_result_artifact');
-  if (task.tools.length > 0 && nonKdInitial.length === 0) {
+  // If every requested tool failed to match anything (no exact, no base-name,
+  // no substring, no fuzzy candidate above the score threshold), return early
+  // with guidance — the strategist named tools that don't exist.
+  //
+  // Subtle bug fixed in #471: the prior check tested whether `initialTools` had
+  // any non-kd tools, which incorrectly fired for sub-tasks that legitimately
+  // requested ONLY kd_* tools (e.g. a "document findings" sub-task). Those
+  // requests are genuine matches via `resolveTaskTools` and should NOT error.
+  // Use the resolver's own `resolved` + `fuzzy` outputs as the source of truth.
+  const noResolutionAtAll = resolution.resolved.length === 0 && resolution.fuzzy.size === 0;
+  if (task.tools.length > 0 && noResolutionAtAll) {
     const MAX_TOOLS_IN_ERROR = 10;
     const toolNames = agenticTools.map(t => t.name);
     const availableList = toolNames.length > MAX_TOOLS_IN_ERROR
@@ -608,6 +689,7 @@ async function executeOrchestratedSubTaskV2(
     repoIdByPrefix,
     subTaskSystemPrompt,
     model,
+    budgetConfig,
     orchestration,
     toolResultMaxTokens,
     defaultMaxTokens,
@@ -642,6 +724,7 @@ async function executeOrchestratedSubTaskV2(
         repoIdByPrefix,
         subTaskSystemPrompt,
         model,
+        budgetConfig,
         orchestration,
         toolResultMaxTokens,
         defaultMaxTokens,
@@ -856,6 +939,14 @@ export async function runOrchestratedV2(
   const defaultMaxTokens = await deps.loadDefaultMaxTokens?.() ?? undefined;
   const toolResultMaxTokens = await getToolResultMaxTokens(db);
 
+  const budgetConfig = await resolveOrchestratedV2BudgetConfig(db);
+  appLog.info(
+    `Orchestrated v2 run starting with budget config: ticket.totalTokenBudget=${budgetConfig.ticket.totalTokenBudget}, subTask.tokenBudget=${budgetConfig.subTask.tokenBudget}`,
+    { ticketId, budgetConfig },
+    ticketId,
+    'ticket',
+  );
+
   const maxParallelTasks = await resolveMaxParallelTasks(db);
   const orchModelMap = await resolveOrchestratedModelMap(db);
 
@@ -955,10 +1046,22 @@ export async function runOrchestratedV2(
         '',
         '## Operator Reply',
         reanalysisCtx.triggerReplyText || '(no reply text available — see conversation history)',
+      ];
+      // #48 Item 7: surface the prior run's composed analysis as a primary
+      // steering input. If the prior run hit the ticket-budget cap, it includes
+      // a `## Continuation Notes` section telling us where to pick up.
+      if (reanalysisCtx.priorExecutiveSummary) {
+        sections.push(
+          '',
+          '## Prior Executive Summary',
+          truncatePriorExecutiveSummary(reanalysisCtx.priorExecutiveSummary),
+        );
+      }
+      sections.push(
         '',
         '## Prior Knowledge Document',
         priorRunsContext || existingKnowledgeDoc || '(no prior knowledge document)',
-      ];
+      );
       if (artifactCatalog) {
         sections.push('', '## Prior Artifacts', artifactCatalog);
       }
@@ -984,6 +1087,72 @@ export async function runOrchestratedV2(
   let stallReason: string | null = null;
   let stallIteration = 0;
 
+  // Layer D: strategist batch-failure guard state
+  const batchFailureState: BatchFailureGuardState = {
+    cumulativeExhausted: 0,
+    cumulativeTotal: 0,
+    consecutiveBadBatches: 0,
+  };
+  let strategistHardStopActive = false;
+
+  // Layer E: ticket-level total-token budget state
+  let ticketSoftNudgeFired = false;
+  let ticketHardStopActive = false;
+
+  // Pre-build the restricted strategist tool list (computed once for the run)
+  const restrictedStrategistTools: AIToolDefinition[] = finalStrategistTools.filter(
+    t =>
+      t.name === 'complete_analysis' ||
+      t.name === 'platform__kd_read_toc' ||
+      t.name === 'platform__kd_read_section',
+  );
+
+  // E.1: continuation-summary directive injection. Used by both the top-of-iteration
+  // ticket budget check and the pre-batch overshoot guard, so each path can transition
+  // ticketHardStopActive without duplicating the directive content. Caller is
+  // responsible for the `!ticketHardStopActive` one-shot guard.
+  const injectTicketHardStopDirective = (iteration: number, totalTokensSoFar: number): void => {
+    const pct = Math.round((totalTokensSoFar / budgetConfig.ticket.totalTokenBudget) * 100);
+    appLog.warn(
+      `Ticket hard-stop activated at iteration ${iteration} (${pct}% of budget consumed)`,
+      { ticketId, iteration, totalTokensSoFar, budget: budgetConfig.ticket.totalTokenBudget },
+      ticketId,
+      'ticket',
+    );
+    strategistMessages.push({
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: [
+            `⚠️ Ticket budget hard-cap reached (${totalTokensSoFar} / ${budgetConfig.ticket.totalTokenBudget} tokens, ${pct}%). You can no longer dispatch sub-tasks.`,
+            `Read the knowledge doc with \`kd_read_toc\` / \`kd_read_section\` and call \`complete_analysis\` next.`,
+            ``,
+            `**Required:** include a \`## Continuation Notes\` section in your \`finalAnalysis\` with the following structure (use exactly these subheadings):`,
+            ``,
+            `\`\`\``,
+            `## Continuation Notes`,
+            ``,
+            `### What we established`,
+            `- <bullet list of confirmed findings, each with KD section reference>`,
+            ``,
+            `### Hypotheses still open`,
+            `- <bullet list of hypotheses introduced but not verified>`,
+            ``,
+            `### Investigation threads not completed`,
+            `- <bullet list of sub-task intents that hit BUDGET_EXHAUSTED with no usable summary>`,
+            ``,
+            `### Suggested next batch`,
+            `- <2-3 sub-task intents that would be most valuable to retry on continuation, with which artifacts/sections to load as context>`,
+            `\`\`\``,
+            ``,
+            `Going slightly over the budget cap to write this summary is permitted and expected.`,
+          ].join('\n'),
+        },
+      ],
+    });
+  };
+
   // ---------------------------------------------------------------------------
   // Strategist message loop
   // ---------------------------------------------------------------------------
@@ -1006,6 +1175,35 @@ export async function runOrchestratedV2(
     orchIterationsRun = i + 1;
     const orchestrationId = randomUUID();
     appLog.info(`Orchestrated analysis iteration ${i + 1}/${orchMaxIterations}`, { ticketId, iteration: i + 1, orchestrationId }, ticketId, 'ticket');
+
+    // Layer E: ticket-level total-token budget evaluation
+    const totalTokensSoFar = orchTotalInputTokens + orchTotalOutputTokens;
+    const ticketVerdict = evaluateTicketBudget(totalTokensSoFar, budgetConfig.ticket);
+
+    if (ticketVerdict === 'SOFT_NUDGE' && !ticketSoftNudgeFired) {
+      ticketSoftNudgeFired = true;
+      const pct = Math.round((totalTokensSoFar / budgetConfig.ticket.totalTokenBudget) * 100);
+      strategistMessages.push({
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: `⚠️ Ticket budget at ${pct}% (${totalTokensSoFar} / ${budgetConfig.ticket.totalTokenBudget} tokens). You are approaching the cost cap. Consider whether enough findings are in the knowledge doc to call complete_analysis. Further dispatch will be blocked at 95%.`,
+          },
+        ],
+      });
+      appLog.info(
+        `Ticket soft-nudge at iteration ${i + 1} (${pct}% of budget consumed)`,
+        { ticketId, iteration: i + 1, totalTokensSoFar, budget: budgetConfig.ticket.totalTokenBudget },
+        ticketId,
+        'ticket',
+      );
+    }
+
+    if (ticketVerdict === 'HARD_STOP' && !ticketHardStopActive) {
+      ticketHardStopActive = true;
+      injectTicketHardStopDirective(i + 1, totalTokensSoFar);
+    }
 
     const strategistLogId = randomUUID();
 
@@ -1033,7 +1231,7 @@ export async function runOrchestratedV2(
           strategyVersion: 'v2' as const,
         },
         messages: strategistMessages,
-        tools: finalStrategistTools,
+        tools: (strategistHardStopActive || ticketHardStopActive) ? restrictedStrategistTools : finalStrategistTools,
         systemPrompt: strategistSystemPrompt,
         providerOverride: 'CLAUDE',
         modelOverride: 'claude-opus-4-6',
@@ -1220,6 +1418,53 @@ export async function runOrchestratedV2(
         'ticket',
       );
 
+      // Layer E pre-batch overshoot guard.
+      // Top-of-iteration ticketVerdict only catches budget after sub-tasks have already
+      // run. Without this, a batch dispatched at e.g. 80% can burn (subtaskCount × subTask.tokenBudget)
+      // worth of tokens before the next iteration notices — overshooting the cap by 100%+ in the
+      // worst case. Re-evaluate just before executing the batch and abort if the worst-case
+      // batch cost would push past the cap.
+      const preBatchTokens = orchTotalInputTokens + orchTotalOutputTokens;
+      const preBatchVerdict = evaluateTicketBudget(preBatchTokens, budgetConfig.ticket);
+      const worstCaseBatchTokens = plan.subtasks.length * budgetConfig.subTask.tokenBudget;
+      const wouldOverflow = preBatchTokens + worstCaseBatchTokens > budgetConfig.ticket.totalTokenBudget;
+
+      if (preBatchVerdict === 'HARD_STOP' || wouldOverflow) {
+        const reason = preBatchVerdict === 'HARD_STOP'
+          ? 'ticket budget already at hard-stop'
+          : 'worst-case batch cost would overflow ticket cap';
+        appLog.warn(
+          `Pre-batch ticket budget abort at iteration ${i + 1}: ${reason} — current=${preBatchTokens}, worst-case=${worstCaseBatchTokens}, cap=${budgetConfig.ticket.totalTokenBudget}`,
+          { ticketId, iteration: i + 1, current: preBatchTokens, worstCase: worstCaseBatchTokens, cap: budgetConfig.ticket.totalTokenBudget, reason },
+          ticketId,
+          'ticket',
+        );
+
+        if (!ticketHardStopActive) {
+          ticketHardStopActive = true;
+          injectTicketHardStopDirective(i + 1, preBatchTokens);
+        }
+
+        // Anthropic's API requires a tool_result for every tool_use. Synthesize one for the
+        // dispatch_subtasks call so the next strategist turn has a well-formed conversation,
+        // and so the strategist sees concretely what aborted the batch.
+        if (dispatchCallId) {
+          strategistMessages.push({
+            role: 'user',
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: dispatchCallId,
+                content: `⚠️ Dispatch aborted: ${reason}. Current ticket cost: ${preBatchTokens} tokens; planned batch worst-case adds ${worstCaseBatchTokens}; cap is ${budgetConfig.ticket.totalTokenBudget}. You must call complete_analysis next, including the ## Continuation Notes section per the directive.`,
+              } satisfies AIToolResultBlock,
+            ],
+          });
+        }
+
+        await writeKnowledgeDocSnapshot(db, ticketId, i + 1);
+        continue;
+      }
+
       // Record iteration start in Run Log
       try {
         const intentsSummary = plan.subtasks.map(s => `- ${s.id}: ${s.intent.slice(0, 100)}`).join('\n');
@@ -1262,6 +1507,7 @@ export async function runOrchestratedV2(
               agenticTools,
               mcpIntegrations,
               repoIdByPrefix,
+              budgetConfig,
               { id: orchestrationId, iteration: i + 1, parentLogId: strategistLogId },
               orchModelMap,
               toolResultMaxTokens,
@@ -1312,6 +1558,7 @@ export async function runOrchestratedV2(
                 agenticTools,
                 mcpIntegrations,
                 repoIdByPrefix,
+                budgetConfig,
                 { id: orchestrationId, iteration: i + 1, parentLogId: strategistLogId },
                 orchModelMap,
                 toolResultMaxTokens,
@@ -1352,6 +1599,25 @@ export async function runOrchestratedV2(
         }
       }
 
+      // Layer D: evaluate batch-failure guard
+      const isFirstBatch = batchFailureState.cumulativeTotal === 0;
+      const guardVerdict = evaluateBatchFailureGuard(
+        batchFailureState,
+        allSubTaskResults.map(r => ({ stopReason: r.stopReason, updatedKdSections: r.updatedKdSections })),
+        budgetConfig.strategistGuard,
+        isFirstBatch,
+      );
+
+      if (guardVerdict === 'HARD_STOP') {
+        strategistHardStopActive = true;
+        appLog.warn(
+          `Strategist hard-stop activated at iteration ${i + 1} — cumulative ${batchFailureState.cumulativeExhausted}/${batchFailureState.cumulativeTotal} sub-tasks BUDGET_EXHAUSTED, consecutiveBadBatches=${batchFailureState.consecutiveBadBatches}`,
+          { ticketId, iteration: i + 1, cumulative: { ...batchFailureState } },
+          ticketId,
+          'ticket',
+        );
+      }
+
       // Append sub-task results to strategist messages as tool_result for the dispatch_subtasks call.
       // Use the captured `dispatchCallId` from this iteration (not a history scan) to ensure
       // the tool_result is threaded onto the correct dispatch_subtasks tool_use block.
@@ -1366,13 +1632,22 @@ export async function runOrchestratedV2(
           tokensUsed: r.tokensUsed,
         }));
 
+        let guardWarning = '';
+        if (guardVerdict === 'SOFT_NUDGE') {
+          guardWarning = `⚠️ ${batchFailureState.cumulativeExhausted}/${batchFailureState.cumulativeTotal} sub-tasks BUDGET_EXHAUSTED so far. Many produced no usable findings (empty updatedKdSections). Before dispatching another batch, read the knowledge doc with kd_read_toc to see what's been written, and consider whether complete_analysis is the right next call.\n\n`;
+        } else if (guardVerdict === 'HARD_STOP') {
+          guardWarning = `⚠️ Cost guard hard-stop: too many sub-tasks BUDGET_EXHAUSTED. Further dispatch is blocked. You may now ONLY call complete_analysis (or kd_read_toc / kd_read_section to inspect findings before doing so). Wrap up the analysis with what's available.\n\n`;
+        }
+
+        const content = guardWarning + JSON.stringify(resultPayload, null, 2);
+
         strategistMessages.push({
           role: 'user',
           content: [
             {
               type: 'tool_result',
               tool_use_id: dispatchCallId,
-              content: JSON.stringify(resultPayload, null, 2),
+              content,
             } satisfies AIToolResultBlock,
           ],
         });

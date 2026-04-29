@@ -8,8 +8,9 @@ import {
   TaskType,
   SufficiencyStatus,
   SufficiencyConfidence,
+  OrchestratedV2BudgetConfigSchema,
 } from '@bronco/shared-types';
-import type { AIToolDefinition, AIToolUseBlock } from '@bronco/shared-types';
+import type { AIToolDefinition, AIToolUseBlock, OrchestratedV2BudgetConfig } from '@bronco/shared-types';
 import {
   AppLogger,
   createLogger,
@@ -1234,6 +1235,26 @@ export async function resolveMaxParallelTasks(db: PrismaClient): Promise<number>
   return maxParallelTasks;
 }
 
+const ORCHESTRATED_V2_BUDGET_CONFIG_KEY = 'orchestrated-v2-budget-config';
+
+/**
+ * Load the orchestrated-v2 runtime budget config from the AppSetting table.
+ * Missing or malformed → returns parsed defaults. Called once at the top of
+ * runOrchestratedV2 and threaded through to runSubTaskLoop. Does NOT cache —
+ * each analysis run picks up fresh values, mirroring the peer resolvers
+ * (resolveAnalysisVersion / resolveMaxParallelTasks) in this file.
+ */
+export async function resolveOrchestratedV2BudgetConfig(
+  db: { appSetting: { findUnique: (args: { where: { key: string } }) => Promise<{ value: unknown } | null> } },
+): Promise<OrchestratedV2BudgetConfig> {
+  const row = await db.appSetting.findUnique({ where: { key: ORCHESTRATED_V2_BUDGET_CONFIG_KEY } });
+  const parsed = OrchestratedV2BudgetConfigSchema.safeParse(row?.value ?? {});
+  if (!parsed.success) {
+    return OrchestratedV2BudgetConfigSchema.parse({});
+  }
+  return parsed.data;
+}
+
 // ---------------------------------------------------------------------------
 // Dependency bag and pipeline context shared between strategies
 // ---------------------------------------------------------------------------
@@ -1319,11 +1340,40 @@ export interface ReanalysisContext {
   /** The ticket event ID that triggered this re-analysis (for metadata tracking). */
   triggerEventId?: string;
   /**
+   * Full content of the most recent AI_ANALYSIS event for this ticket — the
+   * composed final analysis sent to the operator (Executive Summary +
+   * Problem/Root Cause/Recommended Fix/Risks pulled from the KD). Surfaced
+   * as a dedicated section in the v2 strategies' prompts so the strategist
+   * sees prior findings — and any `## Continuation Notes` section written by
+   * a prior budget-capped run — as primary steering input rather than buried
+   * in the conversation history (#48 Item 7).
+   *
+   * Strategies cap this at their own prompt budget; producer should pass the
+   * full content, no pre-truncation.
+   */
+  priorExecutiveSummary?: string;
+  /**
    * Continuation mode for orchestrated re-analysis. When undefined, defaults
    * to 'continue'. Producer (#312 Chat tab) classifies operator-reply intent
    * and sets this; pre-#312 callers leave it unset.
    */
   mode?: ReanalysisMode;
+}
+
+/** Per-run cap for the `## Prior Executive Summary` section in v2 strategy prompts. */
+export const PRIOR_EXECUTIVE_SUMMARY_CHAR_CAP = 8000;
+
+/**
+ * Truncate the prior executive summary for inclusion in a re-analysis prompt.
+ * Keeps the tail (where `## Continuation Notes` lives if E.1 fired) and
+ * prefixes a marker so the strategist knows the summary was clipped.
+ */
+export function truncatePriorExecutiveSummary(
+  summary: string,
+  charCap: number = PRIOR_EXECUTIVE_SUMMARY_CHAR_CAP,
+): string {
+  if (summary.length <= charCap) return summary;
+  return `[Prior executive summary truncated to last ${charCap} chars — full version in the AI Analysis event]\n\n…${summary.slice(-charCap)}`;
 }
 
 export interface StrategyStep {

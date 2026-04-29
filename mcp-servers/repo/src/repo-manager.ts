@@ -21,6 +21,20 @@ export class RepoManager {
   private worktrees = new Map<string, WorktreeEntry>();
   private cleanupTimer: ReturnType<typeof setInterval> | undefined;
 
+  // Promise-coalescing caches (#472). Concurrent callers for the same key
+  // share the in-flight promise so we never run `git clone` / `git fetch` /
+  // `git worktree add` against the same path simultaneously — a single bare
+  // repo or worktree path can only support one mutating git op at a time
+  // (bare repos hold their lock files directly under the repo directory,
+  // e.g. `index.lock`; worktrees hold them under their own `.git/`), and
+  // parallel orchestrated-v2 sub-tasks all share the same `gather-{ticketId}`
+  // sessionId.
+  //
+  // Entries are removed in `.finally()` regardless of resolution, so a
+  // failed first attempt won't permanently poison the slot.
+  private cloneInFlight = new Map<string, Promise<string>>();
+  private worktreeInFlight = new Map<string, Promise<string>>();
+
   constructor(
     private readonly db: PrismaClient,
     private readonly config: Config,
@@ -46,6 +60,19 @@ export class RepoManager {
   }
 
   async clone(repoId: string): Promise<string> {
+    // Coalesce concurrent calls for the same repo — both `git clone --bare`
+    // and `git fetch --all` lock the bare repo, so two parallel callers will
+    // race on the lock file. See #472.
+    const inflight = this.cloneInFlight.get(repoId);
+    if (inflight) return inflight;
+    const promise = this.cloneImpl(repoId).finally(() => {
+      this.cloneInFlight.delete(repoId);
+    });
+    this.cloneInFlight.set(repoId, promise);
+    return promise;
+  }
+
+  private async cloneImpl(repoId: string): Promise<string> {
     const repo = await this.db.codeRepo.findUnique({ where: { id: repoId } });
     if (!repo) throw new Error(`CodeRepo not found: ${repoId}`);
     if (!repo.isActive) throw new Error(`CodeRepo is inactive: ${repoId}`);
@@ -92,7 +119,11 @@ export class RepoManager {
     return barePath;
   }
 
-  async createWorktree(repoId: string, sessionId: string): Promise<string> {
+  // protected so the only public path through createWorktree is via
+  // getOrCreateWorktree (which coalesces concurrent calls). The protected
+  // visibility still allows the test subclass in repo-manager.test.ts to
+  // override this method for instrumentation. See #472.
+  protected async createWorktree(repoId: string, sessionId: string): Promise<string> {
     const repo = await this.db.codeRepo.findUnique({ where: { id: repoId } });
     if (!repo) throw new Error(`CodeRepo not found: ${repoId}`);
 
@@ -138,10 +169,42 @@ export class RepoManager {
       return existing.path;
     }
 
-    return this.createWorktree(repoId, sessionId);
+    // Coalesce concurrent creates for the same key. Without this, parallel
+    // orchestrated-v2 sub-tasks sharing a `gather-{ticketId}` sessionId all
+    // see the missing-worktree state, all call createWorktree, and all race
+    // on `git worktree add` to the same path — leaving 4 of 5 sub-tasks
+    // failing with non-retryable errors. See #472.
+    const inflight = this.worktreeInFlight.get(key);
+    if (inflight) return inflight;
+    const promise = this.createWorktree(repoId, sessionId).finally(() => {
+      this.worktreeInFlight.delete(key);
+    });
+    this.worktreeInFlight.set(key, promise);
+    return promise;
   }
 
   async cleanupSession(sessionId: string): Promise<void> {
+    // Wait for any in-flight worktree creates for THIS sessionId to settle
+    // before we delete the session directory. Without this, a `cleanupSession`
+    // call landing during a parallel create would race the create's git ops
+    // against our `rm -rf` and produce confusing failures (#472 review).
+    //
+    // We snapshot the pending promises into an array — iterating
+    // `worktreeInFlight` directly while creates settle could trip a "Map was
+    // modified during iteration" guard if a `.finally()` fires mid-iteration.
+    // Settled creates rather than rejected ones are fine (we're about to
+    // delete anyway) so we swallow rejections via `.catch(() => undefined)`.
+    const sessionPrefix = `${sessionId}:`;
+    const pendingForSession: Array<Promise<unknown>> = [];
+    for (const [key, promise] of this.worktreeInFlight) {
+      if (key.startsWith(sessionPrefix)) {
+        pendingForSession.push(promise.catch(() => undefined));
+      }
+    }
+    if (pendingForSession.length > 0) {
+      await Promise.all(pendingForSession);
+    }
+
     const toRemove: string[] = [];
     for (const [key, entry] of this.worktrees) {
       if (entry.sessionId === sessionId) {

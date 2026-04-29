@@ -152,6 +152,30 @@ export interface AnalysisStrategyVersionConfig {
   version: 'v1' | 'v2';
 }
 
+/** Mirrors OrchestratedV2BudgetConfig from @bronco/shared-types (#470). */
+export interface OrchestratedV2BudgetConfig {
+  subTask: {
+    iterationCap: number;
+    tokenBudget: number;
+    callBudget: number;
+    softNudgeRatio: number;
+    hardStopRatio: number;
+  };
+  ticket: {
+    totalTokenBudget: number;
+    softNudgeRatio: number;
+    hardStopRatio: number;
+  };
+  strategistGuard: {
+    softNudgeBatchExhaustedRatio: number;
+    hardStopCumulativeExhaustedRatio: number;
+    hardStopConsecutiveBatchesRatio: number;
+  };
+  subTaskReReadDetector: {
+    warnAfterReadCount: number;
+  };
+}
+
 export interface SelfAnalysisConfig {
   postAnalysisTrigger: boolean;
   ticketCloseTrigger: boolean;
@@ -312,5 +336,17 @@ export class SettingsService {
   }
   saveSelfAnalysis(config: Partial<SelfAnalysisConfig>): Observable<SelfAnalysisConfig> {
     return this.api.patch<SelfAnalysisConfig>('/settings/self-analysis', config);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Orchestrated v2 Budget Config (#470)
+  // ---------------------------------------------------------------------------
+
+  getOrchestratedV2BudgetConfig(): Observable<OrchestratedV2BudgetConfig> {
+    return this.api.get<OrchestratedV2BudgetConfig>('/settings/orchestrated-v2-budget-config');
+  }
+
+  saveOrchestratedV2BudgetConfig(config: OrchestratedV2BudgetConfig): Observable<OrchestratedV2BudgetConfig> {
+    return this.api.put<OrchestratedV2BudgetConfig>('/settings/orchestrated-v2-budget-config', config);
   }
 }
