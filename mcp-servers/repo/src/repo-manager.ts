@@ -21,6 +21,18 @@ export class RepoManager {
   private worktrees = new Map<string, WorktreeEntry>();
   private cleanupTimer: ReturnType<typeof setInterval> | undefined;
 
+  // Promise-coalescing caches (#472). Concurrent callers for the same key
+  // share the in-flight promise so we never run `git clone` / `git fetch` /
+  // `git worktree add` against the same path simultaneously — a single bare
+  // repo or worktree path can only support one mutating git op at a time
+  // (lock files in .git/), and parallel orchestrated-v2 sub-tasks all share
+  // the same `gather-{ticketId}` sessionId.
+  //
+  // Entries are removed in `.finally()` regardless of resolution, so a
+  // failed first attempt won't permanently poison the slot.
+  private cloneInFlight = new Map<string, Promise<string>>();
+  private worktreeInFlight = new Map<string, Promise<string>>();
+
   constructor(
     private readonly db: PrismaClient,
     private readonly config: Config,
@@ -46,6 +58,19 @@ export class RepoManager {
   }
 
   async clone(repoId: string): Promise<string> {
+    // Coalesce concurrent calls for the same repo — both `git clone --bare`
+    // and `git fetch --all` lock the bare repo, so two parallel callers will
+    // race on the lock file. See #472.
+    const inflight = this.cloneInFlight.get(repoId);
+    if (inflight) return inflight;
+    const promise = this.cloneImpl(repoId).finally(() => {
+      this.cloneInFlight.delete(repoId);
+    });
+    this.cloneInFlight.set(repoId, promise);
+    return promise;
+  }
+
+  private async cloneImpl(repoId: string): Promise<string> {
     const repo = await this.db.codeRepo.findUnique({ where: { id: repoId } });
     if (!repo) throw new Error(`CodeRepo not found: ${repoId}`);
     if (!repo.isActive) throw new Error(`CodeRepo is inactive: ${repoId}`);
@@ -138,7 +163,18 @@ export class RepoManager {
       return existing.path;
     }
 
-    return this.createWorktree(repoId, sessionId);
+    // Coalesce concurrent creates for the same key. Without this, parallel
+    // orchestrated-v2 sub-tasks sharing a `gather-{ticketId}` sessionId all
+    // see the missing-worktree state, all call createWorktree, and all race
+    // on `git worktree add` to the same path — leaving 4 of 5 sub-tasks
+    // failing with non-retryable errors. See #472.
+    const inflight = this.worktreeInFlight.get(key);
+    if (inflight) return inflight;
+    const promise = this.createWorktree(repoId, sessionId).finally(() => {
+      this.worktreeInFlight.delete(key);
+    });
+    this.worktreeInFlight.set(key, promise);
+    return promise;
   }
 
   async cleanupSession(sessionId: string): Promise<void> {
