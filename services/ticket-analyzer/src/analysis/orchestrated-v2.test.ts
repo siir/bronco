@@ -1429,6 +1429,29 @@ describe('runOrchestratedV2 — ticket budget (Layer E + E.1)', () => {
 // #471 regression: kd-only tool requests must not trigger "tool resolution failed"
 // ---------------------------------------------------------------------------
 
+// Helper for scripted-response generateWithTools mocks. Snapshots the messages
+// array at call time (orchestrator mutates the reference between calls) and
+// throws a clear error if the SUT makes more calls than there are scripted
+// responses — much easier to diagnose than the silent `undefined` return that
+// vi.fn() would otherwise produce.
+type CallSnapshot = { messages: Array<{ role: string; content: unknown }>; tools: Array<{ name: string }> };
+
+function makeScriptedAi(responses: ReadonlyArray<{ contentBlocks: unknown[]; stopReason: 'tool_use'; usage: { inputTokens: number; outputTokens: number } }>): { ai: AIRouter; snapshots: CallSnapshot[] } {
+  const snapshots: CallSnapshot[] = [];
+  const generateWithTools = vi.fn(async ({ messages, tools }: { messages: Array<{ role: string; content: unknown }>; tools: Array<{ name: string }> }) => {
+    snapshots.push({ messages: structuredClone(messages), tools: tools.map(t => ({ name: t.name })) });
+    const response = responses[snapshots.length - 1];
+    if (response === undefined) {
+      throw new Error(
+        `Scripted-AI mock exhausted: SUT made call #${snapshots.length} but only ${responses.length} response(s) were scripted. Add another entry to the responses array or fix the SUT.`,
+      );
+    }
+    return response;
+  });
+  const ai = { generateWithTools, generate: vi.fn() } as unknown as AIRouter;
+  return { ai, snapshots };
+}
+
 describe('sub-task allowlist resolution: kd-only requests resolve cleanly (#471)', () => {
   beforeEach(() => {
     resetKdMocks();
@@ -1444,11 +1467,7 @@ describe('sub-task allowlist resolution: kd-only requests resolve cleanly (#471)
     // correct signal that the request matched something. A sub-task whose only job
     // is to write findings to the knowledge doc should run cleanly.
 
-    // Snapshot messages at call time — orchestrator mutates the array reference
-    // between calls, so we deep-clone each call's messages to inspect the
-    // mid-run state later.
-    const callSnapshots: Array<{ messages: Array<{ role: string; content: unknown }>; tools: Array<{ name: string }> }> = [];
-    const responses = [
+    const { ai, snapshots } = makeScriptedAi([
       // strategist iter 1: dispatch one sub-task requesting only kd_* tools
       {
         contentBlocks: [makeToolUseBlock('dispatch_subtasks', {
@@ -1459,7 +1478,7 @@ describe('sub-task allowlist resolution: kd-only requests resolve cleanly (#471)
             model: 'sonnet',
           }],
         }, 'tu_dispatch')],
-        stopReason: 'tool_use' as const,
+        stopReason: 'tool_use',
         usage: { inputTokens: 100, outputTokens: 80 },
       },
       // sub-task: finalize with a successful summary
@@ -1468,7 +1487,7 @@ describe('sub-task allowlist resolution: kd-only requests resolve cleanly (#471)
           summary: 'Documented evidence in evidence.foo',
           updatedKdSections: ['evidence.foo'],
         }, 'tu_finalize')],
-        stopReason: 'tool_use' as const,
+        stopReason: 'tool_use',
         usage: { inputTokens: 50, outputTokens: 40 },
       },
       // strategist iter 2: complete_analysis after sub-task succeeded
@@ -1476,16 +1495,11 @@ describe('sub-task allowlist resolution: kd-only requests resolve cleanly (#471)
         contentBlocks: [makeToolUseBlock('complete_analysis', {
           finalAnalysis: 'Findings recorded.',
         }, 'tu_complete')],
-        stopReason: 'tool_use' as const,
+        stopReason: 'tool_use',
         usage: { inputTokens: 120, outputTokens: 60 },
       },
-    ];
-    const generateWithTools = vi.fn(async ({ messages, tools }: { messages: Array<{ role: string; content: unknown }>; tools: Array<{ name: string }> }) => {
-      callSnapshots.push({ messages: structuredClone(messages), tools: tools.map(t => ({ name: t.name })) });
-      return responses[callSnapshots.length - 1];
-    });
+    ]);
 
-    const ai = { generateWithTools, generate: vi.fn() } as unknown as AIRouter;
     await runOrchestratedV2(
       makeDeps(ai),
       makeCtx(),
@@ -1497,12 +1511,12 @@ describe('sub-task allowlist resolution: kd-only requests resolve cleanly (#471)
     // 3 calls total: strategist dispatch + sub-task finalize + strategist complete.
     // Pre-fix would have produced only 2 calls (sub-task short-circuited before
     // its own generateWithTools).
-    expect(callSnapshots).toHaveLength(3);
+    expect(snapshots).toHaveLength(3);
 
     // The strategist's iter-2 call (call 3, index 2) must include the sub-task's
     // SUCCESS summary as the dispatch tool_result — not the "Tool resolution
     // failed" error string.
-    const iter2Messages = callSnapshots[2].messages;
+    const iter2Messages = snapshots[2].messages;
     const lastUserContent = JSON.stringify([...iter2Messages].reverse().find(m => m.role === 'user')?.content ?? '');
     expect(lastUserContent).toMatch(/Documented evidence/);
     expect(lastUserContent).toMatch(/FINALIZED/);
@@ -1513,8 +1527,7 @@ describe('sub-task allowlist resolution: kd-only requests resolve cleanly (#471)
     // Negative case: if the strategist names tools that don't exist at all, the
     // sub-task should still short-circuit with the resolution-failed error so the
     // strategist gets a clear signal.
-    const callSnapshots: Array<{ messages: Array<{ role: string; content: unknown }>; tools: Array<{ name: string }> }> = [];
-    const responses = [
+    const { ai, snapshots } = makeScriptedAi([
       {
         contentBlocks: [makeToolUseBlock('dispatch_subtasks', {
           subtasks: [{
@@ -1524,23 +1537,18 @@ describe('sub-task allowlist resolution: kd-only requests resolve cleanly (#471)
             model: 'sonnet',
           }],
         }, 'tu_dispatch')],
-        stopReason: 'tool_use' as const,
+        stopReason: 'tool_use',
         usage: { inputTokens: 100, outputTokens: 80 },
       },
       {
         contentBlocks: [makeToolUseBlock('complete_analysis', {
           finalAnalysis: 'Cannot proceed.',
         }, 'tu_complete')],
-        stopReason: 'tool_use' as const,
+        stopReason: 'tool_use',
         usage: { inputTokens: 120, outputTokens: 60 },
       },
-    ];
-    const generateWithTools = vi.fn(async ({ messages, tools }: { messages: Array<{ role: string; content: unknown }>; tools: Array<{ name: string }> }) => {
-      callSnapshots.push({ messages: structuredClone(messages), tools: tools.map(t => ({ name: t.name })) });
-      return responses[callSnapshots.length - 1];
-    });
+    ]);
 
-    const ai = { generateWithTools, generate: vi.fn() } as unknown as AIRouter;
     await runOrchestratedV2(
       makeDeps(ai),
       makeCtx(),
@@ -1550,9 +1558,9 @@ describe('sub-task allowlist resolution: kd-only requests resolve cleanly (#471)
     );
 
     // 2 calls only — sub-task short-circuited before its own generateWithTools.
-    expect(callSnapshots).toHaveLength(2);
+    expect(snapshots).toHaveLength(2);
 
-    const iter2Messages = callSnapshots[1].messages;
+    const iter2Messages = snapshots[1].messages;
     const lastUserContent = JSON.stringify([...iter2Messages].reverse().find(m => m.role === 'user')?.content ?? '');
     expect(lastUserContent).toMatch(/Tool resolution failed/);
   });
