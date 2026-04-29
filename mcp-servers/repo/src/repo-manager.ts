@@ -25,8 +25,10 @@ export class RepoManager {
   // share the in-flight promise so we never run `git clone` / `git fetch` /
   // `git worktree add` against the same path simultaneously — a single bare
   // repo or worktree path can only support one mutating git op at a time
-  // (lock files in .git/), and parallel orchestrated-v2 sub-tasks all share
-  // the same `gather-{ticketId}` sessionId.
+  // (bare repos hold their lock files directly under the repo directory,
+  // e.g. `index.lock`; worktrees hold them under their own `.git/`), and
+  // parallel orchestrated-v2 sub-tasks all share the same `gather-{ticketId}`
+  // sessionId.
   //
   // Entries are removed in `.finally()` regardless of resolution, so a
   // failed first attempt won't permanently poison the slot.
@@ -117,7 +119,11 @@ export class RepoManager {
     return barePath;
   }
 
-  async createWorktree(repoId: string, sessionId: string): Promise<string> {
+  // protected so the only public path through createWorktree is via
+  // getOrCreateWorktree (which coalesces concurrent calls). The protected
+  // visibility still allows the test subclass in repo-manager.test.ts to
+  // override this method for instrumentation. See #472.
+  protected async createWorktree(repoId: string, sessionId: string): Promise<string> {
     const repo = await this.db.codeRepo.findUnique({ where: { id: repoId } });
     if (!repo) throw new Error(`CodeRepo not found: ${repoId}`);
 
@@ -178,6 +184,27 @@ export class RepoManager {
   }
 
   async cleanupSession(sessionId: string): Promise<void> {
+    // Wait for any in-flight worktree creates for THIS sessionId to settle
+    // before we delete the session directory. Without this, a `cleanupSession`
+    // call landing during a parallel create would race the create's git ops
+    // against our `rm -rf` and produce confusing failures (#472 review).
+    //
+    // We snapshot the pending promises into an array — iterating
+    // `worktreeInFlight` directly while creates settle could trip a "Map was
+    // modified during iteration" guard if a `.finally()` fires mid-iteration.
+    // Settled creates rather than rejected ones are fine (we're about to
+    // delete anyway) so we swallow rejections via `.catch(() => undefined)`.
+    const sessionPrefix = `${sessionId}:`;
+    const pendingForSession: Array<Promise<unknown>> = [];
+    for (const [key, promise] of this.worktreeInFlight) {
+      if (key.startsWith(sessionPrefix)) {
+        pendingForSession.push(promise.catch(() => undefined));
+      }
+    }
+    if (pendingForSession.length > 0) {
+      await Promise.all(pendingForSession);
+    }
+
     const toRemove: string[] = [];
     for (const [key, entry] of this.worktrees) {
       if (entry.sessionId === sessionId) {
