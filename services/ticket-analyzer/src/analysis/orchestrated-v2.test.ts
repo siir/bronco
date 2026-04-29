@@ -19,6 +19,8 @@ import type { PrismaClient } from '@bronco/db';
 import type { AIRouter } from '@bronco/ai-provider';
 import type { AppLogger } from '@bronco/shared-utils';
 import { initEmptyKnowledgeDoc } from '@bronco/shared-utils';
+import type { AIToolUseBlock } from '@bronco/shared-types';
+import { OrchestratedV2BudgetConfigSchema } from '@bronco/shared-types';
 
 // ---------------------------------------------------------------------------
 // Module-level mocks — must precede SUT import
@@ -44,6 +46,21 @@ vi.mock('@bronco/shared-utils', async (importOriginal) => {
   };
 });
 
+// Stub executeAgenticToolCall in shared.js so tests run without live MCP servers.
+// importOriginal preserves all other exports (constants, types, helpers) used by
+// orchestrated-v2.ts so existing tests are unaffected.
+vi.mock('./shared.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./shared.js')>();
+  return {
+    ...actual,
+    executeAgenticToolCall: vi.fn(async (toolUse: AIToolUseBlock) => ({
+      toolUseId: toolUse.id,
+      result: 'fake tool result content',
+      isError: false,
+    })),
+  };
+});
+
 // Stub v2-knowledge-doc helpers so they don't touch the DB.
 vi.mock('./v2-knowledge-doc.js', () => ({
   composeFinalAnalysis: vi.fn().mockReturnValue('composed analysis'),
@@ -61,7 +78,7 @@ import {
 } from './v2-knowledge-doc.js';
 
 // Import the SUT (after mocks are in place)
-import { runOrchestratedV2 } from './orchestrated-v2.js';
+import { runOrchestratedV2, runSubTaskLoop } from './orchestrated-v2.js';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -894,6 +911,212 @@ describe('stall guard: writeStallMarker is called with ⚠️ marker text', () =
 });
 
 // ---------------------------------------------------------------------------
+// runSubTaskLoop — re-read detector (Layer C)
+// ---------------------------------------------------------------------------
+
+describe('runSubTaskLoop — re-read detector (Layer C)', () => {
+  beforeEach(() => {
+    resetKdMocks();
+  });
+
+  it('appends a re-read warning to the second tool_result for the same artifactId', async () => {
+    // Three iterations:
+    //   iter1: tool_use platform__read_tool_result_artifact (artifactId=A) → first read, no warning
+    //   iter2: tool_use platform__read_tool_result_artifact (artifactId=A) → second read (count=2), warning fires
+    //   iter3: tool_use finalize_subtask → loop exits
+    //
+    // We capture every messages array passed to generateWithTools.
+    // After iter2's tool_result is appended, iter3's call receives messages
+    // that include the nudge text in the tool_result for tu-2.
+
+    const sameArtifactId = '11111111-1111-1111-1111-111111111111';
+    const capturedMessages: Array<Array<{ role: string; content: unknown }>> = [];
+
+    const generateWithToolsMock = vi.fn(async ({ messages }: { messages: Array<{ role: string; content: unknown }> }) => {
+      capturedMessages.push(structuredClone(messages) as Array<{ role: string; content: unknown }>);
+      const idx = capturedMessages.length;
+
+      if (idx === 1) {
+        return {
+          stopReason: 'tool_use' as const,
+          usage: { inputTokens: 100, outputTokens: 50 },
+          contentBlocks: [{
+            type: 'tool_use' as const,
+            id: 'tu-1',
+            name: 'platform__read_tool_result_artifact',
+            input: { artifactId: sameArtifactId, ticketId: 'tk', offset: 0, limit: 4000 },
+          } satisfies AIToolUseBlock],
+        };
+      }
+      if (idx === 2) {
+        return {
+          stopReason: 'tool_use' as const,
+          usage: { inputTokens: 100, outputTokens: 50 },
+          contentBlocks: [{
+            type: 'tool_use' as const,
+            id: 'tu-2',
+            name: 'platform__read_tool_result_artifact',
+            input: { artifactId: sameArtifactId, ticketId: 'tk', offset: 4000, limit: 4000 },
+          } satisfies AIToolUseBlock],
+        };
+      }
+      // idx === 3: finalize_subtask → loop exits
+      return {
+        stopReason: 'tool_use' as const,
+        usage: { inputTokens: 100, outputTokens: 50 },
+        contentBlocks: [{
+          type: 'tool_use' as const,
+          id: 'tu-3',
+          name: 'finalize_subtask',
+          input: { summary: 'done', updatedKdSections: [] },
+        } satisfies AIToolUseBlock],
+      };
+    });
+
+    const ai = { generateWithTools: generateWithToolsMock, generate: vi.fn() } as unknown as AIRouter;
+    const config = OrchestratedV2BudgetConfigSchema.parse({});
+
+    await runSubTaskLoop(
+      {
+        ai,
+        db: undefined as never,
+        appLog: makeAppLog(),
+        artifactStoragePath: undefined,
+      } as never,
+      'tk',          // ticketId
+      'cl',          // clientId
+      'GENERAL',     // category
+      false,         // skipClientMemory
+      'st-1',        // subTaskId
+      'test intent', // intent
+      [],            // contextKdSections (empty → no DB load)
+      [],            // tools
+      new Map(),     // mcpIntegrations
+      new Map(),     // repoIdByPrefix
+      'test system prompt', // subTaskSystemPrompt
+      'haiku',       // model
+      config,        // budgetConfig
+    );
+
+    // Should have been called exactly 3 times
+    expect(capturedMessages.length).toBeGreaterThanOrEqual(3);
+
+    // The third call's messages should include the re-read warning in a tool_result
+    const thirdCallMessages = capturedMessages[2];
+    const lastUser = [...thirdCallMessages].reverse().find(m => m.role === 'user');
+    const lastContent = JSON.stringify(lastUser?.content ?? '');
+    expect(lastContent).toMatch(/you have read artifact/i);
+    expect(lastContent).toMatch(/2 times/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runSubTaskLoop — budget thresholds (Layer B)
+// ---------------------------------------------------------------------------
+
+describe('runSubTaskLoop — budget thresholds (Layer B)', () => {
+  beforeEach(() => {
+    resetKdMocks();
+  });
+
+  it('injects a soft-nudge text message on the iteration that crosses 60%', async () => {
+    // Default config: tokenBudget=50_000, softNudgeRatio=0.6 → soft threshold at 30_000 tokens.
+    // iter1 returns 31_000 input tokens (pushes total past 30k, below 42.5k hard-stop).
+    // iter2 calls finalize_subtask → loop exits.
+    // We assert that the messages array passed to iter2 includes a 'Budget warning' user message.
+    const calls: Array<{ messages: unknown[]; tools: { name: string }[] }> = [];
+    const ai = {
+      generateWithTools: vi.fn(async ({ messages, tools }: { messages: unknown[]; tools: { name: string }[] }) => {
+        calls.push({ messages: structuredClone(messages), tools: tools.map(t => ({ name: t.name })) });
+        const idx = calls.length;
+        if (idx === 1) {
+          return {
+            stopReason: 'tool_use' as const,
+            usage: { inputTokens: 31_000, outputTokens: 100 },
+            contentBlocks: [{
+              type: 'tool_use' as const, id: 't1', name: 'platform__kd_read_toc',
+              input: { ticketId: 'tk' },
+            } satisfies AIToolUseBlock],
+          };
+        }
+        return {
+          stopReason: 'tool_use' as const,
+          usage: { inputTokens: 100, outputTokens: 50 },
+          contentBlocks: [{
+            type: 'tool_use' as const, id: 't2', name: 'finalize_subtask',
+            input: { summary: 'done', updatedKdSections: [] },
+          } satisfies AIToolUseBlock],
+        };
+      }),
+    };
+
+    const config = OrchestratedV2BudgetConfigSchema.parse({});
+
+    const { runSubTaskLoop } = await import('./orchestrated-v2.js');
+    await runSubTaskLoop(
+      { ai, db: undefined as never, appLog: { info: vi.fn(), warn: vi.fn() }, artifactStoragePath: undefined } as never,
+      'tk', 'cl', 'GENERAL', false, 'st-1', 'test intent',
+      [], [],
+      new Map(), new Map(),
+      'sp', 'haiku',
+      config,
+    );
+
+    // Soft-nudge fires AT TOP of iter2 — the messages passed to calls[1] must include it
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    const iter2Messages = calls[1].messages as Array<{ role: string; content: unknown }>;
+    const stringified = JSON.stringify(iter2Messages);
+    expect(stringified).toMatch(/Budget warning/i);
+  });
+
+  it('restricts tool list to [finalize_subtask] only when crossing 85%', async () => {
+    // Default config: tokenBudget=50_000, hardStopRatio=0.85 → hard threshold at 42_500 tokens.
+    // iter1 returns 43_000 input tokens (pushes total past 42.5k → HARD_STOP on iter2 top).
+    // iter2 call should have tools restricted to [finalize_subtask] only.
+    const calls: Array<{ messages: unknown[]; tools: { name: string }[] }> = [];
+    const ai = {
+      generateWithTools: vi.fn(async ({ messages, tools }: { messages: unknown[]; tools: { name: string }[] }) => {
+        calls.push({ messages: structuredClone(messages), tools: tools.map(t => ({ name: t.name })) });
+        const idx = calls.length;
+        if (idx === 1) {
+          return {
+            stopReason: 'tool_use' as const,
+            usage: { inputTokens: 43_000, outputTokens: 100 },
+            contentBlocks: [{
+              type: 'tool_use' as const, id: 't1', name: 'platform__kd_read_toc',
+              input: { ticketId: 'tk' },
+            } satisfies AIToolUseBlock],
+          };
+        }
+        return {
+          stopReason: 'tool_use' as const,
+          usage: { inputTokens: 100, outputTokens: 50 },
+          contentBlocks: [{
+            type: 'tool_use' as const, id: 't2', name: 'finalize_subtask',
+            input: { summary: 'done', updatedKdSections: [] },
+          } satisfies AIToolUseBlock],
+        };
+      }),
+    };
+
+    const config = OrchestratedV2BudgetConfigSchema.parse({});
+
+    const { runSubTaskLoop } = await import('./orchestrated-v2.js');
+    await runSubTaskLoop(
+      { ai, db: undefined as never, appLog: { info: vi.fn(), warn: vi.fn() }, artifactStoragePath: undefined } as never,
+      'tk', 'cl', 'GENERAL', false, 'st-1', 'test intent',
+      [], [],
+      new Map(), new Map(),
+      'sp', 'haiku',
+      config,
+    );
+
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    expect(calls[1].tools.map(t => t.name)).toEqual(['finalize_subtask']);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // v2-knowledge-doc: writeStallMarker body content is verified in
 // v2-knowledge-doc.test.ts (see the "writeStallMarker" describe block there).
 // That test file does NOT mock v2-knowledge-doc, so the real function runs.
@@ -907,6 +1130,299 @@ describe('writeStallMarker (v2-knowledge-doc)', () => {
   // (see the "writeStallMarker" describe block) where the real function is
   // exercised against a stub DB.
   it.todo('full marker-text coverage in v2-knowledge-doc.test.ts');
+});
+
+// ---------------------------------------------------------------------------
+// runOrchestratedV2 — batch-failure guard (Layer D)
+// ---------------------------------------------------------------------------
+
+describe('runOrchestratedV2 — batch-failure guard (Layer D)', () => {
+  beforeEach(() => {
+    resetKdMocks();
+  });
+
+  it('hard-stops strategist tool list when 80% of two consecutive batches were BUDGET_EXHAUSTED', async () => {
+    // Approach B: distinguish strategist vs sub-task calls by tools parameter.
+    // Sub-tasks return a huge inputTokens value (> SUB_TASK_TOKEN_BUDGET=50_000) on
+    // their first call so the legacy token-budget check fires and the sub-task loop
+    // returns BUDGET_EXHAUSTED after exactly one generateWithTools call.
+    //
+    // Sequence:
+    //   - Strategist iter 1: dispatch_subtasks → 5 sub-tasks (all BUDGET_EXHAUSTED)
+    //   - Batch 1 guard: isFirstBatch=true → OK (free pass); cumulativeExhausted=5
+    //   - Strategist iter 2: dispatch_subtasks → 5 more sub-tasks (all BUDGET_EXHAUSTED)
+    //   - Batch 2 guard: cumulative 10/10 > 0.5 → HARD_STOP; strategistHardStopActive=true
+    //   - Strategist iter 3: should receive restrictedStrategistTools (no dispatch_subtasks)
+    //   - Strategist iter 3: calls complete_analysis → run ends
+    //
+    // The default strategistGuard config: hardStopCumulativeExhaustedRatio=0.5, so
+    // 10/10 > 0.5 triggers HARD_STOP on the cumulative rule.
+
+    const fiveSubtasks = (prefix: string) =>
+      Array.from({ length: 5 }, (_, i) => ({
+        id: `${prefix}-st-${i + 1}`,
+        intent: `Intent ${prefix} ${i + 1}`,
+        tools: [],
+        model: 'sonnet',
+      }));
+
+    // Capture the tools list passed to each strategist call (non-finalize tools)
+    const strategistToolLists: Array<string[]> = [];
+    let strategistCallCount = 0;
+
+    const generateWithTools = vi.fn().mockImplementation(
+      ({ tools }: { tools: Array<{ name: string }> }) => {
+        const hasDispatch = tools.some(t => t.name === 'dispatch_subtasks');
+        const hasFinalize = tools.some(t => t.name === 'finalize_subtask');
+
+        if (hasFinalize) {
+          // Sub-task call — return a large token count to trigger token budget exhaustion
+          // (SUB_TASK_TOKEN_BUDGET=50_000; reporting 51_000 exceeds it)
+          return Promise.resolve({
+            contentBlocks: [makeToolUseBlock('platform__kd_read_toc', { ticketId: 'ticket-test-001' })],
+            stopReason: 'tool_use' as const,
+            usage: { inputTokens: 51_000, outputTokens: 100 },
+          });
+        }
+
+        // Strategist call
+        strategistCallCount++;
+        strategistToolLists.push(tools.map(t => t.name));
+
+        if (strategistCallCount === 1) {
+          // Iter 1: dispatch 5 sub-tasks (batch 1)
+          return Promise.resolve({
+            contentBlocks: [makeToolUseBlock('dispatch_subtasks', {
+              subtasks: fiveSubtasks('b1'),
+            }, `tu_dispatch_1`)],
+            stopReason: 'tool_use' as const,
+            usage: { inputTokens: 100, outputTokens: 80 },
+          });
+        }
+        if (strategistCallCount === 2) {
+          // Iter 2: dispatch 5 sub-tasks (batch 2) — still has dispatch_subtasks available
+          // because hard-stop fires AFTER this batch resolves (at end of iter 2)
+          expect(hasDispatch).toBe(true);
+          return Promise.resolve({
+            contentBlocks: [makeToolUseBlock('dispatch_subtasks', {
+              subtasks: fiveSubtasks('b2'),
+            }, `tu_dispatch_2`)],
+            stopReason: 'tool_use' as const,
+            usage: { inputTokens: 100, outputTokens: 80 },
+          });
+        }
+        // Strategist call 3+: should be restricted (no dispatch_subtasks)
+        return Promise.resolve({
+          contentBlocks: [makeToolUseBlock('complete_analysis', {
+            finalAnalysis: 'Guard fired — wrapping up with available findings.',
+          }, 'tu_complete')],
+          stopReason: 'tool_use' as const,
+          usage: { inputTokens: 50, outputTokens: 25 },
+        });
+      },
+    );
+
+    const ai = { generateWithTools, generate: vi.fn() } as unknown as AIRouter;
+    await runOrchestratedV2(
+      makeDeps(ai),
+      makeCtx(),
+      makeStep(),
+      makeToolCtx(),
+      { maxIterations: 10, existingKnowledgeDoc: '' },
+    );
+
+    // Strategist must have been called at least 3 times
+    expect(strategistCallCount).toBeGreaterThanOrEqual(3);
+
+    // Strategist call 1 and 2: full tool list — includes dispatch_subtasks
+    expect(strategistToolLists[0]).toContain('dispatch_subtasks');
+    expect(strategistToolLists[1]).toContain('dispatch_subtasks');
+
+    // Strategist call 3 (after HARD_STOP): restricted — no dispatch_subtasks
+    expect(strategistToolLists[2]).not.toContain('dispatch_subtasks');
+    // Restricted list must contain exactly the three permitted tools
+    expect(strategistToolLists[2]).toContain('complete_analysis');
+    expect(strategistToolLists[2]).toContain('platform__kd_read_toc');
+    expect(strategistToolLists[2]).toContain('platform__kd_read_section');
+    expect(strategistToolLists[2]).toHaveLength(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runOrchestratedV2 — ticket budget (Layer E + E.1)
+// ---------------------------------------------------------------------------
+
+describe('runOrchestratedV2 — ticket budget (Layer E + E.1)', () => {
+  beforeEach(() => {
+    resetKdMocks();
+  });
+
+  it('hard-stops at 95% of totalTokenBudget and injects the continuation-notes directive', async () => {
+    // The default ticket.totalTokenBudget is 300_000 with hardStopRatio=0.95.
+    // Hard-stop fires when totalTokensSoFar >= 285_000 (95% of 300_000).
+    //
+    // Sequence:
+    //   - Strategist iter 1: dispatch 1 sub-task, returns 285_001 inputTokens
+    //     → orchTotalInputTokens = 285_001 after iter 1 completes
+    //   - Sub-task: finalize immediately with 0 tokens
+    //   - Strategist iter 2: top-of-loop evaluation sees 285_001 >= 285_000 → E hard-stop fires
+    //   - E.1 directive injected into strategistMessages
+    //   - Iter 2 strategist call: restricted tool list (no dispatch_subtasks)
+    //   - Iter 2 strategist: calls complete_analysis → run ends
+
+    const calls: Array<{ role: 'strategist' | 'subtask'; messages: unknown[]; tools: { name: string }[] }> = [];
+
+    const generateWithTools = vi.fn(async ({ messages, tools }: { messages: unknown[]; tools: Array<{ name: string }> }) => {
+      const isStrategist = tools.some(t => t.name === 'dispatch_subtasks' || t.name === 'complete_analysis');
+      const role = isStrategist ? 'strategist' : 'subtask';
+      calls.push({ role, messages: structuredClone(messages), tools: tools.map(t => ({ name: t.name })) });
+
+      if (isStrategist) {
+        const strategistCallNum = calls.filter(c => c.role === 'strategist').length;
+        if (strategistCallNum === 1) {
+          // Iter 1 strategist: dispatch one sub-task; report 285_001 tokens consumed
+          // (just over the 95% threshold of 300_000) so iter 2 fires the hard-stop
+          return {
+            stopReason: 'tool_use' as const,
+            usage: { inputTokens: 285_001, outputTokens: 0 },
+            contentBlocks: [{
+              type: 'tool_use' as const, id: 'd1', name: 'dispatch_subtasks',
+              input: { subtasks: [{ id: 'st-1', intent: 'check', tools: [], model: 'haiku' }] },
+            } satisfies AIToolUseBlock],
+          };
+        }
+        // Iter 2 strategist (after E hard-stop should be active): immediate complete_analysis
+        return {
+          stopReason: 'tool_use' as const,
+          usage: { inputTokens: 0, outputTokens: 0 },
+          contentBlocks: [{
+            type: 'tool_use' as const, id: 'c1', name: 'complete_analysis',
+            input: { finalAnalysis: 'completed under hard-stop' },
+          } satisfies AIToolUseBlock],
+        };
+      }
+      // Sub-task: finalize immediately, zero tokens
+      return {
+        stopReason: 'tool_use' as const,
+        usage: { inputTokens: 0, outputTokens: 0 },
+        contentBlocks: [{
+          type: 'tool_use' as const, id: 'f1', name: 'finalize_subtask',
+          input: { summary: 'minimal', updatedKdSections: [] },
+        } satisfies AIToolUseBlock],
+      };
+    });
+
+    const ai = { generateWithTools, generate: vi.fn() } as unknown as AIRouter;
+    await runOrchestratedV2(
+      makeDeps(ai),
+      makeCtx(),
+      makeStep(),
+      makeToolCtx(),
+      { maxIterations: 5, existingKnowledgeDoc: '' },
+    );
+
+    // Verify we got at least 2 strategist calls
+    const strategistCalls = calls.filter(c => c.role === 'strategist');
+    expect(strategistCalls.length).toBeGreaterThanOrEqual(2);
+
+    const iter2 = strategistCalls[1];
+    const iter2MessagesStr = JSON.stringify(iter2.messages);
+
+    // The iter-2 messages should contain the continuation-notes directive
+    expect(iter2MessagesStr).toMatch(/## Continuation Notes/);
+    expect(iter2MessagesStr).toMatch(/What we established/);
+    expect(iter2MessagesStr).toMatch(/Hypotheses still open/);
+    expect(iter2MessagesStr).toMatch(/Investigation threads not completed/);
+    expect(iter2MessagesStr).toMatch(/Suggested next batch/);
+
+    // The iter-2 strategist call's tool list must be restricted (no dispatch_subtasks)
+    expect(iter2.tools.map(t => t.name)).not.toContain('dispatch_subtasks');
+    expect(iter2.tools.map(t => t.name)).toContain('complete_analysis');
+  });
+
+  it('aborts dispatch and injects directive when batch worst-case would overflow ticket cap (#477 review)', async () => {
+    // Pre-batch overshoot guard. Top-of-iteration is below HARD_STOP, but the
+    // batch's worst-case cost would push past the cap.
+    //
+    // Configure a tight ticket budget where iter 1 stays under HARD_STOP at
+    // top-of-iter, but the dispatched batch (5 sub-tasks × 50_000 token
+    // budget = 250_000 worst-case) would overflow.
+    //
+    // ticket.totalTokenBudget = 300_000 (default), iter 1 strategist returns
+    // 200_000 inputTokens (~67%, below soft-nudge of 75%). Then iter 1's
+    // dispatch is 5 sub-tasks; pre-batch worst-case = 5 × 50_000 = 250_000;
+    // 200_000 + 250_000 = 450_000 > 300_000 → wouldOverflow = true.
+    //
+    // Expected: iter 1's batch is aborted; directive is injected; the
+    // dispatch_subtasks call gets a synthetic abort tool_result; iter 2's
+    // strategist tool list is restricted.
+
+    const calls: Array<{ role: 'strategist' | 'subtask'; messages: unknown[]; tools: { name: string }[] }> = [];
+
+    const generateWithTools = vi.fn(async ({ messages, tools }: { messages: unknown[]; tools: Array<{ name: string }> }) => {
+      const isStrategist = tools.some(t => t.name === 'dispatch_subtasks' || t.name === 'complete_analysis');
+      const role = isStrategist ? 'strategist' : 'subtask';
+      calls.push({ role, messages: structuredClone(messages), tools: tools.map(t => ({ name: t.name })) });
+
+      if (isStrategist) {
+        const strategistCallNum = calls.filter(c => c.role === 'strategist').length;
+        if (strategistCallNum === 1) {
+          // Iter 1: dispatch 5 sub-tasks, consume 200_000 tokens (below top-of-iter HARD_STOP at 285k).
+          // Worst-case batch cost: 5 × 50_000 = 250_000. Total worst-case: 450_000 > 300_000.
+          return {
+            stopReason: 'tool_use' as const,
+            usage: { inputTokens: 200_000, outputTokens: 0 },
+            contentBlocks: [{
+              type: 'tool_use' as const, id: 'd1', name: 'dispatch_subtasks',
+              input: {
+                subtasks: [
+                  { id: 'st-1', intent: 'a', tools: [], model: 'haiku' },
+                  { id: 'st-2', intent: 'b', tools: [], model: 'haiku' },
+                  { id: 'st-3', intent: 'c', tools: [], model: 'haiku' },
+                  { id: 'st-4', intent: 'd', tools: [], model: 'haiku' },
+                  { id: 'st-5', intent: 'e', tools: [], model: 'haiku' },
+                ],
+              },
+            } satisfies AIToolUseBlock],
+          };
+        }
+        // Iter 2: complete_analysis (after batch was aborted)
+        return {
+          stopReason: 'tool_use' as const,
+          usage: { inputTokens: 0, outputTokens: 0 },
+          contentBlocks: [{
+            type: 'tool_use' as const, id: 'c1', name: 'complete_analysis',
+            input: { finalAnalysis: 'completed under pre-batch hard-stop' },
+          } satisfies AIToolUseBlock],
+        };
+      }
+      // Sub-task path should NEVER be hit if pre-batch guard works.
+      throw new Error('Sub-task generateWithTools called — pre-batch guard failed to abort');
+    });
+
+    const ai = { generateWithTools, generate: vi.fn() } as unknown as AIRouter;
+    await runOrchestratedV2(
+      makeDeps(ai),
+      makeCtx(),
+      makeStep(),
+      makeToolCtx(),
+      { maxIterations: 5, existingKnowledgeDoc: '' },
+    );
+
+    // Verify the sub-task path was never invoked (pre-batch guard aborted before execution)
+    const subtaskCalls = calls.filter(c => c.role === 'subtask');
+    expect(subtaskCalls).toHaveLength(0);
+
+    // Iter 2 strategist must have seen the directive AND have a restricted tool list
+    const strategistCalls = calls.filter(c => c.role === 'strategist');
+    expect(strategistCalls.length).toBeGreaterThanOrEqual(2);
+    const iter2 = strategistCalls[1];
+    const iter2MessagesStr = JSON.stringify(iter2.messages);
+    expect(iter2MessagesStr).toMatch(/## Continuation Notes/);
+    expect(iter2MessagesStr).toMatch(/Dispatch aborted/);
+    expect(iter2.tools.map(t => t.name)).not.toContain('dispatch_subtasks');
+    expect(iter2.tools.map(t => t.name)).toContain('complete_analysis');
+  });
 });
 
 // ---------------------------------------------------------------------------
