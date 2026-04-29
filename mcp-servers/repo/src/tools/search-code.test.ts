@@ -15,6 +15,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { validateCommand } from '../command-validator.js';
+import { classifyExecError } from './search-code.js';
 
 // ---------------------------------------------------------------------------
 // Helpers mirrored from search-code.ts (private, so we test via validateCommand)
@@ -139,5 +140,72 @@ describe('search-code: flags', () => {
   it('adds -e before the query', () => {
     const cmd = buildSearchCommand('myFunc', ['.ts']);
     expect(cmd).toContain('-e ');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// classifyExecError — distinguish timeout / signal / rg-error / no-matches
+// (#465: previously all rejections fell into `code ?? 1` which masked timeouts
+// and kills as silent "no matches" results)
+// ---------------------------------------------------------------------------
+
+describe('classifyExecError', () => {
+  it('classifies rg exit 1 as no-matches (the expected non-error path)', () => {
+    const err = { code: 1, stdout: '', stderr: '' };
+    const c = classifyExecError(err);
+    expect(c.kind).toBe('no-matches');
+    expect(c.exitCode).toBe(1);
+  });
+
+  it('classifies rg exit 2 as rg-error (e.g. invalid regex)', () => {
+    const err = { code: 2, stdout: '', stderr: 'rg: regex parse error: unclosed group' };
+    const c = classifyExecError(err);
+    expect(c.kind).toBe('rg-error');
+    expect(c.exitCode).toBe(2);
+    expect(c.stderr).toContain('regex parse error');
+  });
+
+  it('classifies SIGTERM (timeout-fired kill) as timeout', () => {
+    // Node's execAsync sets `killed: true` and `signal: 'SIGTERM'` when the
+    // `timeout` option fires. Code is undefined in that path.
+    const err = { killed: true, signal: 'SIGTERM', code: undefined, stderr: '' };
+    const c = classifyExecError(err);
+    expect(c.kind).toBe('timeout');
+    expect(c.signal).toBe('SIGTERM');
+  });
+
+  it('classifies SIGKILL (OOM / external kill) as killed (not timeout)', () => {
+    const err = { killed: true, signal: 'SIGKILL', code: undefined, stderr: '' };
+    const c = classifyExecError(err);
+    expect(c.kind).toBe('killed');
+    expect(c.signal).toBe('SIGKILL');
+  });
+
+  it('classifies signal-only (no killed flag, no code) as killed', () => {
+    // Some Node versions or wrappers may carry the signal without `killed`.
+    const err = { signal: 'SIGINT', code: undefined, stderr: '' };
+    const c = classifyExecError(err);
+    expect(c.kind).toBe('killed');
+    expect(c.signal).toBe('SIGINT');
+  });
+
+  it('classifies a rejection with neither code nor signal as unknown', () => {
+    const err = { stderr: 'unexpected' };
+    const c = classifyExecError(err);
+    expect(c.kind).toBe('unknown');
+    expect(c.stderr).toBe('unexpected');
+  });
+
+  it('handles a non-object rejection without throwing', () => {
+    const c = classifyExecError('boom');
+    expect(c.kind).toBe('unknown');
+    expect(c.stderr).toBeUndefined();
+  });
+
+  it('preserves stderr on rg-error so the operator-facing message is informative', () => {
+    const err = { code: 2, stderr: 'rg: io error: too many open files' };
+    const c = classifyExecError(err);
+    expect(c.kind).toBe('rg-error');
+    expect(c.stderr).toBe('rg: io error: too many open files');
   });
 });

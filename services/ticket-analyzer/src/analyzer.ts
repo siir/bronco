@@ -941,8 +941,17 @@ async function deepAnalysis(
               }
             }
           }
-        } catch {
-          // search found nothing — that's fine
+        } catch (err) {
+          // `callMcpToolViaSdk` throws when the MCP result has `isError: true`
+          // — that includes real failures (timeout, auth, tool-internal errors),
+          // not only the genuine "no matches" case. Log at warn so an empty
+          // repo context is debuggable in production rather than silent (#465).
+          appLog.warn(
+            `Pre-gather search_code failed on ${repo.name} for term "${sanitized.slice(0, 80)}"`,
+            { ticketId, repo: repo.name, term: sanitized, err: err instanceof Error ? err.message : String(err) },
+            ticketId,
+            'ticket',
+          );
         }
       }
 
@@ -2649,7 +2658,18 @@ async function executeRoutePipeline(
                           }
                         }
                       }
-                    } catch { /* search found nothing */ }
+                    } catch (err) {
+                      // See note on pre-gather above: failures here include
+                      // real errors (timeout, auth, tool-internal), not only
+                      // genuine empty-result cases. Surface at warn so missing
+                      // CUSTOM_AI_QUERY context is debuggable in prod (#465).
+                      appLog.warn(
+                        `CUSTOM_AI_QUERY search_code failed on ${repo.name} for term "${sanitized.slice(0, 80)}"`,
+                        { ticketId, repo: repo.name, term: sanitized, err: err instanceof Error ? err.message : String(err) },
+                        ticketId,
+                        'ticket',
+                      );
+                    }
                   }
 
                   // Add explicit file paths, rejecting paths that could expose

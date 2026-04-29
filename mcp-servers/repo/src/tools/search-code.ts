@@ -25,6 +25,64 @@ function describeRepo(repo: { name: string; description: string | null }): strin
   return repo.description ? repo.description : 'Code repository';
 }
 
+/**
+ * Classify an `execAsync` rejection so the caller can distinguish
+ * "ripgrep ran and found nothing" (exit 1) from real failures
+ * (timeout / signal / system error / rg internal error). Without this, all
+ * non-zero exits previously bucketed as `code ?? 1`, masking timeouts and
+ * kills as silent "no matches" results (#465).
+ *
+ * Exported for unit testing.
+ */
+export interface ExecErrorClassification {
+  /**
+   *  - 'no-matches': rg exited 1 (no matches found, treat as empty result).
+   *  - 'rg-error':   rg exited 2+ (e.g. invalid regex, IO error).
+   *  - 'timeout':    process killed by execAsync's `timeout` option.
+   *  - 'killed':     process killed by some other signal (OOM, SIGKILL, etc).
+   *  - 'unknown':    rejection didn't carry a recognizable shape (rare).
+   */
+  kind: 'no-matches' | 'rg-error' | 'timeout' | 'killed' | 'unknown';
+  exitCode?: number;
+  signal?: string;
+  stderr?: string;
+}
+
+export function classifyExecError(err: unknown): ExecErrorClassification {
+  const e = err as {
+    code?: number | string;
+    signal?: NodeJS.Signals | string | null;
+    killed?: boolean;
+    stderr?: string;
+  };
+
+  const stderr = typeof e?.stderr === 'string' ? e.stderr : undefined;
+  const codeNum = typeof e?.code === 'number' ? e.code : undefined;
+  const signal = e?.signal ?? undefined;
+  const killed = e?.killed === true;
+
+  // execAsync sets `killed: true` and `signal: 'SIGTERM'` when the `timeout`
+  // option fires. Treat any killed-by-signal rejection as a real error rather
+  // than a "no matches" result. Distinguish timeout from other signals so the
+  // operator-facing error message is actionable.
+  if (killed || (signal && signal !== null)) {
+    const sigName = typeof signal === 'string' ? signal : undefined;
+    if (sigName === 'SIGTERM') {
+      return { kind: 'timeout', signal: sigName, stderr };
+    }
+    return { kind: 'killed', signal: sigName, stderr };
+  }
+
+  if (codeNum === 1) {
+    return { kind: 'no-matches', exitCode: 1, stderr };
+  }
+  if (codeNum !== undefined) {
+    return { kind: 'rg-error', exitCode: codeNum, stderr };
+  }
+
+  return { kind: 'unknown', stderr };
+}
+
 export function registerSearchCodeTool(
   server: McpServer,
   deps: { db: PrismaClient; repoManager: RepoManager },
@@ -103,6 +161,16 @@ export function registerSearchCodeTool(
         '.',
       ].join(' ');
 
+      // Direct exec rationale (#465 Item 3): we deliberately bypass the
+      // command-validator/executeCommand path here. That path is built for
+      // arbitrary operator commands via `repo_exec` (find/grep/cat/etc.) and
+      // would require us to add `rg` to its base allowlist. Here, every shell
+      // token is constructed under our control: flags are constants, globs go
+      // through a strict `^[A-Za-z0-9._*?\[\]/-]+$` regex, the user query is
+      // single-quoted via `shellQuote` and isolated by `--`. We also impose
+      // an explicit timeout + maxBuffer below. The defense-in-depth concern
+      // raised on PR #461 is real but the threat model here is different —
+      // search_code is internal, not a generic shell.
       try {
         const worktreePath = await repoManager.getOrCreateWorktree(repoId, sid);
 
@@ -111,16 +179,38 @@ export function registerSearchCodeTool(
           const result = await execAsync(command, { cwd: worktreePath, timeout: 30_000, maxBuffer: 1024 * 1024 });
           stdout = result.stdout;
         } catch (err: unknown) {
-          const execErr = err as { stdout?: string; stderr?: string; code?: number };
-          const exitCode = execErr.code ?? 1;
-          stdout = execErr.stdout ?? '';
-          // rg exits 1 when no matches found — not an error for us.
-          if (exitCode !== 1) {
-            const stderr = execErr.stderr || '(no stderr)';
-            return {
-              content: [{ type: 'text' as const, text: `[${describeRepo(repo)}] search_code error on ${repo.name}: exit=${exitCode}\n${stderr}` }],
-              isError: true,
-            };
+          const classification = classifyExecError(err);
+          // rg's stdout up to the failure point can still contain partial
+          // matches — keep it for the no-matches case.
+          const partial = (err as { stdout?: string }).stdout ?? '';
+          stdout = partial;
+
+          const stderr = classification.stderr || '(no stderr)';
+          switch (classification.kind) {
+            case 'no-matches':
+              // Expected — rg exits 1 when nothing matches. Fall through
+              // to the empty-stdout output path below.
+              break;
+            case 'timeout':
+              return {
+                content: [{ type: 'text' as const, text: `[${describeRepo(repo)}] search_code timed out on ${repo.name} after 30s. The query may be too broad — try a more specific term, narrow the file extensions, or break the search into multiple calls.\n${stderr}` }],
+                isError: true,
+              };
+            case 'killed':
+              return {
+                content: [{ type: 'text' as const, text: `[${describeRepo(repo)}] search_code was killed (signal=${classification.signal ?? 'unknown'}) on ${repo.name}. This usually indicates the host is under memory pressure or the worktree was cleaned up mid-search.\n${stderr}` }],
+                isError: true,
+              };
+            case 'rg-error':
+              return {
+                content: [{ type: 'text' as const, text: `[${describeRepo(repo)}] search_code error on ${repo.name}: rg exit=${classification.exitCode}\n${stderr}` }],
+                isError: true,
+              };
+            case 'unknown':
+              return {
+                content: [{ type: 'text' as const, text: `[${describeRepo(repo)}] search_code failed on ${repo.name} with no exit code and no signal — likely a child-process spawn or system error.\n${stderr}` }],
+                isError: true,
+              };
           }
         }
 
