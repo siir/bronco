@@ -642,9 +642,17 @@ async function executeOrchestratedSubTaskV2(
     initialToolNames.add(artifactTool.name);
   }
 
-  // If tools were requested but none matched at all (kd_* tools excluded), return early with guidance
-  const nonKdInitial = initialTools.filter(t => !t.name.startsWith('platform__kd_') && t.name !== 'platform__read_tool_result_artifact');
-  if (task.tools.length > 0 && nonKdInitial.length === 0) {
+  // If every requested tool failed to match anything (no exact, no base-name,
+  // no substring, no fuzzy candidate above the score threshold), return early
+  // with guidance — the strategist named tools that don't exist.
+  //
+  // Subtle bug fixed in #471: the prior check tested whether `initialTools` had
+  // any non-kd tools, which incorrectly fired for sub-tasks that legitimately
+  // requested ONLY kd_* tools (e.g. a "document findings" sub-task). Those
+  // requests are genuine matches via `resolveTaskTools` and should NOT error.
+  // Use the resolver's own `resolved` + `fuzzy` outputs as the source of truth.
+  const noResolutionAtAll = resolution.resolved.length === 0 && resolution.fuzzy.size === 0;
+  if (task.tools.length > 0 && noResolutionAtAll) {
     const MAX_TOOLS_IN_ERROR = 10;
     const toolNames = agenticTools.map(t => t.name);
     const availableList = toolNames.length > MAX_TOOLS_IN_ERROR
