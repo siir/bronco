@@ -1426,6 +1426,138 @@ describe('runOrchestratedV2 — ticket budget (Layer E + E.1)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// #471 regression: kd-only tool requests must not trigger "tool resolution failed"
+// ---------------------------------------------------------------------------
+
+describe('sub-task allowlist resolution: kd-only requests resolve cleanly (#471)', () => {
+  beforeEach(() => {
+    resetKdMocks();
+  });
+
+  it('does NOT error when the strategist requests only kd_* tools', async () => {
+    // Live failure (cf1b96e8 watch, 2026-04-27): st-6-document-all was dispatched with
+    // tools=['kd_update_section', 'kd_add_subsection']. The legacy `nonKdInitial`
+    // check fired the "Tool resolution failed" early-return because no NON-kd tools
+    // were resolved — even though the requested kd_* tools DID match via substring.
+    //
+    // Post-fix: resolution.resolved (or resolution.fuzzy) being non-empty is the
+    // correct signal that the request matched something. A sub-task whose only job
+    // is to write findings to the knowledge doc should run cleanly.
+
+    // Snapshot messages at call time — orchestrator mutates the array reference
+    // between calls, so we deep-clone each call's messages to inspect the
+    // mid-run state later.
+    const callSnapshots: Array<{ messages: Array<{ role: string; content: unknown }>; tools: Array<{ name: string }> }> = [];
+    const responses = [
+      // strategist iter 1: dispatch one sub-task requesting only kd_* tools
+      {
+        contentBlocks: [makeToolUseBlock('dispatch_subtasks', {
+          subtasks: [{
+            id: 'st-document',
+            intent: 'Record findings to the KD',
+            tools: ['kd_update_section', 'kd_add_subsection'],
+            model: 'sonnet',
+          }],
+        }, 'tu_dispatch')],
+        stopReason: 'tool_use' as const,
+        usage: { inputTokens: 100, outputTokens: 80 },
+      },
+      // sub-task: finalize with a successful summary
+      {
+        contentBlocks: [makeToolUseBlock('finalize_subtask', {
+          summary: 'Documented evidence in evidence.foo',
+          updatedKdSections: ['evidence.foo'],
+        }, 'tu_finalize')],
+        stopReason: 'tool_use' as const,
+        usage: { inputTokens: 50, outputTokens: 40 },
+      },
+      // strategist iter 2: complete_analysis after sub-task succeeded
+      {
+        contentBlocks: [makeToolUseBlock('complete_analysis', {
+          finalAnalysis: 'Findings recorded.',
+        }, 'tu_complete')],
+        stopReason: 'tool_use' as const,
+        usage: { inputTokens: 120, outputTokens: 60 },
+      },
+    ];
+    const generateWithTools = vi.fn(async ({ messages, tools }: { messages: Array<{ role: string; content: unknown }>; tools: Array<{ name: string }> }) => {
+      callSnapshots.push({ messages: structuredClone(messages), tools: tools.map(t => ({ name: t.name })) });
+      return responses[callSnapshots.length - 1];
+    });
+
+    const ai = { generateWithTools, generate: vi.fn() } as unknown as AIRouter;
+    await runOrchestratedV2(
+      makeDeps(ai),
+      makeCtx(),
+      makeStep(),
+      makeToolCtx(),
+      { maxIterations: 5, existingKnowledgeDoc: '' },
+    );
+
+    // 3 calls total: strategist dispatch + sub-task finalize + strategist complete.
+    // Pre-fix would have produced only 2 calls (sub-task short-circuited before
+    // its own generateWithTools).
+    expect(callSnapshots).toHaveLength(3);
+
+    // The strategist's iter-2 call (call 3, index 2) must include the sub-task's
+    // SUCCESS summary as the dispatch tool_result — not the "Tool resolution
+    // failed" error string.
+    const iter2Messages = callSnapshots[2].messages;
+    const lastUserContent = JSON.stringify([...iter2Messages].reverse().find(m => m.role === 'user')?.content ?? '');
+    expect(lastUserContent).toMatch(/Documented evidence/);
+    expect(lastUserContent).toMatch(/FINALIZED/);
+    expect(lastUserContent).not.toMatch(/Tool resolution failed/);
+  });
+
+  it('still errors when every requested tool is genuinely unknown', async () => {
+    // Negative case: if the strategist names tools that don't exist at all, the
+    // sub-task should still short-circuit with the resolution-failed error so the
+    // strategist gets a clear signal.
+    const callSnapshots: Array<{ messages: Array<{ role: string; content: unknown }>; tools: Array<{ name: string }> }> = [];
+    const responses = [
+      {
+        contentBlocks: [makeToolUseBlock('dispatch_subtasks', {
+          subtasks: [{
+            id: 'st-bogus',
+            intent: 'Use nonexistent tools',
+            tools: ['this_tool_does_not_exist', 'neither_does_this_one'],
+            model: 'sonnet',
+          }],
+        }, 'tu_dispatch')],
+        stopReason: 'tool_use' as const,
+        usage: { inputTokens: 100, outputTokens: 80 },
+      },
+      {
+        contentBlocks: [makeToolUseBlock('complete_analysis', {
+          finalAnalysis: 'Cannot proceed.',
+        }, 'tu_complete')],
+        stopReason: 'tool_use' as const,
+        usage: { inputTokens: 120, outputTokens: 60 },
+      },
+    ];
+    const generateWithTools = vi.fn(async ({ messages, tools }: { messages: Array<{ role: string; content: unknown }>; tools: Array<{ name: string }> }) => {
+      callSnapshots.push({ messages: structuredClone(messages), tools: tools.map(t => ({ name: t.name })) });
+      return responses[callSnapshots.length - 1];
+    });
+
+    const ai = { generateWithTools, generate: vi.fn() } as unknown as AIRouter;
+    await runOrchestratedV2(
+      makeDeps(ai),
+      makeCtx(),
+      makeStep(),
+      makeToolCtx(),
+      { maxIterations: 5, existingKnowledgeDoc: '' },
+    );
+
+    // 2 calls only — sub-task short-circuited before its own generateWithTools.
+    expect(callSnapshots).toHaveLength(2);
+
+    const iter2Messages = callSnapshots[1].messages;
+    const lastUserContent = JSON.stringify([...iter2Messages].reverse().find(m => m.role === 'user')?.content ?? '');
+    expect(lastUserContent).toMatch(/Tool resolution failed/);
+  });
+});
+// ---------------------------------------------------------------------------
 // v1 orchestrated re-analysis redirect (dispatcher in analyzer.ts)
 // ---------------------------------------------------------------------------
 
