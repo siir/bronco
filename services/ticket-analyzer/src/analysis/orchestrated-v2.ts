@@ -34,6 +34,7 @@ import {
   resolveTaskTools,
   saveMcpToolArtifact,
   shouldTruncate,
+  truncatePriorExecutiveSummary,
   type AgenticToolContext,
   type AnalysisDeps,
   type AnalysisPipelineContext,
@@ -1045,10 +1046,22 @@ export async function runOrchestratedV2(
         '',
         '## Operator Reply',
         reanalysisCtx.triggerReplyText || '(no reply text available — see conversation history)',
+      ];
+      // #48 Item 7: surface the prior run's composed analysis as a primary
+      // steering input. If the prior run hit the ticket-budget cap, it includes
+      // a `## Continuation Notes` section telling us where to pick up.
+      if (reanalysisCtx.priorExecutiveSummary) {
+        sections.push(
+          '',
+          '## Prior Executive Summary',
+          truncatePriorExecutiveSummary(reanalysisCtx.priorExecutiveSummary),
+        );
+      }
+      sections.push(
         '',
         '## Prior Knowledge Document',
         priorRunsContext || existingKnowledgeDoc || '(no prior knowledge document)',
-      ];
+      );
       if (artifactCatalog) {
         sections.push('', '## Prior Artifacts', artifactCatalog);
       }

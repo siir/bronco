@@ -1581,3 +1581,128 @@ describe('v1 orchestrated re-analysis redirect', () => {
   // analyzer.integration.test.ts.
   it.todo('redirect covered in analyzer.integration.test.ts (deferred)');
 });
+
+// ---------------------------------------------------------------------------
+// runOrchestratedV2 — re-analysis surfaces priorExecutiveSummary (#48 Item 7)
+// ---------------------------------------------------------------------------
+
+describe('runOrchestratedV2 — re-analysis surfaces priorExecutiveSummary (#48 Item 7)', () => {
+  beforeEach(() => {
+    resetKdMocks();
+  });
+
+  /**
+   * Re-analysis-aware mock DB. Adds `artifact.findMany` (consumed by
+   * `buildArtifactCatalog` during the re-analysis prompt build) on top of the
+   * standard mock surface.
+   */
+  function makeReanalysisDb(): PrismaClient {
+    const base = makeMockDb() as unknown as Record<string, unknown>;
+    base.artifact = { findMany: vi.fn().mockResolvedValue([]) };
+    return base as unknown as PrismaClient;
+  }
+
+  /** Captures the very first strategist user message (initial re-analysis prompt). */
+  function captureFirstUserMessage(generateWithTools: ReturnType<typeof vi.fn>): { read: () => string } {
+    let captured = '';
+    let firstSeen = false;
+    generateWithTools.mockImplementation(async (req: { messages: Array<{ role: string; content: unknown }> }) => {
+      if (!firstSeen) {
+        const userMsg = req.messages.find((m) => m.role === 'user');
+        captured = typeof userMsg?.content === 'string' ? userMsg.content : '';
+        firstSeen = true;
+      }
+      // Return complete_analysis immediately so the run terminates fast
+      return {
+        contentBlocks: [makeToolUseBlock('complete_analysis', { finalAnalysis: 'done' }, 'tu_complete')],
+        stopReason: 'tool_use',
+        usage: { inputTokens: 10, outputTokens: 5 },
+      };
+    });
+    return { read: () => captured };
+  }
+
+  it('injects ## Prior Executive Summary section between Operator Reply and Prior Knowledge Document', async () => {
+    const generateWithTools = vi.fn();
+    const captured = captureFirstUserMessage(generateWithTools);
+    const ai = { generateWithTools, generate: vi.fn() } as unknown as AIRouter;
+
+    const reanalysisCtx = {
+      conversationHistory: '### [2026-04-20] Reply\n\nfollow-up',
+      triggerReplyText: 'Continue from where you left off.',
+      priorExecutiveSummary: [
+        '## Executive Summary',
+        '',
+        'Identified deadlock between Orders and OrderLines.',
+        '',
+        '## Continuation Notes',
+        '',
+        'Sub-task 3 (index review) did not complete. Resume there.',
+      ].join('\n'),
+    };
+
+    await runOrchestratedV2(makeDeps(ai, makeReanalysisDb()), makeCtx(), makeStep(), makeToolCtx(), {
+      maxIterations: 2,
+      existingKnowledgeDoc: '## Problem Statement\n\nx',
+      reanalysisCtx,
+    });
+
+    const text = captured.read();
+    expect(text).toContain('## Prior Executive Summary');
+    expect(text).toContain('Identified deadlock between Orders and OrderLines.');
+    expect(text).toContain('## Continuation Notes');
+    expect(text).toContain('Sub-task 3 (index review) did not complete. Resume there.');
+
+    // Ordering: Operator Reply → Prior Executive Summary → Prior Knowledge Document
+    const opReplyIdx = text.indexOf('## Operator Reply');
+    const priorIdx = text.indexOf('## Prior Executive Summary');
+    const kdIdx = text.indexOf('## Prior Knowledge Document');
+    expect(opReplyIdx).toBeGreaterThan(-1);
+    expect(priorIdx).toBeGreaterThan(opReplyIdx);
+    expect(kdIdx).toBeGreaterThan(priorIdx);
+  });
+
+  it('omits the Prior Executive Summary section when reanalysisCtx has no priorExecutiveSummary', async () => {
+    const generateWithTools = vi.fn();
+    const captured = captureFirstUserMessage(generateWithTools);
+    const ai = { generateWithTools, generate: vi.fn() } as unknown as AIRouter;
+
+    const reanalysisCtx = {
+      conversationHistory: '### [2026-04-20] Reply\n\nfollow-up',
+      triggerReplyText: 'Continue.',
+    };
+
+    await runOrchestratedV2(makeDeps(ai, makeReanalysisDb()), makeCtx(), makeStep(), makeToolCtx(), {
+      maxIterations: 2,
+      existingKnowledgeDoc: '',
+      reanalysisCtx,
+    });
+
+    expect(captured.read()).not.toContain('## Prior Executive Summary');
+  });
+
+  it('truncates priorExecutiveSummary that exceeds the cap, keeping the tail (Continuation Notes)', async () => {
+    const generateWithTools = vi.fn();
+    const captured = captureFirstUserMessage(generateWithTools);
+    const ai = { generateWithTools, generate: vi.fn() } as unknown as AIRouter;
+
+    const filler = 'X'.repeat(9000);
+    const tail = '## Continuation Notes\n\nResume sub-task 3 (index review).';
+    const reanalysisCtx = {
+      conversationHistory: '## History',
+      triggerReplyText: 'Continue.',
+      priorExecutiveSummary: `${filler}\n\n${tail}`,
+    };
+
+    await runOrchestratedV2(makeDeps(ai, makeReanalysisDb()), makeCtx(), makeStep(), makeToolCtx(), {
+      maxIterations: 2,
+      existingKnowledgeDoc: '',
+      reanalysisCtx,
+    });
+
+    const text = captured.read();
+    expect(text).toContain('Prior executive summary truncated');
+    expect(text).toContain('## Continuation Notes');
+    expect(text).toContain('Resume sub-task 3');
+  });
+});

@@ -40,6 +40,8 @@ import {
   resolveTaskTools,
   sanitizeFilenameSegment,
   executeAgenticToolCall,
+  truncatePriorExecutiveSummary,
+  PRIOR_EXECUTIVE_SUMMARY_CHAR_CAP,
   type McpIntegrationInfo,
 } from './shared.js';
 import { callMcpToolViaSdk } from '@bronco/shared-utils';
@@ -871,3 +873,44 @@ describe('executeAgenticToolCall', () => {
     expect(tracker.get(sortedKey)).toBe(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// truncatePriorExecutiveSummary (#48 Item 7)
+// ---------------------------------------------------------------------------
+
+describe('truncatePriorExecutiveSummary', () => {
+  it('returns the input unchanged when length <= cap', () => {
+    const input = 'short summary';
+    expect(truncatePriorExecutiveSummary(input)).toBe(input);
+  });
+
+  it('returns the input unchanged at exactly the cap boundary', () => {
+    const input = 'a'.repeat(PRIOR_EXECUTIVE_SUMMARY_CHAR_CAP);
+    expect(truncatePriorExecutiveSummary(input)).toBe(input);
+  });
+
+  it('truncates from the front when length > cap, preserving the tail', () => {
+    const head = 'HEAD_MARKER_AT_START';
+    const filler = 'x'.repeat(PRIOR_EXECUTIVE_SUMMARY_CHAR_CAP);
+    const tail = '## Continuation Notes\n\nResume here.';
+    const input = `${head}\n${filler}\n${tail}`;
+    const out = truncatePriorExecutiveSummary(input);
+
+    // Tail (Continuation Notes) is preserved
+    expect(out).toContain('## Continuation Notes');
+    expect(out).toContain('Resume here.');
+    // Head fell off the front
+    expect(out).not.toContain('HEAD_MARKER_AT_START');
+    // Truncation marker present
+    expect(out).toContain(`Prior executive summary truncated to last ${PRIOR_EXECUTIVE_SUMMARY_CHAR_CAP} chars`);
+  });
+
+  it('respects a custom charCap argument', () => {
+    const input = 'a'.repeat(100);
+    const out = truncatePriorExecutiveSummary(input, 50);
+    expect(out).toContain('truncated to last 50 chars');
+    // Output is the marker + ellipsis + last 50 chars; bounded.
+    expect(out.length).toBeLessThan(input.length + 200);
+  });
+});
+

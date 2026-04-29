@@ -17,6 +17,7 @@ import {
   saveMcpToolArtifact,
   shouldTruncate,
   SUFFICIENCY_EVAL_INSTRUCTIONS,
+  truncatePriorExecutiveSummary,
   type AgenticToolContext,
   type AnalysisDeps,
   type AnalysisPipelineContext,
@@ -83,6 +84,18 @@ export async function runFlatV2(
     );
     const reanalAttBlock = buildAttachmentsBlock(attachments);
     if (reanalAttBlock) systemParts.push(reanalAttBlock);
+    // #48 Item 7: surface the prior run's composed analysis as a primary
+    // steering input, ahead of the chronological conversation history. If the
+    // prior run hit the ticket-budget cap, this includes the agent's
+    // `## Continuation Notes` section telling us where to pick up.
+    if (reanalysisCtx.priorExecutiveSummary) {
+      systemParts.push(
+        '',
+        '## Prior Executive Summary',
+        '',
+        truncatePriorExecutiveSummary(reanalysisCtx.priorExecutiveSummary),
+      );
+    }
     systemParts.push(
       '',
       '## Conversation History',

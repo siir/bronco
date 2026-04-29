@@ -763,6 +763,98 @@ describe('runFlatV2', () => {
       const userMsg = capturedMessages.find(m => m.role === 'user');
       expect(userMsg?.content).toContain('Can you check table fragmentation?');
     });
+
+    it('surfaces priorExecutiveSummary as a dedicated section ahead of the conversation history (#48 Item 7)', async () => {
+      const db = makeMockDb();
+      let capturedSystemPrompt = '';
+      const generateWithTools = vi.fn().mockImplementation(async (req: { systemPrompt: string }) => {
+        capturedSystemPrompt = req.systemPrompt;
+        return makeFinalTextResponse('re-analysis done');
+      });
+      const deps = makeDeps(db, generateWithTools);
+
+      const reanalysisCtx = {
+        conversationHistory: '### [2026-04-20 09:00] Reply (chad@example.com)\n\nFollow-up.',
+        triggerReplyText: 'Continue from where you left off.',
+        priorExecutiveSummary: [
+          '## Executive Summary',
+          '',
+          'Identified deadlock between Orders and OrderLines transactions.',
+          '',
+          '## Continuation Notes',
+          '',
+          'Budget cap fired before validating fix on staging. Next run should rerun the trace test.',
+        ].join('\n'),
+      };
+
+      await runFlatV2(deps, makePipelineCtx(), makeStep(), makeToolCtx(), {
+        maxIterations: 1,
+        reanalysisCtx,
+      });
+
+      expect(capturedSystemPrompt).toContain('## Prior Executive Summary');
+      expect(capturedSystemPrompt).toContain('Identified deadlock between Orders and OrderLines transactions.');
+      expect(capturedSystemPrompt).toContain('## Continuation Notes');
+      expect(capturedSystemPrompt).toContain('rerun the trace test');
+
+      // Ordering: Prior Executive Summary comes before Conversation History so
+      // the strategist sees the prior findings as primary steering input.
+      const priorIdx = capturedSystemPrompt.indexOf('## Prior Executive Summary');
+      const histIdx = capturedSystemPrompt.indexOf('## Conversation History');
+      expect(priorIdx).toBeGreaterThan(-1);
+      expect(histIdx).toBeGreaterThan(-1);
+      expect(priorIdx).toBeLessThan(histIdx);
+    });
+
+    it('omits the Prior Executive Summary section when reanalysisCtx has no priorExecutiveSummary', async () => {
+      const db = makeMockDb();
+      let capturedSystemPrompt = '';
+      const generateWithTools = vi.fn().mockImplementation(async (req: { systemPrompt: string }) => {
+        capturedSystemPrompt = req.systemPrompt;
+        return makeFinalTextResponse('re-analysis done');
+      });
+      const deps = makeDeps(db, generateWithTools);
+
+      const reanalysisCtx = {
+        conversationHistory: '## History',
+        triggerReplyText: 'Continue.',
+      };
+
+      await runFlatV2(deps, makePipelineCtx(), makeStep(), makeToolCtx(), {
+        maxIterations: 1,
+        reanalysisCtx,
+      });
+
+      expect(capturedSystemPrompt).not.toContain('## Prior Executive Summary');
+    });
+
+    it('truncates a prior executive summary that exceeds the cap, keeping the tail (Continuation Notes)', async () => {
+      const db = makeMockDb();
+      let capturedSystemPrompt = '';
+      const generateWithTools = vi.fn().mockImplementation(async (req: { systemPrompt: string }) => {
+        capturedSystemPrompt = req.systemPrompt;
+        return makeFinalTextResponse('re-analysis done');
+      });
+      const deps = makeDeps(db, generateWithTools);
+
+      // Build a > 8000-char summary with the Continuation Notes at the end.
+      const filler = 'X'.repeat(9000);
+      const tail = '## Continuation Notes\n\nResume sub-task 3 (index review) — sub-tasks 1 and 2 already wrote findings.';
+      const reanalysisCtx = {
+        conversationHistory: '## History',
+        triggerReplyText: 'Continue.',
+        priorExecutiveSummary: `${filler}\n\n${tail}`,
+      };
+
+      await runFlatV2(deps, makePipelineCtx(), makeStep(), makeToolCtx(), {
+        maxIterations: 1,
+        reanalysisCtx,
+      });
+
+      expect(capturedSystemPrompt).toContain('Prior executive summary truncated');
+      expect(capturedSystemPrompt).toContain('## Continuation Notes');
+      expect(capturedSystemPrompt).toContain('Resume sub-task 3');
+    });
   });
 
   // -------------------------------------------------------------------------

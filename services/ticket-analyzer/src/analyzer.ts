@@ -3545,10 +3545,26 @@ export function createAnalysisProcessor(deps: AnalyzerDeps) {
           }
           triggerReplyText = latestReply.content ?? '';
         }
+        // Pull the most-recent AI_ANALYSIS event content (full, no truncation
+        // here — the strategy modules cap it for their prompt budget). This is
+        // the composed final analysis we sent to the operator last time, and
+        // includes any `## Continuation Notes` section written when the prior
+        // run hit the ticket-level budget cap. v2 strategies surface it as a
+        // dedicated `## Prior Executive Summary` section so the strategist
+        // builds on the prior findings rather than re-doing the work (#48
+        // Item 7). We scan the unsliced `allHistory` so a long-running ticket
+        // with > 20 events still surfaces the most recent AI_ANALYSIS even if
+        // it falls outside the lightweight conversation-history window.
+        const priorAiAnalysisEvent = [...allHistory]
+          .reverse()
+          .find((e) => e.eventType === 'AI_ANALYSIS');
+        const priorExecutiveSummary = priorAiAnalysisEvent?.content?.trim() || undefined;
+
         const reanalysisContext: ReanalysisContext = {
           conversationHistory: formatConversationHistory(conversationHistory),
           triggerReplyText,
           triggerEventId,
+          ...(priorExecutiveSummary && { priorExecutiveSummary }),
           // Threaded from the Chat tab endpoint (#312). flat + orchestrated
           // strategies already consume `reanalysisCtx.mode` to branch their
           // system prompt between continue / refine / fresh_start.
