@@ -59,6 +59,22 @@ export function responseText(entry: UnifiedLogEntry): string {
 }
 
 /**
+ * Effective primary response for a merged node.
+ *
+ * Pass 2 may set `primaryResponseOverride` when the absorbing parent's own
+ * `entry.responseText` is empty (e.g. a `tool_use`-stopReason iteration whose
+ * assistant turn was 100% tool_use blocks). In that case the override holds
+ * the first non-empty merged response so the renderer can show a `→` line
+ * instead of a dangling prompt.
+ */
+export function effectivePrimaryResponse(node: TraceNode): string {
+  if (typeof node.primaryResponseOverride === 'string' && node.primaryResponseOverride.length > 0) {
+    return node.primaryResponseOverride;
+  }
+  return responseText(node.entry);
+}
+
+/**
  * Pass 1 — Tree build.
  *
  * Attach each entry under its `parentLogId`. Entries lacking `parentLogId`
@@ -92,8 +108,17 @@ export function buildInitialTree(entries: UnifiedLogEntry[]): TraceNode[] {
     }
   }
 
-  // Fallback: orchestration-based nesting for AI sub-tasks that lack parentLogId.
-  // Find the non-sub-task strategist with the same orchestrationId; attach under it.
+  // Fallback: orchestration-based nesting for AI rows that lack parentLogId.
+  //
+  // Strategist anchor: the FIRST non-sub-task row seen per orchestrationId is
+  // the anchor. Sub-tasks for that orchId attach under it. Subsequent
+  // non-sub-task strategist rows for the same orchId — these are inner-loop
+  // strategist calls (orchestrated-v2's strategist tool loop emits one
+  // ai_usage_logs row per generateWithTools call but does not chain them via
+  // parentLogId) — also attach under the anchor so Pass 2's same-prompt
+  // merge can collapse them into one card. Without this, an inner-loop call
+  // whose response is empty (pure tool_use turn) renders as a dangling
+  // sibling root with no `→` line. (#48 Item 3)
   const strategistByOrchId = new Map<string, TraceNode>();
   for (const entry of entries) {
     if (entry.type !== 'ai') continue;
@@ -112,7 +137,6 @@ export function buildInitialTree(entries: UnifiedLogEntry[]): TraceNode[] {
     if (attached.has(entry.id)) continue;
     if (entry.type !== 'ai') continue;
     const meta = getMeta(entry);
-    if (!isSubTask(meta)) continue;
     const orchId = getOrchestrationId(meta);
     if (!orchId) continue;
     const strategist = strategistByOrchId.get(orchId);
@@ -173,9 +197,35 @@ function mergeOne(node: TraceNode): void {
       // Absorb child into node: response becomes a continuation, grandchildren
       // re-parent under node. toolPills and prior continuations on the child
       // also bubble up so merged nodes don't lose their collapsed tool pills.
-      const childResponse = responseText(child.entry);
-      if (childResponse.trim().length > 0) node.continuations.push(childResponse);
-      if (child.continuations.length > 0) node.continuations.push(...child.continuations);
+      //
+      // Special-case: when the parent's own primary response is empty (a
+      // `tool_use`-stopReason iteration emitted only tool_use blocks), the
+      // first non-empty source from this absorption — the child's response or
+      // its own continuations — is promoted to the parent's primary instead
+      // of vanishing into `continuations[]` (which only renders as a "+N"
+      // chip). Without this promotion the merged card would show a prompt
+      // with no `→` response line — the regression #48 Item 3 surfaced.
+      // The child may itself be a merged node from an earlier inner pass —
+      // either with its primary stored on `entry.responseText` OR promoted to
+      // `primaryResponseOverride` (e.g. when child's own children supplied the
+      // first non-empty response). Pull both, in order, so a deeply nested
+      // promotion still bubbles up to the surface card.
+      const childPrimary = effectivePrimaryResponse(child);
+      const incoming: string[] = [];
+      if (childPrimary.trim().length > 0) incoming.push(childPrimary);
+      if (child.continuations.length > 0) incoming.push(...child.continuations);
+
+      const parentPrimaryEmpty = effectivePrimaryResponse(node).trim().length === 0;
+      let promoted = false;
+      for (const text of incoming) {
+        if (!promoted && parentPrimaryEmpty && text.trim().length > 0) {
+          node.primaryResponseOverride = text;
+          promoted = true;
+          continue;
+        }
+        node.continuations.push(text);
+      }
+
       if (child.toolPills.length > 0) node.toolPills.push(...child.toolPills);
       node.children.splice(i, 1, ...child.children);
       // Do not advance i: re-examine the spliced-in children against this parent.

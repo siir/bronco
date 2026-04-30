@@ -41,6 +41,17 @@ export interface TraceNode {
    * `children`. UI can expand inline.
    */
   condensed?: TraceNode[];
+  /**
+   * Override for the rendered "primary" assistant response.
+   *
+   * When the absorbing parent's own `entry.responseText` is empty (e.g. a
+   * `tool_use`-stopReason iteration that emitted only tool_use content
+   * blocks), Pass 2 promotes the first non-empty merged response from the
+   * absorbed children into this field instead of leaving it buried in
+   * `continuations[]`. Renderers should prefer this over `responseText(entry)`
+   * when present, so a merged card never shows a prompt with no `→` response.
+   */
+  primaryResponseOverride?: string;
 }
 
 /** Options for the merge pipeline. */
