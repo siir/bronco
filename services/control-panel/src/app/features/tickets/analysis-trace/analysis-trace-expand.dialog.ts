@@ -3,7 +3,7 @@ import { CommonModule, DecimalPipe, JsonPipe } from '@angular/common';
 import { DialogComponent, BroncoButtonComponent, IconComponent } from '../../../shared/components/index.js';
 import { TicketService } from '../../../core/services/ticket.service.js';
 import type { TraceNode, TraceToolPill } from './analysis-trace.types.js';
-import { firstUserMessageText, parsedMcpToolError, responseText } from './analysis-trace.merge.js';
+import { effectivePrimaryResponse, firstUserMessageText, parsedMcpToolError } from './analysis-trace.merge.js';
 
 export interface ExpandPayload {
   kind: 'node' | 'pill';
@@ -241,7 +241,11 @@ export class AnalysisTraceExpandDialogComponent {
   }
 
   respText(n: TraceNode): string {
-    return responseText(n.entry);
+    // Mirrors the renderer (analysis-trace-node.component.ts:respLine) so the
+    // expanded dialog surfaces a `primaryResponseOverride` promoted by Pass 2
+    // when the row's own `responseText` is empty. Falls back to the entry's
+    // raw response when no override is set. (#48 Item 3 — Copilot review)
+    return effectivePrimaryResponse(n);
   }
 
   errorAsText(n: TraceNode): string {

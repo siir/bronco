@@ -2,7 +2,7 @@ import { Component, effect, input, output, signal } from '@angular/core';
 import { CommonModule, DatePipe, DecimalPipe } from '@angular/common';
 import { BroncoButtonComponent, IconComponent } from '../../../shared/components/index.js';
 import { AnalysisTraceToolPillComponent } from './analysis-trace-tool-pill.component.js';
-import { firstUserMessageText, responseText } from './analysis-trace.merge.js';
+import { firstUserMessageText, effectivePrimaryResponse } from './analysis-trace.merge.js';
 import type { TraceFilters, TraceNode, TraceToolPill } from './analysis-trace.types.js';
 
 /** Event emitted when the user clicks a card or tool pill. */
@@ -210,7 +210,7 @@ export class AnalysisTraceNodeComponent {
   }
 
   respLine(n: TraceNode): string | null {
-    const r = responseText(n.entry);
+    const r = effectivePrimaryResponse(n);
     if (!r.trim()) return null;
     return this.firstLine(r);
   }

@@ -5,6 +5,7 @@ import {
   buildInitialTree,
   collapseToolCalls,
   condenseDeepNodes,
+  effectivePrimaryResponse,
   mergeSamePrompts,
   runMergePipeline,
   samePromptPrefix,
@@ -120,6 +121,37 @@ describe('buildInitialTree — parent-child + orchestration fallback', () => {
     expect(tree[0].children.length).toBe(1);
     expect(tree[0].children[0].entry.id).toBe(subTask.id);
   });
+
+  // Regression: #48 Item 3.
+  //
+  // The orchestrated-v2 strategist runs an inner generateWithTools loop and
+  // writes one ai_usage_logs row per call. None of the inner-loop rows after
+  // the first set parentLogId, so they would otherwise become dangling root
+  // siblings. The orchestrationId fallback must chain them under the first
+  // strategist row of the same orchestrationId so Pass 2 can collapse them.
+  it('attaches subsequent non-sub-task strategist rows of same orchestrationId under the first', () => {
+    idSeq = 0;
+    const orchId = 'orch-inner-loop';
+    const strat1 = aiEntry({
+      prompt: 'investigate the ticket',
+      response: 'reasoning + dispatch',
+      conversationMetadata: { orchestrationId: orchId, orchestrationIteration: 5, isSubTask: false },
+    });
+    const strat2 = aiEntry({
+      prompt: 'investigate the ticket',
+      response: '', // Empty response — pure tool_use turn.
+      conversationMetadata: { orchestrationId: orchId, orchestrationIteration: 5, isSubTask: false },
+    });
+    const strat3 = aiEntry({
+      prompt: 'investigate the ticket',
+      response: 'final reasoning',
+      conversationMetadata: { orchestrationId: orchId, orchestrationIteration: 5, isSubTask: false },
+    });
+    const tree = buildInitialTree([strat1, strat2, strat3]);
+    expect(tree.length).toBe(1);
+    expect(tree[0].entry.id).toBe(strat1.id);
+    expect(tree[0].children.map(c => c.entry.id)).toEqual([strat2.id, strat3.id]);
+  });
 });
 
 describe('Pass 2 — same-prompt merge', () => {
@@ -159,6 +191,100 @@ describe('Pass 2 — same-prompt merge', () => {
     const merged = mergeSamePrompts(tree);
     expect(merged[0].children.length).toBe(1);
     expect(merged[0].continuations.length).toBe(0);
+  });
+
+  // Regression: #48 Item 3 — Analysis Trace prompt-without-response render glitch.
+  //
+  // In agentic tool loops every iteration's stored `promptText` is the same
+  // initial user message (router.ts `extractLastUserMessage` skips
+  // tool_result-only user messages). Iteration 1 commonly emits a `tool_use`
+  // stopReason with NO text content, so its `responseText` is empty. Iteration
+  // 2 then emits the actual analysis text. Pre-fix Pass 2 absorbed iter 2's
+  // response into `continuations[]`, leaving the merged card with an empty
+  // primary response — the renderer showed Prompt with no `→` line.
+  describe('Pass 2 regression — promotes child response when parent primary is empty', () => {
+    it('promotes child response into primaryResponseOverride when parent has empty response', () => {
+      idSeq = 0;
+      const iter1 = aiEntry({ prompt: 'investigate the ticket', response: '' });
+      const iter2 = aiEntry({ prompt: 'investigate the ticket', response: 'I found the deadlock', parentId: iter1.id });
+
+      const tree = buildInitialTree([iter1, iter2]);
+      const merged = mergeSamePrompts(tree);
+
+      expect(merged.length).toBe(1);
+      const node = merged[0];
+      expect(node.entry.id).toBe(iter1.id);
+      // The child's response is promoted, not relegated to a continuation chip.
+      expect(node.primaryResponseOverride).toBe('I found the deadlock');
+      expect(node.continuations).toEqual([]);
+      // effectivePrimaryResponse() returns the override so the renderer shows a `→` line.
+      expect(effectivePrimaryResponse(node)).toBe('I found the deadlock');
+    });
+
+    it('keeps parent primary AND queues child as continuation when both non-empty', () => {
+      idSeq = 0;
+      const iter1 = aiEntry({ prompt: 'investigate', response: 'reasoning + tool call' });
+      const iter2 = aiEntry({ prompt: 'investigate', response: 'final answer', parentId: iter1.id });
+
+      const tree = buildInitialTree([iter1, iter2]);
+      const merged = mergeSamePrompts(tree);
+
+      expect(merged.length).toBe(1);
+      const node = merged[0];
+      expect(node.primaryResponseOverride).toBeUndefined();
+      expect(node.continuations).toEqual(['final answer']);
+      expect(effectivePrimaryResponse(node)).toBe('reasoning + tool call');
+    });
+
+    it('promotes the first non-empty entry when stack of three has empty parent', () => {
+      idSeq = 0;
+      const iter1 = aiEntry({ prompt: 'investigate', response: '' });
+      const iter2 = aiEntry({ prompt: 'investigate', response: '', parentId: iter1.id });
+      const iter3 = aiEntry({ prompt: 'investigate', response: 'final answer', parentId: iter2.id });
+
+      const tree = buildInitialTree([iter1, iter2, iter3]);
+      const merged = mergeSamePrompts(tree);
+
+      expect(merged.length).toBe(1);
+      const node = merged[0];
+      expect(node.primaryResponseOverride).toBe('final answer');
+      expect(node.continuations).toEqual([]);
+      expect(effectivePrimaryResponse(node)).toBe('final answer');
+    });
+
+    it('promotes the first continuation bubbled up from a deeper merge', () => {
+      idSeq = 0;
+      // Parent empty; child empty but grandchild has the answer.
+      // Post-order merge collapses grandchild→child (continuations=['answer']),
+      // then child→parent: parent should promote that bubbled continuation.
+      const parent = aiEntry({ prompt: 'investigate', response: '' });
+      const child = aiEntry({ prompt: 'investigate', response: '', parentId: parent.id });
+      const grand = aiEntry({ prompt: 'investigate', response: 'answer', parentId: child.id });
+
+      const tree = buildInitialTree([parent, child, grand]);
+      const merged = mergeSamePrompts(tree);
+
+      expect(merged.length).toBe(1);
+      const node = merged[0];
+      expect(node.primaryResponseOverride).toBe('answer');
+      expect(node.continuations).toEqual([]);
+    });
+  });
+
+  describe('effectivePrimaryResponse', () => {
+    it('falls back to entry.responseText when no override is set', () => {
+      idSeq = 0;
+      const entry = aiEntry({ prompt: 'q', response: 'a' });
+      const tree = buildInitialTree([entry]);
+      expect(effectivePrimaryResponse(tree[0])).toBe('a');
+    });
+
+    it('returns empty string when neither override nor entry response is set', () => {
+      idSeq = 0;
+      const entry = aiEntry({ prompt: 'q', response: '' });
+      const tree = buildInitialTree([entry]);
+      expect(effectivePrimaryResponse(tree[0])).toBe('');
+    });
   });
 });
 
@@ -275,5 +401,43 @@ describe('runMergePipeline — end-to-end', () => {
     expect(roots[0].continuations).toEqual([]);
     expect(roots[0].toolPills).toEqual([]);
     expect(roots[0].children.length).toBe(2);
+  });
+
+  // Fixture mirroring the production data shape that produced #48 Item 3:
+  // one outer orchestration iteration where the strategist's inner-loop
+  // writes three ai_usage_logs rows with the same prompt prefix; the middle
+  // row has an empty response (`tool_use` stopReason, no text). End-to-end,
+  // the merged tree must be a single card with a non-empty `→` line.
+  it('regression #48 Item 3: orchestrated-v2 inner-loop with empty middle row renders one card with a non-empty primary response', () => {
+    idSeq = 0;
+    const orchId = 'orch-9204c365';
+    const sharedPrompt =
+      'Investigate this ticket. Here is the full context:\n\n## Ticket\nSubject: Evolution DB Deadlock';
+    const strat1 = aiEntry({
+      prompt: sharedPrompt,
+      response: 'The subtasks keep exhausting budgets. The kd_update_section call failed earlier.',
+      conversationMetadata: { orchestrationId: orchId, orchestrationIteration: 5, isSubTask: false },
+    });
+    const strat2 = aiEntry({
+      prompt: sharedPrompt,
+      response: '', // ← the empty middle that used to render dangling
+      conversationMetadata: { orchestrationId: orchId, orchestrationIteration: 5, isSubTask: false },
+    });
+    const strat3 = aiEntry({
+      prompt: sharedPrompt,
+      response: 'Now let me directly dispatch focused subtasks for the code analysis.',
+      conversationMetadata: { orchestrationId: orchId, orchestrationIteration: 5, isSubTask: false },
+    });
+
+    const { roots } = runMergePipeline([strat1, strat2, strat3]);
+    expect(roots.length).toBe(1);
+    const card = roots[0];
+    // First strategist absorbs the inner-loop sibling rows.
+    expect(card.entry.id).toBe(strat1.id);
+    expect(card.children.length).toBe(0);
+    // strat1's primary stays as the surface response; strat3's text becomes a
+    // continuation (strat2's empty body is dropped — nothing to surface).
+    expect(card.continuations).toEqual([strat3.responseText]);
+    expect(card.primaryResponseOverride).toBeUndefined();
   });
 });
